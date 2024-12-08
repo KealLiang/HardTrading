@@ -1,7 +1,8 @@
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import akshare as ak
+import pandas as pd
 
 from decorators.practical import timer
 
@@ -46,8 +47,20 @@ class AStockDataFetcher:
                 # 保存数据到CSV文件
                 file_name = f"{stock_code}_{safe_stock_name}.csv"
                 file_path = os.path.join(self.save_path, file_name)
-                stock_data.to_csv(file_path, index=False, header=False)
-                print(f"Saved {file_path}")
+
+                # 检查文件是否存在
+                if os.path.exists(file_path):
+                    # 文件存在，读取最后一行的日期
+                    last_date_df = pd.read_csv(file_path, header=None, usecols=[0])
+                    last_date = last_date_df.iloc[-1][0]
+                    # 追加新数据
+                    new_data = stock_data[stock_data['日期'] > pd.to_datetime(last_date).date()]
+                    new_data.to_csv(file_path, index=False, header=False, mode='a')
+                    print(f"Updated {file_path}")
+                else:
+                    # 文件不存在，创建新文件并写入数据
+                    stock_data.to_csv(file_path, index=False, header=False)
+                    print(f"Saved {file_path}")
             except Exception as e:
                 print(f"Error processing {stock_code}: {e}")
 
