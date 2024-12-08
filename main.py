@@ -1,4 +1,5 @@
 from bin import simulator
+from fetch.astock_concept import fetch_and_save_stock_data
 from fetch.astock_data import AStockDataFetcher
 from fetch.converter import backtrade_form
 from filters.find_longtou import find_dragon_stocks
@@ -33,6 +34,15 @@ def find_dragon():
     find_dragon_stocks(start_date)
 
 
+def get_a_concept_and_industry():
+    fetch_and_save_stock_data(
+        concept_list=["云游戏", "新能源车"],
+        industry_list=["银行", "房地产"],
+        output_path="./data/concepts_data/筛选的概念与行业数据.xlsx"
+    )
+
+
 if __name__ == '__main__':
+    # get_hot_concept_clouds()
     # find_dragon()
-    get_hot_concept_clouds()
+    get_a_concept_and_industry()
