@@ -1,0 +1,64 @@
+Collecting matplotlib==3.2.2
+  Using cached matplotlib-3.2.2.tar.gz (40.3 MB)
+  Installing build dependencies ... done
+  Getting requirements to build wheel ... error
+  error: subprocess-exited-with-error
+
+  × Getting requirements to build wheel did not run successfully.
+  │ exit code: 1
+  ╰─> [42 lines of output]
+      <string>:33: SetuptoolsDeprecationWarning: The test command is disabled and references to it are deprecated.
+      !!
+
+              ********************************************************************************
+              Please remove any references to `setuptools.command.test` in all supported versions of the affected package.
+
+              This deprecation is overdue, please update your project and remove deprecated
+              calls to avoid build errors in the future.
+              ********************************************************************************
+
+      !!
+      Traceback (most recent call last):
+        File "C:\Users\KealLiang\AppData\Local\Programs\Python\Python313\Lib\site-packages\pip\_vendor\pyproject_hooks\_in_process\_in_process.py", line 353, in <module>
+          main()
+          ~~~~^^
+        File "C:\Users\KealLiang\AppData\Local\Programs\Python\Python313\Lib\site-packages\pip\_vendor\pyproject_hooks\_in_process\_in_process.py", line 335, in main
+          json_out['return_val'] = hook(**hook_input['kwargs'])
+                                   ~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\KealLiang\AppData\Local\Programs\Python\Python313\Lib\site-packages\pip\_vendor\pyproject_hooks\_in_process\_in_process.py", line 118, in get_requires_for_build_wheel
+          return hook(config_settings)
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-build-env-nf6b0ph7\overlay\Lib\site-packages\setuptools\build_meta.py", line 334, in get_requires_for_build_wheel
+          return self._get_build_requires(config_settings, requirements=[])
+                 ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-build-env-nf6b0ph7\overlay\Lib\site-packages\setuptools\build_meta.py", line 304, in _get_build_requires
+          self.run_setup()
+          ~~~~~~~~~~~~~~^^
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-build-env-nf6b0ph7\overlay\Lib\site-packages\setuptools\build_meta.py", line 522, in run_setup
+          super().run_setup(setup_script=setup_script)
+          ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-build-env-nf6b0ph7\overlay\Lib\site-packages\setuptools\build_meta.py", line 320, in run_setup
+          exec(code, locals())
+          ~~~~^^^^^^^^^^^^^^^^
+        File "<string>", line 52, in <module>
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-install-06ggweqg\matplotlib_8b7cdf257c894bedb266a6d7d40ba4b9\versioneer.py", line 1410, in get_version
+          return get_versions()["version"]
+                 ~~~~~~~~~~~~^^
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-install-06ggweqg\matplotlib_8b7cdf257c894bedb266a6d7d40ba4b9\versioneer.py", line 1344, in get_versions
+          cfg = get_config_from_root(root)
+        File "C:\Users\KealLiang\AppData\Local\Temp\pip-install-06ggweqg\matplotlib_8b7cdf257c894bedb266a6d7d40ba4b9\versioneer.py", line 401, in get_config_from_root
+          parser = configparser.SafeConfigParser()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      AttributeError: module 'configparser' has no attribute 'SafeConfigParser'. Did you mean: 'RawConfigParser'?
+      [end of output]
+
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+
+[notice] A new release of pip is available: 24.2 -> 24.3.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+error: subprocess-exited-with-error
+
+× Getting requirements to build wheel did not run successfully.
+│ exit code: 1
+╰─> See above for output.
+
+note: This error originates from a subprocess, and is likely not a problem with pip.
