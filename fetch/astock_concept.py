@@ -6,7 +6,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def fetch_and_save_stock_data(concept_list=None, industry_list=None, output_path="A股股票概念与行业.xlsx"):
+def fetch_and_save_stock_concept(concept_list=None, industry_list=None, output_path="A股股票概念与行业.xlsx"):
     """
     拉取 A 股股票的概念和行业数据并保存为 Excel 文件。
 
@@ -102,7 +102,7 @@ def fetch_and_save_stock_data(concept_list=None, industry_list=None, output_path
 # 示例用法
 if __name__ == "__main__":
     # 示例：只拉取特定的概念和行业
-    fetch_and_save_stock_data(
+    fetch_and_save_stock_concept(
         concept_list=["云游戏", "新能源车"],
         industry_list=["银行", "房地产"],
         output_path="筛选的概念与行业数据.xlsx"
