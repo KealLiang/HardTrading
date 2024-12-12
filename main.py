@@ -4,7 +4,7 @@ from fetch.astock_data import AStockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.converter import backtrade_form
 from filters.find_longtou import find_dragon_stocks
-from tonghuashun.concept_analyze import concept_words_cloud
+from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 
 
 # 回溯交易
@@ -16,19 +16,19 @@ def backtrade_simulate():
 
 
 # 获取热点概念词云
-def get_hot_concept_clouds():
-    concept_words_cloud(1)
+def get_hot_clouds():
+    hot_words_cloud(3)
 
 
 # 拉a股历史数据
-def get_a_stock_datas():
+def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = AStockDataFetcher(start_date='20120101', save_path='./data/astocks')
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
 
-def get_a_stock_minute_datas():
+def get_stock_minute_datas():
     fetch_and_save_stock_data(
         interval="15",  # 拉取 15 分钟级别数据
         start_date="20241110",  # 起始日期
@@ -45,7 +45,7 @@ def find_dragon():
     find_dragon_stocks(start_date)
 
 
-def get_a_concept_and_industry():
+def get_stock_concept_and_industry():
     fetch_and_save_stock_concept(
         concept_list=["云游戏", "新能源车"],
         industry_list=["银行", "房地产"],
@@ -54,7 +54,7 @@ def get_a_concept_and_industry():
 
 
 if __name__ == '__main__':
-    get_a_stock_minute_datas()
-    # get_hot_concept_clouds()
+    # get_stock_minute_datas()
+    get_hot_clouds()
     # find_dragon()
-    # get_a_concept_and_industry()
+    # get_stock_concept_and_industry()
