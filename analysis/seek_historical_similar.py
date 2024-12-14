@@ -15,6 +15,16 @@ font_prop = font_manager.FontProperties(fname=font_path)
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# 定义列名对应的英文名称
+col_mapping = {
+    '日期': 'date',
+    '开盘': 'open',
+    '最高': 'high',
+    '最低': 'low',
+    '收盘': 'close',
+    '成交量': 'volume'
+}
+
 
 def load_stock_data(file_path):
     """
@@ -31,15 +41,15 @@ def load_stock_data(file_path):
         return None
 
 
-def load_zhishu_data(file_path):
+def load_index_data(file_path):
     """
     加载指数数据
     """
     try:
         data = pd.read_csv(file_path, header=None, names=[
-            'date', 'open', 'high', 'low', 'close', 'volume'
+            '日期', '开盘', '最高', '最低', '收盘', '成交量'
         ])
-        data['date'] = pd.to_datetime(data['date'])
+        data['日期'] = pd.to_datetime(data['日期'])
         return data
     except Exception as e:
         logging.error(f"加载文件 {file_path} 时出错: {e}")
@@ -123,44 +133,35 @@ def calculate_similarity(target_data, stock_codes, start_date, end_date, data_di
     return similarity_results
 
 
-def plot_kline(dataframes, stock_labels, output_dir="kline_charts"):
+def plot_kline(dataframes, stock_labels, split_dates=None, output_dir="kline_charts"):
     """
     绘制K线图并保存到本地
 
     参数:
     dataframes: list - 包含每只股票数据的DataFrame列表
     stock_labels: list - 每只股票的标签列表
+    split_dates: list - 用于绘制分隔标记的日期列表（与dataframes长度相同）
     output_dir: str - 图表保存路径
     """
     # 设置中文字体防止乱码
     plt.rcParams['font.family'] = font_prop.get_name()
     plt.rcParams['axes.unicode_minus'] = False
 
-    # 定义列名对应的英文名称
-    col_mapping = {
-        '日期': 'date',
-        '开盘': 'open',
-        '最高': 'high',
-        '最低': 'low',
-        '收盘': 'close',
-        '成交量': 'volume'
-    }
-
     # 创建保存目录
     os.makedirs(output_dir, exist_ok=True)
 
-    for df, label in zip(dataframes, stock_labels):
+    for df, label, split_date in zip(dataframes, stock_labels, split_dates or [None] * len(dataframes)):
         # 转换为适合 mplfinance 的格式
         df_mpf = df[['日期', '开盘', '最高', '最低', '收盘', '成交量']].rename(columns=col_mapping).copy()
         df_mpf.set_index('date', inplace=True)
 
         # 配置样式
         custom_colors = mpf.make_marketcolors(
-            up='red',  # 上涨的颜色
-            down='green',  # 下跌的颜色
-            edge='black',  # K线边缘颜色
-            wick='black',  # K线上下影线颜色
-            volume='orange'  # 成交量条颜色
+            up='red',
+            down='green',
+            edge='black',
+            wick='black',
+            volume='orange'
         )
         mpf_style = mpf.make_mpf_style(base_mpf_style="charles",
                                        rc={"font.sans-serif": font_prop.get_name() if font_prop else "SimHei"},
@@ -168,14 +169,22 @@ def plot_kline(dataframes, stock_labels, output_dir="kline_charts"):
 
         # 保存图表
         output_file = os.path.join(output_dir, f"{label}_kline.png")
-        mpf.plot(
-            df_mpf,
-            type="candle",
-            title=f"{label} K线图",
-            style=mpf_style,
-            volume=True,
-            savefig=dict(fname=output_file, dpi=300, bbox_inches="tight")
-        )
+
+        # 根据 alines 是否为 None 来决定是否传递该参数
+        plot_params = {
+            'type': "candle",
+            'title': f"{label} K线图",
+            'style': mpf_style,
+            'volume': True,
+            'savefig': dict(fname=output_file, dpi=300, bbox_inches="tight")
+        }
+
+        # 添加竖线标记
+        if split_date:
+            plot_params['alines'] = [(split_date, df_mpf['low'].min()), (split_date, df_mpf['high'].max())]
+
+        mpf.plot(df_mpf, **plot_params)
+
         logging.info(f"K线图已保存到 {output_file}")
 
 
@@ -239,9 +248,10 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     plot_kline(dataframes, labels, output_dir="./kline_charts/other_similar")
 
 
-def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=".", method="close_price"):
+def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=".", method="close_price",
+                              future_days=10):
     """
-    找出某只个股与自身不同时期的相似度，根据给定的起止日期确定时间窗口（以交易日计算），找出最相似的5个时间窗口，打印日期，并画图保存
+    找出某只个股与自身不同时期的相似度，并画图包括“未来天数”的K线。
 
     参数:
     target_stock_code: str - 目标股票代码
@@ -249,60 +259,75 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
     end_date: datetime - 结束日期
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法（"close_price" 或 "weighted"）
+    future_days: int - 未来天数，用于绘制相似区间后的预测数据
     """
-    logging.info("开始加载目标股票数据...")
+    # 加载目标股票数据
     target_file = next(
         (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{target_stock_code}_")), None)
     if not target_file:
         logging.error(f"未找到目标股票 {target_stock_code} 的数据文件！")
         return
 
-    target_data = load_stock_data(target_file)
+    # 加载个股或指数
+    if target_stock_code[0].isdigit():
+        stock_data = load_stock_data(target_file)
+    else:
+        stock_data = load_index_data(target_file)
+
+    # 确定目标时间段
+    target_data = stock_data[(stock_data['日期'] >= start_date) & (stock_data['日期'] <= end_date)]
     if target_data.empty:
-        logging.error("目标股票数据为空！")
+        logging.error("目标股票在指定区间内无数据！")
         return
 
-    # 计算时间窗口大小（以交易日为准）
-    cal = mcal.get_calendar('SSE')
-    trading_sessions = cal.schedule(start_date=start_date, end_date=end_date)
-    trading_days = trading_sessions.index
-    window_size = len(trading_days)
+    # 确定交易日窗口大小
+    nyse = mcal.get_calendar('SSE')  # A股使用 'SSE' 日历
+    schedule = nyse.schedule(start_date=start_date, end_date=end_date)
+    target_window_size = len(schedule)
 
+    if target_window_size < 5:  # 防止窗口过小
+        logging.error("指定时间范围内交易日不足以计算窗口！")
+        return
+
+    # 滑动窗口寻找相似时段
     similarity_results = []
-    total_days = len(target_data)
-    for start_idx in range(0, total_days - window_size):
-        window_start_date = target_data['日期'].iloc[start_idx]
-        window_end_date = target_data['日期'].iloc[start_idx + window_size - 1]
-        window_data = target_data[(target_data['日期'] >= window_start_date) & (target_data['日期'] <= window_end_date)]
+    for i in range(len(stock_data) - target_window_size + 1):
+        window_start = stock_data.iloc[i]['日期']
+        window_end = stock_data.iloc[i + target_window_size - 1]['日期']
 
-        # 与原数据中传入的起止日期范围内数据进行对比（这里修改为与整个目标数据中对应起止日期范围对比）
-        compare_data = target_data[(target_data['日期'] >= start_date) & (target_data['日期'] <= end_date)]
+        # 跳过目标区间本身
+        if window_start >= start_date and window_end <= end_date:
+            continue
+
+        window_data = stock_data.iloc[i:i + target_window_size]
         if method == "close_price":
-            correlation = compute_correlation(window_data, compare_data)
+            correlation = compute_correlation(target_data, window_data)
         elif method == "weighted":
-            correlation = compute_weighted_correlation(window_data, compare_data)
+            correlation = compute_weighted_correlation(target_data, window_data)
         else:
             logging.error(f"不支持的相似度计算方法: {method}")
             return
 
-        similarity_results.append((window_start_date, window_end_date, correlation))
+        # 提取未来天数数据
+        future_data = stock_data.iloc[i + target_window_size:i + target_window_size + future_days]
+        merged_data = pd.concat([window_data, future_data], ignore_index=True)
+        similarity_results.append((window_start, window_end, correlation, merged_data))
 
+    # 按相似度排序并获取前5个窗口
     similarity_results.sort(key=lambda x: x[2], reverse=True)
-    top_num = 5
-    top_similar_windows = similarity_results[:top_num]
+    top_windows = similarity_results[:5]
 
-    logging.info(f"最相似的{top_num}个时间窗口如下：")
-    for window_start, window_end, correlation in top_similar_windows:
-        logging.info(f"开始日期: {window_start}, 结束日期: {window_end}, 相似度: {correlation:.4f}")
+    logging.info("最相似的时间窗口:")
+    for start, end, corr, _ in top_windows:
+        logging.info(f"时间段: {start.date()} 至 {end.date()}, 相似度: {corr:.4f}")
 
-    # 绘制并保存这5个时间窗口的K线图
-    dataframes = []
-    labels = []
-    for window_start, window_end, _ in top_similar_windows:
-        window_data = target_data[(target_data['日期'] >= window_start) & (target_data['日期'] <= window_end)]
-        dataframes.append(window_data)
-        labels.append(f"窗口_{window_start.strftime('%Y%m%d')}_{window_end.strftime('%Y%m%d')}")
-    plot_kline(dataframes, labels, output_dir="./kline_charts/self_similar")
+    # 绘制并保存K线图
+    dataframes = [target_data] + [result[3] for result in top_windows]
+    labels = [f"目标区间_{start_date.date()}_{end_date.date()}"] + \
+             [f"相似区间_{start.date()}_{end.date()}_{corr:.4f}" for start, end, corr, _ in top_windows]
+    split_dates = [None] + [end for _, end, _, _ in top_windows]  # 分隔标记日期，目标区间无标记
+
+    plot_kline(dataframes, labels, split_dates=split_dates, output_dir="./kline_charts/self_similar")
 
 
 # 示例调用

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from analysis.seek_historical_similar import find_other_similar_trends, find_self_similar_windows
+from analysis.seek_historical_similar import find_self_similar_windows, find_other_similar_trends
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import AStockDataFetcher
@@ -28,6 +28,7 @@ def get_index_data():
     # 指定保存目录
     save_directory = "data/indexes"
     fetch_indexes_data(save_directory)
+
 
 # 拉a股历史数据
 def get_stock_datas():
@@ -63,8 +64,8 @@ def get_stock_concept_and_industry():
 
 
 def find_similar_trends():
-    data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "601933"  # 目标股票代码
+    data_dir = "./data/indexes"  # 数据文件所在目录
+    target_stock_code = "sh000001"  # 目标股票代码
     start_date = datetime.strptime("2024-11-01", "%Y-%m-%d")
     end_date = datetime.strptime("2024-12-13", "%Y-%m-%d")
 
@@ -79,12 +80,12 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
+    # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
 
 
 if __name__ == '__main__':
-    get_index_data()
-    # find_similar_trends()
+    # get_index_data()
+    find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
     # get_hot_clouds()
