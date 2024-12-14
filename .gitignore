@@ -4,3 +4,5 @@
 /config.ini
 /data/concepts_data/
 /data/astocks_minute/
+/kline_charts/
+/data/indexes/
