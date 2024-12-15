@@ -7,7 +7,7 @@ from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.converter import backtrade_form
 from fetch.indexes_data import fetch_indexes_data
-from fetch.lhb_data import fetch_yyb_lhb_data
+from fetch.lhb_data import fetch_and_merge_stock_lhb_detail
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_longtou import find_dragon_stocks
 
@@ -52,8 +52,13 @@ def get_stock_minute_datas():
 def get_lhb_datas():
     start_date = "2024-08-01"
     end_date = None
-    file_path = './data/lhb/yyb_lhb_data.csv'
-    fetch_yyb_lhb_data(start_date, end_date, file_path)
+    first_file_path = './data/lhb/yyb_lhb_data.csv'
+    second_file_path = './data/lhb/stock_lhb_details.csv'
+    trader_name = "中国银河证券股份有限公司大连黄河路证券营业部"
+    # 1. 拉取营业部龙虎榜数据
+    # fetch_yyb_lhb_data(start_date, end_date, first_file_path)
+    # 2. 遍历营业部数据，拉取个股龙虎榜合并
+    fetch_and_merge_stock_lhb_detail(first_file_path, second_file_path, trader_name)
 
 
 # 找龙头

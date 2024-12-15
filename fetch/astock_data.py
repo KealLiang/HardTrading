@@ -88,7 +88,9 @@ class StockDataBroker:
                 temp = "sz" + temp
             stock_df.iloc[i, 0] = temp
 
-        stock_df.to_csv(f"{self.save_path}a_stock_info.csv", index=False, header=["code", "name"])
+        # 去掉股票名称中间的空格
+        stock_df["name"] = stock_df["name"].apply(lambda x: x.replace(" ", ""))
+        stock_df.to_csv(f"{self.save_path}stock_mapping.csv", index=False, header=["code", "name"])
         return stock_df
 
     def get_name_by_code(self, seek_code):
@@ -96,7 +98,7 @@ class StockDataBroker:
         通过股票代码获取股票名称
         股票代码 sh600519 对应的名称是: 贵州茅台
         """
-        stock_df = pd.read_csv(f"{self.save_path}/a_stock_info.csv")
+        stock_df = pd.read_csv(f"{self.save_path}/stock_mapping.csv")
         result = stock_df.loc[stock_df["code"] == seek_code, "name"].values
         if len(result) > 0:
             return result[0]
@@ -107,7 +109,7 @@ class StockDataBroker:
         通过股票名称获取股票代码
         股票名称 贵州茅台 对应的代码是: sh600519
         """
-        stock_df = pd.read_csv(f"{self.save_path}a_stock_info.csv")
+        stock_df = pd.read_csv(f"{self.save_path}stock_mapping.csv")
         result = stock_df.loc[stock_df["name"] == seek_name, "code"].values
         if len(result) > 0:
             return result[0]
@@ -118,6 +120,7 @@ class StockDataBroker:
 if __name__ == "__main__":
     # 获取A股股票信息并保存文件
     stock_broker = StockDataBroker()
+    # stock_broker.get_a_stock_info()
     # 示例：通过代码获取名称
     code = "sh600519"
     name = stock_broker.get_name_by_code(code)

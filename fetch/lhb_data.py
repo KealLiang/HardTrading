@@ -2,10 +2,12 @@ from datetime import datetime, date
 
 import akshare as ak
 import pandas as pd
+import os
 
 from fetch.astock_data import StockDataBroker
 
 encodings = 'utf-8-sig'  # 添加BOM头的UTF-8，为了excel能识别
+stock_mapping_path = "data/"
 
 
 def fetch_yyb_lhb_data(start_date, end_date=None, file_path='lhb_data.csv'):
@@ -54,7 +56,7 @@ def read_lhb_data(file_path):
 
 # 获取股票代码
 def get_stock_code(stock_name):
-    broker = StockDataBroker()
+    broker = StockDataBroker(save_path=stock_mapping_path)
     code = broker.get_code_by_name(stock_name)
     # 处理掉前缀
     return code if code[0].isdigit() else code[2:]
@@ -70,7 +72,7 @@ def fetch_stock_lhb_details(lhb_data, trader_name):
         stock_names = row['买入股票'].split()
         lhb_date = row['上榜日'].replace('-', '')  # 将日期格式转换为 'YYYYMMDD'
 
-        print(f"将要拉取{lhb_date} [{stock_names}]的龙虎榜明细")
+        print(f"将要拉取{lhb_date} {stock_names}的龙虎榜明细")
 
         for stock_name in stock_names:
             stock_code = get_stock_code(stock_name)  # 需要实现 get_stock_code 函数
