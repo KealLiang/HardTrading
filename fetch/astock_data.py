@@ -7,7 +7,7 @@ import pandas as pd
 from decorators.practical import timer
 
 
-class AStockDataFetcher:
+class StockDataFetcher:
     def __init__(self, start_date, end_date=None, save_path='./'):
         """
         初始化A股数据获取类。
@@ -65,9 +65,69 @@ class AStockDataFetcher:
                 print(f"Error processing {stock_code}: {e}")
 
 
+class StockDataBroker:
+    def __init__(self, save_path='./'):
+        """
+        股票数据经纪人
+        用于拉取，保存，获取{code},{name}的股票数据
+        """
+        self.save_path = save_path
+
+    @timer
+    def get_a_stock_info(self):
+        """
+        获取A股所有股票的代码和名称，并保存到CSV文件中
+        """
+        stock_df = ak.stock_info_a_code_name()
+        # 按照要求对股票代码格式进行转换
+        for i in range(0, len(stock_df)):
+            temp = stock_df.iloc[i, 0]
+            if temp[0] == "6":
+                temp = "sh" + temp
+            elif temp[0] == "0" or temp[0] == "3":
+                temp = "sz" + temp
+            stock_df.iloc[i, 0] = temp
+
+        stock_df.to_csv(f"{self.save_path}a_stock_info.csv", index=False, header=["code", "name"])
+        return stock_df
+
+    def get_name_by_code(self, seek_code):
+        """
+        通过股票代码获取股票名称
+        股票代码 sh600519 对应的名称是: 贵州茅台
+        """
+        stock_df = pd.read_csv(f"{self.save_path}/a_stock_info.csv")
+        result = stock_df.loc[stock_df["code"] == seek_code, "name"].values
+        if len(result) > 0:
+            return result[0]
+        return None
+
+    def get_code_by_name(self, seek_name):
+        """
+        通过股票名称获取股票代码
+        股票名称 贵州茅台 对应的代码是: sh600519
+        """
+        stock_df = pd.read_csv(f"{self.save_path}a_stock_info.csv")
+        result = stock_df.loc[stock_df["name"] == seek_name, "code"].values
+        if len(result) > 0:
+            return result[0]
+        return None
+
+
 # 使用示例
 if __name__ == "__main__":
+    # 获取A股股票信息并保存文件
+    stock_broker = StockDataBroker()
+    # 示例：通过代码获取名称
+    code = "sh600519"
+    name = stock_broker.get_name_by_code(code)
+    print(f"股票代码 {code} 对应的名称是: {name}")
+    # 示例：通过名称获取代码
+    name = "贵州茅台"
+    code = stock_broker.get_code_by_name(name)
+    print(f"股票名称 {name} 对应的代码是: {code}")
+
     # 创建A股数据获取对象，指定数据的起始时间、结束时间和保存路径
-    data_fetcher = AStockDataFetcher(start_date='20241206', end_date='20241207', save_path='./stock_data')
+    data_fetcher = StockDataFetcher(start_date='20241206', end_date='20241207', save_path='./stock_data')
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()

@@ -1,12 +1,13 @@
 from datetime import datetime
 
-from analysis.seek_historical_similar import find_self_similar_windows, find_other_similar_trends
+from analysis.seek_historical_similar import find_self_similar_windows
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
-from fetch.astock_data import AStockDataFetcher
+from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.converter import backtrade_form
 from fetch.indexes_data import fetch_indexes_data
+from fetch.lhb_data import fetch_yyb_lhb_data
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_longtou import find_dragon_stocks
 
@@ -33,7 +34,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = AStockDataFetcher(start_date='20241209', save_path='./data/astocks')
+    data_fetcher = StockDataFetcher(start_date='20241209', save_path='./data/astocks')
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -46,6 +47,13 @@ def get_stock_minute_datas():
         # stock_list=["000717", "603776"],  # 只拉取这两个股票的数据
         output_dir="./data/astocks_minute"  # 保存到指定目录
     )
+
+
+def get_lhb_datas():
+    start_date = "2024-08-01"
+    end_date = None
+    file_path = './data/lhb/yyb_lhb_data.csv'
+    fetch_yyb_lhb_data(start_date, end_date, file_path)
 
 
 # 找龙头
@@ -84,8 +92,9 @@ def find_similar_trends():
 
 
 if __name__ == '__main__':
+    get_lhb_datas()
     # get_index_data()
-    find_similar_trends()
+    # find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
     # get_hot_clouds()
