@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from analysis.seek_historical_similar import find_self_similar_windows
+from analysis.seek_historical_similar import find_self_similar_windows, find_other_similar_trends
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -77,13 +77,13 @@ def get_stock_concept_and_industry():
 
 
 def find_similar_trends():
-    data_dir = "./data/indexes"  # 数据文件所在目录
-    target_stock_code = "sh000001"  # 目标股票代码
-    start_date = datetime.strptime("2024-11-01", "%Y-%m-%d")
-    end_date = datetime.strptime("2024-12-13", "%Y-%m-%d")
+    data_dir = "./data/astocks"  # 数据文件所在目录
+    target_stock_code = "603960"  # 目标股票代码
+    start_date = datetime.strptime("2024-02-01", "%Y-%m-%d")
+    end_date = datetime.strptime("2024-03-08", "%Y-%m-%d")
 
     # 1.寻找自身相似时期
-    find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
+    # find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
 
     # 2.寻找同时期相似个股
     # 可选股票代码列表
@@ -93,13 +93,13 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
+    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
 
 
 if __name__ == '__main__':
-    get_lhb_datas()
+    # get_lhb_datas()
     # get_index_data()
-    # find_similar_trends()
+    find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
     # get_hot_clouds()

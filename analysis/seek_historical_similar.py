@@ -115,9 +115,13 @@ def calculate_similarity(target_data, stock_codes, start_date, end_date, data_di
             continue
 
         stock_data = stock_data[(stock_data['日期'] >= start_date) & (stock_data['日期'] <= end_date)]
-        if stock_data.empty or len(stock_data) != len(target_data):
+        if stock_data.empty or abs(len(stock_data) - len(target_data)) > len(target_data) * 0.2:
             logging.warning(f"股票 {stock_code} 的数据不符合目标区间要求，跳过。")
             continue
+
+        if len(stock_data) != len(target_data):
+            logging.warning(f"股票 {stock_code} 的数据有缺失，补0。")
+            stock_data = align_dataframes(target_data, stock_data)
 
         if method == "close_price":
             correlation = compute_correlation(target_data, stock_data)
@@ -131,6 +135,35 @@ def calculate_similarity(target_data, stock_codes, start_date, end_date, data_di
 
     similarity_results.sort(key=lambda x: x[1], reverse=True)
     return similarity_results
+
+
+def align_dataframes(target_data, stock_data):
+    """
+    以target_data的形状为准，将stock_data对应'日期'的地方数据补0
+    """
+    # 获取target_data的日期索引
+    target_dates = target_data['日期'].tolist()
+    # 获取stock_data的日期索引
+    stock_dates = stock_data['日期'].tolist()
+
+    # 找出target_data中有而stock_data中没有的日期
+    missing_dates = set(target_dates) - set(stock_dates)
+    if missing_dates:
+        # 创建一个新的DataFrame，用于存放补0后的数据，列名和stock_data保持一致
+        new_stock_data = pd.DataFrame(columns=stock_data.columns)
+        # 使用concat函数将stock_data中已有的日期及对应的数据添加到新的DataFrame
+        new_stock_data = pd.concat([new_stock_data, stock_data], ignore_index=True)
+        # 遍历缺失的日期，为每个缺失日期添加一行数据，对应列的值全部设为0
+        for date in missing_dates:
+            new_row = {col: 0 for col in stock_data.columns}
+            new_row['日期'] = date
+            # 将包含补0数据的行转换为DataFrame，方便使用concat函数添加
+            new_row_df = pd.DataFrame([new_row])
+            new_stock_data = pd.concat([new_stock_data, new_row_df], ignore_index=True)
+        # 按照日期对新的DataFrame进行排序，使其顺序和target_data一致
+        new_stock_data.sort_values(by='日期', inplace=True)
+        return new_stock_data
+    return stock_data
 
 
 def plot_kline(dataframes, stock_labels, split_dates=None, output_dir="kline_charts"):
