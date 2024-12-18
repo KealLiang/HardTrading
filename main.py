@@ -1,13 +1,14 @@
 from datetime import datetime
 
-from analysis.seek_historical_similar import find_self_similar_windows, find_other_similar_trends
+from analysis.seek_historical_similar import find_other_similar_trends
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.converter import backtrade_form
 from fetch.indexes_data import fetch_indexes_data
-from fetch.lhb_data import fetch_and_merge_stock_lhb_detail
+from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
+    find_top_yyb_trades
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_longtou import find_dragon_stocks
 
@@ -49,6 +50,14 @@ def get_stock_minute_datas():
     )
 
 
+def fetch_and_filter_top_yybph():
+    # 使用示例
+    symbol = "近三月"
+    file_path = "./data/lhb/top_yybph.csv"  # 保存的 CSV 文件路径，请根据需要修改
+
+    fetch_and_filter_yybph_lhb_data(symbol, file_path)
+
+
 def get_lhb_datas():
     start_date = "2024-08-01"
     end_date = None
@@ -56,9 +65,15 @@ def get_lhb_datas():
     second_file_path = './data/lhb/stock_lhb_details.csv'
     trader_name = "中国银河证券股份有限公司大连黄河路证券营业部"
     # 1. 拉取营业部龙虎榜数据
-    # fetch_yyb_lhb_data(start_date, end_date, first_file_path)
+    fetch_yyb_lhb_data(start_date, end_date, first_file_path)
     # 2. 遍历营业部数据，拉取个股龙虎榜合并
     fetch_and_merge_stock_lhb_detail(first_file_path, second_file_path, trader_name)
+
+
+def get_top_yyb_trades():
+    # 找最顶级游资的交易数据
+    # 需先运行fetch_and_filter_top_yybph()获取"top_yybph_lhb_data.csv"
+    find_top_yyb_trades('./data/lhb/')
 
 
 # 找龙头
@@ -97,9 +112,11 @@ def find_similar_trends():
 
 
 if __name__ == '__main__':
+    # fetch_and_filter_top_yybph()
+    get_top_yyb_trades()
     # get_lhb_datas()
     # get_index_data()
-    find_similar_trends()
+    # find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
     # get_hot_clouds()
