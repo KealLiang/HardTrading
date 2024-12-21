@@ -201,10 +201,9 @@ def fetch_and_filter_top_yybph():
     fetch_and_filter_yybph_lhb_data(symbol, file_path)
 
 
-def find_top_yyb_trades(base_dir):
-    # 使用示例
-    start_date = "2024-12-18"
-    end_date = None
+def find_top_yyb_trades(base_dir, start_date=None, end_date=None):
+    if start_date is None:
+        start_date = date.today().strftime('%Y-%m-%d')
     file_path = base_dir + "top_yyb_lhb_data.csv"
     traders_file_path = base_dir + "top_yybph.csv"  # 保存的 CSV 文件路径
     output_file_path = base_dir + "top_yyb_trades.csv"

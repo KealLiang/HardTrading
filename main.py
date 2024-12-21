@@ -113,12 +113,12 @@ def find_similar_trends():
 
 if __name__ == '__main__':
     # fetch_and_filter_top_yybph()
-    get_top_yyb_trades()
+    # get_top_yyb_trades()
     # get_lhb_datas()
     # get_index_data()
     # find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
-    # get_hot_clouds()
+    get_hot_clouds()
     # find_dragon()
     # get_stock_concept_and_industry()
