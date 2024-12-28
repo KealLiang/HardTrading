@@ -25,6 +25,8 @@ def get_zt_stocks(date):
         # 设置查询参数
         param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
         df = query_wencai(param)
+        if df is None:
+            df = pd.DataFrame()
         # 选择需要的列
         selected_columns = [
             '股票代码', '股票简称', f'涨停开板次数[{date}]', f'最终涨停时间[{date}]',
@@ -85,6 +87,8 @@ def get_dieting_stocks(date):
     # 设置查询参数
     param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
     df = query_wencai(param)
+    if df is None:
+        return pd.DataFrame()
 
     # 选择需要的列
     selected_columns = [
@@ -110,6 +114,8 @@ def get_zaban_stocks(date):
     # 设置查询参数
     param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
     df = query_wencai(param)
+    if df is None:
+        return pd.DataFrame()
 
     # 选择需要的列
     selected_columns = [
@@ -223,8 +229,8 @@ def daily_fupan(fupan_type, start_date, end_date):
 
 def all_fupan():
     # 输入需要复盘的日期
-    start_date = "20241202"
-    # end_date = "20241219"
+    start_date = "20241201"
+    # end_date = "20241201"
     end_date = datetime.now().strftime('%Y%m%d')
     for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据']:
         daily_fupan(fupan_type, start_date, end_date)
