@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from analysis.fupan_statistics import fupan_all_statistics
 from analysis.seek_historical_similar import find_other_similar_trends
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
@@ -78,7 +79,7 @@ def get_top_yyb_trades():
 
 # 找龙头
 def find_dragon():
-    start_date = '2024-05-10'
+    start_date = '2024-10-10'
     end_date = '2024-06-01'
     find_dragon_stocks(start_date)
 
@@ -111,7 +112,15 @@ def find_similar_trends():
     find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
 
 
+def fupan_statistics_to_excel():
+    # 指定时段的复盘总体复盘数据
+    start_date = '20250102'
+    end_date = '20250110'
+    fupan_all_statistics(start_date, end_date)
+
+
 if __name__ == '__main__':
+    fupan_statistics_to_excel()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
@@ -119,6 +128,6 @@ if __name__ == '__main__':
     # find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
-    get_hot_clouds()
+    # get_hot_clouds()
     # find_dragon()
     # get_stock_concept_and_industry()
