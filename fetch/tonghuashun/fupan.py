@@ -16,7 +16,7 @@ def query_wencai(param):
     return df
 
 
-def get_price_correction_stocks(date):
+def get_fanbao_stocks(date):
     param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
     df = query_wencai(param)
 
@@ -221,7 +221,7 @@ def daily_fupan(fupan_type, start_date, end_date):
         '跌停数据': get_dieting_stocks,
         '炸板数据': get_zaban_stocks,
         '首板数据': get_shouban_stocks,
-        '反包数据': get_price_correction_stocks
+        '反包数据': get_fanbao_stocks
     }
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
