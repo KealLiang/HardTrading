@@ -361,7 +361,7 @@ def merge_and_save_analysis(dapan_stats, zt_stats, excel_path='./excel/market_an
 
 
 @timer
-def fupan_all_statistics(start_date, end_date, excel_path='./excel/market_analysis.xlsx'):
+def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_analysis.xlsx'):
     """
     分析指定时间段的市场数据并保存
     Args:
@@ -369,6 +369,8 @@ def fupan_all_statistics(start_date, end_date, excel_path='./excel/market_analys
         end_date: 结束日期，格式为 'YYYYMMDD'
         excel_path: Excel文件路径
     """
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
     try:
         # 读取现有的Excel文件（如果存在）
         try:
