@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 import pywencai
 
+import sys
 from utils.date_util import get_trading_days
 
 fupan_file = "./excel/fupan_stocks.xlsx"
@@ -124,6 +125,31 @@ def get_dieting_stocks(date):
     sorted_luoban_df = luoban_df.sort_values(by=f'首次跌停时间[{date}]').reset_index(drop=True)
     sorted_luoban_df['最新涨跌幅'] = sorted_luoban_df['最新涨跌幅'].apply(lambda x: f"{float(x):.1f}%")
     return sorted_luoban_df
+
+
+def get_open_dieting_stocks(date):
+    """
+    获取指定日期的开盘跌停个股数据。
+
+    :param date: 查询日期，格式为'YYYYMMDD'。
+    :return: 跌停个股的DataFrame。
+    """
+    # 设置查询参数
+    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
+    df = query_wencai(param)
+    if df is None:
+        return pd.DataFrame()
+
+    now_date = datetime.now().strftime('%Y%m%d')
+    # 选择需要的列
+    selected_columns = [
+        '股票代码', '股票简称', '最新价', f'跌停价[{date}]', f'跌停价[{now_date}]'
+    ]
+    dt_df = df[selected_columns]
+
+    # 数据处理
+    sorted_dt_df = dt_df.sort_values(by='最新价').reset_index(drop=True)
+    return sorted_dt_df
 
 
 def get_zaban_stocks(date):
@@ -260,4 +286,9 @@ def all_fupan():
 
 
 if __name__ == "__main__":
+    # 设置当前工作目录为脚本所在目录
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # 添加 utils 模块所在的目录到 sys.path
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+    
     all_fupan()

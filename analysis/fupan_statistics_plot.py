@@ -126,21 +126,28 @@ def plot_next_day_performance(df, save_path):
     x = np.arange(len(df))
 
     # 绘制涨停股的次日表现（主坐标轴）
-    ax1.plot(x, df['涨停_次日最高'], 'r--o', label='涨停股最高', alpha=0.5)
+    ax1.plot(x, df['涨停_次日最高'], 'r--o', label='涨停股最高', alpha=0.4)
     ax1.plot(x, df['涨停_次日收盘'], 'r-o', label='涨停股收盘', linewidth=2)
-    ax1.plot(x, df['涨停_次日最低'], 'r:o', label='涨停股最低', alpha=0.5)
+    ax1.plot(x, df['涨停_次日最低'], 'r:o', label='涨停股最低', alpha=0.4)
 
     # 绘制连板股的次日表现（主坐标轴）
-    ax1.plot(x, df['连板_次日最高'], 'b--s', label='连板股最高', alpha=0.5)
+    ax1.plot(x, df['连板_次日最高'], 'b--s', label='连板股最高', alpha=0.4)
     ax1.plot(x, df['连板_次日收盘'], 'b-s', label='连板股收盘', linewidth=2)
-    ax1.plot(x, df['连板_次日最低'], 'b:s', label='连板股最低', alpha=0.5)
+    ax1.plot(x, df['连板_次日最低'], 'b:s', label='连板股最低', alpha=0.4)
+
+    # 绘制跌停开的次日表现（主坐标轴）
+    ax1.plot(x, df['开盘跌停_次日最高'], 'g--x', label='跌停开最高', alpha=0.4)
+    ax1.plot(x, df['开盘跌停_次日收盘'], 'g-x', label='跌停开收盘', linewidth=2)
+    ax1.plot(x, df['开盘跌停_次日最低'], 'g:x', label='跌停开最低', alpha=0.4)
 
     # 绘制上涨比例（次坐标轴）
-    bar_width = 0.35
-    rects1 = ax2.bar(x - bar_width / 2, df['涨停_次日上涨比例'],
+    bar_width = 0.25
+    ax2.bar(x - bar_width, df['涨停_次日上涨比例'],
                      bar_width, alpha=0.3, color='red', label='涨停股上涨比例')
-    rects2 = ax2.bar(x + bar_width / 2, df['连板_次日上涨比例'],
+    ax2.bar(x, df['连板_次日上涨比例'],
                      bar_width, alpha=0.3, color='blue', label='连板股上涨比例')
+    ax2.bar(x + bar_width, df['开盘跌停_次日上涨比例'],
+                     bar_width, alpha=0.3, color='green', label='跌停开上涨比例')
 
     # 设置标签和标题
     ax1.set_xlabel('日期')
@@ -154,8 +161,8 @@ def plot_next_day_performance(df, save_path):
                         rotation=45, ha='right')
 
     # 安全地设置y轴范围
-    min_val = df[['涨停_次日最低', '连板_次日最低']].min().min()
-    max_val = df[['涨停_次日最高', '连板_次日最高']].max().max()
+    min_val = df[['涨停_次日最低', '连板_次日最低', '开盘跌停_次日最低']].min().min()
+    max_val = df[['涨停_次日最高', '连板_次日最高', '开盘跌停_次日最高']].max().max()
 
     # 处理无效值
     if pd.isna(min_val) or pd.isna(max_val):

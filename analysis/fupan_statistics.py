@@ -7,10 +7,11 @@ import pandas as pd
 import tushare as ts
 
 from decorators.practical import timer
-from fetch.tonghuashun.fupan import get_zt_stocks, get_zaban_stocks, get_lianban_stocks, get_dieting_stocks
-from utils.date_util import get_next_trading_day, get_prev_trading_day
-from utils.date_util import get_trading_days
+from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, get_dieting_stocks
+from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
 
+
+default_analysis_type = ['涨停', '连板', '开盘跌停']
 
 def init_tushare():
     """
@@ -19,9 +20,10 @@ def init_tushare():
         tushare.Pro: Tushare Pro API 实例
     """
     try:
-        config = configparser.ConfigParser()
-        config.read('config.ini')  # 读取配置文件
-        ts.set_token(config['API']['tushare_token'])
+        # config = configparser.ConfigParser()
+        # config.read('config.ini')  # 读取配置文件
+        # ts.set_token(config['API']['tushare_token'])
+        ts.set_token('823b48b8fbb6f051271f07ebd1180209a077532aa14eae61cc89fcd9')
         return ts.pro_api()
     except Exception as e:
         print(f"初始化 Tushare 失败: {str(e)}")
@@ -160,7 +162,6 @@ def get_stock_next_day_performance(pre_df, base_date):
         print(f"获取次日表现数据失败: {str(e)}")
         return None
 
-
 def merge_zt_and_zaban_stocks(date):
     """
     合并涨停和炸板的股票数据
@@ -208,6 +209,8 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             stock_df = get_zt_stocks(date)
         elif analysis_type == '连板':
             stock_df = get_lianban_stocks(date)
+        elif analysis_type == '开盘跌停':
+            stock_df = get_open_dieting_stocks(date)
         else:  # '曾涨停'
             stock_df = merge_zt_and_zaban_stocks(date)
 
@@ -272,7 +275,7 @@ def zt_analysis(start_date=None, end_date=None):
         daily_results[date] = {}
         print(f"\n开始分析个股: {date}")
 
-        for analysis_type in ['涨停', '连板']:
+        for analysis_type in default_analysis_type:
             stats = analyze_zt_stocks_performance(date, analysis_type)
             if stats:
                 # 存储分析结果
@@ -334,7 +337,7 @@ def merge_and_save_analysis(dapan_stats, zt_stats, excel_path='./excel/market_an
                 record['炸板数'] = zb_count
 
                 # 添加前一日分析结果
-                for analysis_type in ['涨停', '连板']:
+                for analysis_type in default_analysis_type:
                     if analysis_type in zt_stats[date]:
                         stats = zt_stats[date][analysis_type]
                         stats_copy = stats.copy()

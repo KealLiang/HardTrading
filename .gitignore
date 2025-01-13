@@ -6,3 +6,5 @@
 /data/astocks_minute/
 /kline_charts/
 /data/indexes/
+__pycache__/
+excel/market_analysis.xlsx

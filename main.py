@@ -115,20 +115,19 @@ def find_similar_trends():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250106'
-    # end_date = '20250107'
-    end_date = None
+    start_date = '20241201'
+    end_date = '20241223'
+    # end_date = None
     fupan_all_statistics(start_date, end_date)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20241202', '20250110', './excel/market_analysis_all.xlsx')
+    plot_all('20241206', '20250113', './excel/market_analysis.xlsx')
     # plot_all()
 
-
 if __name__ == '__main__':
-    # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    fupan_statistics_to_excel()
+    # fupan_statistics_excel_plot()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
