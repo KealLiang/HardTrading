@@ -11,7 +11,7 @@ from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_
 from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
 
 
-default_analysis_type = ['涨停', '连板', '开盘跌停']
+default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停']
 
 def init_tushare():
     """
@@ -211,6 +211,8 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             stock_df = get_lianban_stocks(date)
         elif analysis_type == '开盘跌停':
             stock_df = get_open_dieting_stocks(date)
+        elif analysis_type == '跌停':
+            stock_df = get_dieting_stocks(date)
         else:  # '曾涨停'
             stock_df = merge_zt_and_zaban_stocks(date)
 
