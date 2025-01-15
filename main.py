@@ -11,6 +11,8 @@ from fetch.converter import backtrade_form
 from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
     find_top_yyb_trades
+from fetch.tonghuashun.fupan import all_fupan
+from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_longtou import find_dragon_stocks
 
@@ -113,21 +115,36 @@ def find_similar_trends():
     find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
 
 
+def fetch_ths_fupan():
+    start_date = "20250101"
+    all_fupan(start_date)
+
+
+def draw_ths_fupan():
+    start_date = '20241201'  # 开始日期
+    # end_date = '20241101'  # 结束日期
+    end_date = None
+    draw_fupan_lb(start_date, end_date)
+
+
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20241125'
-    end_date = '20241201'
+    start_date = '20250113'
+    end_date = '20250115'
     # end_date = None
     fupan_all_statistics(start_date, end_date)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250101', '20250114', './excel/market_analysis.xlsx')
+    plot_all('20250106', '20250115', './excel/market_analysis.xlsx')
     # plot_all()
 
+
 if __name__ == '__main__':
-    fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    # fupan_statistics_to_excel()
+    fupan_statistics_excel_plot()
+    # fetch_ths_fupan()
+    # draw_ths_fupan()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()

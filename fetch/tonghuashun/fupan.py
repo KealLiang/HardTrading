@@ -276,9 +276,7 @@ def daily_fupan(fupan_type, start_date, end_date):
         save_to_excel(dataframes, dates, fupan_type)
 
 
-def all_fupan():
-    # 输入需要复盘的日期
-    start_date = "20241101"
+def all_fupan(start_date=None, end_date=None):
     # end_date = "20241201"
     end_date = datetime.now().strftime('%Y%m%d')
     for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据']:
@@ -290,5 +288,6 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 添加 utils 模块所在的目录到 sys.path
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-    
-    all_fupan()
+
+    start_date = "20250101"
+    all_fupan(start_date)

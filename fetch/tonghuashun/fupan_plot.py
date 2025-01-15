@@ -91,24 +91,23 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
     ax.set_xlabel("日期", fontsize=12)
     ax.set_ylabel("天数", fontsize=12)
     ax.set_xticks(lianban_dates)  # 设置横轴刻度为所有日期
-    ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in lianban_dates], rotation=45, fontsize=9)
+    ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in lianban_dates], rotation=45, fontsize=9, ha='right')
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置y轴刻度为整数
     ax.legend()
-    plt.xticks(rotation=45)
     plt.tight_layout()
     plt.show()
     # plt.savefig("fupan_lb.png", format='png')
     # plt.close()
 
 
-def draw_fupan_lb():
+def draw_fupan_lb(start_date=None, end_date=None):
     # 示例调用
     fupan_file = "./excel/fupan_stocks.xlsx"
-    start_date = '20241201'  # 开始日期
-    # end_date = '20241101'  # 结束日期
-    end_date = None
     read_and_plot_data(fupan_file, start_date, end_date)
 
 
 if __name__ == '__main__':
-    draw_fupan_lb()
+    start_date = '20241201'  # 开始日期
+    # end_date = '20241101'  # 结束日期
+    end_date = None
+    draw_fupan_lb(start_date, end_date)
