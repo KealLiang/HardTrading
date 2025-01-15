@@ -139,15 +139,15 @@ def plot_zt_next_day_performance(df, save_path):
     ax1.plot(x, df['连板_次日收盘'], 'b--s', label='连板股收盘', alpha=0.5)
 
     # 绘制上涨比例（次坐标轴）
-    bar_width = 0.25
+    bar_width = 0.15
     ax2.bar(x - 1.5 * bar_width, df['涨停_次日开盘上涨比例'],
                      bar_width, alpha=0.3, color='red', label='涨停次日开盘上涨')
     ax2.bar(x - 0.5 * bar_width, df['连板_次日开盘上涨比例'],
                      bar_width, alpha=0.3, color='blue', label='连板次日开盘上涨')
     ax2.bar(x + 0.5 * bar_width, df['涨停_次日收盘上涨比例'],
-                     bar_width, alpha=0.3, color='red', label='涨停次日收盘上涨')
+                     bar_width, alpha=0.3, color='red', label='涨停次日收盘上涨', hatch='+', edgecolor='white')
     ax2.bar(x + 1.5 * bar_width, df['连板_次日收盘上涨比例'],
-                     bar_width, alpha=0.3, color='blue', label='连板次日收盘上涨')
+                     bar_width, alpha=0.3, color='blue', label='连板次日收盘上涨', hatch='+', edgecolor='white')
 
     # 设置标签和标题
     ax1.set_xlabel('日期')
@@ -183,7 +183,7 @@ def plot_zt_next_day_performance(df, save_path):
     ax1.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f'{save_path}_zt_next_day.png')
+    plt.savefig(f'{save_path}_next_day_zt.png')
     plt.close()
 
 
@@ -198,32 +198,24 @@ def plot_dt_next_day_performance(df, save_path):
     # 设置x轴位置
     x = np.arange(len(df))
 
-    # 绘制涨停股的次日表现（主坐标轴）
-    ax1.plot(x, df['涨停_次日开盘'], 'r-o', label='涨停股开盘', linewidth=2)
-    ax1.plot(x, df['涨停_次日收盘'], 'r--o', label='涨停股收盘', alpha=0.5)
-
-    # 绘制连板股的次日表现（主坐标轴）
-    ax1.plot(x, df['连板_次日开盘'], 'b-s', label='连板股开盘', linewidth=2)
-    ax1.plot(x, df['连板_次日收盘'], 'b--s', label='连板股收盘', alpha=0.5)
-
     # 绘制跌停开的次日表现（主坐标轴）
     ax1.plot(x, df['开盘跌停_次日开盘'], 'c-p', label='跌停开开盘', linewidth=2)
-    ax1.plot(x, df['开盘跌停_次日最高'], 'c--p', label='跌停开最高', alpha=0.5)
+    ax1.plot(x, df['开盘跌停_次日实体'], 'c--p', label='跌停开实体', alpha=0.5)
 
     # 绘制跌停股的次日表现（主坐标轴）
     ax1.plot(x, df['跌停_次日开盘'], 'g-x', label='跌停股开盘', linewidth=2)
     ax1.plot(x, df['跌停_次日实体'], 'g--x', label='跌停股实体', alpha=0.5)
 
     # 绘制上涨比例（次坐标轴）
-    bar_width = 0.2
-    ax2.bar(x - 1.5 * bar_width, df['涨停_次日开盘上涨比例'],
-                     bar_width, alpha=0.3, color='red', label='涨停次日开盘上涨')
-    ax2.bar(x - 0.5 * bar_width, df['连板_次日收盘上涨比例'],
-                     bar_width, alpha=0.3, color='blue', label='连板次日收盘上涨')
-    ax2.bar(x + 0.5 * bar_width, df['开盘跌停_次日开盘上涨比例'],
+    bar_width = 0.15
+    ax2.bar(x - 1.5 * bar_width, df['开盘跌停_次日开盘上涨比例'],
                      bar_width, alpha=0.3, color='cyan', label='跌停开次日开盘上涨')
+    ax2.bar(x - 0.5 * bar_width, df['跌停_次日开盘上涨比例'],
+                     bar_width, alpha=0.3, color='green', label='跌停次日开盘上涨')
+    ax2.bar(x + 0.5 * bar_width, df['开盘跌停_次日实体上涨比例'],
+                     bar_width, alpha=0.3, color='cyan', label='跌停开次日实体上涨', hatch='+', edgecolor='white')
     ax2.bar(x + 1.5 * bar_width, df['跌停_次日实体上涨比例'],
-                     bar_width, alpha=0.3, color='green', label='跌停次日实体上涨')
+                     bar_width, alpha=0.3, color='green', label='跌停次日实体上涨', hatch='+', edgecolor='white')
 
     # 设置标签和标题
     ax1.set_xlabel('日期')
@@ -237,8 +229,8 @@ def plot_dt_next_day_performance(df, save_path):
                         rotation=45, ha='right')
 
     # 安全地设置y轴范围
-    min_val = df[['涨停_次日最低', '连板_次日最低', '开盘跌停_次日最低', '跌停_次日最低']].min().min()
-    max_val = df[['涨停_次日最高', '连板_次日最高', '开盘跌停_次日最高', '跌停_次日最高']].max().max()
+    min_val = df[['开盘跌停_次日最低', '跌停_次日最低']].min().min()
+    max_val = df[['开盘跌停_次日实体', '跌停_次日实体']].max().max()
 
     # 处理无效值
     if pd.isna(min_val) or pd.isna(max_val):
@@ -259,7 +251,7 @@ def plot_dt_next_day_performance(df, save_path):
     ax1.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(f'{save_path}_dt_next_day.png')
+    plt.savefig(f'{save_path}_next_day_dt.png')
     plt.close()
 
 
