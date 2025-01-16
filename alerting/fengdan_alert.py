@@ -7,6 +7,13 @@ from pytdx.hq import TdxHq_API
 tdx_host = '202.96.138.90'
 
 def test_pytdx_connection(stock_code='000001', retries=3):
+    """
+    pytdx 提供了命令行工具，可以验证host连通性
+    命令 > hqget --all
+    :param stock_code:
+    :param retries:
+    :return:
+    """
     api = TdxHq_API()
     market_code = 0 if stock_code.startswith(('0', '3')) else 1
 
