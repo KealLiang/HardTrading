@@ -148,11 +148,11 @@ class LimitMonitor:
 
                     if prev_buy1_amount and (prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
                         print(f"警告！买一封单额减少超过{self.decrease_ratio * 100}%！")
-                        winsound.Beep(1000, 500)  # 发出声音，频率1000Hz，持续500毫秒
+                        winsound.Beep(500, 1000)
 
                     if prev_sell1_amount and (prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
                         print(f"警告！卖一封单额减少超过{self.decrease_ratio * 100}%！")
-                        winsound.Beep(1000, 500)
+                        winsound.Beep(1500, 1000)
 
                     prev_buy1_amount = buy1_amount
                     prev_sell1_amount = sell1_amount
