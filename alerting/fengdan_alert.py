@@ -57,7 +57,7 @@ def test_pytdx_connection(stock_code='000001', retries=3):
 
 class LimitMonitor:
     def __init__(self, stock_code, decrease_ratio=0.05, trade_date=None):
-        self.webhoook_url = ""
+        self.webhoook_url = ''
         self.stock_code = stock_code
         self.decrease_ratio = decrease_ratio
         self.trade_date = trade_date if trade_date else time.strftime("%Y%m%d")
@@ -174,14 +174,14 @@ class LimitMonitor:
                     if prev_buy1_amount and (prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】买(buy)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
-                        winsound.Beep(500, 1000)
                         self.send_feishu_alert(msg)
+                        winsound.Beep(500, 1000)
 
                     if prev_sell1_amount and cur_price == self.lower_limit_price and (prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】卖(sell)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
-                        winsound.Beep(1500, 1000)
                         self.send_feishu_alert(msg)
+                        winsound.Beep(1500, 1000)
 
                     prev_buy1_amount = buy1_amount
                     prev_sell1_amount = sell1_amount
@@ -237,4 +237,4 @@ if __name__ == '__main__':
     # 监控板上单
     stock_codes = ['002122', '002543', '002578', 
                    '002636', '002691', '002861', '002917']
-    monitor_multiple_stocks(stock_codes, 0.03)
+    monitor_multiple_stocks(stock_codes, 0.05)
