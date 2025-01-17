@@ -137,7 +137,9 @@ def get_stock_next_day_performance(pre_df, base_date):
 
                 if stock_data is not None and not stock_data.empty and len(stock_data) >= 2:
                     # 正确访问DataFrame的数据
-                    base_price = float(stock_data['close'].iloc[0])
+                    prev_data = stock_data.iloc[0]
+                    base_price = float(prev_data['close'])
+                    base_open_price = float(prev_data['open'])
                     next_data = stock_data.iloc[1]
                     today_base = float(next_data['open'])
 
@@ -147,13 +149,17 @@ def get_stock_next_day_performance(pre_df, base_date):
                     high_change = (float(next_data['high']) - base_price) / base_price * 100
                     low_change = (float(next_data['low']) - base_price) / base_price * 100
                     today_change = (float(next_data['close']) - today_base) / today_base * 100
+                    open_porfit = (float(next_data['open']) - base_open_price) / base_open_price * 100
+                    close_porfit = (float(next_data['close']) - base_open_price) / base_open_price * 100
 
                     result[stock_code] = {
                         't+1开盘涨跌幅': round(open_change, 2),
                         't+1收盘涨跌幅': round(close_change, 2),
                         't+1最高价涨跌幅': round(high_change, 2),
                         't+1最低价涨跌幅': round(low_change, 2),
-                        't+1实体涨跌幅': round(today_change, 2)
+                        't+1实体涨跌幅': round(today_change, 2),
+                        't+1开盘盈利': round(open_porfit, 2),
+                        't+1收盘盈利': round(close_porfit, 2)
                     }
                 else:
                     print(f"未获取到股票 {stock_code} 的完整数据")
@@ -238,6 +244,8 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
         high_changes = [data['t+1最高价涨跌幅'] for data in performance.values()]
         low_changes = [data['t+1最低价涨跌幅'] for data in performance.values()]
         today_changes = [data['t+1实体涨跌幅'] for data in performance.values()]
+        open_profit = [data['t+1开盘盈利'] for data in performance.values()]
+        close_profit = [data['t+1收盘盈利'] for data in performance.values()]
 
         # 计算统计指标
         stats = {
@@ -248,9 +256,13 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             '次日最高': round(sum(high_changes) / len(high_changes), 2),
             '次日最低': round(sum(low_changes) / len(low_changes), 2),
             '次日实体': round(sum(today_changes) / len(today_changes), 2),
+            '次日开盘盈利': round(sum(open_profit) / len(open_profit), 2),
+            '次日收盘盈利': round(sum(close_profit) / len(close_profit), 2),
             '次日开盘上涨比例': round(len([x for x in open_changes if x > 0]) / len(open_changes) * 100, 2),
             '次日收盘上涨比例': round(len([x for x in close_changes if x > 0]) / len(close_changes) * 100, 2),
             '次日实体上涨比例': round(len([x for x in today_changes if x > 0]) / len(today_changes) * 100, 2),
+            '次日开盘盈利比例': round(len([x for x in open_profit if x > 0]) / len(open_profit) * 100, 2),
+            '次日收盘盈利比例': round(len([x for x in close_profit if x > 0]) / len(close_profit) * 100, 2),
             '详细数据': performance
         }
 
@@ -305,6 +317,7 @@ def zt_analysis(start_date=None, end_date=None):
                 print(f"T+1日平均最低价涨跌幅: {stats['次日最低']}%")
                 print(f"T+1日开盘上涨比例: {stats['次日开盘上涨比例']}%")
                 print(f"T+1日收盘上涨比例: {stats['次日收盘上涨比例']}%")
+                print(f"T+1日开盘盈利比例: {stats['次日开盘盈利比例']}%")
 
     return daily_results
 
