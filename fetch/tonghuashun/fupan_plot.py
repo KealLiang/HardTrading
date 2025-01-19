@@ -10,9 +10,10 @@ plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
 
 
 def read_and_plot_data(fupan_file, start_date=None, end_date=None):
-    # 读取 Excel 中的两个 sheet：连板数据和跌停数据
+    # 读取 Excel 中的三个 sheet：连板数据、跌停数据和首板数据
     lianban_data = pd.read_excel(fupan_file, sheet_name="连板数据", index_col=0)
     dieting_data = pd.read_excel(fupan_file, sheet_name="跌停数据", index_col=0)
+    shouban_data = pd.read_excel(fupan_file, sheet_name="首板数据", index_col=0)
 
     # 提取日期列
     dates = lianban_data.columns
@@ -34,6 +35,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
     # 初始化结果存储
     lianban_results = []  # 存储连续涨停天数最大值及其股票
     dieting_results = []  # 存储连续跌停天数最大值及其股票
+    shouban_counts = []   # 存储每日首板数量
 
     # 逐列提取数据
     for date in dates:
@@ -64,6 +66,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
         max_dieting_stocks = dieting_df[dieting_df['连续跌停天数'] == max_dieting]['股票简称'].tolist()
         dieting_results.append((date, -max_dieting, max_dieting_stocks))  # 跌停天数为负数
 
+        # 首板数据处理
+        shouban_col = shouban_data[date].dropna()  # 去除空单元格
+        shouban_counts.append(len(shouban_col))  # 统计每日首板数量
+
     # 绘图
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -85,15 +91,21 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
         ax.text(lianban_dates[i], dieting_days[i], txt.replace(', ', '\n'),
                 ha='left', va='bottom', fontsize=7)  # 用换行符分隔，右上方显示
 
+    # 添加副坐标轴并绘制首板数量折线
+    ax2 = ax.twinx()  # 创建副坐标轴
+    ax2.plot(lianban_dates, shouban_counts, label='首板数量', color='blue', marker='p', linestyle='--', alpha=0.1)
+    ax2.set_ylabel('数量', fontsize=12)  # 设置副 y 轴标签
+
     # 设置图表信息
     ax.axhline(0, color='black', linewidth=0.8, linestyle='--')  # 添加水平参考线
-    ax.set_title("连板/跌停个股走势", fontsize=16)
+    ax.set_title("连板/跌停/首板个股走势", fontsize=16)
     ax.set_xlabel("日期", fontsize=12)
     ax.set_ylabel("天数", fontsize=12)
     ax.set_xticks(lianban_dates)  # 设置横轴刻度为所有日期
     ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in lianban_dates], rotation=45, fontsize=9, ha='right')
-    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置y轴刻度为整数
-    ax.legend()
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置 y 轴刻度为整数
+    ax.legend(loc='upper left')  # 主 y 轴图例
+    ax2.legend(loc='upper right')  # 副 y 轴图例
     plt.tight_layout()
     plt.show()
     # plt.savefig("fupan_lb.png", format='png')
