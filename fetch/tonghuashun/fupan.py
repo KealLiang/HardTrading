@@ -20,6 +20,8 @@ def query_wencai(param):
 def get_fanbao_stocks(date):
     param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
     df = query_wencai(param)
+    if df is None:
+        return pd.DataFrame()
 
     selected_columns = [
         '股票代码', '股票简称', f'低开[{date}]', f'实体涨跌幅[{date}]',
