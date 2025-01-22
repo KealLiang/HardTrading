@@ -64,6 +64,7 @@ class LimitMonitor:
         self.api = TdxHq_API()
         self.stop_event = threading.Event()
         self.stock_name = self.get_stock_name()
+        self.price_threshold = 0.01
 
         self.previous_close_price = self.get_previous_close_price()
         self.upper_limit_price, self.lower_limit_price = self.calculate_limit_prices()
@@ -171,17 +172,17 @@ class LimitMonitor:
                         counter = 0
 
                     #  and cur_price == self.upper_limit_price
-                    if prev_buy1_amount and (prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
+                    if prev_buy1_amount and abs(cur_price - self.upper_limit_price) <= self.price_threshold and (prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】买(buy)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
                         self.send_feishu_alert(msg)
-                        winsound.Beep(500, 1000)
+                        winsound.Beep(500, 500)
 
-                    if prev_sell1_amount and cur_price == self.lower_limit_price and (prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
+                    if prev_sell1_amount and abs(cur_price - self.lower_limit_price) <= self.price_threshold and (prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】卖(sell)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
                         self.send_feishu_alert(msg)
-                        winsound.Beep(1500, 1000)
+                        winsound.Beep(1500, 500)
 
                     prev_buy1_amount = buy1_amount
                     prev_sell1_amount = sell1_amount
@@ -235,6 +236,5 @@ if __name__ == '__main__':
     # test_pytdx()
     
     # 监控板上单
-    stock_codes = ['002122', '002543', '002578', 
-                   '002636', '002691', '002861', '002917']
+    stock_codes = ['600539', '600358', '603511', '600636']
     monitor_multiple_stocks(stock_codes, 0.05)
