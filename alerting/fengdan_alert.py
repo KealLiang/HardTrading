@@ -1,16 +1,17 @@
+import json
+import logging
 import threading
 import time
-import winsound
-import logging
-import requests
-import json
 
 import akshare as ak
+import requests
+import winsound
 from pytdx.hq import TdxHq_API
 
 tdx_host = '202.96.138.90'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 def test_pytdx_connection(stock_code='000001', retries=3):
     """
@@ -55,8 +56,9 @@ def test_pytdx_connection(stock_code='000001', retries=3):
     print(f"重试 {retries} 次后仍未成功连接或获取数据")
     return False
 
+
 class LimitMonitor:
-    def __init__(self, stock_code, decrease_ratio=0.05, trade_date=None):
+    def __init__(self, stock_code, decrease_ratio=0.05, trade_date=None, push_msg=True):
         self.webhoook_url = ''
         self.stock_code = stock_code
         self.decrease_ratio = decrease_ratio
@@ -65,6 +67,7 @@ class LimitMonitor:
         self.stop_event = threading.Event()
         self.stock_name = self.get_stock_name()
         self.price_threshold = 0.01
+        self.push_msg = push_msg
 
         self.previous_close_price = self.get_previous_close_price()
         self.upper_limit_price, self.lower_limit_price = self.calculate_limit_prices()
@@ -72,7 +75,7 @@ class LimitMonitor:
     def get_stock_name(self):
         stock_info = ak.stock_individual_info_em(symbol=self.stock_code)
         return stock_info[stock_info['item'] == '股票简称']['value'].values[0]
-    
+
     def get_previous_close_price(self):
         try:
             self.connect_to_api()
@@ -130,7 +133,7 @@ class LimitMonitor:
 
             bid1_amount = bid1 * bid_vol1
             ask1_amount = ask1 * ask_vol1
-            
+
             cur_price = market_data['price']
 
             return bid1, bid1_amount, ask1, ask1_amount, cur_price
@@ -141,6 +144,8 @@ class LimitMonitor:
             self.api.disconnect()
 
     def send_feishu_alert(self, message):
+        if self.push_msg is False:
+            return
         headers = {
             'Content-Type': 'application/json'
         }
@@ -167,18 +172,20 @@ class LimitMonitor:
                     buy1_price, buy1_amount, sell1_price, sell1_amount, cur_price = real_time_data
                     counter += 1
                     if counter >= 5:
-                        logging.info(f"[{self.stock_name} {self.stock_code}]".ljust(20) + 
-                                     f"买一价: {buy1_price:<8} 买一额: {float(buy1_amount)/100:<8.2f}万元；\t卖一价: {sell1_price:<8} 卖一额: {float(sell1_amount)/100:<8.2f}万元")
+                        logging.info(f"[{self.stock_name} {self.stock_code}]".ljust(20) +
+                                     f"买一价: {buy1_price:<8} 买一额: {float(buy1_amount) / 100:<8.2f}万元；\t卖一价: {sell1_price:<8} 卖一额: {float(sell1_amount) / 100:<8.2f}万元")
                         counter = 0
 
                     #  and cur_price == self.upper_limit_price
-                    if prev_buy1_amount and abs(cur_price - self.upper_limit_price) <= self.price_threshold and (prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
+                    if prev_buy1_amount and abs(cur_price - self.upper_limit_price) <= self.price_threshold and (
+                            prev_buy1_amount - buy1_amount) / prev_buy1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】买(buy)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
                         self.send_feishu_alert(msg)
                         winsound.Beep(500, 500)
 
-                    if prev_sell1_amount and abs(cur_price - self.lower_limit_price) <= self.price_threshold and (prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
+                    if prev_sell1_amount and abs(cur_price - self.lower_limit_price) <= self.price_threshold and (
+                            prev_sell1_amount - sell1_amount) / prev_sell1_amount >= self.decrease_ratio:
                         msg = f"警告！【{self.stock_name} {self.stock_code}】卖(sell)一额减少超过{self.decrease_ratio * 100}%！"
                         logging.error(msg)
                         self.send_feishu_alert(msg)
@@ -201,12 +208,13 @@ class LimitMonitor:
         logging.info(f"停止监控股票: {self.stock_code}")
         self.stop_event.set()
 
-def monitor_multiple_stocks(stock_codes, decrease_ratio=0.05):
+
+def monitor_multiple_stocks(stock_codes, decrease_ratio=0.05, push_msg=True):
     monitors = []
     threads = []
 
     for code in stock_codes:
-        monitor = LimitMonitor(code, decrease_ratio)
+        monitor = LimitMonitor(code, decrease_ratio, push_msg)
         monitors.append(monitor)
         thread = threading.Thread(target=monitor.start_monitoring)
         threads.append(thread)
@@ -224,6 +232,7 @@ def monitor_multiple_stocks(stock_codes, decrease_ratio=0.05):
         for thread in threads:
             thread.join()
 
+
 def test_pytdx():
     stock_code = '002265'
     if test_pytdx_connection(stock_code):
@@ -231,10 +240,11 @@ def test_pytdx():
     else:
         print("pytdx 连接失败，请检查网络或服务器状态。")
 
+
 if __name__ == '__main__':
     # 检查 pytdx 连接
     # test_pytdx()
-    
+
     # 监控板上单
     stock_codes = ['600539', '600358', '603511', '600636']
-    monitor_multiple_stocks(stock_codes, 0.05)
+    monitor_multiple_stocks(stock_codes, 0.05, False)
