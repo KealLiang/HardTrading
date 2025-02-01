@@ -142,10 +142,9 @@ def get_open_dieting_stocks(date):
     if df is None:
         return pd.DataFrame()
 
-    now_date = datetime.now().strftime('%Y%m%d')
     # 选择需要的列
     selected_columns = [
-        '股票代码', '股票简称', '最新价', f'跌停价[{date}]', f'跌停价[{now_date}]'
+        '股票代码', '股票简称', '最新价', f'跌停价[{date}]'
     ]
     dt_df = df[selected_columns]
 
