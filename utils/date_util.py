@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pandas_market_calendars as mcal
+import pandas as pd
 
 
 def get_trading_days(start_date: str, end_date: str):
@@ -74,6 +75,12 @@ def get_prev_trading_day(date: str) -> str:
         
         # 获取从输入日期前15天到输入日期的交易日
         prev_days = sse.valid_days(start_date=date_dt - timedelta(days=15), end_date=date_dt)
+        
+        # 手动排除特定的节假日日期
+        print(prev_days)
+        custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC')]
+        prev_days = [day for day in prev_days if day not in custom_holidays]
+        print(prev_days)
         
         # 如果没有找到足够的交易日，返回None
         if len(prev_days) < 2:
