@@ -116,12 +116,12 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250101"
+    start_date = "20250205"
     all_fupan(start_date)
 
 
 def draw_ths_fupan():
-    start_date = '20241201'  # 开始日期
+    start_date = '20250115'  # 开始日期
     # end_date = '20241101'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -129,14 +129,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250113'
-    end_date = '20250115'
-    # end_date = None
+    start_date = '20250125'
+    # end_date = '20250128'
+    end_date = None
     fupan_all_statistics(start_date, end_date)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250106', '20250115', './excel/market_analysis.xlsx')
+    plot_all('20250115', '20250206', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -145,6 +145,7 @@ if __name__ == '__main__':
     fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
+    # get_hot_clouds()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
@@ -152,6 +153,5 @@ if __name__ == '__main__':
     # find_similar_trends()
     # get_stock_datas()
     # get_stock_minute_datas()
-    # get_hot_clouds()
     # find_dragon()
     # get_stock_concept_and_industry()
