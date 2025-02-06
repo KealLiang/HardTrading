@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-import pandas_market_calendars as mcal
 import pandas as pd
+import pandas_market_calendars as mcal
 
 
 def get_trading_days(start_date: str, end_date: str):
@@ -21,9 +21,10 @@ def get_trading_days(start_date: str, end_date: str):
 
     # 获取交易日历
     trading_days = sse.valid_days(start_date=start_date_dt, end_date=end_date_dt)
+    trading_days = remove_holidays(trading_days)
 
     # 将交易日转换为字符串列表
-    trading_days_list = trading_days.strftime('%Y%m%d').tolist()
+    trading_days_list = [pd.to_datetime(date).strftime('%Y%m%d') for date in trading_days]
 
     return trading_days_list
 
@@ -39,20 +40,21 @@ def get_next_trading_day(date: str) -> str:
     try:
         # 将输入日期转换为datetime对象
         date_dt = datetime.strptime(date, '%Y%m%d')
-        
+
         # 获取A股市场日历
         sse = mcal.get_calendar('SSE')
-        
-        # 获取从输入日期开始的5个交易日（足够找到下一个交易日）
-        next_days = sse.valid_days(start_date=date_dt, end_date=date_dt + timedelta(days=5))
-        
+
+        # 获取从输入日期开始的15个交易日（足够找到下一个交易日）
+        next_days = sse.valid_days(start_date=date_dt, end_date=date_dt + timedelta(days=15))
+        next_days = remove_holidays(next_days)
+
         # 如果没有找到交易日，返回None
         if len(next_days) < 2:
             return None
-            
+
         # 返回下一个交易日
         return next_days[1].strftime('%Y%m%d')
-        
+
     except Exception as e:
         print(f"获取下一个交易日时出错: {str(e)}")
         return None
@@ -69,26 +71,29 @@ def get_prev_trading_day(date: str) -> str:
     try:
         # 将输入日期转换为datetime对象
         date_dt = datetime.strptime(date, '%Y%m%d')
-        
+
         # 获取A股市场日历
         sse = mcal.get_calendar('SSE')
-        
+
         # 获取从输入日期前15天到输入日期的交易日
         prev_days = sse.valid_days(start_date=date_dt - timedelta(days=15), end_date=date_dt)
-        
+
         # 手动排除特定的节假日日期
-        print(prev_days)
-        custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC')]
-        prev_days = [day for day in prev_days if day not in custom_holidays]
-        print(prev_days)
-        
+        prev_days = remove_holidays(prev_days)
+
         # 如果没有找到足够的交易日，返回None
         if len(prev_days) < 2:
             return None
-            
+
         # 返回前一个交易日
         return prev_days[-2].strftime('%Y%m%d')
-        
+
     except Exception as e:
         print(f"获取前一个交易日时出错: {str(e)}")
         return None
+
+
+def remove_holidays(prev_days):
+    custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC')]
+    prev_days = [day for day in prev_days if day not in custom_holidays]
+    return prev_days
