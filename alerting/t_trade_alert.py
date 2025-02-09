@@ -27,7 +27,7 @@ class TMonitorConfig:
     MACD_SIGNAL = 9
 
     # 信号检测参数
-    EXTREME_WINDOW = 30  # 窗口大小
+    EXTREME_WINDOW = 20  # 窗口大小
     PRICE_DIFF_THRESHOLD = 0.02  # 价格最小变动幅度（2%）
     MACD_DIFF_THRESHOLD = 0.15  # MACD最小变动幅度（15%）
 
@@ -140,13 +140,74 @@ class TMonitor:
 
         return high_indices[-2:], low_indices[-2:]
 
+    def _find_extremes_improved(self, df, order=5, tolerance=2):
+        """
+        改进的极值点检测：
+        - 仅使用当前及过去的K线（order+1根）判断局部极值，避免未来数据。
+        - 在匹配价格极值和MACD极值时，允许一个时间（索引）容差 tolerance。
+
+        参数：
+          - order: 计算局部极值时，使用过去 `order` 根K线进行比较。
+          - tolerance: 价格极值和 MACD 极值之间允许的最大周期差。
+        参数取值建议：
+          - 震荡或盘整突破：order 5~7, tolerance 1~2
+          - 单边趋势型走势：order 8~10, tolerance 2~3
+          - 低波动市场：order 3~5, tolerance 1
+        返回：
+          - high_pairs: 最近两组匹配的顶部极值对 [(price_index, macd_index), ...]
+          - low_pairs: 最近两组匹配的底部极值对 [(price_index, macd_index), ...]
+        """
+        # 仅使用必要的数据列
+        if 'high' not in df.columns or 'low' not in df.columns or 'macd' not in df.columns:
+            return [], []
+
+        # 仅利用过去数据：对于每个当前点i，只看其前order根K线加上当前点，共order+1根数据
+        price_high_indices = [
+            i for i in range(order, len(df))
+            if df['high'].iloc[i] == max(df['high'].iloc[i - order:i + 1])
+        ]
+        price_low_indices = [
+            i for i in range(order, len(df))
+            if df['low'].iloc[i] == min(df['low'].iloc[i - order:i + 1])
+        ]
+        macd_high_indices = [
+            i for i in range(order, len(df))
+            if df['macd'].iloc[i] == max(df['macd'].iloc[i - order:i + 1])
+        ]
+        macd_low_indices = [
+            i for i in range(order, len(df))
+            if df['macd'].iloc[i] == min(df['macd'].iloc[i - order:i + 1])
+        ]
+
+        # 根据容差将价格极值与MACD极值匹配
+        high_pairs = []
+        for ph in price_high_indices:
+            possible_macd = [mh for mh in macd_high_indices if abs(mh - ph) <= tolerance]
+            if possible_macd:
+                mh = min(possible_macd, key=lambda x: abs(x - ph))
+                high_pairs.append((ph, mh))
+
+        low_pairs = []
+        for pl in price_low_indices:
+            possible_macd = [ml for ml in macd_low_indices if abs(ml - pl) <= tolerance]
+            if possible_macd:
+                ml = min(possible_macd, key=lambda x: abs(x - pl))
+                low_pairs.append((pl, ml))
+
+        # 只保留最近两个匹配点
+        high_pairs = high_pairs[-2:] if len(high_pairs) >= 2 else high_pairs
+        low_pairs = low_pairs[-2:] if len(low_pairs) >= 2 else low_pairs
+
+        return high_pairs, low_pairs
+
     def _check_divergence(self, high_pairs, low_pairs, df):
         """检测背离信号"""
         # 顶背离检测
         if len(high_pairs) >= 2:
             (ph1, mh1), (ph2, mh2) = high_pairs[-2], high_pairs[-1]
             price_diff = (df['high'].iloc[ph2] - df['high'].iloc[ph1]) / df['high'].iloc[ph1]
-            macd_diff = (df['macd'].iloc[mh1] - df['macd'].iloc[mh2]) / abs(df['macd'].iloc[mh1])
+            base_macd = abs(df['macd'].iloc[mh1])
+            macd_diff = (df['macd'].iloc[mh1] - df['macd'].iloc[mh2]) / max(base_macd, 1e-6)  # 避免除0
 
             if price_diff > TMonitorConfig.PRICE_DIFF_THRESHOLD and \
                     macd_diff > TMonitorConfig.MACD_DIFF_THRESHOLD:
@@ -156,7 +217,8 @@ class TMonitor:
         if len(low_pairs) >= 2:
             (pl1, ml1), (pl2, ml2) = low_pairs[-2], low_pairs[-1]
             price_diff = (df['low'].iloc[pl1] - df['low'].iloc[pl2]) / df['low'].iloc[pl1]
-            macd_diff = (df['macd'].iloc[ml2] - df['macd'].iloc[ml1]) / abs(df['macd'].iloc[ml1])
+            base_macd = abs(df['macd'].iloc[ml1])
+            macd_diff = (df['macd'].iloc[ml2] - df['macd'].iloc[ml1]) / max(base_macd, 1e-6)  # 避免除0
 
             if price_diff > TMonitorConfig.PRICE_DIFF_THRESHOLD and \
                     macd_diff > TMonitorConfig.MACD_DIFF_THRESHOLD:
@@ -176,10 +238,13 @@ class TMonitor:
             print(f"{self.symbol} 连接服务器失败")
             return
 
+        order = 7
+        tolerance = 2
+        min_bars_required = max(TMonitorConfig.EXTREME_WINDOW, 2 * order)  # 需要一定的历史数据才能计算macd
         while not self.stop_event.is_set():  # 检查停止标志
             try:
                 df = self._get_realtime_bars()
-                if df is None or len(df) < TMonitorConfig.EXTREME_WINDOW:
+                if df is None or len(df) < min_bars_required:
                     sys_time.sleep(60)
                     continue
 
@@ -187,7 +252,8 @@ class TMonitor:
                 df['dif'], df['dea'], df['macd'] = self._calculate_macd(df)
 
                 # 信号检测
-                high_pairs, low_pairs = self._find_extremes(df)
+                # high_pairs, low_pairs = self._find_extremes(df)
+                high_pairs, low_pairs = self._find_extremes_improved(df, order, tolerance)
                 self._check_divergence(high_pairs, low_pairs, df)
 
                 # 控制更新频率
