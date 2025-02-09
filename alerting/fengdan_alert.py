@@ -1,12 +1,12 @@
-import json
 import logging
 import threading
 import time
 
 import akshare as ak
-import requests
 import winsound
 from pytdx.hq import TdxHq_API
+
+from alerting.push.feishu_msg import send_alert
 
 tdx_host = '202.96.138.90'
 
@@ -59,7 +59,6 @@ def test_pytdx_connection(stock_code='000001', retries=3):
 
 class LimitMonitor:
     def __init__(self, stock_code, decrease_ratio=0.05, trade_date=None, push_msg=True):
-        self.webhoook_url = ''
         self.stock_code = stock_code
         self.decrease_ratio = decrease_ratio
         self.trade_date = trade_date if trade_date else time.strftime("%Y%m%d")
@@ -144,20 +143,8 @@ class LimitMonitor:
             self.api.disconnect()
 
     def send_feishu_alert(self, message):
-        if self.push_msg is False:
-            return
-        headers = {
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'msg_type': 'text',
-            'content': {
-                'text': message
-            }
-        }
-        response = requests.post(self.webhoook_url, headers=headers, data=json.dumps(payload))
-        if response.status_code != 200:
-            raise Exception(f"Failed to send message: {response.text}")
+        if self.push_msg is True:
+            send_alert(message)
 
     def monitor_limit(self):
         prev_buy1_amount = None
