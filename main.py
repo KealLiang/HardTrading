@@ -142,9 +142,9 @@ def fupan_statistics_excel_plot():
 
 if __name__ == '__main__':
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # get_hot_clouds()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
