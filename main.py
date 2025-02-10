@@ -136,7 +136,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250115', '20250206', './excel/market_analysis.xlsx')
+    plot_all('20250115', '20250210', './excel/market_analysis.xlsx')
     # plot_all()
 
 
