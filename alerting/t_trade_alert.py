@@ -10,6 +10,7 @@ import pandas as pd
 from pytdx.hq import TdxHq_API
 
 from alerting.push.feishu_msg import send_alert
+from utils.stock_util import convert_stock_code
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -39,7 +40,7 @@ class TMonitorConfig:
 class TMonitor:
     """做T监控器核心类"""
 
-    def __init__(self, symbol, stop_event, push_msg=True):
+    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
@@ -51,6 +52,11 @@ class TMonitor:
         self.stock_name = self.stock_info.get('股票简称', '未知股票')
         self.stop_event = stop_event  # 线程停止事件
         self.push_msg = push_msg
+
+        # 模式控制
+        self.is_backtest = is_backtest
+        self.backtest_start = backtest_start
+        self.backtest_end = backtest_end
 
     def _get_stock_info(self):
         """获取股票基本信息"""
@@ -90,6 +96,23 @@ class TMonitor:
             return self._process_raw_data(data)
         except Exception as e:
             print(f"获取{self.symbol}数据失败: {str(e)}")
+            return None
+
+    def _get_historical_data(self, start_time, end_time):
+        """
+        获取指定时间段的历史1分钟K线数据
+        """
+        try:
+            # 例如：使用 akshare 的股票历史数据接口，注意部分接口可能返回日K线数据
+            df = ak.stock_zh_a_minute(symbol=convert_stock_code(self.symbol), period="1", adjust="qfq")
+            df['datetime'] = pd.to_datetime(df['day'])
+            # 筛选指定时间段数据
+            start_dt = pd.to_datetime(start_time)
+            end_dt = pd.to_datetime(end_time)
+            df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+            return df.reset_index(drop=True)
+        except Exception as e:
+            print(f"获取历史数据失败: {str(e)}")
             return None
 
     def _process_raw_data(self, raw_data):
@@ -232,7 +255,7 @@ class TMonitor:
         if self.push_msg is True:
             send_alert(msg)
 
-    def run(self):
+    def _run_live(self):
         """启动监控"""
         if not self._connect_api():
             print(f"{self.symbol} 连接服务器失败")
@@ -277,14 +300,66 @@ class TMonitor:
         self.api.disconnect()
         logging.info(f"{self.symbol} 监控已安全退出")
 
+    def _run_backtest(self):
+        """回测模式：对指定时间段内的历史数据进行模拟遍历"""
+        if self.backtest_start is None or self.backtest_end is None:
+            print("回测模式下必须指定backtest_start和backtest_end")
+            return
+
+        df = self._get_historical_data(self.backtest_start, self.backtest_end)
+        if df is None or df.empty:
+            print("指定时间段内没有数据")
+            return
+
+        # 模拟逐步遍历历史数据，每次用最新的部分数据进行指标计算和信号检测
+        order = 5
+        tolerance = 3
+        min_bars_required = max(TMonitorConfig.EXTREME_WINDOW, 2 * order)  # 需要一定的历史数据才能计算macd
+        # 假设数据已按时间排序
+        for current_index in range(min_bars_required, len(df)):
+            if self.stop_event.is_set():
+                break
+            # 取从0到当前时间点的所有数据
+            df_current = df.iloc[:current_index + 1].copy()
+
+            # 指标计算
+            df_current['dif'], df_current['dea'], df_current['macd'] = self._calculate_macd(df_current)
+
+            # 信号检测
+            high_pairs, low_pairs = self._find_extremes_improved(df_current, order, tolerance)
+            self._check_divergence(high_pairs, low_pairs, df_current)
+
+            # 模拟实时：打印当前时刻数据
+            latest_close = df_current['close'].iloc[-1]
+            latest_time = df_current['datetime'].iloc[-1]
+            logging.info(f"[回测 {self.stock_name} {self.symbol}] {latest_time}  最新价:{latest_close:.2f}元")
+
+            # 模拟时间步长，可根据需求设定（例如延时0.1秒或不延时）
+            sys_time.sleep(0.1)
+
+        logging.info(f"[回测 {self.symbol}] 回测结束")
+
+    def run(self):
+        """根据模式开关启动实时监控或回测模式"""
+        if self.is_backtest:
+            logging.info(
+                f"[{self.stock_name} {self.symbol}] 启动回测模式，回测时间段：{self.backtest_start} 至 {self.backtest_end}")
+            self._run_backtest()
+        else:
+            logging.info(f"[{self.stock_name} {self.symbol}] 启动实时监控模式")
+            self._run_live()
+
 
 class MonitorManager:
     """多股票监控管理器"""
 
-    def __init__(self, symbols):
+    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None):
         self.symbols = symbols
         self.stop_event = Event()
         self.executor = ThreadPoolExecutor(max_workers=len(symbols))
+        self.is_backtest = is_backtest
+        self.backtest_start = backtest_start
+        self.backtest_end = backtest_end
 
         # 注册信号处理
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -301,7 +376,10 @@ class MonitorManager:
         """启动所有监控"""
         futures = []
         for symbol in self.symbols:
-            monitor = TMonitor(symbol, self.stop_event)
+            monitor = TMonitor(symbol, self.stop_event,
+                               is_backtest=self.is_backtest,
+                               backtest_start=self.backtest_start,
+                               backtest_end=self.backtest_end)
             futures.append(self.executor.submit(monitor.run))
 
         try:
@@ -312,9 +390,19 @@ class MonitorManager:
 
 
 if __name__ == "__main__":
-    # 示例用法
-    symbols = ['000001', '600519', '300750']  # 监控多只股票
+    # 示例用法：通过开关控制实时监控还是回测
+    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
-    manager = MonitorManager(symbols)
+    # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
+    backtest_start = "2025-02-07 09:30"
+    backtest_end = "2025-02-07 15:00"
+
+    # 监控标的
+    symbols = ['000681']  # 监控多只股票
+
+    manager = MonitorManager(symbols,
+                             is_backtest=IS_BACKTEST,
+                             backtest_start=backtest_start,
+                             backtest_end=backtest_end)
     logging.info("启动多股票监控...")
     manager.start()
