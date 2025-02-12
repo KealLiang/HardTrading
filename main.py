@@ -39,7 +39,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20241209', save_path='./data/astocks')
+    data_fetcher = StockDataFetcher(start_date='20250205', save_path='./data/astocks', max_workers=3)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -82,7 +82,7 @@ def get_top_yyb_trades():
 
 # 找龙头
 def find_dragon():
-    start_date = '2024-10-10'
+    start_date = '2024-01-15'
     end_date = '2024-06-01'
     find_dragon_stocks(start_date)
 
@@ -136,7 +136,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250115', '20250210', './excel/market_analysis.xlsx')
+    plot_all('20250115', '20250212', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -144,14 +144,14 @@ if __name__ == '__main__':
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
+    get_stock_datas()
+    # find_dragon()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_index_data()
     # find_similar_trends()
-    # get_stock_datas()
     # get_stock_minute_datas()
-    # find_dragon()
     # get_stock_concept_and_industry()
