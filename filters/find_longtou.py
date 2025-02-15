@@ -78,7 +78,7 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, data_path='./da
             find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data,
                           threshold)
 
-    long_tou_list.sort(key=lambda x: (x.status, x.start_date, x.gain), reverse=True)
+    long_tou_list.sort(key=lambda x: (x.start_date, x.status, x.gain), reverse=True)
 
     # 保存
     save_list_to_file(long_tou_list, f'./data/long_{start_date}.txt')
