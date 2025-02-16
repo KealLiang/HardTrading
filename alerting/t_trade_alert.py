@@ -40,12 +40,13 @@ class TMonitorConfig:
 class TMonitor:
     """做T监控器核心类"""
 
-    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbol, stop_event, push_msg=False, is_backtest=False, backtest_start=None, backtest_end=None):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
         """
         self.symbol = symbol
+        self.full_symbol = convert_stock_code(self.symbol)
         self.stock_info = self._get_stock_info()
         self.market = self._determine_market()
         self.api = TdxHq_API()
@@ -104,7 +105,7 @@ class TMonitor:
         """
         try:
             # 例如：使用 akshare 的股票历史数据接口，注意部分接口可能返回日K线数据
-            df = ak.stock_zh_a_minute(symbol=convert_stock_code(self.symbol), period="1", adjust="qfq")
+            df = ak.stock_zh_a_minute(symbol=self.full_symbol, period="1", adjust="qfq")
             df['datetime'] = pd.to_datetime(df['day'])
             # 筛选指定时间段数据
             start_dt = pd.to_datetime(start_time)
@@ -119,13 +120,7 @@ class TMonitor:
         """处理原始K线数据"""
         df = pd.DataFrame(raw_data)
         # 处理时间格式
-        df['datetime'] = pd.to_datetime(
-            df['year'].astype(str) + '-' +
-            df['month'].astype(str).str.zfill(2) + '-' +
-            df['day'].astype(str).str.zfill(2) + ' ' +
-            df['hour'].astype(str).str.zfill(2) + ':' +
-            df['minute'].astype(str).str.zfill(2)
-        )
+        df['datetime'] = pd.to_datetime(df['datetime']).dt.strftime('%Y-%m-%d %H:%M:%S')
         return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
 
     def _calculate_macd(self, df):
@@ -391,10 +386,10 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-07 09:30"
+    backtest_start = "2025-02-06 09:30"
     backtest_end = "2025-02-07 15:00"
 
     # 监控标的
@@ -402,6 +397,7 @@ if __name__ == "__main__":
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
+
                              backtest_start=backtest_start,
                              backtest_end=backtest_end)
     logging.info("启动多股票监控...")
