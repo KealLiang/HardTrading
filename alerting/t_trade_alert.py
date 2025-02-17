@@ -29,7 +29,8 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_THRESHOLD = 0.02  # 价格变动阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
+    PRICE_DIFF_SELL_THRESHOLD = 0.02 # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
     # 数据获取参数
@@ -40,7 +41,7 @@ class TMonitorConfig:
 class TMonitor:
     """做T监控器核心类"""
 
-    def __init__(self, symbol, stop_event, push_msg=False, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
@@ -189,10 +190,10 @@ class TMonitor:
                 if prev_slope > current_slope:
                     # 与之前所有局部峰比较顶背离：价格创新高，但MACD未随之上移
                     for p in peaks:
-                        if new_peak['price'] > p['price'] * (1 + TMonitorConfig.PRICE_DIFF_THRESHOLD) and \
+                        if new_peak['price'] > p['price'] * (1 + TMonitorConfig.PRICE_DIFF_SELL_THRESHOLD) and \
                                 new_peak['macd'] < p['macd'] * (1 - TMonitorConfig.MACD_DIFF_THRESHOLD):
                             price_diff = (new_peak['price'] - p['price']) / p['price']
-                            macd_diff = (p['macd'] - new_peak['macd']) / (abs(p['macd']) + 1e-6)
+                            macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
 
                             # 检查时间点是否已触发过信号
                             if new_peak['time'] not in self.triggered_signals:
@@ -218,10 +219,10 @@ class TMonitor:
                 if prev_slope < current_slope:
                     # 与之前所有局部谷比较底背离：价格创新低，但MACD未随之下移
                     for t in troughs:
-                        if new_trough['price'] < t['price'] * (1 - TMonitorConfig.PRICE_DIFF_THRESHOLD) and \
+                        if new_trough['price'] < t['price'] * (1 - TMonitorConfig.PRICE_DIFF_BUY_THRESHOLD) and \
                                 new_trough['macd'] > t['macd'] * (1 + TMonitorConfig.MACD_DIFF_THRESHOLD):
                             price_diff = (t['price'] - new_trough['price']) / t['price']
-                            macd_diff = (new_trough['macd'] - t['macd']) / (abs(t['macd']) + 1e-6)
+                            macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
 
                             # 检查时间点是否已触发过信号
                             if new_trough['time'] not in self.triggered_signals:
@@ -232,7 +233,7 @@ class TMonitor:
 
     def _trigger_signal(self, signal_type, price_diff, macd_diff, price, signal_time):
         """统一格式化输出信号"""
-        msg = f"[{self.stock_name} {self.symbol}] {signal_type}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{signal_time}]"
+        msg = f"【T警告】[{self.stock_name} {self.symbol}] {signal_type}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{signal_time}]"
         logging.warning(msg)
         # 飞书告警
         if self.push_msg is True:
@@ -365,14 +366,14 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-02-06 09:30"
     backtest_end = "2025-02-12 15:00"
 
     # 监控标的
-    symbols = ['000681']  # 监控多只股票
+    symbols = ['603110','000681']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
