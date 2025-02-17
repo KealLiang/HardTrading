@@ -30,7 +30,7 @@ class TMonitorConfig:
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
     PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
-    PRICE_DIFF_SELL_THRESHOLD = 0.02 # 价格变动卖出阈值
+    PRICE_DIFF_SELL_THRESHOLD = 0.02  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
     # 数据获取参数
@@ -352,6 +352,7 @@ class MonitorManager:
         futures = []
         for symbol in self.symbols:
             monitor = TMonitor(symbol, self.stop_event,
+                               push_msg=not self.is_backtest,
                                is_backtest=self.is_backtest,
                                backtest_start=self.backtest_start,
                                backtest_end=self.backtest_end)
@@ -366,14 +367,14 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-06 09:30"
-    backtest_end = "2025-02-12 15:00"
+    backtest_start = "2025-02-10 09:30"
+    backtest_end = "2025-02-17 15:00"
 
     # 监控标的
-    symbols = ['603110','000681']  # 监控多只股票
+    symbols = ['000977']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,

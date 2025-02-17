@@ -34,8 +34,9 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
 
     # 初始化结果存储
     lianban_results = []  # 存储连续涨停天数最大值及其股票
+    lianban_second_results = []  # 存储连续涨停天数次高值及其股票
     dieting_results = []  # 存储连续跌停天数最大值及其股票
-    shouban_counts = []   # 存储每日首板数量
+    shouban_counts = []  # 存储每日首板数量
 
     # 逐列提取数据
     for date in dates:
@@ -48,9 +49,17 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
             '连续涨停天数', '涨停原因类别'
         ])
         lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].astype(int)
+
+        # 提取最高连板股
         max_lianban = lianban_df['连续涨停天数'].max()
         max_lianban_stocks = lianban_df[lianban_df['连续涨停天数'] == max_lianban]['股票简称'].tolist()
+
+        # 提取次高连板股
+        second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban]['连续涨停天数'].max()
+        second_lianban_stocks = lianban_df[lianban_df['连续涨停天数'] == second_lianban]['股票简称'].tolist()
+
         lianban_results.append((date, max_lianban, max_lianban_stocks))
+        lianban_second_results.append((date, second_lianban, second_lianban_stocks))  # 存储次高连板股
 
         # 跌停数据处理
         dieting_col = dieting_data[date].dropna()  # 去除空单元格
@@ -71,15 +80,23 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
         shouban_counts.append(len(shouban_col))  # 统计每日首板数量
 
     # 绘图
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(15, 7))
 
-    # 提取数据并绘制连板折线
+    # 提取数据并绘制最高连板折线
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
     lianban_days = [item[1] for item in lianban_results]
     lianban_labels = [', '.join(item[2]) for item in lianban_results]
-    ax.plot(lianban_dates, lianban_days, label='连续涨停天数', color='red', marker='o')
+    ax.plot(lianban_dates, lianban_days, label='最高连续涨停天数', color='red', marker='o')
     for i, txt in enumerate(lianban_labels):
         ax.text(lianban_dates[i], lianban_days[i], txt.replace(', ', '\n'),
+                ha='left', va='bottom', fontsize=7)  # 用换行符分隔，右上方显示
+
+    # 提取数据并绘制次高连板折线
+    lianban_second_days = [item[1] for item in lianban_second_results]
+    lianban_second_labels = [', '.join(item[2]) for item in lianban_second_results]
+    ax.plot(lianban_dates, lianban_second_days, label='次高连续涨停天数', color='lightcoral', marker='o', alpha=0.5)  # 淡红色
+    for i, txt in enumerate(lianban_second_labels):
+        ax.text(lianban_dates[i], lianban_second_days[i], txt.replace(', ', '\n'),
                 ha='left', va='bottom', fontsize=7)  # 用换行符分隔，右上方显示
 
     # 提取数据并绘制跌停折线
