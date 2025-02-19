@@ -198,8 +198,7 @@ class TMonitor:
 
                             # 检查时间点是否已触发过信号
                             if new_peak['time'] not in self.triggered_signals:
-                                winsound.Beep(500, 500)
-                                self._trigger_signal("顶背离SELL", price_diff, macd_diff, new_peak['price'],
+                                self._trigger_signal("SELL", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
                                 self.triggered_signals.add(new_peak['time'])  # 记录时间点
                 peaks.append(new_peak)
@@ -228,8 +227,7 @@ class TMonitor:
 
                             # 检查时间点是否已触发过信号
                             if new_trough['time'] not in self.triggered_signals:
-                                winsound.Beep(1500, 500)
-                                self._trigger_signal("底背离BUY", price_diff, macd_diff, new_trough['price'],
+                                self._trigger_signal("BUY", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
                                 self.triggered_signals.add(new_trough['time'])  # 记录时间点
                 troughs.append(new_trough)
@@ -240,6 +238,7 @@ class TMonitor:
         logging.warning(msg)
         # 飞书告警
         if self.push_msg is True:
+            winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
             send_alert(msg)
 
     def _run_live(self):
@@ -373,11 +372,11 @@ if __name__ == "__main__":
     IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-10 09:30"
-    backtest_end = "2025-02-17 15:00"
+    backtest_start = "2025-02-13 09:30"
+    backtest_end = "2025-02-19 15:00"
 
     # 监控标的
-    symbols = ['000681', '603803']  # 监控多只股票
+    symbols = ['000977']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
