@@ -30,13 +30,13 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
-    PRICE_DIFF_SELL_THRESHOLD = 0.02  # 价格变动卖出阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.025  # 价格变动买入阈值
+    PRICE_DIFF_SELL_THRESHOLD = 0.025  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
     # 数据获取参数
     KLINE_CATEGORY = 7  # 1分钟K线
-    MAX_HISTORY_BARS = 240  # 240根K线
+    MAX_HISTORY_BARS = 360  # K线数
 
 
 class TMonitor:
@@ -197,7 +197,8 @@ class TMonitor:
                             macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
 
                             # 检查时间点是否已触发过信号
-                            if new_peak['time'] not in self.triggered_signals:
+                            if new_peak['time'] not in self.triggered_signals and \
+                                df['close'].iloc[i] != df['close'].iloc[i-1]:
                                 self._trigger_signal("SELL", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
                                 self.triggered_signals.add(new_peak['time'])  # 记录时间点
@@ -226,7 +227,8 @@ class TMonitor:
                             macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
 
                             # 检查时间点是否已触发过信号
-                            if new_trough['time'] not in self.triggered_signals:
+                            if new_trough['time'] not in self.triggered_signals and \
+                                df['close'].iloc[i] != df['close'].iloc[i-1]:
                                 self._trigger_signal("BUY", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
                                 self.triggered_signals.add(new_trough['time'])  # 记录时间点
@@ -238,8 +240,9 @@ class TMonitor:
         logging.warning(msg)
         # 飞书告警
         if self.push_msg is True:
-            winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
-            send_alert(msg)
+            # winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
+            # send_alert(msg)
+            pass
 
     def _run_live(self):
         """启动监控（实时模式）"""
@@ -372,11 +375,11 @@ if __name__ == "__main__":
     IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-13 09:30"
-    backtest_end = "2025-02-19 15:00"
+    backtest_start = "2025-02-19 09:30"
+    backtest_end = "2025-02-20 15:00"
 
     # 监控标的
-    symbols = ['000977']  # 监控多只股票
+    symbols = ['002841']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
