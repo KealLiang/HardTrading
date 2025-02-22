@@ -39,7 +39,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20241030', save_path='./data/astocks', max_workers=4)
+    data_fetcher = StockDataFetcher(start_date='20250130', save_path='./data/astocks', max_workers=4)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -97,9 +97,10 @@ def get_stock_concept_and_industry():
 
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "603960"  # 目标股票代码
-    start_date = datetime.strptime("2024-02-01", "%Y-%m-%d")
-    end_date = datetime.strptime("2024-03-08", "%Y-%m-%d")
+    target_stock_code = "002730"  # 目标股票代码
+    start_date = datetime(2024, 12, 20)
+    end_date = datetime(2025, 1, 16)
+    trend_end_date = datetime(2025, 2, 21)
 
     # 1.寻找自身相似时期
     # find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
@@ -112,7 +113,8 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
+    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted",
+                              trend_end_date=trend_end_date)
 
 
 def fetch_ths_fupan():
@@ -144,14 +146,14 @@ if __name__ == '__main__':
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # get_stock_datas()
     # find_dragon()
+    find_similar_trends()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_index_data()
-    # find_similar_trends()
     # get_stock_minute_datas()
     # get_stock_concept_and_industry()

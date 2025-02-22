@@ -86,15 +86,13 @@ def compute_weighted_correlation(target_data, stock_data):
     return (1 * open_corr + 3 * close_corr) / 4
 
 
-def calculate_similarity(target_data, stock_codes, start_date, end_date, data_dir, method="close_price"):
+def calculate_similarity(target_data, stock_codes, data_dir, method="close_price"):
     """
-    计算相似股票及其时间段
+    计算同时段相似股票趋势
 
     参数:
     target_data: DataFrame - 目标股票的数据
     stock_codes: list - 候选股票代码列表
-    start_date: datetime - 起始日期
-    end_date: datetime - 结束日期
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法（"close_price" 或 "weighted"）
 
@@ -114,56 +112,144 @@ def calculate_similarity(target_data, stock_codes, start_date, end_date, data_di
         if stock_data is None:
             continue
 
-        stock_data = stock_data[(stock_data['日期'] >= start_date) & (stock_data['日期'] <= end_date)]
-        if stock_data.empty or abs(len(stock_data) - len(target_data)) > len(target_data) * 0.2:
-            logging.warning(f"股票 {stock_code} 的数据不符合目标区间要求，跳过。")
+        # 直接对齐到目标日期范围（不再预先过滤时间段）
+        aligned_stock = align_dataframes(target_data, stock_data)
+        if aligned_stock is None:
+            logging.info(f"股票 {stock_code} 数据缺口过大，无法对齐，已跳过")
             continue
 
-        if len(stock_data) != len(target_data):
-            logging.warning(f"股票 {stock_code} 的数据有缺失，补0。")
-            stock_data = align_dataframes(target_data, stock_data)
+        # 验证对齐后的数据完整性
+        if len(aligned_stock) != len(target_data):
+            logging.warning(f"股票 {stock_code} 对齐后数据长度不一致，跳过。")
+            continue
 
+        if aligned_stock[['开盘', '收盘', '最高', '最低']].isna().any().any():
+            logging.warning(f"股票 {stock_code} 存在无效填充值，跳过。")
+            continue
+
+        # 计算相似度
         if method == "close_price":
-            correlation = compute_correlation(target_data, stock_data)
+            correlation = compute_correlation(target_data, aligned_stock)
         elif method == "weighted":
-            correlation = compute_weighted_correlation(target_data, stock_data)
+            correlation = compute_weighted_correlation(target_data, aligned_stock)
         else:
             logging.error(f"不支持的相似度计算方法: {method}")
             return []
 
-        similarity_results.append((stock_code, correlation, stock_data))
+        similarity_results.append((stock_code, correlation, aligned_stock))
 
-    similarity_results.sort(key=lambda x: x[1], reverse=True)
     return similarity_results
 
 
-def align_dataframes(target_data, stock_data):
+def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_end_date,
+                            window_size):
     """
-    以target_data的形状为准，将stock_data对应'日期'的地方数据补0
+    计算不同时段的相似股票趋势
     """
-    # 获取target_data的日期索引
-    target_dates = target_data['日期'].tolist()
-    # 获取stock_data的日期索引
-    stock_dates = stock_data['日期'].tolist()
+    similarity_results = []
+    for stock_code in stock_codes:
+        try:
+            # 加载候选股票数据
+            file_path = next(
+                (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{stock_code}_")), None)
+            if not file_path:
+                logging.debug(f"未找到股票 {stock_code} 的数据文件，跳过。")
+                continue
 
-    # 找出target_data中有而stock_data中没有的日期
-    missing_dates = set(target_dates) - set(stock_dates)
-    if missing_dates:
-        # 创建一个新的DataFrame，用于存放补0后的数据，列名和stock_data保持一致
-        new_stock_data = pd.DataFrame(columns=stock_data.columns)
-        # 使用concat函数将stock_data中已有的日期及对应的数据添加到新的DataFrame
-        new_stock_data = pd.concat([new_stock_data, stock_data], ignore_index=True)
-        # 遍历缺失的日期，为每个缺失日期添加一行数据，对应列的值全部设为0
-        for date in missing_dates:
-            new_row = {col: 0 for col in stock_data.columns}
-            new_row['日期'] = date
-            # 将包含补0数据的行转换为DataFrame，方便使用concat函数添加
-            new_row_df = pd.DataFrame([new_row])
-            new_stock_data = pd.concat([new_stock_data, new_row_df], ignore_index=True)
-        # 按照日期对新的DataFrame进行排序，使其顺序和target_data一致
-        new_stock_data.sort_values(by='日期', inplace=True)
-        return new_stock_data
-    return stock_data
+            stock_data = load_stock_data(file_path)
+            if stock_data is None:
+                continue
+
+            # 预处理：按日期排序并重置索引
+            stock_data = stock_data.sort_values('日期').reset_index(drop=True)
+
+            # 获取候选股票可用的最大日期
+            mask = (stock_data['日期'] <= trend_end_date)
+            if not mask.any():
+                logging.debug(f"股票 {stock_code} 在 {trend_end_date} 前无数据，跳过")
+                continue
+
+            # 确定调整后的结束日期
+            adjusted_end_date = stock_data[mask]['日期'].max()
+
+            # 找到结束日期的位置
+            end_idx = stock_data.index[stock_data['日期'] == adjusted_end_date].tolist()
+            if not end_idx:
+                continue
+            end_idx = end_idx[0]
+
+            # 计算起始位置
+            start_idx = end_idx - (window_size - 1)
+            if start_idx < 0:
+                logging.debug(f"股票 {stock_code} 在 {adjusted_end_date} 前交易日不足，跳过")
+                continue
+
+            # 截取时间窗口
+            candidate_window = stock_data.iloc[start_idx:end_idx + 1].copy()
+
+            # 验证窗口长度
+            if len(candidate_window) != window_size:
+                logging.debug(f"股票 {stock_code} 有效窗口长度不足，跳过")
+                continue
+
+            # 计算相关系数
+            if method == "close_price":
+                correlation = compute_correlation(target_data, candidate_window)
+            elif method == "weighted":
+                correlation = compute_weighted_correlation(target_data, candidate_window)
+            else:
+                logging.error(f"不支持的相似度计算方法: {method}")
+                continue
+
+            similarity_results.append((stock_code, correlation, candidate_window))
+
+        except Exception as e:
+            logging.error(f"处理股票 {stock_code} 时发生异常: {str(e)}")
+            continue
+
+    return similarity_results
+
+
+def align_dataframes(target_data, stock_data, max_edge_fill=2):
+    """
+    对齐日期并智能填充缺失值
+    :param max_edge_fill: 允许填充边缘缺失的最大天数
+    """
+    try:
+        # 获取目标日期范围
+        target_dates = pd.to_datetime(target_data['日期'].unique())
+
+        # 设置索引并重新采样对齐
+        stock_data = stock_data.set_index('日期').sort_index()
+        aligned_stock = stock_data.reindex(target_dates)
+
+        # 定义关键数值列
+        numeric_cols = ['开盘', '收盘', '最高', '最低', '成交量']
+        numeric_cols = [col for col in numeric_cols if col in aligned_stock.columns]
+
+        # 第一阶段：填充内部缺口（时间序列插值）
+        aligned_stock[numeric_cols] = aligned_stock[numeric_cols].interpolate(
+            method='time',
+            limit_area='inside'
+        )
+
+        # 第二阶段：有限边缘填充
+        aligned_stock[numeric_cols] = aligned_stock[numeric_cols].ffill(
+            limit=max_edge_fill  # 前向填充
+        ).bfill(
+            limit=max_edge_fill  # 后向填充
+        )
+
+        # 第三阶段：最终检查
+        if aligned_stock[numeric_cols].isna().sum().sum() > 0:
+            logging.debug(f"数据缺口超过允许范围")
+            return None
+
+        return aligned_stock.reset_index().rename(columns={'index': '日期'})
+
+    except Exception as e:
+        logging.debug(f"对齐失败: {str(e)}")
+        return None
 
 
 def plot_kline(dataframes, stock_labels, split_dates=None, output_dir="kline_charts"):
@@ -209,7 +295,8 @@ def plot_kline(dataframes, stock_labels, split_dates=None, output_dir="kline_cha
             'title': f"{label} K线图",
             'style': mpf_style,
             'volume': True,
-            'savefig': dict(fname=output_file, dpi=300, bbox_inches="tight")
+            'savefig': dict(fname=output_file, dpi=300, bbox_inches="tight"),
+            'datetime_format': '%Y-%m-%d'
         }
 
         # 添加竖线标记
@@ -234,7 +321,7 @@ def get_stock_info_dict(data_dir):
 
 
 def find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes=None, data_dir=".",
-                              method="close_price"):
+                              method="close_price", trend_end_date=None):
     """
     主函数：寻找历史相似走势
 
@@ -245,40 +332,57 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     stock_codes: list - 候选股票代码列表（可选）
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法
+    trend_end_date: datetime - 趋势结束日期（用于寻找其他时间段）
     """
     logging.info("开始加载目标股票数据...")
     target_file = next(
-        (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{target_stock_code}_")), None)
+        (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{target_stock_code}_")))
     if not target_file:
         logging.error(f"未找到目标股票 {target_stock_code} 的数据文件！")
         return
 
     target_data = load_stock_data(target_file)
-    target_data = target_data[(target_data['日期'] >= start_date) & (target_data['日期'] <= end_date)]
+    target_data = target_data[(target_data['日期'] >= start_date) & (target_data['日期'] <= end_date)].copy()
     if target_data.empty:
         logging.error("目标股票在指定区间内无数据！")
         return
 
     logging.info(f"目标股票 {target_stock_code} 的数据加载完成，开始寻找相似走势...")
 
+    # 计算目标时间段长度（交易日数）
+    nyse = mcal.get_calendar('SSE')
+    target_schedule = nyse.schedule(start_date=start_date, end_date=end_date)
+    window_size = len(target_schedule)
+
     if stock_codes is None:
         stock_codes = [f.split('_')[0] for f in os.listdir(data_dir) if
                        f.endswith('.csv') and not f.startswith(f"{target_stock_code}_")]
 
-    similarity_results = calculate_similarity(target_data, stock_codes, start_date, end_date, data_dir, method)
+    # 分两种模式处理
+    if trend_end_date is None:
+        # 原逻辑：同时段相似
+        similarity_results = calculate_similarity(target_data, stock_codes, data_dir, method)
+    else:
+        # 新逻辑：其他时间段相似
+        similarity_results = calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_end_date,
+                                                     window_size)
+
+        # 按相似度排序
+        similarity_results.sort(key=lambda x: x[1], reverse=True)
 
     logging.info("相似走势计算完成，结果如下：")
     top_similar = similarity_results[:10]
     for stock_code, correlation, _ in top_similar:
         logging.info(f"股票代码: {stock_code}, 相似度: {correlation:.4f}")
 
-    stock_info_dict = get_stock_info_dict(data_dir)
     # 绘制并保存K线图
-    dataframes = [target_data] + [result[2] for result in top_similar]
-    labels = [f"A目标股票_{target_stock_code}"] + [f"{stock_info_dict[result[0]]}_{result[0]}_{result[1]:.4f}" for
-                                                   result in
-                                                   top_similar]
-    plot_kline(dataframes, labels, output_dir="./kline_charts/other_similar")
+    if top_similar:
+        stock_info_dict = get_stock_info_dict(data_dir)
+        dataframes = [target_data] + [result[2] for result in top_similar]
+        labels = [f"A目标股票_{target_stock_code}"] + [
+            f"{stock_info_dict.get(result[0], '未知')}_{result[0]}_{result[1]:.4f}"
+            for result in top_similar]
+        plot_kline(dataframes, labels, output_dir="./kline_charts/other_similar")
 
 
 def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=".", method="close_price",
