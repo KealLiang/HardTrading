@@ -1,15 +1,16 @@
 import logging
 import signal
 import sys
-import winsound
 import time as sys_time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import akshare as ak
 import pandas as pd
+import winsound
 from pytdx.hq import TdxHq_API
 
+from tqdm import tqdm
 from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
@@ -30,7 +31,7 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_BUY_THRESHOLD = 0.025  # 价格变动买入阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
     PRICE_DIFF_SELL_THRESHOLD = 0.025  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
@@ -198,7 +199,7 @@ class TMonitor:
 
                             # 检查时间点是否已触发过信号
                             if new_peak['time'] not in self.triggered_signals and \
-                                df['close'].iloc[i] != df['close'].iloc[i-1]:
+                                    df['close'].iloc[i] != df['close'].iloc[i - 1]:
                                 self._trigger_signal("SELL", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
                                 self.triggered_signals.add(new_peak['time'])  # 记录时间点
@@ -228,7 +229,7 @@ class TMonitor:
 
                             # 检查时间点是否已触发过信号
                             if new_trough['time'] not in self.triggered_signals and \
-                                df['close'].iloc[i] != df['close'].iloc[i-1]:
+                                    df['close'].iloc[i] != df['close'].iloc[i - 1]:
                                 self._trigger_signal("BUY", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
                                 self.triggered_signals.add(new_trough['time'])  # 记录时间点
@@ -240,9 +241,8 @@ class TMonitor:
         logging.warning(msg)
         # 飞书告警
         if self.push_msg is True:
-            # winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
-            # send_alert(msg)
-            pass
+            winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
+            send_alert(msg)
 
     def _run_live(self):
         """启动监控（实时模式）"""
@@ -297,7 +297,7 @@ class TMonitor:
 
         # 模拟逐步遍历历史数据，每次用最新的部分数据进行指标计算和信号检测
         # 假设数据已按时间排序
-        for current_index in range(TMonitorConfig.EXTREME_WINDOW, len(df)):
+        for current_index in tqdm(range(TMonitorConfig.EXTREME_WINDOW, len(df)), f"{self.stock_name} 回测中"):
             if self.stop_event.is_set():
                 break
             # 截取从0到当前时刻的所有数据
@@ -372,11 +372,11 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-19 09:30"
-    backtest_end = "2025-02-20 15:00"
+    backtest_start = "2025-02-17 09:30"
+    backtest_end = "2025-02-21 15:00"
 
     # 监控标的
     symbols = ['002841']  # 监控多只股票
