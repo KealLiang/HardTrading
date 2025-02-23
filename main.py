@@ -100,7 +100,7 @@ def find_similar_trends():
     target_stock_code = "002730"  # 目标股票代码
     start_date = datetime(2024, 12, 20)
     end_date = datetime(2025, 1, 16)
-    trend_end_date = datetime(2025, 2, 21)
+    trend_end_date = datetime(2025, 2, 21)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
@@ -118,7 +118,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250205"
+    start_date = "20250215"
     all_fupan(start_date)
 
 
@@ -138,7 +138,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250115', '20250220', './excel/market_analysis.xlsx')
+    plot_all('20250115', '20250221', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -146,11 +146,11 @@ if __name__ == '__main__':
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # get_hot_clouds()
     # get_stock_datas()
     # find_dragon()
-    find_similar_trends()
+    # find_similar_trends()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
