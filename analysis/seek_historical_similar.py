@@ -7,7 +7,9 @@ import mplfinance as mpf
 import numpy as np
 import pandas as pd
 import pandas_market_calendars as mcal
+from dtaidistance import dtw
 from matplotlib import font_manager
+from tqdm import tqdm
 
 font_path = 'fonts/微软雅黑.ttf'
 font_prop = font_manager.FontProperties(fname=font_path)
@@ -86,6 +88,121 @@ def compute_weighted_correlation(target_data, stock_data):
     return (1 * open_corr + 3 * close_corr) / 4
 
 
+
+def compute_shape_dtw(target_data, stock_data):
+    """
+    增强版形态DTW相似度计算
+    """
+
+    def validate_features(features):
+        """验证特征矩阵有效性"""
+        # 确保是二维数组
+        if features.ndim != 2:
+            raise ValueError(f"特征矩阵维度错误: {features.shape}")
+        # 确保没有非数值类型
+        if not np.issubdtype(features.dtype, np.number):
+            raise ValueError(f"包含非数值类型: {features.dtype}")
+        # 确保没有异常值
+        if np.isnan(features).any() or np.isinf(features).any():
+            raise ValueError("存在NaN或无穷值")
+
+    def extract_features(df):
+        """鲁棒的特征工程"""
+        # 强制深拷贝防止污染原始数据
+        df = df.copy(deep=True)
+
+        # 关键字段存在性检查
+        required_cols = ['收盘', '最高', '最低', '换手率']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"缺失字段: {missing_cols}")
+
+        # 数值清洗 -------------------------------------------------
+        # 换手率强制转换
+        df['换手率'] = pd.to_numeric(df['换手率'], errors='coerce')
+
+        # 填充所有NaN（先做前向填充，再做0填充）
+        df = df.ffill().fillna(0)
+
+        # 特征计算 -------------------------------------------------
+        features = pd.DataFrame()
+
+        # 1. 标准化收盘价（相对首日）
+        base_close = df['收盘'].iloc[0] or 1e-6  # 处理零值
+        features['norm_close'] = df['收盘'] / base_close
+
+        # 2. 振幅计算（百分比变化）
+        with np.errstate(divide='ignore', invalid='ignore'):
+            low_shift = df['最低'].shift(1).replace(0, 1e-6)
+            features['amplitude'] = (df['最高'] - df['最低']) / low_shift
+        features['amplitude'] = features['amplitude'].replace([np.inf, -np.inf], 0).fillna(0)
+
+        # 3. 平滑换手率（3日EMA）
+        features['turnover'] = df['换手率'].ewm(span=3, adjust=False).mean()
+
+        # 后处理 -------------------------------------------------
+        # 强制转换为数值型二维数组
+        features = features.astype(np.float64)
+
+        # 最后检查
+        validate_features(features.values)
+        return features.values
+
+    try:
+        # 提取特征（带防御性编程）
+        target_features = extract_features(target_data)
+        stock_features = extract_features(stock_data)
+
+        # 动态对齐长度（确保完全一致）
+        min_len = min(len(target_features), len(stock_features))
+        target_features = target_features[:min_len]
+        stock_features = stock_features[:min_len]
+
+        # 核心校验
+        if min_len < 5:
+            logging.debug("数据长度不足，跳过计算")
+            return 0.0
+        if target_features.shape != stock_features.shape:
+            logging.warning(f"形状不匹配: Target{target_features.shape} vs Stock{stock_features.shape}")
+            return 0.0
+
+        # 计算每个特征的DTW距离并取平均
+        distances = []
+        for i in range(target_features.shape[1]):  # 对每个特征列进行DTW计算
+            distance = dtw.distance(target_features[:, i], stock_features[:, i])
+            distances.append(distance)
+
+        # 取平均距离作为最终相似度
+        avg_distance = np.mean(distances)
+        return 1 / (1 + avg_distance)
+
+    except ValueError as ve:
+        logging.info(f"特征验证失败: {str(ve)}")
+        return 0.0
+    except Exception as e:
+        logging.error(f"DTW致命错误: {str(e)}", exc_info=True)
+        return 0.0
+
+
+def compute_similarity_by_method(target_data, aligned_stock, method):
+    """
+    根据指定的方法计算相似度。
+    :param target_data: 目标数据
+    :param aligned_stock: 对齐后的股票数据
+    :param method: 计算方法
+    :return: 相关性值或 None（如果方法不支持）
+    """
+    if method == "close_price":
+        return compute_correlation(target_data, aligned_stock)
+    elif method == "weighted":
+        return compute_weighted_correlation(target_data, aligned_stock)
+    elif method == "dtw":
+        return compute_shape_dtw(target_data, aligned_stock)
+    else:
+        logging.error(f"不支持的相似度计算方法: {method}")
+        return None
+
+
 def calculate_similarity(target_data, stock_codes, data_dir, method="close_price"):
     """
     计算同时段相似股票趋势
@@ -101,7 +218,7 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
     """
     similarity_results = []
 
-    for stock_code in stock_codes:
+    for stock_code in tqdm(stock_codes, "寻找相似走势v1"):
         file_path = next((os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{stock_code}_")),
                          None)
         if not file_path:
@@ -115,7 +232,7 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
         # 直接对齐到目标日期范围（不再预先过滤时间段）
         aligned_stock = align_dataframes(target_data, stock_data)
         if aligned_stock is None:
-            logging.info(f"股票 {stock_code} 数据缺口过大，无法对齐，已跳过")
+            logging.debug(f"股票 {stock_code} 数据缺口过大，无法对齐，已跳过")
             continue
 
         # 验证对齐后的数据完整性
@@ -128,12 +245,8 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
             continue
 
         # 计算相似度
-        if method == "close_price":
-            correlation = compute_correlation(target_data, aligned_stock)
-        elif method == "weighted":
-            correlation = compute_weighted_correlation(target_data, aligned_stock)
-        else:
-            logging.error(f"不支持的相似度计算方法: {method}")
+        correlation = compute_similarity_by_method(target_data, aligned_stock, method)
+        if correlation is None:
             return []
 
         similarity_results.append((stock_code, correlation, aligned_stock))
@@ -147,7 +260,7 @@ def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_en
     计算不同时段的相似股票趋势
     """
     similarity_results = []
-    for stock_code in stock_codes:
+    for stock_code in tqdm(stock_codes, desc="寻找相似走势v2"):
         try:
             # 加载候选股票数据
             file_path = next(
@@ -192,14 +305,10 @@ def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_en
                 logging.debug(f"股票 {stock_code} 有效窗口长度不足，跳过")
                 continue
 
-            # 计算相关系数
-            if method == "close_price":
-                correlation = compute_correlation(target_data, candidate_window)
-            elif method == "weighted":
-                correlation = compute_weighted_correlation(target_data, candidate_window)
-            else:
-                logging.error(f"不支持的相似度计算方法: {method}")
-                continue
+            # 计算相似度
+            correlation = compute_similarity_by_method(target_data, candidate_window, method)
+            if correlation is None:
+                return []
 
             similarity_results.append((stock_code, correlation, candidate_window))
 
@@ -320,6 +429,16 @@ def get_stock_info_dict(data_dir):
     return stock_info_dict
 
 
+def cal_window_size(start_date, end_date):
+    excluded_dates = ['2025-02-04']  # 排除不对的日期
+
+    nyse = mcal.get_calendar('SSE')  # A股使用 'SSE' 日历
+    schedule = nyse.schedule(start_date=start_date, end_date=end_date)
+    schedule = schedule.drop(excluded_dates, errors='ignore')
+    target_window_size = len(schedule)
+    return target_window_size
+
+
 def find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes=None, data_dir=".",
                               method="close_price", trend_end_date=None):
     """
@@ -350,9 +469,7 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     logging.info(f"目标股票 {target_stock_code} 的数据加载完成，开始寻找相似走势...")
 
     # 计算目标时间段长度（交易日数）
-    nyse = mcal.get_calendar('SSE')
-    target_schedule = nyse.schedule(start_date=start_date, end_date=end_date)
-    window_size = len(target_schedule)
+    window_size = cal_window_size(start_date, end_date)
 
     if stock_codes is None:
         stock_codes = [f.split('_')[0] for f in os.listdir(data_dir) if
@@ -367,8 +484,8 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
         similarity_results = calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_end_date,
                                                      window_size)
 
-        # 按相似度排序
-        similarity_results.sort(key=lambda x: x[1], reverse=True)
+    # 按相似度排序
+    similarity_results.sort(key=lambda x: x[1], reverse=True)
 
     logging.info("相似走势计算完成，结果如下：")
     top_similar = similarity_results[:10]
@@ -418,9 +535,7 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
         return
 
     # 确定交易日窗口大小
-    nyse = mcal.get_calendar('SSE')  # A股使用 'SSE' 日历
-    schedule = nyse.schedule(start_date=start_date, end_date=end_date)
-    target_window_size = len(schedule)
+    target_window_size = cal_window_size(start_date, end_date)
 
     if target_window_size < 5:  # 防止窗口过小
         logging.error("指定时间范围内交易日不足以计算窗口！")
@@ -437,13 +552,11 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
             continue
 
         window_data = stock_data.iloc[i:i + target_window_size]
-        if method == "close_price":
-            correlation = compute_correlation(target_data, window_data)
-        elif method == "weighted":
-            correlation = compute_weighted_correlation(target_data, window_data)
-        else:
-            logging.error(f"不支持的相似度计算方法: {method}")
-            return
+
+        # 计算相似度
+        correlation = compute_similarity_by_method(target_data, window_data, method)
+        if correlation is None:
+            return []
 
         # 提取未来天数数据
         future_data = stock_data.iloc[i + target_window_size:i + target_window_size + future_days]

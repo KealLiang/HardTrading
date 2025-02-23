@@ -2,7 +2,7 @@ from datetime import datetime
 
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
-from analysis.seek_historical_similar import find_other_similar_trends
+from analysis.seek_historical_similar import find_other_similar_trends, find_self_similar_windows
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -98,12 +98,13 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
     target_stock_code = "002730"  # 目标股票代码
-    start_date = datetime(2024, 12, 20)
+    start_date = datetime(2024, 12, 18)
     end_date = datetime(2025, 1, 16)
     trend_end_date = datetime(2025, 2, 21)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
-    # find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
+    # target_index_code = "sz399001"  # 目标指数代码
+    # find_self_similar_windows(target_index_code, start_date, end_date, "./data/indexes", method="weighted")
 
     # 2.寻找同时期相似个股
     # 可选股票代码列表
@@ -113,8 +114,8 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted",
-                              trend_end_date=trend_end_date)
+    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="dtw",
+                              trend_end_date=None)
 
 
 def fetch_ths_fupan():
@@ -146,14 +147,14 @@ if __name__ == '__main__':
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # get_stock_datas()
+    # get_index_data()
+    find_similar_trends()
     # find_dragon()
-    # find_similar_trends()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
-    # get_index_data()
     # get_stock_minute_datas()
     # get_stock_concept_and_industry()
