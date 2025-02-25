@@ -132,14 +132,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250125'
+    start_date = '20250220'
     # end_date = '20250128'
     end_date = None
     fupan_all_statistics(start_date, end_date)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250115', '20250221', './excel/market_analysis.xlsx')
+    plot_all('20250115', '20250225', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -151,8 +151,8 @@ if __name__ == '__main__':
     # get_hot_clouds()
     # get_stock_datas()
     # get_index_data()
-    find_similar_trends()
-    # find_dragon()
+    # find_similar_trends()
+    find_dragon()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
