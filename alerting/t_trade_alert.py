@@ -9,8 +9,8 @@ import akshare as ak
 import pandas as pd
 import winsound
 from pytdx.hq import TdxHq_API
-
 from tqdm import tqdm
+
 from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
@@ -40,6 +40,23 @@ class TMonitorConfig:
     MAX_HISTORY_BARS = 360  # K线数
 
 
+def is_duplicated(new_node, triggered_signals):
+    new_price = new_node['price']
+    new_time = new_node['time']
+    new_time_date = new_time.date()  # 提取日期部分
+
+    for s in triggered_signals:
+        signal_price = s['price']
+        signal_time = s['time']
+        signal_time_date = signal_time.date()  # 提取日期部分
+
+        # 检查重复规则
+        if (new_price == signal_price and new_time_date == signal_time_date) or (new_time == signal_time):
+            return True  # 发现重复
+
+    return False
+
+
 class TMonitor:
     """做T监控器核心类"""
 
@@ -63,7 +80,8 @@ class TMonitor:
         self.backtest_end = backtest_end
 
         # 存储已触发的信号时间，避免重复触发
-        self.triggered_signals = set()
+        self.triggered_buy_signals = []
+        self.triggered_sell_signals = []
 
     def _get_stock_info(self):
         """获取股票基本信息"""
@@ -197,12 +215,11 @@ class TMonitor:
                             price_diff = (new_peak['price'] - p['price']) / p['price']
                             macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
 
-                            # 检查时间点是否已触发过信号
-                            if new_peak['time'] not in self.triggered_signals and \
-                                    df['close'].iloc[i] != df['close'].iloc[i - 1]:
+                            # 检查是否已触发过信号
+                            if not is_duplicated(new_peak, self.triggered_sell_signals):
                                 self._trigger_signal("SELL", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
-                                self.triggered_signals.add(new_peak['time'])  # 记录时间点
+                                self.triggered_sell_signals.append(new_peak)  # 记录已触发
                 peaks.append(new_peak)
 
             # 判断局部谷
@@ -227,12 +244,11 @@ class TMonitor:
                             price_diff = (t['price'] - new_trough['price']) / t['price']
                             macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
 
-                            # 检查时间点是否已触发过信号
-                            if new_trough['time'] not in self.triggered_signals and \
-                                    df['close'].iloc[i] != df['close'].iloc[i - 1]:
+                            # 检查是否已触发过信号
+                            if not is_duplicated(new_trough, self.triggered_buy_signals):
                                 self._trigger_signal("BUY", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
-                                self.triggered_signals.add(new_trough['time'])  # 记录时间点
+                                self.triggered_buy_signals.append(new_trough)  # 记录已触发
                 troughs.append(new_trough)
 
     def _trigger_signal(self, signal_type, price_diff, macd_diff, price, signal_time):
@@ -375,11 +391,11 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-17 09:30"
-    backtest_end = "2025-02-21 15:00"
+    backtest_start = "2025-02-24 09:30"
+    backtest_end = "2025-02-27 15:00"
 
     # 监控标的
-    symbols = ['002841']  # 监控多只股票
+    symbols = ['600126']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
