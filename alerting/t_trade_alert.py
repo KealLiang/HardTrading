@@ -31,7 +31,7 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.025  # 价格变动买入阈值
     PRICE_DIFF_SELL_THRESHOLD = 0.025  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
@@ -254,7 +254,10 @@ class TMonitor:
     def _trigger_signal(self, signal_type, price_diff, macd_diff, price, signal_time):
         """统一格式化输出信号"""
         msg = f"【T警告】[{self.stock_name} {self.symbol}] {signal_type}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{signal_time}]"
-        logging.warning(msg)
+        if self.is_backtest:
+            tqdm.write(msg)
+        else:
+            logging.warning(msg)
         # 飞书告警
         if self.push_msg is True:
             winsound.Beep(1500 if "BUY" == signal_type else 500, 500)
@@ -301,7 +304,7 @@ class TMonitor:
         logging.info(f"{self.symbol} 监控已安全退出")
 
     def _run_backtest(self):
-        """回测模式：对指定时间段内的历史数据进行模拟遍历"""
+        """回测模式：模拟实时数据窗口滑动"""
         if self.backtest_start is None or self.backtest_end is None:
             print("回测模式下必须指定backtest_start和backtest_end")
             return
@@ -311,27 +314,30 @@ class TMonitor:
             print("指定时间段内没有数据")
             return
 
-        # 模拟逐步遍历历史数据，每次用最新的部分数据进行指标计算和信号检测
-        # 假设数据已按时间排序
-        for current_index in tqdm(range(TMonitorConfig.EXTREME_WINDOW, len(df)), f"{self.stock_name} 回测中"):
+        # 确保数据按时间升序排列
+        df = df.sort_values('datetime').reset_index(drop=True)
+
+        # 模拟实时模式的滚动窗口
+        for current_index in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
             if self.stop_event.is_set():
                 break
-            # 截取从0到当前时刻的所有数据
-            df_current = df.iloc[:current_index + 1].copy()
 
-            # 指标计算
+            # 关键修改点：始终截取最近 MAX_HISTORY_BARS 的数据
+            window_start = max(0, current_index + 1 - TMonitorConfig.MAX_HISTORY_BARS)
+            df_current = df.iloc[window_start:current_index + 1].copy()  # 与实时模式相同的窗口长度
+
+            # 提前跳过不足计算窗口的阶段
+            if len(df_current) < TMonitorConfig.EXTREME_WINDOW:
+                continue
+
+            # 指标计算（使用与实时模式完全相同的数据量）
             df_current['dif'], df_current['dea'], df_current['macd'] = self._calculate_macd(df_current)
 
-            # 检测背离信号
+            # 模拟实时模式检测逻辑
             self._detect_divergence(df_current)
 
-            # 模拟实时：打印当前时刻数据
-            # latest_close = df_current['close'].iloc[-1]
-            # latest_time = df_current['datetime'].iloc[-1]
-            # logging.info(f"[回测 {self.stock_name} {self.symbol}] {latest_time}  最新价:{latest_close:.2f}元")
-
-            # 模拟时间步长（例如延时0.1秒）
-            sys_time.sleep(0.1)
+            # 模拟实时模式的处理间隔
+            sys_time.sleep(0.001)  # 可根据需要调整
 
         logging.info(f"[回测 {self.symbol}] 回测结束")
 
@@ -392,10 +398,10 @@ if __name__ == "__main__":
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-02-24 09:30"
-    backtest_end = "2025-02-27 15:00"
+    backtest_end = "2025-02-28 15:00"
 
     # 监控标的
-    symbols = ['600126']  # 监控多只股票
+    symbols = ['002841']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
