@@ -31,13 +31,19 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_BUY_THRESHOLD = 0.025  # 价格变动买入阈值
-    PRICE_DIFF_SELL_THRESHOLD = 0.025  # 价格变动卖出阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.03  # 价格变动买入阈值
+    PRICE_DIFF_SELL_THRESHOLD = 0.03  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
     # 数据获取参数
     KLINE_CATEGORY = 7  # 1分钟K线
     MAX_HISTORY_BARS = 360  # K线数
+
+    # 趋势监控
+    TREND_WINDOW = 3  # 连续出现n次极值变化才判定趋势
+    TREND_PRICE_RATIO = 0.001  # 价格变化率阈值（过滤微小波动）
+    TREND_LOG_COOLDOWN = 5 * 60  # 相同趋势日志冷却时间
+    TREND_PRICE_CHANGE = 0.05  # 价格变化超过x%才允许重复记录
 
 
 def is_duplicated(new_node, triggered_signals):
@@ -82,6 +88,14 @@ class TMonitor:
         # 存储已触发的信号时间，避免重复触发
         self.triggered_buy_signals = []
         self.triggered_sell_signals = []
+
+        # 趋势日志状态缓存
+        self.last_trend_log = {
+            'direction': None,  # 上次记录的趋势方向
+            'timestamp': None,  # 上次记录的时间戳
+            'price': None  # 上次记录的价格
+        }
+        self.trend_cache = {}  # 格式: { "up_1700000000": {price:10.5, timestamp:...}, ... }
 
     def _get_stock_info(self):
         """获取股票基本信息"""
@@ -221,6 +235,7 @@ class TMonitor:
                                                      new_peak['time'])
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
                 peaks.append(new_peak)
+                self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
 
             # 判断局部谷
             local_min = df['low'].iloc[start:i + 1].min()
@@ -250,6 +265,76 @@ class TMonitor:
                                                      new_trough['time'])
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
                 troughs.append(new_trough)
+                self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
+
+    def _check_trend_strength(self, new_extreme, extremes, direction):
+        """
+        检测连续趋势（完整修复版）
+        :param new_extreme: 最新极值点(dict)
+        :param extremes: 历史极值点列表
+        :param direction: 'up'检测上升趋势/'down'检测下降趋势
+        """
+        # 只考虑当日内数据
+        today = new_extreme['time'].date()
+        day_extremes = [e for e in extremes if e['time'].date() == today]
+
+        # 需要至少TREND_WINDOW个极值点
+        if len(day_extremes) < TMonitorConfig.TREND_WINDOW:
+            return
+
+        # 取最近的n个点
+        recent_points = day_extremes[-TMonitorConfig.TREND_WINDOW:]
+
+        # 检查趋势连续性
+        trend_confirmed = True
+        for i in range(1, len(recent_points)):
+            prev_price = recent_points[i - 1]['price']
+            curr_price = recent_points[i]['price']
+
+            # 上升趋势需连续创新高
+            if direction == 'up' and curr_price < prev_price * (1 + TMonitorConfig.TREND_PRICE_RATIO):
+                trend_confirmed = False
+                break
+
+            # 下降趋势需连续创新低
+            if direction == 'down' and curr_price > prev_price * (1 - TMonitorConfig.TREND_PRICE_RATIO):
+                trend_confirmed = False
+                break
+
+        if trend_confirmed:
+            # 将时间对齐到冷却时间窗口
+            cooldown_seconds = TMonitorConfig.TREND_LOG_COOLDOWN
+            current_timestamp = new_extreme['time'].timestamp()
+            time_window = int(current_timestamp // cooldown_seconds) * cooldown_seconds
+
+            # 获取该方向的缓存
+            cache_key = f"{direction}_{time_window}"
+            last_log = self.trend_cache.get(cache_key)
+
+            # 检查是否需要记录
+            should_log = False
+            if not last_log:  # 该时间窗口首次出现
+                should_log = True
+            else:
+                # 检查价格变化是否超过阈值
+                price_change = abs(new_extreme['price'] - last_log['price']) / last_log['price']
+                if price_change > TMonitorConfig.TREND_PRICE_CHANGE:
+                    should_log = True
+
+            if should_log:
+                self._log_trend(direction, recent_points, new_extreme)
+                # 更新缓存（存储该时间窗口最后一条记录）
+                self.trend_cache[cache_key] = {
+                    'price': new_extreme['price'],
+                    'timestamp': current_timestamp
+                }
+
+    def _log_trend(self, direction, points, new_extreme):
+        """统一处理趋势日志"""
+        price_series = [f"{p['price']:.2f}" for p in points]
+        log_msg = (f"【趋势信号】 {self.stock_name} *{'强势↑' if direction == 'up' else '弱势↓'}* | "
+                   f"最新价:{new_extreme['price']:.2f} | 序列:{'→'.join(price_series)} [{new_extreme['time']}]")
+        logging.info(log_msg)
 
     def _trigger_signal(self, signal_type, price_diff, macd_diff, price, signal_time):
         """统一格式化输出信号"""
@@ -397,7 +482,7 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-24 09:30"
+    backtest_start = "2025-02-17 09:30"
     backtest_end = "2025-02-28 15:00"
 
     # 监控标的
