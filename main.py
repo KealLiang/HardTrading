@@ -39,7 +39,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250130', save_path='./data/astocks', max_workers=4)
+    data_fetcher = StockDataFetcher(start_date='20250130', save_path='./data/astocks', max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -124,9 +124,9 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20241215'  # 开始日期
-    end_date = '20250115'  # 结束日期
-    # end_date = None
+    start_date = '20250127'  # 开始日期
+    # end_date = '20250115'  # 结束日期
+    end_date = None
     draw_fupan_lb(start_date, end_date)
 
 
@@ -139,7 +139,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20241215', '20250115', './excel/market_analysis.xlsx')
+    plot_all('20250127', '20250303', './excel/market_analysis.xlsx')
     # plot_all()
 
 
