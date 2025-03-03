@@ -482,11 +482,11 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-17 09:30"
-    backtest_end = "2025-02-28 15:00"
+    backtest_start = "2025-02-28 09:30"
+    backtest_end = "2025-03-03 15:00"
 
     # 监控标的
-    symbols = ['002841']  # 监控多只股票
+    symbols = ['301022']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
