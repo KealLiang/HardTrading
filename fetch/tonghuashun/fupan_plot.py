@@ -80,7 +80,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None):
         shouban_counts.append(len(shouban_col))  # 统计每日首板数量
 
     # 绘图
-    fig, ax = plt.subplots(figsize=(15, 7))
+    fig, ax = plt.subplots(figsize=(21, 9))
 
     # 提取数据并绘制最高连板折线
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
