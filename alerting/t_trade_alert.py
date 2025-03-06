@@ -160,7 +160,7 @@ class TMonitor:
         """处理原始K线数据"""
         df = pd.DataFrame(raw_data)
         # 处理时间格式
-        df['datetime'] = pd.to_datetime(df['datetime']).dt.strftime('%Y-%m-%d %H:%M:%S')
+        df['datetime'] = pd.to_datetime(df['datetime'])
         return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
 
     def _calculate_macd(self, df):
@@ -479,7 +479,7 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-02-28 09:30"
