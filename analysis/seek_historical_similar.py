@@ -83,10 +83,28 @@ def compute_weighted_correlation(target_data, stock_data):
     返回:
     float - 加权相关系数
     """
+    weights = {
+        'open': 0.2,
+        'close': 0.3,
+        'high': 0.1,
+        'low': 0.1,
+        'vol': 0.3
+    }
+
     open_corr = np.corrcoef(target_data['开盘'].values, stock_data['开盘'].values)[0, 1]
     close_corr = np.corrcoef(target_data['收盘'].values, stock_data['收盘'].values)[0, 1]
-    return (1 * open_corr + 3 * close_corr) / 4
+    high_corr = np.corrcoef(target_data['最高'].values, stock_data['最高'].values)[0, 1]
+    low_corr = np.corrcoef(target_data['最低'].values, stock_data['最低'].values)[0, 1]
+    vol_corr = np.corrcoef(target_data['成交量'].values, stock_data['成交量'].values)[0, 1]
 
+    final_corr = (
+            open_corr * weights['open'] +
+            close_corr * weights['close'] +
+            high_corr * weights['high'] +
+            low_corr * weights['low'] +
+            vol_corr * weights['vol']
+    )
+    return round(final_corr, 4)
 
 
 def compute_shape_dtw(target_data, stock_data):
