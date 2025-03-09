@@ -10,7 +10,7 @@ class KDJ_MACD_Strategy(bt.Strategy):
         ('macd_short', 6),  # MACD 快速周期
         ('macd_long', 13),  # MACD 慢速周期
         ('macd_signal', 9),  # MACD 信号周期
-        ('order_percentage', 0.2),  # 每次交易使用账户资金的x%
+        ('order_percentage', 0.25),  # 每次交易使用账户资金的x%
     )
 
     def __init__(self):
@@ -47,12 +47,12 @@ class KDJ_MACD_Strategy(bt.Strategy):
         if order.status in [order.Completed]:
             if order.isbuy():
                 self.log(
-                    f'买入: 成交价 {order.executed.price:.2f}, 成交量 {order.executed.size}, 手续费 {order.executed.comm:.2f}')
+                    f'BUY 买入: 成交价 {order.executed.price:.2f}, 成交量 {order.executed.size}, 手续费 {order.executed.comm:.2f}')
                 self.buyprice = order.executed.price
                 self.buycomm = order.executed.comm
             elif order.issell():
                 self.log(
-                    f'卖出: 成交价 {order.executed.price:.2f}, 成交量 {order.executed.size}, 手续费 {order.executed.comm:.2f}')
+                    f'SELL 卖出: 成交价 {order.executed.price:.2f}, 成交量 {order.executed.size}, 手续费 {order.executed.comm:.2f}')
 
         # 订单被取消、拒绝或出错
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
@@ -84,12 +84,12 @@ class KDJ_MACD_Strategy(bt.Strategy):
         # 如果 KDJ 和 MACD 即将金叉，执行买入
         if kdj_cross_up and macd_cross_up and not self.position:
             self.order = self.buy(size=size)
-            self.log(f'即将金叉买入信号: 当前收盘价 {self.data.close[0]:.2f}')
+            # self.log(f'即将金叉买入信号: 当前收盘价 {self.data.close[0]:.2f}')
 
         # 如果 KDJ 和 MACD 即将死叉，执行卖出
         elif kdj_cross_down and macd_cross_down and self.position:
             self.order = self.sell(size=self.position.size)
-            self.log(f'即将死叉卖出信号: 当前收盘价 {self.data.close[0]:.2f}')
+            # self.log(f'即将死叉卖出信号: 当前收盘价 {self.data.close[0]:.2f}')
 
     def kdj_condition(self, x, y):
         # 获取当前和过去几天的 KDJ 和 MACD 的数据
@@ -106,7 +106,7 @@ class KDJ_MACD_Strategy(bt.Strategy):
         return kdj_cross_down, kdj_cross_up
 
     def macd_condition(self, x, y):
-        return True, True
+        # return True, True
         # 获取当前的 MACD 和 Signal 数据
         macd_val = self.macd.lines.macd.get(size=y)
         macd_signal = self.macd.lines.signal.get(size=y)

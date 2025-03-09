@@ -2,12 +2,11 @@ from datetime import datetime
 
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
-from analysis.seek_historical_similar import find_other_similar_trends, find_self_similar_windows
+from analysis.seek_historical_similar import find_other_similar_trends
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
-from fetch.converter import backtrade_form
 from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
     find_top_yyb_trades
@@ -19,10 +18,12 @@ from filters.find_longtou import find_dragon_stocks
 
 # 回溯交易
 def backtrade_simulate():
-    code = '159949'
-    # fetch_fund_data(code + '.SZ')
-    backtrade_form(code)
-    simulator.go_trade(code)
+    code = '601933'
+    # simulator.go_trade(code)
+    simulator.go_trade(code
+                       , startdate=datetime(2024, 1, 1)
+                       , enddate=datetime(2025, 3, 9)
+                       )
 
 
 # 获取热点概念词云
@@ -39,7 +40,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250130', save_path='./data/astocks', max_workers=8)
+    data_fetcher = StockDataFetcher(start_date='20250206', save_path='./data/astocks', max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -139,7 +140,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250127', '20250306', './excel/market_analysis.xlsx')
+    plot_all('20250127', '20250307', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -147,7 +148,7 @@ if __name__ == '__main__':
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # get_stock_datas()
     # get_index_data()
@@ -158,3 +159,4 @@ if __name__ == '__main__':
     # get_lhb_datas()
     # get_stock_minute_datas()
     # get_stock_concept_and_industry()
+    backtrade_simulate()
