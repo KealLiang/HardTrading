@@ -93,7 +93,10 @@ class StockDataFetcher:
             last_date = last_date_df.iloc[-1][0]
 
             # 过滤新数据中日期大于最后日期的部分
-            filtered_data = new_data[new_data['日期'] > pd.to_datetime(last_date).date()]
+            if not new_data.empty:
+                filtered_data = new_data[new_data['日期'] > pd.to_datetime(last_date).date()]
+            else:
+                filtered_data = new_data
 
             if not filtered_data.empty:
                 # 追加新数据
