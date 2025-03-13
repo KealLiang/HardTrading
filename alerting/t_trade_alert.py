@@ -15,7 +15,7 @@ from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-log_frequency = 5 # 日志输出频率
+log_frequency = 5  # 日志输出频率
 
 
 class TMonitorConfig:
@@ -45,6 +45,18 @@ class TMonitorConfig:
     TREND_PRICE_RATIO = 0.001  # 价格变化率阈值（过滤微小波动）
     TREND_LOG_COOLDOWN = 5 * 60  # 相同趋势日志冷却时间
     TREND_PRICE_CHANGE = 0.05  # 价格变化超过x%才允许重复记录
+
+    # 新增趋势判断参数
+    TREND_DURATION = 30  # 趋势持续时间阈值（分钟）
+    POSITION_RATIO_THRESHOLDS = [  # 均线上下方时间占比阈值
+        (0.7, "极强"),
+        (0.6, "强势"),
+        (0.4, "震荡"),
+        (0.3, "弱势"),
+        (0.0, "极弱")
+    ]
+    BREAKOUT_MULTIPLIER = 2.0  # 突破波动率倍数
+    LEVEL_CONFIRM_COUNT = 5  # 连续确认次数
 
 
 def is_duplicated(new_node, triggered_signals):
@@ -97,6 +109,17 @@ class TMonitor:
             'price': None  # 上次记录的价格
         }
         self.trend_cache = {}  # 格式: { "up_1700000000": {price:10.5, timestamp:...}, ... }
+
+        # 强度相关状态变量
+        self.position_records = []  # 记录价格相对均线位置
+        self.vwap_history = []  # 历史成交量加权平均价
+        self.current_trend = None  # 当前趋势方向
+        self.trend_start_time = None
+        self.last_vwap = None
+
+        self.level_candidate = None
+        self.current_strength_level = None
+        self.confirm_counter = 0
 
     def _get_stock_info(self):
         """获取股票基本信息"""
@@ -162,7 +185,145 @@ class TMonitor:
         df = pd.DataFrame(raw_data)
         # 处理时间格式
         df['datetime'] = pd.to_datetime(df['datetime'])
-        return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
+        df.rename(columns={'vol': 'volume'}, inplace=True)
+        return df[['datetime', 'open', 'high', 'low', 'close', 'volume']]
+
+    def _calculate_vwap(self, df, current_time=None):
+        """通用VWAP计算方法（支持回测）"""
+        # 确保存在成交额字段
+        if 'amount' not in df.columns:
+            df['amount'] = pd.to_numeric(df['close']) * pd.to_numeric(df['volume'])
+
+        # 确定当前分析的日期（支持回测模式）
+        analysis_date = (current_time or pd.Timestamp.now()).date()
+
+        # 筛选当日数据
+        df_date = df[df['datetime'].dt.date == analysis_date].copy()
+        if df_date.empty:
+            return None
+
+        # 计算累计VWAP
+        df_date['cum_amount'] = df_date['amount'].cumsum()
+        df_date['cum_volume'] = df_date['volume'].cumsum()
+        df_date['vwap'] = pd.to_numeric(df_date['cum_amount']) / pd.to_numeric(df_date['cum_volume'])
+        return df_date.iloc[-1]['vwap']
+
+    def _analyze_trend(self, current_price, vwap, current_time):
+        """改进后的趋势分析（支持回测时间传入）"""
+        # 获取分析日期（支持回测）
+        analysis_date = current_time.date()
+
+        # 每日重置记录
+        if self.position_records and \
+                self.position_records[-1]['date'] != analysis_date:
+            self.position_records = []
+
+        # 记录当前状态
+        current_position = 'above' if current_price > vwap else 'below'
+        self.position_records.append({
+            'position': current_position,
+            'time': current_time,
+            'date': analysis_date
+        })
+
+        # 分析最近TREND_DURATION分钟
+        recent_records = [r for r in self.position_records
+                          if r['time'] > current_time - pd.Timedelta(minutes=TMonitorConfig.TREND_DURATION)]
+
+        if len(recent_records) == 0:
+            return
+
+        position_ratio = sum(1 for r in recent_records if r['position'] == current_position) / len(recent_records)
+
+        # 判断趋势变化
+        if position_ratio >= 0.8:
+            if self.current_trend != current_position:
+                self.current_trend = current_position
+                self.trend_start_time = current_time  # 使用传入的时间
+        else:
+            self.current_trend = None
+
+    def _determine_strength_level(self, current_price, vwap, volatility):
+        """综合判断强度等级"""
+        # 基础指标计算
+        price_diff = current_price - vwap
+        time_above_ratio = self.position_records.count('above') / len(self.position_records)
+
+        # 波动率调整阈值
+        dynamic_threshold = volatility * TMonitorConfig.BREAKOUT_MULTIPLIER
+
+        # 判断逻辑优先级
+        if self.current_trend:
+            # 趋势持续情况
+            trend_duration = (pd.Timestamp.now() - self.trend_start_time).seconds / 60
+            if trend_duration > TMonitorConfig.TREND_DURATION:
+                if self.current_trend == 'above' and price_diff > dynamic_threshold:
+                    return "极强"
+                elif self.current_trend == 'below' and price_diff < -dynamic_threshold:
+                    return "极弱"
+
+        # 时间占比判断
+        for ratio, level in TMonitorConfig.POSITION_RATIO_THRESHOLDS:
+            if time_above_ratio >= ratio:
+                return f"{level}（{self.current_trend}势）" if self.current_trend else level
+
+        return "震荡"
+
+    def _update_strength_level(self, new_level, trigger_time):
+        """带确认机制的等级更新"""
+        if new_level != self.level_candidate:
+            self.level_candidate = new_level
+            self.confirm_counter = 1
+        else:
+            self.confirm_counter += 1
+
+        if self.confirm_counter >= TMonitorConfig.LEVEL_CONFIRM_COUNT:
+            if self.current_strength_level != new_level:
+                self._log_level_change(new_level, trigger_time)
+            self.current_strength_level = new_level
+
+    def _log_level_change(self, new_level, trigger_time):
+        """记录强度等级变化日志"""
+        trend_status = f"{self.current_trend}势" if self.current_trend else "无趋势"
+        log_msg = (
+            f"[{self.symbol} {self.stock_name}] 强度变化: {new_level} | "
+            f"趋势: {trend_status} | "
+            f"时间段: {trigger_time.strftime('%H:%M:%S')}"
+        )
+        logging.info(log_msg)
+
+        # 飞书推送格式
+        push_msg = (
+            f"【强度变化】{self.stock_name}({self.symbol})\n"
+            f"▶ 级别: {new_level}\n"
+            f"▶ 趋势: {trend_status}\n"
+            f"⏱ 时间: {trigger_time.strftime('%H:%M')}"
+        )
+        if self.push_msg:
+            send_alert(push_msg)
+
+    def _process_data(self, df, current_time=None):
+        """实时/回测共用的数据处理流程"""
+        # 计算当日VWAP
+        current_vwap = self._calculate_vwap(df, current_time)
+
+        # 获取最新数据
+        latest = df.iloc[-1]
+        current_price = latest['close']
+
+        # 计算波动率（最后30分钟的收益率标准差）
+        volatility = df['close'].pct_change().rolling(30).std().iloc[-1] * 100
+
+        # 分析趋势（回测时使用数据中的时间）
+        analyze_time = current_time or pd.Timestamp.now()
+        self._analyze_trend(current_price, current_vwap, analyze_time)
+
+        return {
+            'price': latest['close'],
+            'vwap': current_vwap,
+            'volatility': volatility,
+            'time': latest['datetime']
+        }
 
     def _calculate_macd(self, df):
         """计算MACD指标"""
@@ -236,7 +397,7 @@ class TMonitor:
                                                      new_peak['time'])
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
                 peaks.append(new_peak)
-                self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
+                # self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
 
             # 判断局部谷
             local_min = df['low'].iloc[start:i + 1].min()
@@ -266,7 +427,7 @@ class TMonitor:
                                                      new_trough['time'])
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
                 troughs.append(new_trough)
-                self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
+                # self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
 
     def _check_trend_strength(self, new_extreme, extremes, direction):
         """
@@ -337,6 +498,18 @@ class TMonitor:
                    f"最新价:{new_extreme['price']:.2f} | 序列:{'→'.join(price_series)} [{new_extreme['time']}]")
         logging.info(log_msg)
 
+    def _log_current_status(self, data):
+        """常规状态日志"""
+        status_msg = (
+            f"[{self.symbol} {self.stock_name}] "
+            f"价格:{data['price']:.2f} | 均线:{data['vwap']:.2f} | "
+            f"波动:{data['volatility']:.2f}% | "
+            f"趋势:{self.current_trend or '无'} | "
+            f"强度:{self.current_strength_level} "
+            f"[{data['time'].strftime('%H:%M:%S')}]"
+        )
+        logging.info(status_msg)
+
     def _trigger_signal(self, signal_type, price_diff, macd_diff, price, signal_time):
         """统一格式化输出信号"""
         msg = f"【T警告】[{self.stock_name} {self.symbol}] {signal_type}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{signal_time}]"
@@ -359,13 +532,22 @@ class TMonitor:
         while not self.stop_event.is_set():  # 检查停止标志
             try:
                 df = self._get_realtime_bars()
+
+                # 处理数据
+                data = self._process_data(df)
+                # 判断强度等级
+                new_level = self._determine_strength_level(
+                    data['price'], data['vwap'], data['volatility']
+                )
+                self._update_strength_level(new_level, data['time'])
+                self._log_current_status(data)
+
                 if df is None or len(df) < TMonitorConfig.EXTREME_WINDOW:
                     sys_time.sleep(60)
                     continue
 
                 # 指标计算
                 df['dif'], df['dea'], df['macd'] = self._calculate_macd(df)
-
                 # 检测背离信号（使用全部已闭合K线）
                 self._detect_divergence(df)
 
@@ -410,6 +592,22 @@ class TMonitor:
         for current_index in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
             if self.stop_event.is_set():
                 break
+
+            # 截取到当前时刻的数据
+            df_current = df.iloc[:current_index + 1]
+            # 处理数据（传入回测时间）
+            data = self._process_data(
+                df_current,
+                current_time=df_current.iloc[-1]['datetime']
+            )
+            # 判断强度等级
+            new_level = self._determine_strength_level(
+                data['price'], data['vwap'], data['volatility']
+            )
+            self._update_strength_level(new_level, data['time'])
+            # 输出状态日志（频率降低）
+            if current_index % 5 == 0:  # 每5分钟记录一次
+                self._log_current_status(data)
 
             # 关键修改点：始终截取最近 MAX_HISTORY_BARS 的数据
             window_start = max(0, current_index + 1 - TMonitorConfig.MAX_HISTORY_BARS)
@@ -486,11 +684,11 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-03-06 09:30"
+    backtest_start = "2025-03-11 09:30"
     backtest_end = "2025-03-13 15:00"
 
     # 监控标的
-    symbols = ['002195']  # 监控多只股票
+    symbols = ['605100']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
