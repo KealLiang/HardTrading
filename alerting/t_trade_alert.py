@@ -15,6 +15,7 @@ from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+log_frequency = 5 # 日志输出频率
 
 
 class TMonitorConfig:
@@ -354,6 +355,7 @@ class TMonitor:
             print(f"{self.symbol} 连接服务器失败")
             return
 
+        counter = 0
         while not self.stop_event.is_set():  # 检查停止标志
             try:
                 df = self._get_realtime_bars()
@@ -368,10 +370,12 @@ class TMonitor:
                 self._detect_divergence(df)
 
                 # 控制更新频率
-                latest_close = df['close'].iloc[-1]
-                latest_amount = df['vol'].iloc[-1] * latest_close / 10000
-                logging.info(
-                    f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
+                counter += 1
+                if counter % log_frequency == 0:
+                    latest_close = df['close'].iloc[-1]
+                    latest_amount = df['vol'].iloc[-1] * latest_close / 10000
+                    logging.info(
+                        f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
 
                 # 等待60s，如果在等待过程中检测到停止标志，则提前返回
                 if self.stop_event.wait(timeout=60):
@@ -479,14 +483,14 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-02-28 09:30"
-    backtest_end = "2025-03-03 15:00"
+    backtest_start = "2025-03-06 09:30"
+    backtest_end = "2025-03-13 15:00"
 
     # 监控标的
-    symbols = ['301022']  # 监控多只股票
+    symbols = ['002195']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
