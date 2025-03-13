@@ -40,7 +40,8 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250206', save_path='./data/astocks', max_workers=8)
+    data_fetcher = StockDataFetcher(start_date='20250206', save_path='./data/astocks',
+                                    max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
 
@@ -98,10 +99,10 @@ def get_stock_concept_and_industry():
 
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "002730"  # 目标股票代码
-    start_date = datetime(2024, 12, 15)
-    end_date = datetime(2025, 1, 7)
-    trend_end_date = datetime(2025, 3, 3)  # 被查找个股的趋势结束日期
+    target_stock_code = "300718"  # 目标股票代码
+    start_date = datetime(2024, 12, 10)
+    end_date = datetime(2025, 1, 14)
+    trend_end_date = datetime(2025, 3, 12)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -140,7 +141,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250127', '20250307', './excel/market_analysis.xlsx')
+    plot_all('20250127', '20250312', './excel/market_analysis.xlsx')
     # plot_all()
 
 
