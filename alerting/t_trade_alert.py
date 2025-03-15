@@ -200,10 +200,18 @@ class TMonitor:
           若新峰价格明显创新高，但MACD未能同步创新高，则认为出现顶背离信号。
         - 如果为局部谷，则保存到troughs列表，并与之前所有谷比较，
           若新谷价格明显创新低，但MACD未能同步创新低，则认为出现底背离信号。
+        - 增加双顶双底判断：当第二个极值点与第一个极值点价格接近（不需严格创新高/新低）
+          但MACD指标有明显背离时，也触发信号。
         """
         window = TMonitorConfig.EXTREME_WINDOW
         peaks = []  # 每个元素格式：{'idx': i, 'price': high, 'macd': macd}
         troughs = []  # 每个元素格式：{'idx': i, 'price': low, 'macd': macd}
+
+        # 双顶双底参数
+        DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD = 0.005  # 双顶双底价格相似度阈值
+        DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW = 30  # 双顶双底最大时间窗口（K线数量）
+        DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW = 10  # 双顶双底最小时间窗口（K线数量）
+        DOUBLE_TOP_BOTTOM_MACD_THRESHOLD = 0.2  # 双顶双底MACD变化阈值，比普通背离要求更高
 
         # 从window开始，确保有足够的历史数据用于判断局部极值
         for i in range(window, len(df)):
@@ -226,18 +234,33 @@ class TMonitor:
                 if prev_slope > current_slope:
                     # 与之前所有局部峰比较顶背离：价格创新高，但MACD未随之上移
                     for p in peaks:
+                        price_diff = (new_peak['price'] - p['price']) / p['price']
+                        macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
+                        time_diff = new_peak['idx'] - p['idx']
+
+                        # 顶背离判断
                         if new_peak['price'] > p['price'] * (1 + TMonitorConfig.PRICE_DIFF_SELL_THRESHOLD) and \
                                 new_peak['macd'] < p['macd'] * (1 - TMonitorConfig.MACD_DIFF_THRESHOLD):
-                            price_diff = (new_peak['price'] - p['price']) / p['price']
-                            macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
 
                             # 检查是否已触发过信号
                             if not is_duplicated(new_peak, self.triggered_sell_signals):
-                                self._trigger_signal("SELL", price_diff, macd_diff, new_peak['price'],
+                                self._trigger_signal("SELL-背离", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
+
+                        # 双顶判断 - 价格接近但未创新高，MACD明显下降
+                        elif (abs(new_peak['price'] - p['price']) / p['price'] < DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD and
+                              DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW <= time_diff <= DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW and
+                              new_peak['macd'] < p['macd'] * (1 - DOUBLE_TOP_BOTTOM_MACD_THRESHOLD)):
+
+                            # 检查是否已触发过信号
+                            if not is_duplicated(new_peak, self.triggered_sell_signals):
+                                self._trigger_signal("SELL-双顶", price_diff, macd_diff, new_peak['price'],
+                                                     new_peak['time'])
+                                self.triggered_sell_signals.append(new_peak)  # 记录已触发
+
                 peaks.append(new_peak)
-                self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
+                # self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
 
             # 判断局部谷
             local_min = df['low'].iloc[start:i + 1].min()
@@ -256,18 +279,33 @@ class TMonitor:
                 if prev_slope < current_slope:
                     # 与之前所有局部谷比较底背离：价格创新低，但MACD未随之下移
                     for t in troughs:
+                        price_diff = (t['price'] - new_trough['price']) / t['price']
+                        macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
+                        time_diff = new_trough['idx'] - t['idx']
+
+                        # 底背离判断
                         if new_trough['price'] < t['price'] * (1 - TMonitorConfig.PRICE_DIFF_BUY_THRESHOLD) and \
                                 new_trough['macd'] > t['macd'] * (1 + TMonitorConfig.MACD_DIFF_THRESHOLD):
-                            price_diff = (t['price'] - new_trough['price']) / t['price']
-                            macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
 
                             # 检查是否已触发过信号
                             if not is_duplicated(new_trough, self.triggered_buy_signals):
-                                self._trigger_signal("BUY", price_diff, macd_diff, new_trough['price'],
+                                self._trigger_signal("BUY-背离", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
+
+                        # 双底判断 - 价格接近但未创新低，MACD明显上升
+                        elif (abs(new_trough['price'] - t['price']) / t['price'] < DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD and
+                              DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW <= time_diff <= DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW and
+                              new_trough['macd'] > t['macd'] * (1 + DOUBLE_TOP_BOTTOM_MACD_THRESHOLD)):
+
+                            # 检查是否已触发过信号
+                            if not is_duplicated(new_trough, self.triggered_buy_signals):
+                                self._trigger_signal("BUY-双底", price_diff, macd_diff, new_trough['price'],
+                                                     new_trough['time'])
+                                self.triggered_buy_signals.append(new_trough)  # 记录已触发
+
                 troughs.append(new_trough)
-                self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
+                # self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
 
     def _check_trend_strength(self, new_extreme, extremes, direction):
         """
