@@ -15,7 +15,7 @@ from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-log_frequency = 5 # 日志输出频率
+log_frequency = 5  # 日志输出频率
 
 
 class TMonitorConfig:
@@ -32,8 +32,8 @@ class TMonitorConfig:
 
     # 信号检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
-    PRICE_DIFF_BUY_THRESHOLD = 0.03  # 价格变动买入阈值
-    PRICE_DIFF_SELL_THRESHOLD = 0.03  # 价格变动卖出阈值
+    PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
+    PRICE_DIFF_SELL_THRESHOLD = 0.02  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
 
     # 数据获取参数
@@ -182,7 +182,8 @@ class TMonitor:
         :return: 当前时刻的MACD斜率
         """
         if i == 0:
-            return 0  # 斜率无法计算，返回0
+            return 0, 0
+
         current_slope = df['macd'].iloc[i] - df['macd'].iloc[i - 1]
         if i > 1:
             prev_slope = df['macd'].iloc[i - 1] - df['macd'].iloc[i - 2]
@@ -355,7 +356,6 @@ class TMonitor:
             print(f"{self.symbol} 连接服务器失败")
             return
 
-        counter = 0
         while not self.stop_event.is_set():  # 检查停止标志
             try:
                 df = self._get_realtime_bars()
@@ -369,13 +369,10 @@ class TMonitor:
                 # 检测背离信号（使用全部已闭合K线）
                 self._detect_divergence(df)
 
-                # 控制更新频率
-                counter += 1
-                if counter % log_frequency == 0:
-                    latest_close = df['close'].iloc[-1]
-                    latest_amount = df['vol'].iloc[-1] * latest_close / 10000
-                    logging.info(
-                        f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
+                latest_close = df['close'].iloc[-1]
+                latest_amount = df['vol'].iloc[-1] * latest_close / 10000
+                logging.info(
+                    f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
 
                 # 等待60s，如果在等待过程中检测到停止标志，则提前返回
                 if self.stop_event.wait(timeout=60):
@@ -486,11 +483,11 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-03-06 09:30"
-    backtest_end = "2025-03-13 15:00"
+    backtest_start = "2025-03-10 09:30"
+    backtest_end = "2025-03-14 15:00"
 
     # 监控标的
-    symbols = ['002195']  # 监控多只股票
+    symbols = ['002838']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
