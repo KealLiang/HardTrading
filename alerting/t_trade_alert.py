@@ -30,11 +30,16 @@ class TMonitorConfig:
     MACD_SLOW = 26
     MACD_SIGNAL = 9
 
-    # 信号检测参数
+    # 背离检测参数
     EXTREME_WINDOW = 120  # 用于判断局部极值的窗口大小
     PRICE_DIFF_BUY_THRESHOLD = 0.02  # 价格变动买入阈值
     PRICE_DIFF_SELL_THRESHOLD = 0.02  # 价格变动卖出阈值
     MACD_DIFF_THRESHOLD = 0.15  # MACD变动阈值
+
+    # 双顶双底参数
+    DOUBLE_EXTREME_PRICE_THRESHOLD = 0.005  # 双顶双底价格相似度阈值
+    DOUBLE_EXTREME_MAX_TIME_WINDOW = 30  # 双顶双底最大时间窗口（K线数量）
+    DOUBLE_EXTREME_MIN_TIME_WINDOW = 10  # 双顶双底最小时间窗口（K线数量）
 
     # 数据获取参数
     KLINE_CATEGORY = 7  # 1分钟K线
@@ -67,7 +72,7 @@ def is_duplicated(new_node, triggered_signals):
 class TMonitor:
     """做T监控器核心类"""
 
-    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbol, stop_event, is_calc_trend, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
@@ -91,6 +96,7 @@ class TMonitor:
         self.triggered_sell_signals = []
 
         # 趋势日志状态缓存
+        self.is_calc_trend = is_calc_trend
         self.last_trend_log = {
             'direction': None,  # 上次记录的趋势方向
             'timestamp': None,  # 上次记录的时间戳
@@ -162,7 +168,7 @@ class TMonitor:
         df = pd.DataFrame(raw_data)
         # 处理时间格式
         df['datetime'] = pd.to_datetime(df['datetime'])
-        return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
+        return df[['datetime', 'open', 'high', 'low', 'close', 'vol', 'amount']]
 
     def _calculate_macd(self, df):
         """计算MACD指标"""
@@ -174,22 +180,32 @@ class TMonitor:
         macd = (dif - dea) * 2
         return dif, dea, macd
 
-    def _calculate_macd_slope(self, df, i):
+    def _calculate_macd_slope(self, df, i, n=3):
         """
-        计算给定时刻MACD的斜率
-        :param df: 股票K线数据，包含'MACD'列
+        计算给定时刻MACD的斜率并判断转折点
+        :param df: 股票K线数据，包含'macd'列
         :param i: 当前时刻的索引
-        :return: 当前时刻的MACD斜率
+        :param n: 计算前n个斜率
+        :return: 转折点类型: 'top'表示顶部转折点, 'bottom'表示底部转折点, None表示非转折点
         """
-        if i == 0:
-            return 0, 0
+        # 如果数据不足，无法判断转折点
+        if i < n:
+            return None
 
-        current_slope = df['macd'].iloc[i] - df['macd'].iloc[i - 1]
-        if i > 1:
-            prev_slope = df['macd'].iloc[i - 1] - df['macd'].iloc[i - 2]
-        else:
-            prev_slope = 0  # 作为一个初始值
-        return current_slope, prev_slope
+        # 计算最近n+1个点的MACD值
+        macd_values = df['macd'].iloc[i - (n):i + 1].values
+
+        # 计算n个斜率
+        slopes = [macd_values[j + 1] - macd_values[j] for j in range(n)]
+
+        # 顶部转折点: 前面斜率为正(上升)，最后一个斜率为负(下降)
+        if all(slope > 0 for slope in slopes[:-1]) and slopes[-1] < 0:
+            return 'top'
+        # 底部转折点: 前面斜率为负(下降)，最后一个斜率为正(上升)
+        if all(slope < 0 for slope in slopes[:-1]) and slopes[-1] > 0:
+            return 'bottom'
+        # 非转折点
+        return None
 
     def _detect_divergence(self, df):
         """
@@ -207,12 +223,6 @@ class TMonitor:
         peaks = []  # 每个元素格式：{'idx': i, 'price': high, 'macd': macd}
         troughs = []  # 每个元素格式：{'idx': i, 'price': low, 'macd': macd}
 
-        # 双顶双底参数
-        DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD = 0.005  # 双顶双底价格相似度阈值
-        DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW = 30  # 双顶双底最大时间窗口（K线数量）
-        DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW = 10  # 双顶双底最小时间窗口（K线数量）
-        DOUBLE_TOP_BOTTOM_MACD_THRESHOLD = 0.2  # 双顶双底MACD变化阈值，比普通背离要求更高
-
         # 从window开始，确保有足够的历史数据用于判断局部极值
         for i in range(window, len(df)):
             start = max(0, i - window + 1)
@@ -227,11 +237,11 @@ class TMonitor:
                     'time': df['datetime'].iloc[i]  # 添加时间戳
                 }
 
-                # 计算MACD的斜率：当前斜率与前一时刻的斜率进行比较
-                current_slope, prev_slope = self._calculate_macd_slope(df, i)
+                # 判断MACD是否为顶部转折点
+                macd_turning_point = self._calculate_macd_slope(df, i)
 
-                # 判断MACD是否由上升转为下降
-                if prev_slope > current_slope:
+                # 只有在MACD顶部转折点才考虑卖出信号
+                if macd_turning_point == 'top':
                     # 与之前所有局部峰比较顶背离：价格创新高，但MACD未随之上移
                     for p in peaks:
                         price_diff = (new_peak['price'] - p['price']) / p['price']
@@ -249,18 +259,18 @@ class TMonitor:
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
 
                         # 双顶判断 - 价格接近但未创新高，MACD明显下降
-                        elif (abs(new_peak['price'] - p['price']) / p['price'] < DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD and
-                              DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW <= time_diff <= DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW and
-                              new_peak['macd'] < p['macd'] * (1 - DOUBLE_TOP_BOTTOM_MACD_THRESHOLD)):
+                        elif (abs(new_peak['price'] - p['price']) / p['price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
+                              TMonitorConfig.DOUBLE_EXTREME_MIN_TIME_WINDOW <= time_diff <= TMonitorConfig.DOUBLE_EXTREME_MAX_TIME_WINDOW and
+                              new_peak['macd'] < p['macd'] * (1 - TMonitorConfig.MACD_DIFF_THRESHOLD)):
 
                             # 检查是否已触发过信号
                             if not is_duplicated(new_peak, self.triggered_sell_signals):
                                 self._trigger_signal("SELL-双顶", price_diff, macd_diff, new_peak['price'],
                                                      new_peak['time'])
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
-
                 peaks.append(new_peak)
-                # self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
+                if self.is_calc_trend:
+                    self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
 
             # 判断局部谷
             local_min = df['low'].iloc[start:i + 1].min()
@@ -272,11 +282,11 @@ class TMonitor:
                     'time': df['datetime'].iloc[i]  # 添加时间戳
                 }
 
-                # 计算MACD的斜率：当前斜率与前一时刻的斜率进行比较
-                current_slope, prev_slope = self._calculate_macd_slope(df, i)
+                # 判断MACD是否为底部转折点
+                macd_turning_point = self._calculate_macd_slope(df, i)
 
-                # 判断MACD是否由下降转为上升
-                if prev_slope < current_slope:
+                # 只有在MACD底部转折点才考虑买入信号
+                if macd_turning_point == 'bottom':
                     # 与之前所有局部谷比较底背离：价格创新低，但MACD未随之下移
                     for t in troughs:
                         price_diff = (t['price'] - new_trough['price']) / t['price']
@@ -294,18 +304,18 @@ class TMonitor:
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
 
                         # 双底判断 - 价格接近但未创新低，MACD明显上升
-                        elif (abs(new_trough['price'] - t['price']) / t['price'] < DOUBLE_TOP_BOTTOM_PRICE_THRESHOLD and
-                              DOUBLE_TOP_BOTTOM_MIN_TIME_WINDOW <= time_diff <= DOUBLE_TOP_BOTTOM_MAX_TIME_WINDOW and
-                              new_trough['macd'] > t['macd'] * (1 + DOUBLE_TOP_BOTTOM_MACD_THRESHOLD)):
+                        elif (abs(new_trough['price'] - t['price']) / t['price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
+                              TMonitorConfig.DOUBLE_EXTREME_MIN_TIME_WINDOW <= time_diff <= TMonitorConfig.DOUBLE_EXTREME_MAX_TIME_WINDOW and
+                              new_trough['macd'] > t['macd'] * (1 + TMonitorConfig.MACD_DIFF_THRESHOLD)):
 
                             # 检查是否已触发过信号
                             if not is_duplicated(new_trough, self.triggered_buy_signals):
                                 self._trigger_signal("BUY-双底", price_diff, macd_diff, new_trough['price'],
                                                      new_trough['time'])
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
-
                 troughs.append(new_trough)
-                # self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
+                if self.is_calc_trend:
+                    self._check_trend_strength(new_trough, troughs, direction='down')  # 新增趋势检测
 
     def _check_trend_strength(self, new_extreme, extremes, direction):
         """
@@ -394,6 +404,7 @@ class TMonitor:
             print(f"{self.symbol} 连接服务器失败")
             return
 
+        count = 0
         while not self.stop_event.is_set():  # 检查停止标志
             try:
                 df = self._get_realtime_bars()
@@ -407,10 +418,12 @@ class TMonitor:
                 # 检测背离信号（使用全部已闭合K线）
                 self._detect_divergence(df)
 
-                latest_close = df['close'].iloc[-1]
-                latest_amount = df['vol'].iloc[-1] * latest_close / 10000
-                logging.info(
-                    f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
+                if count % log_frequency == 0:
+                    latest_close = df['close'].iloc[-1]
+                    latest_amount = df['amount'].iloc[-1] / 10000
+                    logging.info(
+                        f"[{self.stock_name} {self.symbol}]  最新价:{latest_close:.2f}元, 成交额:{latest_amount:.2f}万元")
+                count += 1
 
                 # 等待60s，如果在等待过程中检测到停止标志，则提前返回
                 if self.stop_event.wait(timeout=60):
@@ -479,13 +492,14 @@ class TMonitor:
 class MonitorManager:
     """多股票监控管理器"""
 
-    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, is_calc_trend=False):
         self.symbols = symbols
         self.stop_event = Event()
         self.executor = ThreadPoolExecutor(max_workers=len(symbols))
         self.is_backtest = is_backtest
         self.backtest_start = backtest_start
         self.backtest_end = backtest_end
+        self.is_calc_trend = is_calc_trend
 
         # 注册信号处理
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -503,6 +517,7 @@ class MonitorManager:
         futures = []
         for symbol in self.symbols:
             monitor = TMonitor(symbol, self.stop_event,
+                               is_calc_trend=self.is_calc_trend,
                                push_msg=not self.is_backtest,
                                is_backtest=self.is_backtest,
                                backtest_start=self.backtest_start,
@@ -525,7 +540,7 @@ if __name__ == "__main__":
     backtest_end = "2025-03-14 15:00"
 
     # 监控标的
-    symbols = ['002838']  # 监控多只股票
+    symbols = ['300068']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
