@@ -1,3 +1,4 @@
+import concurrent.futures  # 添加多线程支持
 import os
 from datetime import datetime
 
@@ -9,7 +10,6 @@ from decorators.practical import timer
 from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
     get_dieting_stocks
 from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
-
 
 os.environ['NODE_OPTIONS'] = '--no-deprecation'
 default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板', '曾涨停']
@@ -286,20 +286,15 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
         return None
 
 
-def zt_analysis(start_date=None, end_date=None):
+def zt_analysis(start_date=None, end_date=None, max_workers=5):
     """
     分析指定时间段内涨停股、连板股和曾涨停股的表现
     Args:
         start_date: 开始日期，格式为 'YYYYMMDD'，如果为None则使用当天
         end_date: 结束日期，格式为 'YYYYMMDD'，如果为None则使用当天
+        max_workers: 最大线程数
     Returns:
-        dict: 按日期存储的分析结果，格式为 {
-            'YYYYMMDD': {
-                '涨停': {...统计数据...},
-                '连板': {...统计数据...},
-                '曾涨停': {...统计数据...}
-            }
-        }
+        dict: 按日期存储的分析结果
     """
     if start_date is None:
         start_date = datetime.now().strftime('%Y%m%d')
@@ -312,23 +307,42 @@ def zt_analysis(start_date=None, end_date=None):
     # 用于存储每日的分析结果
     daily_results = {}
 
+    # 创建任务列表
+    tasks = []
     for date in trading_days:
-        daily_results[date] = {}
-        print(f"\n开始分析个股: {date}")
-
         for analysis_type in default_analysis_type:
-            stats = analyze_zt_stocks_performance(date, analysis_type)
-            if stats:
-                # 存储分析结果
-                daily_results[date][analysis_type] = stats
+            tasks.append((date, analysis_type))
 
-                # 打印当日结果
-                print(f"\n{analysis_type}股票次日表现:")
-                print(f"样本数量: {stats['样本数量']}只")
-                print(f"次日开入开盘涨比: {stats['次日开入开盘涨比']}%")
-                print(f"次日开入收盘涨比: {stats['次日开入收盘涨比']}%")
-                print(f"次日收入收盘涨比: {stats['次日收入收盘涨比']}%")
-                print(f"次日高入收盘涨比: {stats['次日高入收盘涨比']}%")
+    # 使用线程池并行处理任务
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_task = {
+            executor.submit(analyze_zt_stocks_performance, date, analysis_type): (date, analysis_type)
+            for date, analysis_type in tasks
+        }
+
+        # 处理完成的任务
+        for future in concurrent.futures.as_completed(future_to_task):
+            date, analysis_type = future_to_task[future]
+            try:
+                stats = future.result()
+                if stats:
+                    # 初始化日期字典（如果不存在）
+                    if date not in daily_results:
+                        daily_results[date] = {}
+
+                    # 存储分析结果
+                    daily_results[date][analysis_type] = stats
+
+                    # 打印当日结果
+                    print(f"\n{date} {analysis_type}股票次日表现:")
+                    print(f"样本数量: {stats['样本数量']}只")
+                    print(f"次日开入开盘涨比: {stats['次日开入开盘涨比']}%")
+                    print(f"次日开入收盘涨比: {stats['次日开入收盘涨比']}%")
+                    print(f"次日收入收盘涨比: {stats['次日收入收盘涨比']}%")
+                    print(f"次日高入收盘涨比: {stats['次日高入收盘涨比']}%")
+            except Exception as e:
+                print(f"处理 {date} 的 {analysis_type} 分析时出错: {str(e)}")
 
     return daily_results
 
@@ -405,13 +419,14 @@ def merge_and_save_analysis(dapan_stats, zt_stats, excel_path='./excel/market_an
 
 
 @timer
-def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_analysis.xlsx'):
+def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_analysis.xlsx', max_workers=2):
     """
     分析指定时间段的市场数据并保存
     Args:
         start_date: 开始日期，格式为 'YYYYMMDD'
         end_date: 结束日期，格式为 'YYYYMMDD'
         excel_path: Excel文件路径
+        max_workers: 最大线程数
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -446,7 +461,7 @@ def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_a
         # 获取涨停分析数据（日期前移一天）
         prev_start_date = get_prev_trading_day(min(new_dates))
         prev_end_date = get_prev_trading_day(max(new_dates))
-        zt_stats = zt_analysis(prev_start_date, prev_end_date)
+        zt_stats = zt_analysis(prev_start_date, prev_end_date, max_workers=max_workers)
 
         # 调整涨停分析数据的日期，使其与大盘数据对齐
         aligned_zt_stats = {}
