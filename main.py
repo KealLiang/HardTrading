@@ -13,6 +13,7 @@ from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yy
 from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
+from file_checker.stock_data import check_stock_datas
 from filters.find_longtou import find_dragon_stocks
 
 
@@ -40,7 +41,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250206', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250306', save_path='./data/astocks',
                                     max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -147,12 +148,13 @@ def fupan_statistics_excel_plot():
 
 if __name__ == '__main__':
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # get_hot_clouds()
     # get_stock_datas()
     # get_index_data()
+    check_stock_datas()
     # find_similar_trends()
     # find_dragon()
     # fetch_and_filter_top_yybph()
