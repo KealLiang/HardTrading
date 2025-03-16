@@ -29,10 +29,10 @@ class StockDateChecker:
             files = [f for f in os.listdir(self.folder_path)
                      if os.path.isfile(os.path.join(self.folder_path, f))
                      and f.endswith('.csv')]
-            logger.info(f"找到 {len(files)} 个股票数据文件")
+            logging.info(f"找到 {len(files)} 个股票数据文件")
             return files
         except Exception as e:
-            logger.error(f"获取文件列表时出错: {e}")
+            logging.error(f"获取文件列表时出错: {e}")
             return []
 
     def check_file(self, file_name):
@@ -85,7 +85,7 @@ class StockDateChecker:
         files = self.get_stock_files()
 
         if not files:
-            logger.warning("没有找到股票数据文件")
+            logging.warning("没有找到股票数据文件")
             return
 
         # 使用线程池处理文件
@@ -99,35 +99,35 @@ class StockDateChecker:
 
                     if is_sorted is None:  # 处理出错
                         self.results['error'].append((file_name, error_msg))
-                        logger.error(f"文件 {file_name} 处理出错: {error_msg}")
+                        logging.error(f"文件 {file_name} 处理出错: {error_msg}")
                     elif is_sorted:  # 有序
                         self.results['ordered'].append(file_name)
                     else:  # 无序
                         self.results['disordered'].append((file_name, error_msg))
-                        logger.warning(f"文件 {file_name} 日期无序: {error_msg}")
+                        logging.warning(f"文件 {file_name} 日期无序: {error_msg}")
 
                 except Exception as e:
-                    logger.error(f"处理文件 {file_name} 的结果时出错: {str(e)}")
+                    logging.error(f"处理文件 {file_name} 的结果时出错: {str(e)}")
 
         end_time = time.time()
         self.log_results(end_time - start_time)
 
     def log_results(self, elapsed_time):
         """记录检查结果"""
-        logger.info(f"检查完成，耗时: {elapsed_time:.2f} 秒")
-        logger.info(f"有序文件数: {len(self.results['ordered'])}")
-        logger.info(f"无序文件数: {len(self.results['disordered'])}")
-        logger.info(f"处理出错文件数: {len(self.results['error'])}")
+        logging.info(f"检查完成，耗时: {elapsed_time:.2f} 秒")
+        logging.info(f"有序文件数: {len(self.results['ordered'])}")
+        logging.info(f"无序文件数: {len(self.results['disordered'])}")
+        logging.info(f"处理出错文件数: {len(self.results['error'])}")
 
         if self.results['disordered']:
-            logger.info("以下文件日期无序:")
+            logging.info("以下文件日期无序:")
             for file_name, error_msg in self.results['disordered']:
-                logger.info(f"  - {file_name}: {error_msg}")
+                logging.info(f"  - {file_name}: {error_msg}")
 
         if self.results['error']:
-            logger.info("以下文件处理出错:")
+            logging.info("以下文件处理出错:")
             for file_name, error_msg in self.results['error']:
-                logger.info(f"  - {file_name}: {error_msg}")
+                logging.info(f"  - {file_name}: {error_msg}")
 
 
 def check_stock_datas(folder_path="./data/astocks"):
@@ -137,7 +137,7 @@ def check_stock_datas(folder_path="./data/astocks"):
 
     # 设置线程数为CPU核心数的x倍
     max_workers = os.cpu_count() * 0.5
-    logger.info(f"使用 {max_workers} 个线程进行检查")
+    logging.info(f"使用 {max_workers} 个线程进行检查")
 
     # 执行检查
     checker.process_files(max_workers=max_workers)
