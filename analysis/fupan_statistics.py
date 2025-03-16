@@ -1,4 +1,3 @@
-import configparser
 import os
 from datetime import datetime
 
@@ -7,11 +6,14 @@ import pandas as pd
 import tushare as ts
 
 from decorators.practical import timer
-from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, get_dieting_stocks
+from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
+    get_dieting_stocks
 from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
 
 
-default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板']
+os.environ['NODE_OPTIONS'] = '--no-deprecation'
+default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板', '曾涨停']
+
 
 def init_tushare():
     """
@@ -140,26 +142,31 @@ def get_stock_next_day_performance(pre_df, base_date):
                     prev_data = stock_data.iloc[0]
                     base_price = float(prev_data['close'])
                     base_open_price = float(prev_data['open'])
+                    base_high_price = float(prev_data['high'])
                     next_data = stock_data.iloc[1]
                     today_base = float(next_data['open'])
 
                     # 计算涨跌幅
-                    open_change = (float(next_data['open']) - base_price) / base_price * 100
-                    close_change = (float(next_data['close']) - base_price) / base_price * 100
-                    high_change = (float(next_data['high']) - base_price) / base_price * 100
-                    low_change = (float(next_data['low']) - base_price) / base_price * 100
+                    close_open_profit = (float(next_data['open']) - base_price) / base_price * 100
+                    close_close_profit = (float(next_data['close']) - base_price) / base_price * 100
+                    close_high_profit = (float(next_data['high']) - base_price) / base_price * 100
+                    close_low_profit = (float(next_data['low']) - base_price) / base_price * 100
                     today_change = (float(next_data['close']) - today_base) / today_base * 100
-                    open_porfit = (float(next_data['open']) - base_open_price) / base_open_price * 100
-                    close_porfit = (float(next_data['close']) - base_open_price) / base_open_price * 100
+                    open_open_porfit = (float(next_data['open']) - base_open_price) / base_open_price * 100
+                    open_close_porfit = (float(next_data['close']) - base_open_price) / base_open_price * 100
+                    high_open_porfit = (float(next_data['open']) - base_high_price) / base_high_price * 100
+                    high_close_porfit = (float(next_data['close']) - base_high_price) / base_high_price * 100
 
                     result[stock_code] = {
-                        't+1开盘涨跌幅': round(open_change, 2),
-                        't+1收盘涨跌幅': round(close_change, 2),
-                        't+1最高价涨跌幅': round(high_change, 2),
-                        't+1最低价涨跌幅': round(low_change, 2),
+                        't+1收入开盘盈利': round(close_open_profit, 2),
+                        't+1收入收盘盈利': round(close_close_profit, 2),
+                        't+1收入高价盈利': round(close_high_profit, 2),
+                        't+1收入低价盈利': round(close_low_profit, 2),
                         't+1实体涨跌幅': round(today_change, 2),
-                        't+1开盘盈利': round(open_porfit, 2),
-                        't+1收盘盈利': round(close_porfit, 2)
+                        't+1开入开盘盈利': round(open_open_porfit, 2),
+                        't+1开入收盘盈利': round(open_close_porfit, 2),
+                        't+1高入开盘盈利': round(high_open_porfit, 2),
+                        't+1高入收盘盈利': round(high_close_porfit, 2)
                     }
                 else:
                     print(f"未获取到股票 {stock_code} 的完整数据")
@@ -172,6 +179,7 @@ def get_stock_next_day_performance(pre_df, base_date):
     except Exception as e:
         print(f"获取次日表现数据失败: {str(e)}")
         return None
+
 
 def merge_zt_and_zaban_stocks(date):
     """
@@ -239,30 +247,36 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             return None
 
         # 统计数据
-        open_changes = [data['t+1开盘涨跌幅'] for data in performance.values()]
-        close_changes = [data['t+1收盘涨跌幅'] for data in performance.values()]
-        high_changes = [data['t+1最高价涨跌幅'] for data in performance.values()]
-        low_changes = [data['t+1最低价涨跌幅'] for data in performance.values()]
+        close_open_profit = [data['t+1收入开盘盈利'] for data in performance.values()]
+        close_close_profit = [data['t+1收入收盘盈利'] for data in performance.values()]
+        close_high_profit = [data['t+1收入高价盈利'] for data in performance.values()]
+        close_low_profit = [data['t+1收入低价盈利'] for data in performance.values()]
         today_changes = [data['t+1实体涨跌幅'] for data in performance.values()]
-        open_profit = [data['t+1开盘盈利'] for data in performance.values()]
-        close_profit = [data['t+1收盘盈利'] for data in performance.values()]
+        open_open_profit = [data['t+1开入开盘盈利'] for data in performance.values()]
+        open_close_profit = [data['t+1开入收盘盈利'] for data in performance.values()]
+        high_open_profit = [data['t+1高入开盘盈利'] for data in performance.values()]
+        high_close_profit = [data['t+1高入收盘盈利'] for data in performance.values()]
 
         # 计算统计指标
         stats = {
             '分析类型': analysis_type,
             '样本数量': len(performance),
-            '次日开盘': round(sum(open_changes) / len(open_changes), 2),
-            '次日收盘': round(sum(close_changes) / len(close_changes), 2),
-            '次日最高': round(sum(high_changes) / len(high_changes), 2),
-            '次日最低': round(sum(low_changes) / len(low_changes), 2),
+            '次日收入开盘': round(sum(close_open_profit) / len(close_open_profit), 2),
+            '次日收入收盘': round(sum(close_close_profit) / len(close_close_profit), 2),
+            '次日收入高价': round(sum(close_high_profit) / len(close_high_profit), 2),
+            '次日收入低价': round(sum(close_low_profit) / len(close_low_profit), 2),
             '次日实体': round(sum(today_changes) / len(today_changes), 2),
-            '次日开盘盈利': round(sum(open_profit) / len(open_profit), 2),
-            '次日收盘盈利': round(sum(close_profit) / len(close_profit), 2),
-            '次日开盘上涨比例': round(len([x for x in open_changes if x > 0]) / len(open_changes) * 100, 2),
-            '次日收盘上涨比例': round(len([x for x in close_changes if x > 0]) / len(close_changes) * 100, 2),
+            '次日开入开盘': round(sum(open_open_profit) / len(open_open_profit), 2),
+            '次日开入收盘': round(sum(open_close_profit) / len(open_close_profit), 2),
+            '次日高入开盘': round(sum(high_open_profit) / len(high_open_profit), 2),
+            '次日高入收盘': round(sum(high_close_profit) / len(high_close_profit), 2),
+            '次日收入开盘涨比': round(len([x for x in close_open_profit if x > 0]) / len(close_open_profit) * 100, 2),
+            '次日收入收盘涨比': round(len([x for x in close_close_profit if x > 0]) / len(close_close_profit) * 100, 2),
             '次日实体上涨比例': round(len([x for x in today_changes if x > 0]) / len(today_changes) * 100, 2),
-            '次日开盘盈利比例': round(len([x for x in open_profit if x > 0]) / len(open_profit) * 100, 2),
-            '次日收盘盈利比例': round(len([x for x in close_profit if x > 0]) / len(close_profit) * 100, 2),
+            '次日开入开盘涨比': round(len([x for x in open_open_profit if x > 0]) / len(open_open_profit) * 100, 2),
+            '次日开入收盘涨比': round(len([x for x in open_close_profit if x > 0]) / len(open_close_profit) * 100, 2),
+            '次日高入开盘涨比': round(len([x for x in high_open_profit if x > 0]) / len(high_open_profit) * 100, 2),
+            '次日高入收盘涨比': round(len([x for x in high_close_profit if x > 0]) / len(high_close_profit) * 100, 2),
             '详细数据': performance
         }
 
@@ -311,13 +325,10 @@ def zt_analysis(start_date=None, end_date=None):
                 # 打印当日结果
                 print(f"\n{analysis_type}股票次日表现:")
                 print(f"样本数量: {stats['样本数量']}只")
-                print(f"T+1日平均开盘涨跌幅: {stats['次日开盘']}%")
-                print(f"T+1日平均收盘涨跌幅: {stats['次日收盘']}%")
-                print(f"T+1日平均最高价涨跌幅: {stats['次日最高']}%")
-                print(f"T+1日平均最低价涨跌幅: {stats['次日最低']}%")
-                print(f"T+1日开盘上涨比例: {stats['次日开盘上涨比例']}%")
-                print(f"T+1日收盘上涨比例: {stats['次日收盘上涨比例']}%")
-                print(f"T+1日开盘盈利比例: {stats['次日开盘盈利比例']}%")
+                print(f"次日开入开盘涨比: {stats['次日开入开盘涨比']}%")
+                print(f"次日开入收盘涨比: {stats['次日开入收盘涨比']}%")
+                print(f"次日收入收盘涨比: {stats['次日收入收盘涨比']}%")
+                print(f"次日高入收盘涨比: {stats['次日高入收盘涨比']}%")
 
     return daily_results
 
