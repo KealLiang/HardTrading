@@ -41,7 +41,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250306', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250101', save_path='./data/astocks',
                                     max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -100,10 +100,10 @@ def get_stock_concept_and_industry():
 
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "300718"  # 目标股票代码
-    start_date = datetime(2024, 12, 10)
-    end_date = datetime(2025, 1, 14)
-    trend_end_date = datetime(2025, 3, 14)  # 被查找个股的趋势结束日期
+    target_stock_code = "301225"  # 目标股票代码
+    start_date = datetime(2025, 2, 28)
+    end_date = datetime(2025, 3, 17)
+    trend_end_date = datetime(2025, 3, 17)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -135,24 +135,24 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250206'
-    end_date = '20250221'
+    start_date = '20250127'
+    end_date = '20250228'
     # end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=2)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250127', '20250206', './excel/market_analysis.xlsx')
+    plot_all('20250127', '20250317', './excel/market_analysis.xlsx')
     # plot_all()
 
 
 if __name__ == '__main__':
-    fupan_statistics_to_excel()
+    # get_stock_datas()
+    # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    # fetch_ths_fupan()
+    fetch_ths_fupan()
     # draw_ths_fupan()
     # get_hot_clouds()
-    # get_stock_datas()
     # get_index_data()
     # check_stock_datas()
     # find_similar_trends()
