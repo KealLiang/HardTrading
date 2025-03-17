@@ -122,8 +122,10 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250215"
-    all_fupan(start_date)
+    start_date = "20250303"
+    end_date = '20250317'
+    end_date = None
+    all_fupan(start_date, end_date)
 
 
 def draw_ths_fupan():
@@ -138,7 +140,7 @@ def fupan_statistics_to_excel():
     start_date = '20250127'
     end_date = '20250228'
     # end_date = None
-    fupan_all_statistics(start_date, end_date, max_workers=2)
+    fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
@@ -149,8 +151,8 @@ def fupan_statistics_excel_plot():
 if __name__ == '__main__':
     # get_stock_datas()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
-    fetch_ths_fupan()
+    fupan_statistics_excel_plot()
+    # fetch_ths_fupan()
     # draw_ths_fupan()
     # get_hot_clouds()
     # get_index_data()
