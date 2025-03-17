@@ -1,4 +1,5 @@
 import concurrent.futures  # 添加多线程支持
+import logging
 import os
 from datetime import datetime
 
@@ -6,6 +7,7 @@ import akshare as ak
 import pandas as pd
 import tushare as ts
 
+from threading import Lock
 from decorators.practical import timer
 from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
     get_dieting_stocks
@@ -120,22 +122,22 @@ def get_stock_next_day_performance(pre_df, base_date):
     """
     try:
         next_date = get_next_trading_day(base_date)
+        # 使用线程安全的字典
+        result_lock = Lock()
         result = {}
 
         for _, row in pre_df.iterrows():
             try:
                 stock_code = row['股票代码'].split('.')[0]
+                stock_name = row.get('股票简称', '')
+                
+                logging.debug(f"开始处理股票: {stock_code} ({stock_name})")
 
-                # 处理股票代码格式
-                if stock_code.startswith('6'):
-                    formatted_code = f"sh{stock_code}"
-                else:
-                    formatted_code = f"sz{stock_code}"
+                # 尝试从本地文件读取数据
+                local_data = get_local_data(base_date, next_date, stock_code, stock_name)
 
-                # 获取基准日期和下一日（T+1日）的数据
-                stock_data = ak.stock_zh_a_daily(symbol=formatted_code,
-                                                 start_date=base_date,
-                                                 end_date=next_date)
+                # 如果本地数据获取成功，使用本地数据；否则通过API获取
+                stock_data = get_stock_data(base_date, next_date, stock_code, local_data)
 
                 if stock_data is not None and not stock_data.empty and len(stock_data) >= 2:
                     # 正确访问DataFrame的数据
@@ -157,28 +159,113 @@ def get_stock_next_day_performance(pre_df, base_date):
                     high_open_porfit = (float(next_data['open']) - base_high_price) / base_high_price * 100
                     high_close_porfit = (float(next_data['close']) - base_high_price) / base_high_price * 100
 
-                    result[stock_code] = {
-                        't+1收入开盘盈利': round(close_open_profit, 2),
-                        't+1收入收盘盈利': round(close_close_profit, 2),
-                        't+1收入高价盈利': round(close_high_profit, 2),
-                        't+1收入低价盈利': round(close_low_profit, 2),
-                        't+1实体涨跌幅': round(today_change, 2),
-                        't+1开入开盘盈利': round(open_open_porfit, 2),
-                        't+1开入收盘盈利': round(open_close_porfit, 2),
-                        't+1高入开盘盈利': round(high_open_porfit, 2),
-                        't+1高入收盘盈利': round(high_close_porfit, 2)
-                    }
+                    # 使用锁保护共享资源的写入
+                    with result_lock:
+                        result[stock_code] = {
+                            't+1收入开盘盈利': round(close_open_profit, 2),
+                            't+1收入收盘盈利': round(close_close_profit, 2),
+                            't+1收入高价盈利': round(close_high_profit, 2),
+                            't+1收入低价盈利': round(close_low_profit, 2),
+                            't+1实体涨跌幅': round(today_change, 2),
+                            't+1开入开盘盈利': round(open_open_porfit, 2),
+                            't+1开入收盘盈利': round(open_close_porfit, 2),
+                            't+1高入开盘盈利': round(high_open_porfit, 2),
+                            't+1高入收盘盈利': round(high_close_porfit, 2)
+                        }
                 else:
-                    print(f"未获取到股票 {stock_code} 的完整数据")
+                    logging.warning(f"未获取到股票 {stock_code} 的完整数据")
 
             except Exception as e:
-                print(f"处理股票 {stock_code} 时出错: {str(e)}")
+                logging.error(f"处理股票 {stock_code} 时出错: {str(e)}")
                 continue
 
         return result
     except Exception as e:
-        print(f"获取次日表现数据失败: {str(e)}")
+        logging.error(f"获取次日表现数据失败: {str(e)}")
         return None
+
+
+def get_stock_data(base_date, next_date, stock_code, local_data):
+    if local_data is not None and len(local_data) >= 2:
+        stock_data = local_data
+        # 转换列名以匹配后续处理
+        stock_data = stock_data.rename(columns={
+            '开盘': 'open', '收盘': 'close', '最高': 'high', '最低': 'low'
+        })
+    else:
+        logging.info(f"从本地读取[{stock_code}]数据失败，从API获取")
+        # 处理股票代码格式
+        if stock_code.startswith('6'):
+            formatted_code = f"sh{stock_code}"
+        else:
+            formatted_code = f"sz{stock_code}"
+
+        # 通过API获取数据
+        stock_data = ak.stock_zh_a_daily(symbol=formatted_code,
+                                         start_date=base_date,
+                                         end_date=next_date)
+    return stock_data
+
+
+def get_local_data(base_date, next_date, stock_code, stock_name, data_path='data/astocks'):
+    local_data = None
+    try:
+        # 确保使用绝对路径
+        abs_data_path = os.path.abspath(data_path)
+        if not os.path.exists(abs_data_path):
+            logging.warning(f"数据路径不存在: {abs_data_path}")
+            return None
+            
+        # 查找所有匹配股票代码的文件
+        try:
+            matching_files = [f for f in os.listdir(abs_data_path) if f.startswith(f"{stock_code}_")]
+        except Exception as e:
+            logging.error(f"列出目录内容失败: {str(e)}")
+            return None
+
+        if len(matching_files) == 1:
+            # 只找到一个文件，直接使用
+            file_path = os.path.join(abs_data_path, matching_files[0])
+        elif len(matching_files) > 1 and stock_name:
+            # 找到多个文件，使用股票名称进一步筛选
+            processed_stock_name = ''.join(stock_name.split())
+            name_matched_files = [f for f in matching_files
+                                  if processed_stock_name in ''.join(f.split('_')[1].split('.')[0].split())]
+            if name_matched_files:
+                file_path = os.path.join(abs_data_path, name_matched_files[0])
+            else:
+                # 如果没有匹配的，使用第一个文件
+                file_path = os.path.join(abs_data_path, matching_files[0])
+                logging.warning(f"股票{stock_code}({stock_name})存在多个数据文件，使用: {matching_files[0]}")
+        else:
+            logging.warning(f"未找到股票{stock_code}的数据文件")
+            return None
+
+        # 使用文件锁确保线程安全的文件读取
+        with open(file_path, 'r') as f:
+            # 读取本地数据
+            local_df = pd.read_csv(file_path, header=None,
+                                names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅',
+                                        '涨跌幅', '涨跌额', '换手率'],
+                                dtype={'日期': str})
+
+            # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
+            base_date_formatted = f"{base_date[:4]}-{base_date[4:6]}-{base_date[6:]}"
+            next_date_formatted = f"{next_date[:4]}-{next_date[4:6]}-{next_date[6:]}"
+
+            # 筛选出基准日和次日的数据
+            filtered_df = local_df[local_df['日期'].isin([base_date_formatted, next_date_formatted])]
+
+            if len(filtered_df) >= 2:
+                # 创建数据副本，避免多线程共享同一个DataFrame
+                local_data = filtered_df.sort_values(by='日期').reset_index(drop=True).copy()
+                logging.debug(f"成功从本地读取股票 {stock_code} 的数据")
+            else:
+                logging.warning(f"本地文件中未找到股票 {stock_code} 的完整数据 base[{base_date}]-next[{next_date}]")
+    except Exception as e:
+        logging.error(f"从本地读取股票 {stock_code} 数据失败: {str(e)}")
+    
+    return local_data
 
 
 def merge_zt_and_zaban_stocks(date):
