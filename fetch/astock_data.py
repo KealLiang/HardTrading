@@ -85,25 +85,41 @@ class StockDataFetcher:
 
     def _append_new_data(self, file_path, new_data):
         """
-        追加新数据到现有文件
+        追加新数据到现有文件，并处理缺失的日期数据
         """
         try:
-            # 读取现有文件的最后一行的日期
-            last_date_df = pd.read_csv(file_path, header=None, usecols=[0])
-            last_date = last_date_df.iloc[-1][0]
+            # 读取现有文件的所有数据
+            existing_data = pd.read_csv(file_path, header=None,
+                                        names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+                                               '振幅', '涨跌幅', '涨跌额', '换手率'])
 
-            # 过滤新数据中日期大于最后日期的部分
-            if not new_data.empty:
-                filtered_data = new_data[new_data['日期'] > pd.to_datetime(last_date).date()]
+            # 确保日期列是日期类型
+            existing_data['日期'] = pd.to_datetime(existing_data['日期'])
+            new_data['日期'] = pd.to_datetime(new_data['日期'])
+
+            # 获取现有数据中的所有日期
+            existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
+
+            # 筛选出新数据中不存在于现有数据的日期记录
+            missing_data = new_data[~new_data['日期'].dt.strftime('%Y-%m-%d').isin(existing_dates)]
+
+            if not missing_data.empty:
+                # 将现有数据和缺失数据合并
+                combined_data = pd.concat([existing_data, missing_data])
+                # 按日期排序
+                combined_data = combined_data.sort_values(by='日期')
+                # 重写整个文件
+                combined_data.to_csv(file_path, index=False, header=False)
+                logging.info(f"Updated {os.path.basename(file_path)} with {len(missing_data)} missing records")
             else:
-                filtered_data = new_data
+                logging.info(f"No missing data to append for {os.path.basename(file_path)}")
 
-            if not filtered_data.empty:
-                # 追加新数据
-                filtered_data.to_csv(file_path, mode='a', header=False, index=False)
-                logging.info(f"Appended {len(filtered_data)} rows to {os.path.basename(file_path)}")
         except pd.errors.EmptyDataError:
             logging.warning(f"Empty file detected, overwriting {file_path}")
+            self._create_new_file(file_path, new_data)
+        except Exception as e:
+            logging.error(f"Error updating {file_path}: {str(e)}")
+            # 如果出错，尝试创建新文件
             self._create_new_file(file_path, new_data)
 
     def _create_new_file(self, file_path, data):
