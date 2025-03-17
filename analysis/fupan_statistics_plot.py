@@ -141,8 +141,8 @@ def plot_zt_next_day_performance(df, save_path):
     ax1.plot(x, df['连板_次日高入收盘'], 'b--s', label='连板股高入收盘', alpha=0.5)
 
     # 绘制曾涨停的次日表现（主坐标轴）
-    ax1.plot(x, df['曾涨停_次日高入开盘'], 'b-s', label='曾涨停股高入开盘', linewidth=2)
-    ax1.plot(x, df['曾涨停_次日高入收盘'], 'b--s', label='曾涨停股高入收盘', alpha=0.5)
+    ax1.plot(x, df['曾涨停_次日高入开盘'], 'c-s', label='曾涨停股高入开盘', linewidth=2)
+    ax1.plot(x, df['曾涨停_次日高入收盘'], 'c--s', label='曾涨停股高入收盘', alpha=0.5)
 
     # 绘制上涨比例（次坐标轴）
     bar_width = 0.15

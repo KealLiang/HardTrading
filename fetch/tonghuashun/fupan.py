@@ -1,10 +1,10 @@
 import os
+import sys
 from datetime import datetime
 
 import pandas as pd
 import pywencai
 
-import sys
 from utils.date_util import get_trading_days
 
 fupan_file = "./excel/fupan_stocks.xlsx"
@@ -13,7 +13,7 @@ zt_cache = {}
 
 
 def query_wencai(param):
-    df = pywencai.get(query=param, sort_key='股票代码', sort_order='desc', loop=True)
+    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True)
     return df
 
 
@@ -279,7 +279,8 @@ def daily_fupan(fupan_type, start_date, end_date):
 
 def all_fupan(start_date=None, end_date=None):
     # end_date = "20241201"
-    end_date = datetime.now().strftime('%Y%m%d')
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
     for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据']:
         daily_fupan(fupan_type, start_date, end_date)
 
