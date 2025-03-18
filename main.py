@@ -138,22 +138,22 @@ def draw_ths_fupan():
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
     start_date = '20250127'
-    end_date = '20250228'
-    # end_date = None
+    # end_date = '20250228'
+    end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250127', '20250317', './excel/market_analysis.xlsx')
+    plot_all('20250127', '20250318', './excel/market_analysis.xlsx')
     # plot_all()
 
 
 if __name__ == '__main__':
     # get_stock_datas()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # get_hot_clouds()
     # get_index_data()
     # check_stock_datas()
