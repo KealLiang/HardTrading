@@ -92,12 +92,12 @@ def plot_limit_up_effect(df, save_path):
 
     # 绘制次日表现折线
     ax2.plot(x, df['涨停_次日高入收盘'], 'r-o', label='涨停次日高入收盘', linewidth=1)
-    ax2.plot(x, df['连板_次日开入收盘'], 'b-s', label='连板次日开入收盘', linewidth=1)
+    ax2.plot(x, df['连板_次日实体'], 'b-s', label='连板次日实体', linewidth=1)
     ax2.plot(x, df['炸板_次日开入收盘'], color='orange', linestyle='-', marker='D', label='炸板次日开入收盘',
              linewidth=1)
 
     ax2.plot(x, df['涨停_次日高入开盘'], 'r--o', label='涨停次日高入开盘', linewidth=1, alpha=0.5)
-    ax2.plot(x, df['连板_次日开入开盘'], 'b--s', label='连板次日开入开盘', linewidth=1, alpha=0.5)
+    # ax2.plot(x, df['连板_次日开入开盘'], 'b--s', label='连板次日开入开盘', linewidth=1, alpha=0.5)
     ax2.plot(x, df['炸板_次日开入开盘'], color='orange', linestyle='--', marker='D', label='炸板次日开入开盘',
              linewidth=1, alpha=0.5)
 
