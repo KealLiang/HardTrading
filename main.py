@@ -137,14 +137,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250127'
+    start_date = '20250324'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250127', '20250321', './excel/market_analysis.xlsx')
+    plot_all('20250101', '20250330', './excel/market_analysis.xlsx')
     # plot_all()
 
 
