@@ -41,7 +41,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250301', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250325', save_path='./data/astocks',
                                     max_workers=16)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -122,7 +122,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250303"
+    start_date = "20250325"
     # end_date = '20250317'
     end_date = None
     all_fupan(start_date, end_date)
@@ -137,7 +137,7 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250324'
+    start_date = '20250325'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
@@ -150,10 +150,10 @@ def fupan_statistics_excel_plot():
 
 if __name__ == '__main__':
     # get_stock_datas()
-    # fupan_statistics_to_excel()
+    fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # get_index_data()
     # check_stock_datas()
