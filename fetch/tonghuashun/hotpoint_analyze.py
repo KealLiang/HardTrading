@@ -7,6 +7,7 @@ import pandas as pd
 import pandas_market_calendars as mcal
 import pywencai
 from wordcloud import WordCloud
+from matplotlib.font_manager import FontProperties
 
 # 确保字体文件路径正确
 font_path = 'fonts/微软雅黑.ttf'
@@ -49,11 +50,8 @@ def hot_words_cloud(days):
             # 按照'连板数'列进行降序排序
             sorted_temp_df = jj_df.sort_values(by='连续涨停天数[' + date + ']', ascending=False)
 
-            # 概念词云
-            generate_concept_cloud(date, sorted_temp_df)
-
-            # 行业词云
-            generate_industry_cloud(date, sorted_temp_df)
+            # 生成合并的词云图
+            generate_combined_cloud(date, sorted_temp_df)
 
             # 防止高频拉取被拦截，稍微 sleep 一下
             time.sleep(1.5)
@@ -62,47 +60,48 @@ def hot_words_cloud(days):
             print(f"处理日期 {date} 时出错: {e}")
 
 
-def generate_industry_cloud(date, sorted_temp_df):
-    # 为涨停个股数据添加所属行业列
-    sorted_temp_df['所属行业'] = sorted_temp_df['股票代码'].apply(get_industry_by_code)
-    # 统计各行业出现的频次，用于生成词云图
-    industry_counts = sorted_temp_df['所属行业'].value_counts()
-    # 生成词云图
-    wordcloud = WordCloud(
-        font_path=font_path,  # 设置中文字体路径，确保能正确显示中文，需提前下载好字体文件
-        background_color='white',
-        width=800,
-        height=600
-    ).generate_from_frequencies(
-        dict(industry_counts))
-    # 保存词云图到文件
-    plt.figure(figsize=(10, 5))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis('off')
-    plt.savefig(f"{save_path}{date}_industry.png", format='png')
-    plt.close()
-    # 打印成功信息
-    print(f"词云图已保存: {date}_industry.png")
-
-
-def generate_concept_cloud(date, sorted_temp_df):
-    # 按照 '+' 分割涨停原因类别
+def generate_combined_cloud(date, sorted_temp_df):
+    # 创建一个包含两个子图的图像，减小图像尺寸
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # 创建字体对象
+    font_prop = FontProperties(fname=font_path)
+    
+    # 生成概念词云
     concepts = sorted_temp_df['涨停原因类别[' + date + ']'].str.split('+').explode().reset_index(drop=True)
-    # 统计每个概念的出现次数
     concept_counts = concepts.value_counts().reset_index()
     concept_counts.columns = ['概念', '出现次数']
-    # 生成词云
-    wordcloud = WordCloud(width=800, height=400, background_color='white',
-                          font_path=font_path).generate_from_frequencies(
-        dict(zip(concept_counts['概念'], concept_counts['出现次数'])))
-    # 保存词云图到文件
-    plt.figure(figsize=(10, 5))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis('off')
-    plt.savefig(f"{save_path}{date}_concept.png", format='png')
+    concept_wordcloud = WordCloud(width=600, height=300, background_color='white',
+                      font_path=font_path).generate_from_frequencies(
+    dict(zip(concept_counts['概念'], concept_counts['出现次数'])))
+    
+    # 生成行业词云
+    sorted_temp_df['所属行业'] = sorted_temp_df['股票代码'].apply(get_industry_by_code)
+    industry_counts = sorted_temp_df['所属行业'].value_counts()
+    industry_wordcloud = WordCloud(
+        font_path=font_path,
+        background_color='white',
+        width=600,
+        height=300
+    ).generate_from_frequencies(dict(industry_counts))
+    
+    # 在子图中显示词云
+    ax1.imshow(concept_wordcloud, interpolation='bilinear')
+    ax1.set_title('概念词云', fontsize=14, fontproperties=font_prop)
+    ax1.axis('off')
+    
+    ax2.imshow(industry_wordcloud, interpolation='bilinear')
+    ax2.set_title('行业词云', fontsize=14, fontproperties=font_prop)
+    ax2.axis('off')
+    
+    # 调整布局并保存，降低DPI
+    plt.tight_layout()
+    plt.savefig(f"{save_path}{date}_combined.png", format='png', dpi=120, 
+                bbox_inches='tight', pad_inches=0.1)
     plt.close()
+    
     # 打印成功信息
-    print(f"词云图已保存: {date}_concept.png")
+    print(f"合并词云图已保存: {date}_combined.png")
 
 
 # 通过AKShare获取个股所属行业信息
