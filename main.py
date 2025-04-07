@@ -144,17 +144,17 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250101', '20250330', './excel/market_analysis.xlsx')
+    plot_all('20250301', '20250407', './excel/market_analysis.xlsx')
     # plot_all()
 
 
 if __name__ == '__main__':
     # get_stock_datas()
-    fupan_statistics_to_excel()
+    # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # get_hot_clouds()
+    get_hot_clouds()
     # get_index_data()
     # check_stock_datas()
     # find_similar_trends()
