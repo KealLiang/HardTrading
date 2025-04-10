@@ -129,7 +129,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250127'  # 开始日期
+    start_date = '20250215'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -144,7 +144,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250301', '20250407', './excel/market_analysis.xlsx')
+    plot_all('20250315', '20250410', './excel/market_analysis.xlsx')
     # plot_all()
 
 
