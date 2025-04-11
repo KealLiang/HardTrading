@@ -182,6 +182,32 @@ def get_zaban_stocks(date):
     return sorted_zaban_df
 
 
+def get_top_attention_stocks(date):
+    """
+    获取指定日期的关注度榜个股数据。
+    
+    :param date: 查询日期，格式为'YYYYMMDD'
+    :return: 关注度榜个股的DataFrame。
+    """
+    # 设置查询参数
+    param = f"{date}关注度前二十"
+    df = query_wencai(param)
+    if df is None:
+        return pd.DataFrame()
+
+    # 选择需要的列
+    selected_columns = [
+        '股票代码', '股票简称', '最新价', '最新涨跌幅',
+        f'个股热度[{date}]', f'个股热度排名[{date}]'
+    ]
+    top_df = df[selected_columns]
+
+    # 数据处理
+    sorted_top_df = top_df.sort_values(by=f'个股热度排名[{date}]').reset_index(drop=True)
+    sorted_top_df['最新涨跌幅'] = sorted_top_df['最新涨跌幅'].apply(lambda x: f"{float(x):.1f}%")
+    return sorted_top_df
+
+
 def save_to_excel(dataframes, dates, fupan_type):
     """
     将多个日期的DataFrame保存到一个Excel文件中，日期作为列名。
@@ -248,7 +274,8 @@ def daily_fupan(fupan_type, start_date, end_date):
         '跌停数据': get_dieting_stocks,
         '炸板数据': get_zaban_stocks,
         '首板数据': get_shouban_stocks,
-        '反包数据': get_fanbao_stocks
+        '反包数据': get_fanbao_stocks,
+        '关注度榜': get_top_attention_stocks
     }
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
@@ -281,7 +308,7 @@ def all_fupan(start_date=None, end_date=None):
     # end_date = "20241201"
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
-    for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据']:
+    for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
         daily_fupan(fupan_type, start_date, end_date)
 
 

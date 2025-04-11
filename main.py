@@ -122,8 +122,8 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250325"
-    # end_date = '20250317'
+    start_date = "20250401"
+    # end_date = '20250411'
     end_date = None
     all_fupan(start_date, end_date)
 
