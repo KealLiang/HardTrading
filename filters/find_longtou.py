@@ -3,26 +3,24 @@ from datetime import datetime, timedelta
 
 import a_trade_calendar
 import pandas as pd
+from tqdm import tqdm
 
 from decorators.practical import timer
 from utils.file_util import save_list_to_file
 
 
 # 定义龙头股对象
-# 修改LongTou类的状态注释
 class LongTou:
     def __init__(self, stock_code, stock_name, start_date):
         self.stock_code = stock_code
         self.stock_name = stock_name
         self.start_date = start_date
         self.start_price = 0.0
+        self.high_price = 0.0  # 区间最高价
         self.end_price = 0.0
         self.end_date = None
         self.gain = 100.0
         self.status = '初始'  # 状态: [初始, 候选, 存疑, 真龙, 龙破, 龙灭, 高度, 高破]
-
-    def set_gain(self, gain):
-        self.gain = gain
 
     def set_status(self, status):
         self.status = status
@@ -33,16 +31,10 @@ class LongTou:
     def set_end_date(self, end_date):
         self.end_date = end_date.strftime('%Y-%m-%d')
 
-    def set_start_price(self, start_price):
-        self.start_price = start_price
-
-    def set_end_price(self, end_price):
-        self.end_price = end_price
-
     def __str__(self):
         return (
-            f'[{self.stock_code} {self.stock_name}] - {self.status} - 涨幅:{self.gain:.2f}% - '
-            f'价格:[{self.start_price} - {self.end_price}] - 期间:[{self.start_date} - {self.end_date}]')
+            f'[{self.stock_code} {self.stock_name}] - {self.status} - 振幅:{self.gain:.2f}% - '
+            f'价格:[{self.start_price} - {self.high_price}] - 期间:[{self.start_date} - {self.end_date}]')  # 修改：显示最高价
 
 
 @timer
@@ -55,9 +47,10 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
 
     # 龙头股列表
     long_tou_list = []
+    second_threshold = threshold * height_ratio
 
     # 遍历数据目录下的所有股票数据文件
-    for filename in os.listdir(data_path):
+    for filename in tqdm(os.listdir(data_path)):
         if filename.endswith('.csv'):
             # 获取股票代码和名称
             stock_code, stock_name = filename.split('_')
@@ -74,29 +67,29 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
             if 'ST' in stock_name:
                 continue
 
-            print(stock_code, stock_name)
+            # print(stock_code, stock_name)
             # 查找涨停点，更新龙头股状态
             find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data,
-                          threshold, height_ratio)
+                          threshold, second_threshold)
 
     # 优化高度股筛选逻辑
-    height_threshold = threshold * height_ratio
-    height_list = [stock for stock in long_tou_list 
-                  if stock.status == '高度' and stock.gain >= height_threshold]
+    height_list = [stock for stock in long_tou_list
+                   if stock.status == '高度' and stock.gain >= second_threshold]
     # 真龙股和高度股合并去重
     result_list = list({stock.stock_code: stock for stock in long_tou_list + height_list}.values())
-    
-    result_list.sort(key=lambda x: (x.start_date, x.status, x.gain), reverse=True)
-    
+
+    result_list.sort(key=lambda x: (x.start_date, x.gain, x.status), reverse=True)
+
     # 保存
     save_list_to_file(result_list, f'./data/long_{start_date}_{end_date}.txt')
-    
+
     # 输出
     for stock in result_list:
         print(stock)
 
 
-def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data, threshold, height_ratio):
+def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data,
+                  threshold, second_threshold):
     # 创建龙头股对象
     global cur_date
     dragon_stock = LongTou(stock_code, stock_name, start_date)
@@ -104,40 +97,54 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
     end_datetime = pd.to_datetime(end_date)
     # 使用searchsorted找到开始处理的索引
     start_index = stock_data['日期'].searchsorted(start_date)
+    max_high = 0.0  # 记录区间最高价
+
     for index, row in stock_data.iloc[start_index:].iterrows():
         # 当股票的日期大于等于开始日期时开始处理
         if row['日期'] < start_datetime:
             continue
         if row['日期'] > end_datetime:
             break
+
         # 当天的涨幅
         gain = row['涨跌幅']
         cur_date = row['日期']
 
         # 第一次涨停加入候选龙头
         if is_zhangting(stock_code, stock_name, gain) and dragon_stock.status == '初始':
+            max_high = row['最高']
+            # 获取前一天的交易数据
+            prev_day_index = index - 1
+            if prev_day_index >= 0:
+                prev_row = stock_data.iloc[prev_day_index]
+                dragon_stock.start_price = prev_row['开盘']  # 使用前一天开盘价
+            else:
+                tqdm.write(f"[{stock_code} {stock_name}]没有前一天的数据，使用当日开盘价作为起始")
+                dragon_stock.start_price = row['开盘']  # 如果没有前一天数据，使用当天开盘价
+
             dragon_stock.set_status('候选')
             dragon_stock.set_start_date(row['日期'])
-            dragon_stock.set_start_price(row['开盘'])
-            dragon_stock.set_gain(calc_all_gain(dragon_stock, row))
+            dragon_stock.gain = calc_all_gain(dragon_stock, max_high)  # 统一使用max_high计算
             long_tou_list.append(dragon_stock)
             continue
 
         if dragon_stock.status != '初始':
-            dragon_stock.set_gain(calc_all_gain(dragon_stock, row))
+            if row['最高'] > max_high:
+                max_high = row['最高']
+            dragon_stock.gain = calc_all_gain(dragon_stock, max_high)  # 统一使用max_high计算
 
         # 修改状态判断部分，持续更新结束日期和价格
-        if dragon_stock.status in ['候选', '存疑']:
+        if dragon_stock.status in ['候选', '存疑', '高度', '高破']:
             if dragon_stock.gain >= threshold:
                 dragon_stock.set_status('真龙')
-            elif dragon_stock.gain >= threshold * height_ratio:
+            elif dragon_stock.gain >= second_threshold:
                 dragon_stock.set_status('高度')
-        
+
         # 对于已经达到高度或真龙状态的股票，持续更新结束日期和价格
         if dragon_stock.status in ['高度', '真龙']:
-            dragon_stock.set_end_price(row['收盘'])
+            dragon_stock.end_price = row['收盘']
             dragon_stock.set_end_date(row['日期'])
-        
+
         # 修改下跌判断部分
         if gain < 0 and dragon_stock.status in ['存疑', '候选', '真龙', '龙破', '高度']:
             if dragon_stock.status == '存疑':
@@ -146,33 +153,41 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
             elif dragon_stock.status == '龙破':
                 dragon_stock.set_status('龙灭')
                 dragon_stock.set_end_date(row['日期'])
-                dragon_stock.set_end_price(row['收盘'])
+                dragon_stock.end_price = row['收盘']
                 break
             elif dragon_stock.status == '高度':
                 dragon_stock.set_status('高破')
                 dragon_stock.set_end_date(row['日期'])
-                dragon_stock.set_end_price(row['收盘'])
+                dragon_stock.end_price = row['收盘']
                 break
             elif dragon_stock.status == '真龙':
                 dragon_stock.set_status('龙破')
             elif dragon_stock.status == '候选':
                 dragon_stock.set_status('存疑')
-        
-        # 对于活跃状态的股票才更新价格和日期
+
+        # 对于活跃状态且不是刚刚进候选的股票才更新价格和日期
         if dragon_stock.status in ['候选', '存疑', '高度', '真龙']:
-            dragon_stock.set_end_price(row['收盘'])
+            dragon_stock.end_price = row['收盘']
             dragon_stock.set_end_date(row['日期'])
+
     if cur_date < end_datetime and end_datetime in stock_data['日期'].values:
         try:
-            find_in_stock(long_tou_list, cur_date, end_date, stock_code, stock_name, stock_data, threshold, height_ratio)  # 补全参数
+            find_in_stock(long_tou_list, cur_date, end_date, stock_code, stock_name, stock_data, threshold,
+                          second_threshold)
         except Exception as e:
             print(stock_name, stock_code, cur_date, end_date, e)
     else:
         return long_tou_list
 
 
-def calc_all_gain(dragon_stock, row):
-    return (row['收盘'] - dragon_stock.start_price) / dragon_stock.start_price * 100.0
+def calc_all_gain(dragon_stock, high_price):
+    """计算从起始价格到最高价的振幅
+    :param dragon_stock: 龙头股对象
+    :param high_price: 最高价(数值类型)
+    :return: 振幅百分比
+    """
+    dragon_stock.high_price = high_price  # 更新最高价
+    return (high_price - dragon_stock.start_price) / dragon_stock.start_price * 100.0
 
 
 def is_zhangting(code, name, gain):
