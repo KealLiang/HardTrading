@@ -86,8 +86,8 @@ def get_top_yyb_trades():
 # 找龙头
 def find_dragon():
     start_date = '2025-01-01'
-    end_date = '2025-02-28'
-    # end_date = None
+    # end_date = '2025-02-28'
+    end_date = None
     find_dragon_stocks(start_date, end_date, threshold=200)
 
 
