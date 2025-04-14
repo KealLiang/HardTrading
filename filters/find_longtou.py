@@ -20,7 +20,7 @@ class LongTou:
         self.end_price = 0.0
         self.end_date = None
         self.gain = 100.0
-        self.status = '初始'  # 状态: [初始, 候选, 存疑, 真龙, 龙破, 龙灭, 高度, 高破]
+        self.status = '初始'  # 状态: [初始, 候选, 存疑, 高度, 高破, 真龙, 龙破, 龙灭]
 
     def set_status(self, status):
         self.status = status
@@ -38,7 +38,7 @@ class LongTou:
 
 
 @timer
-def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.5, data_path='./data/astocks'):
+def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.4, data_path='./data/astocks'):
     if end_date is None:
         end_date = datetime.now().strftime('%Y-%m-%d')
     else:
@@ -80,8 +80,11 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
 
     result_list.sort(key=lambda x: (x.start_date, x.gain, x.status), reverse=True)
 
-    # 保存
-    save_list_to_file(result_list, f'./data/long_{start_date}_{end_date}.txt')
+    output_path = f'./data/long/long_{start_date}_{end_date}'
+    # 保存到txt文件
+    # save_list_to_file(result_list, output_path + '.txt')
+    # 保存为带颜色的Excel文件
+    write_to_excel(result_list, output_path + '.xlsx')
 
     # 输出
     for stock in result_list:
@@ -229,3 +232,57 @@ def get_previous_trading_date(end_date):
         previous_date -= timedelta(days=1)
 
     return previous_date.strftime('%Y-%m-%d')
+
+
+def write_to_excel(result_list, output_path):
+    writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
+    df = pd.DataFrame([{
+        '股票代码': stock.stock_code,
+        '股票名称': stock.stock_name,
+        '状态': stock.status,
+        '振幅(%)': stock.gain,
+        '起始价格': stock.start_price,
+        '最高价格': stock.high_price,
+        '结束价格': stock.end_price,
+        '起始日期': stock.start_date,
+        '结束日期': stock.end_date
+    } for stock in result_list])
+    df.to_excel(writer, index=False, sheet_name='龙头股')
+    # 获取工作簿和工作表对象
+    workbook = writer.book
+    worksheet = writer.sheets['龙头股']
+    # 定义状态颜色格式 (使用更直观的颜色名称变量)
+    white = workbook.add_format({'bg_color': '#FFFFFF'})  # 白色
+    light_yellow = workbook.add_format({'bg_color': '#FFFACD'})  # 淡黄
+    light_orange = workbook.add_format({'bg_color': '#FFDAB9'})  # 淡橙
+    light_green = workbook.add_format({'bg_color': '#90EE90'})  # 淡绿
+    light_red = workbook.add_format({'bg_color': '#FFB6C1'})  # 淡红
+    light_blue = workbook.add_format({'bg_color': '#ADD8E6'})  # 淡蓝
+    light_gray = workbook.add_format({'bg_color': '#D3D3D3'})  # 淡灰
+    light_purple = workbook.add_format({'bg_color': '#E6E6FA'})  # 淡紫
+    light_cyan = workbook.add_format({'bg_color': '#E0FFFF'})  # 淡青色
+    light_pink = workbook.add_format({'bg_color': '#FFC0CB'})  # 淡粉色
+    light_lime = workbook.add_format({'bg_color': '#F0FFF0'})  # 淡青柠色
+    light_brown = workbook.add_format({'bg_color': '#F5DEB3'})  # 淡棕色
+    # 应用条件格式 (使用新颜色变量)
+    for row in range(1, len(df) + 1):
+        status = df.iloc[row - 1]['状态']
+        if status == '初始':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_green})
+        elif status == '候选':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_yellow})
+        elif status == '存疑':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_orange})
+        elif status == '真龙':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_red})
+        elif status == '龙破':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_pink})
+        elif status == '龙灭':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_purple})
+        elif status == '高度':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_blue})
+        elif status == '高破':
+            worksheet.conditional_format(row, 2, row, 2, {'type': 'no_blanks', 'format': light_cyan})
+    # 调整列宽
+    worksheet.set_column('A:I', 15)
+    writer.close()
