@@ -38,7 +38,7 @@ class LongTou:
 
 
 @timer
-def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.4, data_path='./data/astocks'):
+def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.4, data_path='./data/astocks', death_ratio=0.15):
     if end_date is None:
         end_date = datetime.now().strftime('%Y-%m-%d')
     else:
@@ -70,7 +70,7 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
             # print(stock_code, stock_name)
             # 查找涨停点，更新龙头股状态
             find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data,
-                          threshold, second_threshold)
+                          threshold, second_threshold, death_ratio)
 
     # 优化高度股筛选逻辑
     height_list = [stock for stock in long_tou_list
@@ -82,9 +82,9 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
 
     output_path = f'./data/long/long_{start_date}_{end_date}'
     # 保存到txt文件
-    # save_list_to_file(result_list, output_path + '.txt')
+    save_list_to_file(result_list, output_path + '.txt')
     # 保存为带颜色的Excel文件
-    write_to_excel(result_list, output_path + '.xlsx')
+    # write_to_excel(result_list, output_path + '.xlsx')
 
     # 输出
     for stock in result_list:
@@ -92,7 +92,7 @@ def find_dragon_stocks(start_date, end_date=None, threshold=200, height_ratio=0.
 
 
 def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, stock_data,
-                  threshold, second_threshold):
+                  threshold, second_threshold, death_ratio):
     # 创建龙头股对象
     global cur_date
     dragon_stock = LongTou(stock_code, stock_name, start_date)
@@ -101,6 +101,10 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
     # 使用searchsorted找到开始处理的索引
     start_index = stock_data['日期'].searchsorted(start_date)
     max_high = 0.0  # 记录区间最高价
+    
+    # 添加跟踪最高价后的回撤幅度
+    max_price_after_high = 0.0
+    continuous_decline_days = 0  # 连续下跌天数
 
     for index, row in stock_data.iloc[start_index:].iterrows():
         # 当股票的日期大于等于开始日期时开始处理
@@ -134,6 +138,8 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
         if dragon_stock.status != '初始':
             if row['最高'] > max_high:
                 max_high = row['最高']
+                max_price_after_high = row['收盘']  # 更新最高价后的收盘价
+                continuous_decline_days = 0  # 重置连续下跌天数
             dragon_stock.gain = calc_all_gain(dragon_stock, max_high)  # 统一使用max_high计算
 
         # 修改状态判断部分，持续更新结束日期和价格
@@ -148,25 +154,46 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
             dragon_stock.end_price = row['收盘']
             dragon_stock.set_end_date(row['日期'])
 
-        # 修改下跌判断部分
-        if gain < 0 and dragon_stock.status in ['存疑', '候选', '真龙', '龙破', '高度']:
+        # 计算从最高价的回撤幅度
+        if max_high > 0:
+            current_decline_ratio = (max_high - row['收盘']) / max_high
+
+        # 修改下跌判断部分 - 引入回撤幅度判断
+        if gain < 0:
+            continuous_decline_days += 1
+            
+            # 对于存疑状态，保持原有逻辑
             if dragon_stock.status == '存疑':
                 long_tou_list.remove(dragon_stock)
                 break
-            elif dragon_stock.status == '龙破':
-                dragon_stock.set_status('龙灭')
-                dragon_stock.set_end_date(row['日期'])
-                dragon_stock.end_price = row['收盘']
-                break
-            elif dragon_stock.status == '高度':
-                dragon_stock.set_status('高破')
-                dragon_stock.set_end_date(row['日期'])
-                dragon_stock.end_price = row['收盘']
-                break
-            elif dragon_stock.status == '真龙':
-                dragon_stock.set_status('龙破')
+            
+            # 对于候选状态，保持原有逻辑
             elif dragon_stock.status == '候选':
                 dragon_stock.set_status('存疑')
+            
+            # 对于高度状态，只有当回撤超过阈值或连续下跌超过x天才判定为高破
+            elif dragon_stock.status == '高度':
+                if current_decline_ratio >= death_ratio or continuous_decline_days >= 2:
+                    dragon_stock.set_status('高破')
+                    dragon_stock.set_end_date(row['日期'])
+                    dragon_stock.end_price = row['收盘']
+                    break
+            
+            # 对于真龙状态，只有当回撤超过阈值或连续下跌超过x天才判定为龙破
+            elif dragon_stock.status == '真龙':
+                if current_decline_ratio >= death_ratio or continuous_decline_days >= 2:
+                    dragon_stock.set_status('龙破')
+            
+            # 对于龙破状态，只有当回撤超过更高阈值或连续下跌超过x天才判定为龙灭
+            elif dragon_stock.status == '龙破':
+                if current_decline_ratio >= death_ratio * 1.2 or continuous_decline_days >= 3:
+                    dragon_stock.set_status('龙灭')
+                    dragon_stock.set_end_date(row['日期'])
+                    dragon_stock.end_price = row['收盘']
+                    break
+        else:
+            # 如果当天不是下跌，重置连续下跌天数
+            continuous_decline_days = 0
 
         # 对于活跃状态且不是刚刚进候选的股票才更新价格和日期
         if dragon_stock.status in ['候选', '存疑', '高度', '真龙']:
@@ -176,7 +203,7 @@ def find_in_stock(long_tou_list, start_date, end_date, stock_code, stock_name, s
     if cur_date < end_datetime and end_datetime in stock_data['日期'].values:
         try:
             find_in_stock(long_tou_list, cur_date, end_date, stock_code, stock_name, stock_data, threshold,
-                          second_threshold)
+                          second_threshold, death_ratio)
         except Exception as e:
             print(stock_name, stock_code, cur_date, end_date, e)
     else:

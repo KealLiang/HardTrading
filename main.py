@@ -88,7 +88,7 @@ def find_dragon():
     start_date = '2025-01-01'
     # end_date = '2025-02-28'
     end_date = None
-    find_dragon_stocks(start_date, end_date, threshold=200)
+    find_dragon_stocks(start_date, end_date, threshold=180)
 
 
 def get_stock_concept_and_industry():

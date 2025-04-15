@@ -6,5 +6,6 @@
 /data/astocks_minute/
 /kline_charts/
 /data/indexes/
+/data/long/
 __pycache__/
 images/
