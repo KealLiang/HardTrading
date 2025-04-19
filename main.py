@@ -3,6 +3,7 @@ from datetime import datetime
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
+from analysis.time_price_sharing import analyze_stocks_time_sharing
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -149,6 +150,13 @@ def fupan_statistics_excel_plot():
     # plot_all()
 
 
+def stocks_time_sharing_price():
+    stock_codes = ["002165", "002570", "600249", "001234", "601086"]
+    # 可以传入单个日期或多个日期的列表
+    date_list = ["20250414", "20250415"]
+    analyze_stocks_time_sharing(stock_codes, date_list)
+
+
 if __name__ == '__main__':
     # get_stock_datas()
     # fupan_statistics_to_excel()
@@ -159,7 +167,8 @@ if __name__ == '__main__':
     # get_index_data()
     # check_stock_datas()
     # find_similar_trends()
-    find_dragon()
+    # find_dragon()
+    stocks_time_sharing_price()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()

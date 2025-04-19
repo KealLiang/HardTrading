@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 
 import akshare as ak
@@ -13,6 +14,8 @@ from sklearn.preprocessing import minmax_scale
 # 解决中文显示问题
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 用黑体显示中文
 matplotlib.rcParams['axes.unicode_minus'] = False  # 正常显示负号
+
+save_dir = './images/time_price/'
 
 
 def fetch_time_sharing_data(stock_codes, date_str):
@@ -358,33 +361,47 @@ def plot_time_sharing_data(data_dict, stock_names, date_str):
 
     plt.tight_layout()
 
+    # -- 保存图表 --
+    os.makedirs(save_dir, exist_ok=True)  # 确保目录存在
+    save_filename = os.path.join(save_dir, f"time_price_sharing_{date_str}.png")
+    plt.savefig(save_filename)
+    print(f"图表已保存至: {save_filename}")
+
     # 显示图表
-    plt.show()
+    # plt.show()
 
 
-def analyze_stocks_time_sharing(stock_codes, date_str):
+def analyze_stocks_time_sharing(stock_codes, date_list):
     """
-    主函数：获取并分析多只股票的分时数据
+    主函数：获取并分析多只股票在多个日期内的分时数据，并保存图表
     
     参数:
     stock_codes (list): 股票代码列表，如 ["000001", "600000"]
-    date_str (str): 日期字符串，格式为 "YYYYMMDD"，如 "20230601"
+    dates (list): 日期字符串列表，格式为 ["YYYYMMDD", "YYYYMMDD"], 如 ["20230601", "20230602"]
     """
-    print(f"开始获取 {len(stock_codes)} 只股票在 {date_str} 的分时数据...")
+    if not isinstance(date_list, list):
+        date_list = [date_list]  # 如果传入的是单个日期字符串，转为列表
 
-    # 获取分时数据和股票名称
-    data_dict, stock_names = fetch_time_sharing_data(stock_codes, date_str)
+    for date_str in date_list:
+        print(f"\n--- 开始处理日期: {date_str} ---")
+        print(f"开始获取 {len(stock_codes)} 只股票在 {date_str} 的分时数据...")
 
-    # 绘制分时数据对比图
-    plot_time_sharing_data(data_dict, stock_names, date_str)
+        # 获取分时数据和股票名称
+        data_dict, stock_names = fetch_time_sharing_data(stock_codes, date_str)
 
-    return data_dict
+        # 绘制分时数据对比图并保存
+        if data_dict:  # 仅在获取到数据时绘图
+            plot_time_sharing_data(data_dict, stock_names, date_str)
+        else:
+            print(f"日期 {date_str} 未获取到任何有效数据，跳过绘图。")
 
 
 # 示例用法
 if __name__ == "__main__":
     # 示例：多股分时图叠加
-    stock_codes = ["002165", "002570", "600249", "001234", "601086"]
-    date_str = "20250418"
+    codes = ["002165", "002570", "600249", "001234", "601086"]
+    # 可以传入单个日期或多个日期的列表
+    # dates_list = ["20250417"]
+    dates = ["20250416", "20250417", "20250418"]
 
-    analyze_stocks_time_sharing(stock_codes, date_str)
+    analyze_stocks_time_sharing(codes, dates)
