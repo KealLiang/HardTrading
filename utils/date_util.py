@@ -97,3 +97,32 @@ def remove_holidays(prev_days):
     custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC')]
     prev_days = [day for day in prev_days if day not in custom_holidays]
     return prev_days
+
+
+def get_n_trading_days_before(date: str, n: int) -> str:
+    """
+    获取指定日期往前第n个交易日（含自身为第0个）。
+    Args:
+        date: 日期字符串，格式为 'YYYY-MM-DD' 或 'YYYYMMDD'
+        n: 向前推的交易日数量（n=1表示前一个交易日）
+    Returns:
+        str: 推算得到的交易日，格式为 'YYYY-MM-DD'
+    """
+    import pandas_market_calendars as mcal
+    import pandas as pd
+
+    # 兼容两种日期格式
+    if '-' in date:
+        date_dt = datetime.strptime(date, '%Y-%m-%d')
+    else:
+        date_dt = datetime.strptime(date, '%Y%m%d')
+
+    sse = mcal.get_calendar('SSE')
+    prev_days = sse.valid_days(start_date=date_dt - timedelta(days=30), end_date=date_dt)
+    # 统一为带时区的Timestamp
+    date_dt_tz = pd.Timestamp(date_dt, tz='UTC')
+    prev_days = [d for d in prev_days if d <= date_dt_tz]
+    prev_days = sorted(prev_days)
+    if len(prev_days) < n + 1:
+        raise ValueError("历史交易日数量不足")
+    return prev_days[-(n + 1)].strftime('%Y-%m-%d')
