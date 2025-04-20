@@ -15,6 +15,7 @@ from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from file_checker.stock_data import check_stock_datas
+from filters.find_abnormal import find_serious_abnormal_stocks
 from filters.find_longtou import find_dragon_stocks
 
 
@@ -90,6 +91,11 @@ def find_dragon():
     # end_date = '2025-02-28'
     end_date = None
     find_dragon_stocks(start_date, end_date, threshold=180)
+
+
+def find_yidong():
+    date = '2025-04-18'
+    find_serious_abnormal_stocks(date)
 
 
 def get_stock_concept_and_industry():
@@ -168,7 +174,8 @@ if __name__ == '__main__':
     # check_stock_datas()
     # find_similar_trends()
     # find_dragon()
-    stocks_time_sharing_price()
+    find_yidong()
+    # stocks_time_sharing_price()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
