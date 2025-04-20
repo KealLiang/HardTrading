@@ -109,8 +109,8 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
             stock_data['日期'] = pd.to_datetime(stock_data['日期'])
             stock_data = stock_data.sort_values(by='日期')  # 按日期排序
 
-            # 跳过数据不足的股票
-            if len(stock_data) < 30:  # 至少需要30天数据来计算30日偏离度
+            # 跳过数据不足的股票 - 需要31天计算真正的30日偏离度
+            if len(stock_data) < 31:  # 至少需要31天数据来计算30日偏离度
                 continue
 
             # 查找当天数据
@@ -154,7 +154,7 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
     # txt文件仍然按日期保存
     txt_file_path = f'./data/abnormal/serious_abnormal_{date}.txt'
     save_list_to_file(all_stocks, txt_file_path)
-    
+
     # Excel文件使用固定文件名，追加模式保存
     excel_file_path = './data/abnormal/serious_abnormal_history.xlsx'
     write_to_excel(all_stocks, excel_file_path, date)
@@ -274,23 +274,26 @@ def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index)
     :param date_index: 当前日期在数据中的索引
     :return: 严重异动股票对象或None
     """
-    # 提取最近30天和10天的数据
+    # 提取数据
     end_idx = date_index + 1  # 不含结束索引
 
-    # 确保有足够的历史数据
-    if date_index < 30:
+    # 确保有足够的历史数据 - 需要31天才能计算真正的30日偏离度
+    if date_index < 31:
         return None
 
-    data_30d = stock_data.iloc[end_idx - 30:end_idx].copy()
-    data_10d = stock_data.iloc[end_idx - 10:end_idx].copy()
+    # 取真正30日偏离度的数据 (31天数据，计算第1天到第31天，共30个间隔)
+    data_30d = stock_data.iloc[end_idx - 31:end_idx].copy()
+
+    # 取真正10日偏离度的数据 (11天数据，计算第1天到第11天，共10个间隔)
+    data_10d = stock_data.iloc[end_idx - 11:end_idx].copy()
 
     # 计算10日和30日偏离度
     deviation_10d = calculate_period_deviation(data_10d)
     deviation_30d = calculate_period_deviation(data_30d)
 
-    # 修正预测数据
-    data_9d = stock_data.iloc[end_idx - 9:end_idx].copy()
-    data_29d = stock_data.iloc[end_idx - 29:end_idx].copy()
+    # 为预测取9日和29日数据
+    data_9d = stock_data.iloc[end_idx - 10:end_idx].copy()  # 10天数据，计算9个间隔
+    data_29d = stock_data.iloc[end_idx - 30:end_idx].copy()  # 30天数据，计算29个间隔
     deviation_9d = calculate_period_deviation(data_9d)
     deviation_29d = calculate_period_deviation(data_29d)
 
@@ -298,12 +301,14 @@ def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index)
     is_sci_tech_board = stock_code.startswith('688')
 
     # 检查连续10个交易日内的异常波动次数
+    # 注意：这里仍然使用10天数据，因为我们要检查的是10天内的异常波动
+    abnormal_data = stock_data.iloc[end_idx - 10:end_idx].copy()
     abnormal_count_up = 0
     abnormal_count_down = 0
 
     # 滑动窗口检查每个连续3天区间是否存在异常波动
-    for i in range(len(data_10d) - 2):
-        data_3d = data_10d.iloc[i:i + 3]
+    for i in range(len(abnormal_data) - 2):
+        data_3d = abnormal_data.iloc[i:i + 3]
         is_abnormal, direction = is_abnormal_fluctuation(stock_code, stock_name, data_3d, stock_data, end_idx)
 
         if is_abnormal:
@@ -448,14 +453,18 @@ def predict_potential_trigger(stock_code, stock_name, date, next_date, stock_dat
     end_idx = date_index + 1  # 不含结束索引
 
     # 确保有足够的历史数据
-    if date_index < 30:
+    if date_index < 31:  # 需要31天才能计算真正的30日偏离度
         return None
 
-    # 计算当前各个周期的数据
-    data_30d = stock_data.iloc[end_idx - 30:end_idx].copy()
-    data_10d = stock_data.iloc[end_idx - 10:end_idx].copy()
-    data_9d = stock_data.iloc[end_idx - 9:end_idx].copy()
-    data_29d = stock_data.iloc[end_idx - 29:end_idx].copy()
+    # 取真正30日偏离度的数据 (31天数据，计算第1天到第31天，共30个间隔)
+    data_30d = stock_data.iloc[end_idx - 31:end_idx].copy()
+
+    # 取真正10日偏离度的数据 (11天数据，计算第1天到第11天，共10个间隔)
+    data_10d = stock_data.iloc[end_idx - 11:end_idx].copy()
+
+    # 为预测取9日和29日数据
+    data_9d = stock_data.iloc[end_idx - 10:end_idx].copy()  # 10天数据，计算9个间隔
+    data_29d = stock_data.iloc[end_idx - 30:end_idx].copy()  # 30天数据，计算29个间隔
 
     # 计算偏离度
     deviation_10d = calculate_period_deviation(data_10d)
@@ -592,15 +601,15 @@ def write_to_excel(result_list, output_path, date):
     df_data = []
     for stock in result_list:
         abnormal_count = stock.abnormal_count_10d_up if hasattr(stock,
-                                                              'abnormal_direction') and stock.abnormal_direction == "上涨" else \
+                                                                'abnormal_direction') and stock.abnormal_direction == "上涨" else \
             stock.abnormal_count_10d_down if hasattr(stock, 'abnormal_direction') else 0
-        
+
         df_data.append({
             '日期': date,  # 添加日期列
             '股票代码': stock.stock_code,
             '股票名称': stock.stock_name,
             '触发原因': stock.trigger_reason if hasattr(stock,
-                                                     'trigger_reason') and stock.trigger_reason != '未知' else stock.prediction_status,
+                                                        'trigger_reason') and stock.trigger_reason != '未知' else stock.prediction_status,
             '10日偏离度(%)': stock.cumulative_deviation_10d,
             '30日偏离度(%)': stock.cumulative_deviation_30d,
             '10日异常波动次数': abnormal_count,
@@ -608,64 +617,75 @@ def write_to_excel(result_list, output_path, date):
             '最新价格': stock.latest_price,
             '预计触发天数': stock.days_to_trigger if hasattr(stock, 'days_to_trigger') else 0
         })
-    
+
     # 创建当前数据的DataFrame
     new_df = pd.DataFrame(df_data)
-    
+
     try:
         # 尝试读取现有文件
         if os.path.exists(output_path):
             # 读取现有Excel文件
             existing_df = pd.read_excel(output_path)
-            
+
             # 检查新数据中的日期是否已存在于文件中
             if date in existing_df['日期'].astype(str).values:
                 # 删除已存在的同一日期的数据
                 existing_df = existing_df[existing_df['日期'].astype(str) != date]
-            
+
             # 合并现有数据和新数据
             combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-            
+
             # 按日期降序排序
             combined_df = combined_df.sort_values(by='日期', ascending=False)
         else:
             # 如果文件不存在，直接使用新数据
             combined_df = new_df
-        
+
         # 创建ExcelWriter对象
         writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
-        
+
         # 写入合并后的数据
         combined_df.to_excel(writer, index=False, sheet_name='严重异动股票历史')
-        
+
         # 获取工作簿和工作表对象
         workbook = writer.book
         worksheet = writer.sheets['严重异动股票历史']
-        
+
         # 定义格式
         already_triggered = workbook.add_format({'bg_color': '#FF6347'})  # 番茄色 - 已触发
         potential_1day = workbook.add_format({'bg_color': '#FFD700'})  # 金色 - 1日内可能触发
         potential_2day = workbook.add_format({'bg_color': '#90EE90'})  # 浅绿色 - 2-3日内可能触发
-        
+        up_direction = workbook.add_format({'bg_color': '#FFCCCB'})  # 浅粉色 - 上涨方向
+        down_direction = workbook.add_format({'bg_color': '#AFEEEE'})  # 浅青色 - 下跌方向
+
         # 应用条件格式 - 注意列索引需要考虑新增的日期列
         for row in range(1, len(combined_df) + 1):
             days_to_trigger = combined_df.iloc[row - 1]['预计触发天数']
+            direction = combined_df.iloc[row - 1]['异动方向']
+
+            # 触发原因列的条件格式
             if days_to_trigger == 0:  # 已触发
                 worksheet.conditional_format(row, 3, row, 3, {'type': 'no_blanks', 'format': already_triggered})
             elif days_to_trigger == 1:  # 1日内可能触发
                 worksheet.conditional_format(row, 3, row, 3, {'type': 'no_blanks', 'format': potential_1day})
             elif days_to_trigger <= 3:  # 2-3日内可能触发
                 worksheet.conditional_format(row, 3, row, 3, {'type': 'no_blanks', 'format': potential_2day})
-        
+
+            # 异动方向列的条件格式 (索引7对应H列-异动方向)
+            if direction == "上涨":
+                worksheet.conditional_format(row, 7, row, 7, {'type': 'no_blanks', 'format': up_direction})
+            elif direction == "下跌":
+                worksheet.conditional_format(row, 7, row, 7, {'type': 'no_blanks', 'format': down_direction})
+
         # 调整列宽
         worksheet.set_column('A:K', 15)  # 注意调整为11列(A-K)，因为添加了日期列
         worksheet.set_column('D:D', 40)  # 触发原因列宽度加大，索引从A开始，D列是第4列
-        
+
         # 保存
         writer.close()
-        
+
         print(f"数据已追加保存到Excel文件: {output_path}")
-        
+
     except Exception as e:
         print(f"保存Excel文件时出错: {e}")
         # 尝试简单的保存方式
@@ -687,20 +707,22 @@ def create_debug_stock(stock_code, stock_name, date, stock_data, date_index):
     :param date_index: 当前日期在数据中的索引
     :return: 调试用的股票对象
     """
-    # 提取最近30天和10天的数据
+    # 提取数据
     end_idx = date_index + 1  # 不含结束索引
 
     # 确保有足够的历史数据
-    if date_index < 30:
-        data_30d = stock_data.iloc[:end_idx].copy()
-        data_10d = stock_data.iloc[max(0, end_idx - 10):end_idx].copy()
-        data_9d = stock_data.iloc[max(0, end_idx - 9):end_idx].copy()
-        data_29d = stock_data.iloc[max(0, end_idx - 29):end_idx].copy()
+    if date_index < 31:
+        # 取最多可用的数据
+        data_30d = stock_data.iloc[max(0, end_idx - 31):end_idx].copy()  # 最多31天数据
+        data_10d = stock_data.iloc[max(0, end_idx - 11):end_idx].copy()  # 最多11天数据
+        data_9d = stock_data.iloc[max(0, end_idx - 10):end_idx].copy()  # 最多10天数据
+        data_29d = stock_data.iloc[max(0, end_idx - 30):end_idx].copy()  # 最多30天数据
     else:
-        data_30d = stock_data.iloc[end_idx - 30:end_idx].copy()
-        data_10d = stock_data.iloc[end_idx - 10:end_idx].copy()
-        data_9d = stock_data.iloc[end_idx - 9:end_idx].copy()
-        data_29d = stock_data.iloc[end_idx - 29:end_idx].copy()
+        # 有足够数据时，取完整天数
+        data_30d = stock_data.iloc[end_idx - 31:end_idx].copy()  # 31天数据，计算30个间隔
+        data_10d = stock_data.iloc[end_idx - 11:end_idx].copy()  # 11天数据，计算10个间隔
+        data_9d = stock_data.iloc[end_idx - 10:end_idx].copy()  # 10天数据，计算9个间隔
+        data_29d = stock_data.iloc[end_idx - 30:end_idx].copy()  # 30天数据，计算29个间隔
 
     # 计算偏离度
     deviation_10d = calculate_period_deviation(data_10d)
@@ -709,19 +731,22 @@ def create_debug_stock(stock_code, stock_name, date, stock_data, date_index):
     deviation_29d = calculate_period_deviation(data_29d)
 
     # 检查连续10个交易日内的异常波动次数
+    # 使用10天的数据来计算异常波动
+    abnormal_data = stock_data.iloc[max(0, end_idx - 10):end_idx].copy()
     abnormal_count_up = 0
     abnormal_count_down = 0
 
     # 滑动窗口检查每个连续3天区间是否存在异常波动
-    for i in range(len(data_10d) - 2):
-        data_3d = data_10d.iloc[i:i + 3]
-        is_abnormal, direction = is_abnormal_fluctuation(stock_code, stock_name, data_3d, stock_data, end_idx)
+    if len(abnormal_data) >= 3:  # 确保有足够数据进行滑动窗口分析
+        for i in range(len(abnormal_data) - 2):
+            data_3d = abnormal_data.iloc[i:i + 3]
+            is_abnormal, direction = is_abnormal_fluctuation(stock_code, stock_name, data_3d, stock_data, end_idx)
 
-        if is_abnormal:
-            if direction == "上涨":
-                abnormal_count_up += 1
-            elif direction == "下跌":
-                abnormal_count_down += 1
+            if is_abnormal:
+                if direction == "上涨":
+                    abnormal_count_up += 1
+                elif direction == "下跌":
+                    abnormal_count_down += 1
 
     # 判断是否是科创板股票
     is_sci_tech_board = stock_code.startswith('688')
