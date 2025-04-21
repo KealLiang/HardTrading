@@ -152,11 +152,11 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
 
     # 保存结果
     # txt文件仍然按日期保存
-    txt_file_path = f'./data/abnormal/serious_abnormal_{date}.txt'
-    save_list_to_file(all_stocks, txt_file_path)
+    # txt_file_path = f'./data/abnormal/serious_abnormal_{date}.txt'
+    # save_list_to_file(all_stocks, txt_file_path)
 
     # Excel文件使用固定文件名，追加模式保存
-    excel_file_path = './data/abnormal/serious_abnormal_history.xlsx'
+    excel_file_path = './excel/serious_abnormal_history.xlsx'
     write_to_excel(all_stocks, excel_file_path, date)
 
     # 输出
