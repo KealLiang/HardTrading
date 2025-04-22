@@ -180,7 +180,7 @@ def calculate_distance_matrix(data_dict):
     return distance_matrix, stock_codes
 
 
-def plot_time_sharing_data(data_dict, stock_names, date_str):
+def plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data=None):
     """
     将多只股票的分时数据绘制在同一张图上，根据数据点接近程度优化视觉区分
     
@@ -188,6 +188,7 @@ def plot_time_sharing_data(data_dict, stock_names, date_str):
     data_dict (dict): 包含每只股票分时数据的字典
     stock_names (dict): 股票代码到股票名称的映射
     date_str (str): 日期字符串，格式为 "YYYYMMDD"
+    deviation_data (dict, optional): 股票代码到偏离度数据的映射，格式为 {code: {'10d': value, '30d': value}}
     """
     if not data_dict:
         print("没有可用的数据进行绘图")
@@ -302,7 +303,16 @@ def plot_time_sharing_data(data_dict, stock_names, date_str):
         plotted_indices.append(i)
         # --- 属性确定完毕 --- 
 
+        # 准备股票标签，可能包含偏离度信息
         stock_label = f"{stock_code} {stock_names.get(stock_code, '')}"
+        
+        # 如果提供了偏离度数据，添加到标签中
+        if deviation_data and stock_code in deviation_data:
+            dev_10d = deviation_data[stock_code].get('10d', 0)
+            dev_30d = deviation_data[stock_code].get('30d', 0)
+            # 取整数显示偏离度
+            stock_label += f" [10d:{int(round(dev_10d))}% 30d:{int(round(dev_30d))}%]"
+        
         x_indices = np.arange(len(series))
 
         plt.plot(x_indices, series,
@@ -352,7 +362,7 @@ def plot_time_sharing_data(data_dict, stock_names, date_str):
         print("警告：无法获取用于设置时间轴的数据，或数据点不足。")
         pass
 
-        # 添加网格线和图例
+    # 添加网格线和图例
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(loc='best', fontsize=10)
 
@@ -371,13 +381,14 @@ def plot_time_sharing_data(data_dict, stock_names, date_str):
     # plt.show()
 
 
-def analyze_stocks_time_sharing(stock_codes, date_list):
+def analyze_stocks_time_sharing(stock_codes, date_list, deviation_data=None):
     """
     主函数：获取并分析多只股票在多个日期内的分时数据，并保存图表
     
     参数:
     stock_codes (list): 股票代码列表，如 ["000001", "600000"]
     dates (list): 日期字符串列表，格式为 ["YYYYMMDD", "YYYYMMDD"], 如 ["20230601", "20230602"]
+    deviation_data (dict, optional): 股票代码到偏离度数据的映射，格式为 {code: {'10d': value, '30d': value}}
     """
     if not isinstance(date_list, list):
         date_list = [date_list]  # 如果传入的是单个日期字符串，转为列表
@@ -391,7 +402,7 @@ def analyze_stocks_time_sharing(stock_codes, date_list):
 
         # 绘制分时数据对比图并保存
         if data_dict:  # 仅在获取到数据时绘图
-            plot_time_sharing_data(data_dict, stock_names, date_str)
+            plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data)
         else:
             print(f"日期 {date_str} 未获取到任何有效数据，跳过绘图。")
 
@@ -430,20 +441,35 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
         date_stocks = filtered_df[pd.to_datetime(filtered_df['日期']).dt.strftime("%Y-%m-%d") == date_formatted]
         
         if len(date_stocks) > 0:
-            # 获取股票代码列表，确保格式为6位数字字符串
+            # 按30日偏离度和10日偏离度降序排序
+            date_stocks = date_stocks.sort_values(by=['30日偏离度(%)', '10日偏离度(%)'], ascending=False)
+            
+            # 获取股票代码列表和偏离度数据
             stock_codes = []
-            for code in date_stocks['股票代码'].tolist():
+            deviation_data = {}  # 用于存储偏离度数据
+            
+            for _, row in date_stocks.iterrows():
+                code = row['股票代码']
                 # 确保股票代码为字符串格式并补齐6位
                 if isinstance(code, (int, float)):
-                    code = str(int(code)).zfill(6)
+                    code_str = str(int(code)).zfill(6)
                 elif isinstance(code, str):
-                    code = code.zfill(6)
-                stock_codes.append(code)
+                    code_str = code.zfill(6)
+                else:
+                    continue  # 跳过无法处理的代码
+                
+                stock_codes.append(code_str)
+                
+                # 收集偏离度数据
+                deviation_data[code_str] = {
+                    '10d': row['10日偏离度(%)'] if '10日偏离度(%)' in row else 0,
+                    '30d': row['30日偏离度(%)'] if '30日偏离度(%)' in row else 0
+                }
             
             print(f"日期 {date_formatted} 有 {len(stock_codes)} 只符合条件的异动股票")
             
-            # 调用time_price_sharing的函数生成分时图
-            analyze_stocks_time_sharing(stock_codes, date_str)
+            # 调用time_price_sharing的函数生成分时图，传递偏离度数据
+            analyze_stocks_time_sharing(stock_codes, date_str, deviation_data)
         else:
             print(f"日期 {date_formatted} 没有符合条件的异动股票数据")
 
