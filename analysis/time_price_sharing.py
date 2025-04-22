@@ -396,12 +396,69 @@ def analyze_stocks_time_sharing(stock_codes, date_list):
             print(f"日期 {date_str} 未获取到任何有效数据，跳过绘图。")
 
 
+def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./excel/serious_abnormal_history.xlsx'):
+    """
+    读取serious_abnormal_history.xlsx中的异动股票数据，生成分时图
+    
+    参数:
+    date_list (list, optional): 日期字符串列表，格式为 ["YYYYMMDD", ...], 如 ["20230601"]. 
+                              如果为None，则使用Excel中的所有日期。
+    """
+    try:
+        df = pd.read_excel(excel_file_path)
+        print(f"成功读取异动股票数据，共 {len(df)} 条记录")
+    except Exception as e:
+        print(f"读取Excel文件出错: {e}")
+        return
+    
+    # 筛选【异动方向】为上涨且股票名称不带"ST"的数据
+    filtered_df = df[(df['异动方向'] == "上涨") & (~df['股票名称'].str.contains('ST', na=False))]
+    print(f"筛选后的上涨非ST股票数据: {len(filtered_df)} 条记录")
+    
+    # 如果没有指定日期，则使用Excel中的所有日期
+    if date_list is None or len(date_list) == 0:
+        unique_dates = filtered_df['日期'].unique()
+        date_list = [d.strftime("%Y%m%d") for d in pd.to_datetime(unique_dates)]
+        print(f"未指定日期，将使用Excel中的所有 {len(date_list)} 个日期")
+    
+    # 按日期处理
+    for date_str in date_list:
+        date_obj = datetime.strptime(date_str, "%Y%m%d")
+        date_formatted = date_obj.strftime("%Y-%m-%d")
+        
+        # 筛选该日期的股票
+        date_stocks = filtered_df[pd.to_datetime(filtered_df['日期']).dt.strftime("%Y-%m-%d") == date_formatted]
+        
+        if len(date_stocks) > 0:
+            # 获取股票代码列表，确保格式为6位数字字符串
+            stock_codes = []
+            for code in date_stocks['股票代码'].tolist():
+                # 确保股票代码为字符串格式并补齐6位
+                if isinstance(code, (int, float)):
+                    code = str(int(code)).zfill(6)
+                elif isinstance(code, str):
+                    code = code.zfill(6)
+                stock_codes.append(code)
+            
+            print(f"日期 {date_formatted} 有 {len(stock_codes)} 只符合条件的异动股票")
+            
+            # 调用time_price_sharing的函数生成分时图
+            analyze_stocks_time_sharing(stock_codes, date_str)
+        else:
+            print(f"日期 {date_formatted} 没有符合条件的异动股票数据")
+
+
 # 示例用法
 if __name__ == "__main__":
-    # 示例：多股分时图叠加
-    codes = ["002165", "002570", "600249", "001234", "601086"]
-    # 可以传入单个日期或多个日期的列表
-    # dates_list = ["20250417"]
-    dates = ["20250416", "20250417", "20250418"]
-
-    analyze_stocks_time_sharing(codes, dates)
+    # 方法1：手动指定股票和日期
+    # codes = ["002165", "002570", "600249", "001234", "601086"]
+    # dates = ["20250416", "20250417", "20250418"]
+    # analyze_stocks_time_sharing(codes, dates)
+    
+    # 方法2：从异动股票Excel中读取数据并生成分时图
+    # 指定特定日期
+    dates_list = ["20250422"]  # 可以指定多个日期
+    analyze_abnormal_stocks_time_sharing(dates_list)
+    
+    # 不指定日期，使用Excel中的所有日期
+    # analyze_abnormal_stocks_time_sharing()
