@@ -94,8 +94,8 @@ def find_dragon():
 
 
 def find_yidong():
-    date = '2025-04-17'
-    find_serious_abnormal_stocks(date)
+    date = '2025-04-22'
+    find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
 
 def get_stock_concept_and_industry():

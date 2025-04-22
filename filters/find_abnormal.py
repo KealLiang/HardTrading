@@ -1,5 +1,7 @@
 import os
 from datetime import datetime, timedelta
+import concurrent.futures
+from multiprocessing import cpu_count
 
 import a_trade_calendar
 import pandas as pd
@@ -13,6 +15,9 @@ DEVIATION_30D_UP_THRESHOLD = 200.0  # 30日上涨偏离度触发阈值
 DEVIATION_30D_DOWN_THRESHOLD = -70.0  # 30日下跌偏离度触发阈值
 DEVIATION_10D_UP_THRESHOLD = 100.0  # 10日上涨偏离度触发阈值
 DEVIATION_10D_DOWN_THRESHOLD = -50.0  # 10日下跌偏离度触发阈值
+
+# 定义多线程处理的最大线程数
+MAX_WORKERS = cpu_count() or 4  # 如果无法获取CPU核心数，默认使用4个线程
 
 # 定义预测范围系数 - 用于计算预测阈值范围
 PREDICT_CLOSE_FACTOR = 0.80  # 接近触发的系数（例如：30日阈值的90%）
@@ -67,81 +72,132 @@ class SeriousAbnormalStock:
         return base_str
 
 
+def process_stock_file(filename, date, data_path, next_trading_day, check_updown_fluctuation):
+    """
+    处理单个股票文件，用于多线程并行处理
+    
+    :param filename: 股票数据文件名
+    :param date: 查询日期字符串
+    :param data_path: 数据路径
+    :param next_trading_day: 下一个交易日
+    :param check_updown_fluctuation: 是否检查同向异常波动
+    :return: 元组(触发的股票, 潜在的股票, 调试的股票)
+    """
+    if not filename.endswith('.csv'):
+        return None, None, None
+        
+    # 获取股票代码和名称
+    stock_code, stock_name = filename.split('_')
+    stock_name = stock_name.replace('.csv', '')  # 去掉后缀
+    
+    # 读取股票的交易数据
+    stock_data = pd.read_csv(os.path.join(data_path, filename), header=None,
+                             names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+                                    '振幅', '涨跌幅', '涨跌额', '换手率'])
+    stock_data['日期'] = pd.to_datetime(stock_data['日期'])
+    stock_data = stock_data.sort_values(by='日期')  # 按日期排序
+    
+    # 跳过数据不足的股票 - 需要31天计算真正的30日偏离度
+    if len(stock_data) < 31:  # 至少需要31天数据来计算30日偏离度
+        return None, None, None
+    
+    # 查找当天数据
+    date_dt = pd.to_datetime(date)
+    date_index = stock_data['日期'].searchsorted(date_dt)
+    if date_index >= len(stock_data) or stock_data.iloc[date_index]['日期'] != date_dt:
+        return None, None, None  # 没有当天数据
+    
+    # 检查是否为必显示股票
+    is_must_show = stock_code in MUST_SHOW_STOCKS
+    
+    # 检查是否已触发严重异动
+    triggered = check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index, check_updown_fluctuation)
+    if triggered:
+        return triggered, None, None  # 已触发的股票不再预测
+    
+    # 预测下一交易日可能触发的股票
+    if next_trading_day:
+        potential = predict_potential_trigger(stock_code, stock_name, date, next_trading_day, stock_data, date_index)
+        if potential:
+            return None, potential, None  # 已预测的股票不再进行调试显示
+    
+    # 如果是必显示股票但未被识别为已触发或可能触发，单独处理并添加到调试列表
+    if is_must_show:
+        debug_stock = create_debug_stock(stock_code, stock_name, date, stock_data, date_index)
+        return None, None, debug_stock
+    
+    return None, None, None
+
+
 @timer
-def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_day=True):
+def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_day=True, check_updown_fluctuation=True, use_multithread=True):
     """
     查找指定日期触发严重异动的股票，以及预测下一交易日可能触发严重异动的股票
     
     :param date: 查询日期，格式为'YYYY-MM-DD'
     :param data_path: 股票数据路径
     :param predict_next_day: 是否预测下一交易日可能的异动
+    :param check_updown_fluctuation: 是否检查同向异常波动，默认True
+    :param use_multithread: 是否使用多线程加速，默认True
     :return: 严重异动股票列表
     """
     # 确保日期为交易日
     if not a_trade_calendar.is_trade_date(date):
         date = get_previous_trading_date(date)
         print(f"输入日期非交易日，已调整为最近交易日: {date}")
-
-    date_dt = pd.to_datetime(date)
-    triggered_stocks = []  # 已触发严重异动的股票
-    potential_stocks = []  # 可能在下一交易日触发的股票
-    debug_stocks = []  # 调试用必显示股票
-
-    # 用于跟踪已经处理过的股票代码
-    processed_stock_codes = set()
-
+    
     # 获取下一个交易日
     next_trading_day = None
     if predict_next_day:
         next_trading_day = get_next_trading_date(date)
-
-    # 遍历数据目录下的所有股票数据文件
-    for filename in tqdm(os.listdir(data_path)):
-        if filename.endswith('.csv'):
-            # 获取股票代码和名称
-            stock_code, stock_name = filename.split('_')
-            stock_name = stock_name.replace('.csv', '')  # 去掉后缀
-
-            # 读取股票的交易数据
-            stock_data = pd.read_csv(os.path.join(data_path, filename), header=None,
-                                     names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
-                                            '振幅', '涨跌幅', '涨跌额', '换手率'])
-            stock_data['日期'] = pd.to_datetime(stock_data['日期'])
-            stock_data = stock_data.sort_values(by='日期')  # 按日期排序
-
-            # 跳过数据不足的股票 - 需要31天计算真正的30日偏离度
-            if len(stock_data) < 31:  # 至少需要31天数据来计算30日偏离度
-                continue
-
-            # 查找当天数据
-            date_index = stock_data['日期'].searchsorted(date_dt)
-            if date_index >= len(stock_data) or stock_data.iloc[date_index]['日期'] != date_dt:
-                continue  # 没有当天数据
-
-            # 检查是否为必显示股票
-            is_must_show = stock_code in MUST_SHOW_STOCKS
-
-            # 检查是否已触发严重异动
-            triggered = check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index)
-            if triggered:
-                triggered_stocks.append(triggered)
-                processed_stock_codes.add(stock_code)  # 记录已处理的股票代码
-                continue  # 已触发的股票不再预测
-
-            # 如果需要预测下一交易日可能触发的股票，且该股票未触发
-            if predict_next_day and next_trading_day and stock_code not in processed_stock_codes:
-                potential = predict_potential_trigger(stock_code, stock_name, date, next_trading_day, stock_data,
-                                                      date_index)
+    
+    # 获取所有股票文件
+    stock_files = [f for f in os.listdir(data_path) if f.endswith('.csv')]
+    
+    triggered_stocks = []  # 已触发严重异动的股票
+    potential_stocks = []  # 可能在下一交易日触发的股票
+    debug_stocks = []      # 调试用必显示股票
+    
+    # 根据是否使用多线程选择不同的处理方式
+    if use_multithread and len(stock_files) > 100:  # 只有当股票数量足够多时才使用多线程
+        print(f"使用多线程处理 {len(stock_files)} 个股票文件，最大线程数: {MAX_WORKERS}")
+        
+        # 使用线程池并行处理股票文件
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # 创建任务列表
+            futures = [
+                executor.submit(
+                    process_stock_file, 
+                    filename, 
+                    date, 
+                    data_path, 
+                    next_trading_day, 
+                    check_updown_fluctuation
+                ) 
+                for filename in stock_files
+            ]
+            
+            # 使用tqdm显示进度
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="处理股票数据"):
+                triggered, potential, debug = future.result()
+                if triggered:
+                    triggered_stocks.append(triggered)
                 if potential:
                     potential_stocks.append(potential)
-                    processed_stock_codes.add(stock_code)  # 记录已处理的股票代码
-                    continue  # 已预测的股票不再进行调试显示
-
-            # 如果是必显示股票但未被识别为已触发或可能触发，单独处理并添加到调试列表
-            if is_must_show and stock_code not in processed_stock_codes:
-                debug_stock = create_debug_stock(stock_code, stock_name, date, stock_data, date_index)
-                debug_stocks.append(debug_stock)
-                processed_stock_codes.add(stock_code)  # 记录已处理的股票代码
+                if debug:
+                    debug_stocks.append(debug)
+    else:
+        # 单线程处理
+        for filename in tqdm(stock_files, desc="处理股票数据"):
+            triggered, potential, debug = process_stock_file(
+                filename, date, data_path, next_trading_day, check_updown_fluctuation
+            )
+            if triggered:
+                triggered_stocks.append(triggered)
+            if potential:
+                potential_stocks.append(potential)
+            if debug:
+                debug_stocks.append(debug)
 
     # 按触发原因排序
     triggered_stocks.sort(key=lambda x: x.trigger_reason)
@@ -263,7 +319,7 @@ def calculate_period_deviation(stock_data):
     return deviation
 
 
-def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index):
+def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index, check_updown_fluctuation=True):
     """
     检查股票是否触发严重异动
     
@@ -272,6 +328,7 @@ def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index)
     :param date: 日期
     :param stock_data: 股票历史数据
     :param date_index: 当前日期在数据中的索引
+    :param check_updown_fluctuation: 是否检查同向异常波动，默认True
     :return: 严重异动股票对象或None
     """
     # 提取数据
@@ -341,10 +398,10 @@ def check_serious_abnormal(stock_code, stock_name, date, stock_data, date_index)
         abnormal_direction = "下跌"
 
     # 3. 检查10日内异常波动次数 (最低优先级 - 补充规则)
-    elif abnormal_count_up >= required_count:
+    elif check_updown_fluctuation and abnormal_count_up >= required_count:
         trigger_reason = f"10日内{abnormal_count_up}次同向上涨异常波动"
         abnormal_direction = "上涨"
-    elif abnormal_count_down >= required_count:
+    elif check_updown_fluctuation and abnormal_count_down >= required_count:
         trigger_reason = f"10日内{abnormal_count_down}次同向下跌异常波动"
         abnormal_direction = "下跌"
 
