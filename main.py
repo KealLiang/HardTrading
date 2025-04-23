@@ -95,7 +95,8 @@ def find_dragon():
 
 
 def find_yidong():
-    date = '2025-04-22'
+    # date = '2025-04-22'
+    date = None
     find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
 
@@ -138,7 +139,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250315'  # 开始日期
+    start_date = '20250320'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -153,7 +154,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250315', '20250421', './excel/market_analysis.xlsx')
+    plot_all('20250315', '20250423', './excel/market_analysis.xlsx')
     # plot_all()
 
 
@@ -169,7 +170,7 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-14', '2025-04-21')
+    analyze_rate('2025-04-14', '2025-04-23')
 
 
 if __name__ == '__main__':
@@ -178,17 +179,17 @@ if __name__ == '__main__':
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
+    analyze_advanced_on()
     # get_hot_clouds()
-    # get_index_data()
-    # check_stock_datas()
     # find_similar_trends()
     # find_dragon()
     # find_yidong()
     # stocks_time_sharing_price()
-    analyze_advanced_on()
+    # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_stock_minute_datas()
-    # get_stock_concept_and_industry()
     # backtrade_simulate()
+    # get_index_data()
+    # check_stock_datas()
