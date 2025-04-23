@@ -305,14 +305,14 @@ def plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data=None
 
         # 准备股票标签，可能包含偏离度信息
         stock_label = f"{stock_code} {stock_names.get(stock_code, '')}"
-        
+
         # 如果提供了偏离度数据，添加到标签中
         if deviation_data and stock_code in deviation_data:
             dev_10d = deviation_data[stock_code].get('10d', 0)
             dev_30d = deviation_data[stock_code].get('30d', 0)
             # 取整数显示偏离度
             stock_label += f" [10d:{int(round(dev_10d))}% 30d:{int(round(dev_30d))}%]"
-        
+
         x_indices = np.arange(len(series))
 
         plt.plot(x_indices, series,
@@ -421,33 +421,33 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
     except Exception as e:
         print(f"读取Excel文件出错: {e}")
         return
-    
+
     # 筛选【异动方向】为上涨且股票名称不带"ST"的数据
     filtered_df = df[(df['异动方向'] == "上涨") & (~df['股票名称'].str.contains('ST', na=False))]
     print(f"筛选后的上涨非ST股票数据: {len(filtered_df)} 条记录")
-    
+
     # 如果没有指定日期，则使用Excel中的所有日期
     if date_list is None or len(date_list) == 0:
         unique_dates = filtered_df['日期'].unique()
         date_list = [d.strftime("%Y%m%d") for d in pd.to_datetime(unique_dates)]
         print(f"未指定日期，将使用Excel中的所有 {len(date_list)} 个日期")
-    
+
     # 按日期处理
     for date_str in date_list:
         date_obj = datetime.strptime(date_str, "%Y%m%d")
         date_formatted = date_obj.strftime("%Y-%m-%d")
-        
+
         # 筛选该日期的股票
         date_stocks = filtered_df[pd.to_datetime(filtered_df['日期']).dt.strftime("%Y-%m-%d") == date_formatted]
-        
+
         if len(date_stocks) > 0:
             # 按30日偏离度和10日偏离度降序排序
             date_stocks = date_stocks.sort_values(by=['30日偏离度(%)', '10日偏离度(%)'], ascending=False)
-            
+
             # 获取股票代码列表和偏离度数据
             stock_codes = []
             deviation_data = {}  # 用于存储偏离度数据
-            
+
             for _, row in date_stocks.iterrows():
                 code = row['股票代码']
                 # 确保股票代码为字符串格式并补齐6位
@@ -457,17 +457,17 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
                     code_str = code.zfill(6)
                 else:
                     continue  # 跳过无法处理的代码
-                
+
                 stock_codes.append(code_str)
-                
+
                 # 收集偏离度数据
                 deviation_data[code_str] = {
                     '10d': row['10日偏离度(%)'] if '10日偏离度(%)' in row else 0,
                     '30d': row['30日偏离度(%)'] if '30日偏离度(%)' in row else 0
                 }
-            
+
             print(f"日期 {date_formatted} 有 {len(stock_codes)} 只符合条件的异动股票")
-            
+
             # 调用time_price_sharing的函数生成分时图，传递偏离度数据
             analyze_stocks_time_sharing(stock_codes, date_str, deviation_data)
         else:
@@ -480,11 +480,11 @@ if __name__ == "__main__":
     # codes = ["002165", "002570", "600249", "001234", "601086"]
     # dates = ["20250416", "20250417", "20250418"]
     # analyze_stocks_time_sharing(codes, dates)
-    
+
     # 方法2：从异动股票Excel中读取数据并生成分时图
     # 指定特定日期
     dates_list = ["20250422"]  # 可以指定多个日期
     analyze_abnormal_stocks_time_sharing(dates_list)
-    
+
     # 不指定日期，使用Excel中的所有日期
     # analyze_abnormal_stocks_time_sharing()
