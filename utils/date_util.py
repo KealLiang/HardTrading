@@ -1,7 +1,86 @@
 from datetime import datetime, timedelta
-
+import re
 import pandas as pd
 import pandas_market_calendars as mcal
+import logging
+
+# 配置logging
+logger = logging.getLogger('date_util')
+
+def format_date(date_value):
+    """
+    将各种格式的日期统一转换为标准的'YYYY-MM-DD'格式。
+    
+    参数:
+        date_value: 日期值，可以是字符串(多种格式)、datetime对象或数字
+        
+    返回:
+        str: 格式化后的日期字符串 'YYYY-MM-DD'，如果无法解析则返回None
+    """
+    if date_value is None:
+        return None
+        
+    # 如果已经是datetime对象
+    if isinstance(date_value, datetime):
+        return date_value.strftime('%Y-%m-%d')
+    
+    # 处理pandas Timestamp对象
+    if isinstance(date_value, pd.Timestamp):
+        return date_value.strftime('%Y-%m-%d')
+    
+    # 处理整数类型 (如时间戳或紧凑格式如20250421)
+    if isinstance(date_value, (int, float)):
+        date_str = str(int(date_value))
+        # 如果是8位数字，假设是YYYYMMDD格式
+        if len(date_str) == 8:
+            try:
+                return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            except:
+                pass
+    
+    # 确保是字符串类型
+    if not isinstance(date_value, str):
+        try:
+            date_str = str(date_value)
+        except:
+            return None
+    else:
+        date_str = date_value
+    
+    # 清理日期字符串
+    date_str = date_str.strip()
+    
+    # 已经是YYYY-MM-DD格式
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return date_str
+    
+    # 尝试不同的日期格式
+    formats = ['%Y-%m-%d', '%Y%m%d', '%Y/%m/%d', '%Y.%m.%d', '%Y年%m月%d日', '%d/%m/%Y', '%m/%d/%Y']
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+    
+    # 如果所有格式都失败，尝试提取数字部分
+    date_numbers = re.findall(r'\d+', date_str)
+    if len(date_numbers) >= 3:
+        try:
+            year = int(date_numbers[0])
+            month = int(date_numbers[1])
+            day = int(date_numbers[2])
+            
+            # 确保年份格式正确（处理两位数年份）
+            if year < 100:
+                year += 2000 if year < 50 else 1900
+            
+            # 验证日期有效性
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                return f"{year:04d}-{month:02d}-{day:02d}"
+        except Exception:
+            pass
+    
+    return None
 
 
 def get_trading_days(start_date: str, end_date: str):
@@ -108,9 +187,6 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     Returns:
         str: 推算得到的交易日，格式为 'YYYY-MM-DD'
     """
-    import pandas_market_calendars as mcal
-    import pandas as pd
-
     # 兼容两种日期格式
     if '-' in date:
         date_dt = datetime.strptime(date, '%Y-%m-%d')

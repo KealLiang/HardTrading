@@ -169,7 +169,7 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate(['2025-04-21'])
+    analyze_rate('2025-04-01', '2025-04-21')
 
 
 if __name__ == '__main__':
