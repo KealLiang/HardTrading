@@ -5,6 +5,8 @@ from collections import defaultdict
 from datetime import datetime
 
 import pandas as pd
+from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
 from tqdm import tqdm  # 导入tqdm进度条库
 
 from utils.date_util import get_next_trading_day, get_trading_days, format_date
@@ -357,6 +359,44 @@ def analyze_limit_up_progression(start_date, end_date=None):
         return {}
 
 
+def format_excel_sheet(worksheet, column_order):
+    """
+    设置Excel工作表的格式：调整列宽并为不同日期设置交替背景色
+    
+    参数:
+        worksheet: openpyxl的worksheet对象
+        column_order: 列名顺序的列表
+    """
+    # 设置统一列宽为12个字符
+    column_width = 12
+    
+    # 定义背景颜色
+    light_gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    
+    # 设置所有列宽相同
+    for i in range(len(column_order)):
+        col_letter = get_column_letter(i + 1)  # 列索引从1开始
+        worksheet.column_dimensions[col_letter].width = column_width
+    
+    # 应用交替背景色（按日期分组）
+    current_date = None
+    use_gray = True
+    
+    # 从第2行开始（跳过标题行）
+    for row_idx in range(2, worksheet.max_row + 1):
+        date_value = worksheet.cell(row=row_idx, column=1).value
+        if date_value != current_date:
+            current_date = date_value
+            use_gray = not use_gray  # 切换颜色
+        
+        fill = light_gray_fill if use_gray else white_fill
+        
+        # 为该行的所有单元格设置背景色
+        for col_idx in range(1, worksheet.max_column + 1):
+            worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+
 def save_results_to_excel(results, date_list):
     """
     将分析结果保存到Excel文件中。
@@ -364,6 +404,8 @@ def save_results_to_excel(results, date_list):
     - 使用sheet名"晋级率"
     - 晋级目标列为"x进y"格式
     - 数据按日期和板次升序排序
+    - 为不同日期设置交替的背景色
+    - 自动调整列宽
     
     参数:
         results: 连板晋级率分析结果（按日期分组的嵌套字典）
@@ -424,64 +466,70 @@ def save_results_to_excel(results, date_list):
     column_order = ['数据日期', '总数', '晋级目标', '晋级率', '存活率', '死亡率', '晋级数', '存活数', '死亡数']
     new_df = new_df[column_order]
 
-    # 检查文件是否已存在
+    # 准备新数据
+    existing_df = None
+    sheet_exists = False
+    
+    # 检查文件和sheet是否存在
     if os.path.exists(RESULT_FILE_PATH):
-        logger.info(f"结果文件已存在: {RESULT_FILE_PATH}")
         try:
-            # 判断是否存在"晋级率"sheet
-            sheet_exists = False
             with pd.ExcelFile(RESULT_FILE_PATH) as xls:
                 sheet_exists = '晋级率' in xls.sheet_names
-
-            if sheet_exists:
-                # 读取现有数据
-                existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
-
-                # 过滤掉已存在的日期数据
-                existing_dates = set(existing_df['数据日期'].astype(str))
-                new_records = new_df[~new_df['数据日期'].astype(str).isin(existing_dates)]
-
-                if new_records.empty:
-                    logger.info("所有日期数据已存在，不需要追加")
-                    return RESULT_FILE_PATH
-
-                # 合并未存在的数据
-                combined_df = pd.concat([existing_df, new_records], ignore_index=True)
-
-                # 确保合并后的数据也是按日期和板次排序的
-                combined_df['sort_key'] = combined_df['晋级目标'].apply(extract_board_level)
-                combined_df = combined_df.sort_values(by=['数据日期', 'sort_key'])
-                combined_df = combined_df.drop(columns=['sort_key'])
-
-                # 保存数据到现有文件的晋级率sheet
-                with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl', mode='a') as writer:
-                    # 先删除现有sheet
-                    if '晋级率' in writer.book.sheetnames:
-                        idx = writer.book.sheetnames.index('晋级率')
-                        writer.book.remove(writer.book.worksheets[idx])
-                    # 写入新数据    
-                    combined_df.to_excel(writer, sheet_name='晋级率', index=False)
-
-                logger.info(f"已成功追加新数据到文件: {RESULT_FILE_PATH}")
-            else:
-                # 现有文件没有"晋级率"sheet，直接添加新sheet
-                with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl', mode='a') as writer:
-                    new_df.to_excel(writer, sheet_name='晋级率', index=False)
-                logger.info(f"已添加晋级率sheet到现有文件: {RESULT_FILE_PATH}")
-
+                if sheet_exists:
+                    # 读取现有数据
+                    existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
         except Exception as e:
-            logger.error(f"处理现有文件时出错: {e}")
-            # 如果出错，创建新文件
-            with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl') as writer:
-                new_df.to_excel(writer, sheet_name='晋级率', index=False)
-            logger.info(f"由于错误，已创建新结果文件: {RESULT_FILE_PATH}")
-    else:
-        # 文件不存在，创建新文件
-        logger.info(f"创建结果文件: {RESULT_FILE_PATH}")
-        with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl') as writer:
-            new_df.to_excel(writer, sheet_name='晋级率', index=False)
-        logger.info(f"已保存结果到: {RESULT_FILE_PATH}")
+            logger.error(f"读取现有Excel文件出错: {e}")
+    
+    # 合并数据（如有必要）
+    final_df = new_df
+    if existing_df is not None and not existing_df.empty:
+        # 过滤掉已存在的日期数据
+        existing_dates = set(existing_df['数据日期'].astype(str))
+        new_records = new_df[~new_df['数据日期'].astype(str).isin(existing_dates)]
+        
+        if new_records.empty:
+            logger.info("所有日期数据已存在，不需要追加")
+            return RESULT_FILE_PATH
+            
+        # 合并数据
+        final_df = pd.concat([existing_df, new_records], ignore_index=True)
+        
+        # 重新排序合并后的数据
+        final_df['sort_key'] = final_df['晋级目标'].apply(extract_board_level)
+        final_df = final_df.sort_values(by=['数据日期', 'sort_key'])
+        final_df = final_df.drop(columns=['sort_key'])
+    
+    # 保存数据
+    excel_mode = 'w'  # 默认模式：写入新文件
+    if os.path.exists(RESULT_FILE_PATH):
+        if sheet_exists:
+            # 先创建临时文件保存其他sheet的数据
+            temp_writer = pd.ExcelWriter(RESULT_FILE_PATH + '.temp', engine='openpyxl')
+            with pd.ExcelFile(RESULT_FILE_PATH) as xls:
+                for sheet_name in xls.sheet_names:
+                    if sheet_name != '晋级率':
+                        pd.read_excel(RESULT_FILE_PATH, sheet_name=sheet_name).to_excel(
+                            temp_writer, sheet_name=sheet_name, index=False)
+            temp_writer.close()
+            
+            # 复制回原文件
+            os.replace(RESULT_FILE_PATH + '.temp', RESULT_FILE_PATH)
+            excel_mode = 'a'  # 追加模式
+        else:
+            excel_mode = 'a'  # 追加模式
 
+    # 写入数据
+    with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl', mode=excel_mode) as writer:
+        final_df.to_excel(writer, sheet_name='晋级率', index=False)
+        
+        # 应用格式设置
+        if excel_mode == 'w' or (excel_mode == 'a' and '晋级率' not in writer.book.sheetnames):
+            format_excel_sheet(writer.sheets['晋级率'], column_order)
+        else:
+            format_excel_sheet(writer.book['晋级率'], column_order)
+    
+    logger.info(f"已保存结果到: {RESULT_FILE_PATH}")
     return RESULT_FILE_PATH
 
 
@@ -500,6 +548,15 @@ def analyze_rate(start_date, end_date=None):
     if not date_list:
         logger.warning("没有找到符合条件的交易日。")
         return
+
+    # 检查是否有今天的日期，若有则需要移除（因为无法获取T+1日数据）
+    today_str = datetime.today().strftime('%Y-%m-%d')
+    if today_str in date_list:
+        logger.info(f"检测到今日({today_str})在分析范围内，由于无法获取T+1日数据，将跳过今日分析")
+        date_list.remove(today_str)
+        if not date_list:
+            logger.warning("移除今日后没有可分析的交易日。")
+            return
 
     # 检查哪些日期已经存在于Excel文件中
     existing_dates = set()
