@@ -4,8 +4,8 @@ from datetime import datetime
 import glob
 from collections import defaultdict
 import logging
-from HardTrading.utils.stock_util import stock_limit_ratio
-from HardTrading.utils.date_util import get_next_trading_day, get_trading_days, format_date
+from utils.stock_util import stock_limit_ratio
+from utils.date_util import get_next_trading_day, get_trading_days, format_date
 from openpyxl import load_workbook
 
 # 配置logging
@@ -127,7 +127,7 @@ def analyze_limit_up_progression(start_date, end_date=None):
         end_date: 结束日期，格式同start_date，如果为None则等于start_date
     
     返回:
-        dict: 包含每个连板级别统计数据的字典
+        dict: 按日期分组的连板晋级统计数据字典
     """
     try:
         # 获取要分析的日期范围
@@ -149,22 +149,38 @@ def analyze_limit_up_progression(start_date, end_date=None):
         dates = lianban_data.columns
         filtered_dates = []
         for date in dates:
-            date_obj = datetime.strptime(date, "%Y年%m月%d日")
-            formatted_date = date_obj.strftime('%Y-%m-%d')
-            
-            # 如果不在指定日期范围内，则跳过
-            if formatted_date not in date_list:
+            try:
+                # 尝试解析Excel文件中的日期列名
+                date_obj = datetime.strptime(date, "%Y年%m月%d日")
+                formatted_date = date_obj.strftime('%Y-%m-%d')
+                
+                # 如果不在指定日期范围内，则跳过
+                if formatted_date not in date_list:
+                    continue
+                
+                filtered_dates.append(date)
+            except (ValueError, TypeError):
+                logger.warning(f"无法解析日期列名: {date}")
                 continue
-            
-            filtered_dates.append(date)
+        
+        if not filtered_dates:
+            logger.warning(f"在Excel文件中没有找到匹配的日期: {date_list}")
+            return {}
         
         # 用于跟踪每种类型的记录数量
         record_counts = {"连板": 0, "首板": 0}
         stock_codes_by_type = {"连板": set(), "首板": set()}
         stock_details = []  # 存储详细的股票信息，便于调试
         
+        # 按日期分组收集涨停数据
+        date_grouped_limit_ups = {date: [] for date in date_list}
+        
         # 处理连板数据
         for date in filtered_dates:
+            # 解析标准日期格式
+            date_obj = datetime.strptime(date, "%Y年%m月%d日")
+            formatted_date = date_obj.strftime('%Y-%m-%d')
+            
             # 连板数据处理
             lianban_col = lianban_data[date].dropna()  # 去除空单元格
             lianban_stocks = lianban_col.str.split(';').apply(lambda x: [item.strip() for item in x])  # 分列处理
@@ -187,10 +203,6 @@ def analyze_limit_up_progression(start_date, end_date=None):
                         except:
                             logger.warning(f"无法解析连板数 '{board_info}'，使用默认值1")
                     
-                    # 将日期转换为标准格式
-                    date_obj = datetime.strptime(date, "%Y年%m月%d日")
-                    formatted_date = date_obj.strftime('%Y-%m-%d')
-                    
                     stock_record = {
                         'date': formatted_date,
                         'stock_code': stock_code,
@@ -200,12 +212,12 @@ def analyze_limit_up_progression(start_date, end_date=None):
                     }
                     all_limit_ups.append(stock_record)
                     stock_details.append(stock_record)
+                    
+                    # 按日期分组
+                    date_grouped_limit_ups[formatted_date].append(stock_record)
             
             # 首板数据处理
             shouban_col = shouban_data[date].dropna()  # 去除空单元格
-            # 记录每个日期的首板数量
-            if not shouban_col.empty:
-                logger.info(f"日期 {date} 的首板记录数: {len(shouban_col)}")
                 
             shouban_stocks = shouban_col.str.split(';').apply(lambda x: [item.strip() for item in x])  # 分列处理
             
@@ -216,10 +228,6 @@ def analyze_limit_up_progression(start_date, end_date=None):
                     stock_codes_by_type["首板"].add(stock_code)
                     record_counts["首板"] += 1
                     
-                    # 将日期转换为标准格式
-                    date_obj = datetime.strptime(date, "%Y年%m月%d日")
-                    formatted_date = date_obj.strftime('%Y-%m-%d')
-                    
                     stock_record = {
                         'date': formatted_date,
                         'stock_code': stock_code,
@@ -229,6 +237,9 @@ def analyze_limit_up_progression(start_date, end_date=None):
                     }
                     all_limit_ups.append(stock_record)
                     stock_details.append(stock_record)
+                    
+                    # 按日期分组
+                    date_grouped_limit_ups[formatted_date].append(stock_record)
         
         # 打印处理统计
         logger.info(f"成功提取记录数: 连板 {record_counts['连板']} 条，首板 {record_counts['首板']} 条")
@@ -263,64 +274,74 @@ def analyze_limit_up_progression(start_date, end_date=None):
         if unmatched_stock_codes:
             logger.warning(f"未找到数据文件的股票: {unmatched_stock_codes}")
         
-        # 初始化统计计数器
-        stats = defaultdict(lambda: {'promoted': 0, 'survived': 0, 'died': 0, 'total': 0})
-        status_count = {"处理成功": 0, "缺少数据": 0}
-        status_by_board = defaultdict(lambda: {"处理成功": 0, "缺少数据": 0})
-        failed_stocks = []  # 记录处理失败的股票
+        # 初始化按日期分组的结果字典
+        date_results = {}
         
-        # 处理每条涨停记录
-        for _, row in limit_up_df.iterrows():
-            date = row['date']
-            stock_code = row['stock_code']
-            stock_name = row['stock_name']
-            board_count = row['board_count']
+        # 为每个日期单独计算统计数据
+        for date, date_records in date_grouped_limit_ups.items():
+            if not date_records:
+                continue
+                
+            logger.info(f"正在处理日期 {date} 的 {len(date_records)} 条记录")
             
-            # 获取次日状态
-            next_day_status = get_stock_status_next_day(stock_code, date, stock_files_dict)
+            # 将当前日期的记录转换为DataFrame
+            date_df = pd.DataFrame(date_records)
             
-            if next_day_status:
-                # 使用"X进Y"的格式表示板块，例如"1进2"表示1板晋级到2板
-                level_key = f"{board_count}进{board_count+1}"
-                stats[level_key][next_day_status] += 1
-                stats[level_key]['total'] += 1
-                status_count["处理成功"] += 1
-                status_by_board[board_count]["处理成功"] += 1
-            else:
-                status_count["缺少数据"] += 1
-                status_by_board[board_count]["缺少数据"] += 1
-                failed_stocks.append({
-                    'date': date,
-                    'stock_code': stock_code,
-                    'stock_name': stock_name,
-                    'board_count': board_count
-                })
-                logger.warning(f"处理失败: {stock_code} {stock_name} 板数:{board_count} 日期:{date}")
+            # 为当前日期初始化统计计数器
+            stats = defaultdict(lambda: {'promoted': 0, 'survived': 0, 'died': 0, 'total': 0})
+            status_count = {"处理成功": 0, "缺少数据": 0}
+            status_by_board = defaultdict(lambda: {"处理成功": 0, "缺少数据": 0})
+            failed_stocks = []  # 记录处理失败的股票
+            
+            # 处理当前日期的每条涨停记录
+            for _, row in date_df.iterrows():
+                date_str = row['date']
+                stock_code = row['stock_code']
+                stock_name = row['stock_name']
+                board_count = row['board_count']
+                
+                # 获取次日状态
+                next_day_status = get_stock_status_next_day(stock_code, date_str, stock_files_dict)
+                
+                if next_day_status:
+                    # 使用"X进Y"的格式表示板块，例如"1进2"表示1板晋级到2板
+                    level_key = f"{board_count}进{board_count+1}"
+                    stats[level_key][next_day_status] += 1
+                    stats[level_key]['total'] += 1
+                    status_count["处理成功"] += 1
+                    status_by_board[board_count]["处理成功"] += 1
+                else:
+                    status_count["缺少数据"] += 1
+                    status_by_board[board_count]["缺少数据"] += 1
+                    failed_stocks.append({
+                        'date': date_str,
+                        'stock_code': stock_code,
+                        'stock_name': stock_name,
+                        'board_count': board_count
+                    })
+                    logger.warning(f"处理失败: {stock_code} {stock_name} 板数:{board_count} 日期:{date_str}")
+            
+            logger.info(f"日期 {date} 处理结果统计: 处理成功 {status_count['处理成功']}，缺少数据 {status_count['缺少数据']}")
+            
+            # 计算当前日期的各种比率
+            date_result = {}
+            for level, counts in stats.items():
+                total = counts['total']
+                if total > 0:
+                    date_result[level] = {
+                        'promoted_rate': (counts['promoted'] / total) * 100,
+                        'survived_rate': (counts['survived'] / total) * 100,
+                        'died_rate': (counts['died'] / total) * 100,
+                        'promoted_count': counts['promoted'],
+                        'survived_count': counts['survived'],
+                        'died_count': counts['died'],
+                        'total_count': total
+                    }
+            
+            # 将当前日期的结果保存到按日期分组的结果字典中
+            date_results[date] = date_result
         
-        logger.info(f"处理结果统计: 处理成功 {status_count['处理成功']}，缺少数据 {status_count['缺少数据']}")
-        
-        # 如果有处理失败的记录，列出详细信息
-        if failed_stocks:
-            logger.warning("以下股票处理失败:")
-            for stock in failed_stocks:
-                logger.warning(f"  {stock['stock_code']} {stock['stock_name']} - {stock['board_count']}板 - {stock['date']}")
-        
-        # 计算各种比率
-        results = {}
-        for level, counts in stats.items():
-            total = counts['total']
-            if total > 0:
-                results[level] = {
-                    'promoted_rate': (counts['promoted'] / total) * 100,
-                    'survived_rate': (counts['survived'] / total) * 100,
-                    'died_rate': (counts['died'] / total) * 100,
-                    'promoted_count': counts['promoted'],
-                    'survived_count': counts['survived'],
-                    'died_count': counts['died'],
-                    'total_count': total
-                }
-        
-        return results
+        return date_results
     
     except Exception as e:
         logger.error(f"分析涨停晋级率时出错: {e}", exc_info=True)
@@ -335,7 +356,7 @@ def save_results_to_excel(results, date_list):
     - 数据按日期和板次升序排序
     
     参数:
-        results: 连板晋级率分析结果
+        results: 连板晋级率分析结果（按日期分组的嵌套字典）
         date_list: 分析的日期列表，格式为YYYY-MM-DD
     """
     if not results:
@@ -348,22 +369,34 @@ def save_results_to_excel(results, date_list):
     # 为每个分析日期创建记录
     data = []
     for date in date_list:
+        # 检查日期是否有分析结果
+        if date not in results or not results[date]:
+            logger.warning(f"日期 {date} 没有分析结果")
+            continue
+            
+        # 获取当前日期的结果
+        date_result = results[date]
+        
         # 为每个板次创建记录
-        for level, stats in results.items():
+        for level, stats in date_result.items():
             data.append({
                 '数据日期': date,
+                '总数': stats['total_count'],  # 总数放在数据日期后面
                 '晋级目标': level,  # 直接使用"x进y"格式
                 '晋级率': f"{stats['promoted_rate']:.2f}%",
                 '存活率': f"{stats['survived_rate']:.2f}%",
                 '死亡率': f"{stats['died_rate']:.2f}%",
                 '晋级数': stats['promoted_count'],
                 '存活数': stats['survived_count'],
-                '死亡数': stats['died_count'],
-                '总数': stats['total_count']
+                '死亡数': stats['died_count']
             })
     
     # 创建DataFrame并排序
     new_df = pd.DataFrame(data)
+    
+    if new_df.empty:
+        logger.warning("没有有效数据可保存")
+        return None
     
     # 提取晋级目标中的板次数字用于排序
     def extract_board_level(level_str):
@@ -376,6 +409,10 @@ def save_results_to_excel(results, date_list):
     new_df['sort_key'] = new_df['晋级目标'].apply(extract_board_level)
     new_df = new_df.sort_values(by=['数据日期', 'sort_key'])
     new_df = new_df.drop(columns=['sort_key'])  # 删除辅助列
+    
+    # 重新安排列顺序，确保"总数"在"数据日期"后面
+    column_order = ['数据日期', '总数', '晋级目标', '晋级率', '存活率', '死亡率', '晋级数', '存活数', '死亡数']
+    new_df = new_df[column_order]
     
     # 检查文件是否已存在
     if os.path.exists(RESULT_FILE_PATH):
@@ -446,32 +483,72 @@ def analyze_rate(start_date, end_date=None):
         end_date: 结束日期，格式同start_date，如果为None则等于start_date
     """
     logger.info("开始分析连板晋级率...")
-    results = analyze_limit_up_progression(start_date, end_date)
+    
+    # 获取分析的日期列表
+    date_list = get_date_range(start_date, end_date)
+    if not date_list:
+        logger.warning("没有找到符合条件的交易日。")
+        return
+    
+    # 检查哪些日期已经存在于Excel文件中
+    existing_dates = set()
+    if os.path.exists(RESULT_FILE_PATH):
+        try:
+            with pd.ExcelFile(RESULT_FILE_PATH) as xls:
+                if '晋级率' in xls.sheet_names:
+                    existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
+                    existing_dates = set(existing_df['数据日期'].astype(str))
+                    logger.info(f"检测到已存在的数据日期: {sorted(list(existing_dates))}")
+        except Exception as e:
+            logger.error(f"读取现有结果文件时出错: {e}")
+    
+    # 过滤掉已存在的日期，只分析新的日期
+    new_dates = [date for date in date_list if date not in existing_dates]
+    if not new_dates:
+        logger.info("所有请求的日期数据已存在，无需重新分析。")
+        return
+    
+    logger.info(f"将分析以下新日期: {new_dates}")
+    print(f"将分析以下新日期: {new_dates}")
+    
+    # 只分析新的日期
+    results = analyze_limit_up_progression(new_dates[0], new_dates[-1] if len(new_dates) > 1 else None)
     
     if not results:
         logger.warning("没有找到符合条件的数据或分析过程中出现错误。")
         return
     
-    # 获取分析的日期列表
-    date_list = get_date_range(start_date, end_date)
-    
     # 保存结果到Excel
-    result_file = save_results_to_excel(results, date_list)
+    result_file = save_results_to_excel(results, new_dates)
     if result_file:
         logger.info(f"分析结果已保存到: {result_file}")
     
-    logger.info("\n=== 连板晋级率分析结果 ===")
-    print(f"{'板块':<6} {'晋级率':<8} {'存活率':<8} {'死亡率':<8} {'晋级/总数':<10} {'存活/总数':<10} {'死亡/总数':<10}")
-    print("-" * 70)
+    # 打印分析结果概览
+    print("=" * 70)
+    print("连板晋级率分析结果概览")
+    print("=" * 70)
     
-    # 按板次排序 (从"X进Y"提取X进行排序)
-    sorted_levels = sorted(results.keys(), key=lambda x: int(x.split('进')[0]))
-    
-    for level in sorted_levels:
-        stats = results[level]
-        print(f"{level:<6} {stats['promoted_rate']:.2f}% {stats['survived_rate']:.2f}% {stats['died_rate']:.2f}% "
-              f"{stats['promoted_count']}/{stats['total_count']} {stats['survived_count']}/{stats['total_count']} "
-              f"{stats['died_count']}/{stats['total_count']}")
+    # 按日期循环打印结果
+    for date in new_dates:
+        if date not in results or not results[date]:
+            print(f"日期 {date} 没有分析结果")
+            continue
+            
+        print(f"\n--- 日期: {date} ---")
+        print(f"{'板块':<7} {'晋级率':<8} {'存活率':<8} {'死亡率':<8} {'晋级/总数':<10} {'存活/总数':<10} {'死亡/总数':<10}")
+        print("-" * 70)
+        
+        # 获取当前日期的结果
+        date_result = results[date]
+        
+        # 按板次排序 (从"X进Y"提取X进行排序)
+        sorted_levels = sorted(date_result.keys(), key=lambda x: int(x.split('进')[0]))
+        
+        for level in sorted_levels:
+            stats = date_result[level]
+            print(f"{level:<7} {stats['promoted_rate']:.2f}% {stats['survived_rate']:.2f}% {stats['died_rate']:.2f}% "
+                f"{stats['promoted_count']}/{stats['total_count']} {stats['survived_count']}/{stats['total_count']} "
+                f"{stats['died_count']}/{stats['total_count']}")
     
     return results
 

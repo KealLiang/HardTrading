@@ -19,19 +19,14 @@ def format_date(date_value):
     """
     if date_value is None:
         return None
-        
-    # 如果已经是datetime对象
-    if isinstance(date_value, datetime):
+    
+    # 处理datetime和pandas Timestamp对象
+    if isinstance(date_value, (datetime, pd.Timestamp)):
         return date_value.strftime('%Y-%m-%d')
     
-    # 处理pandas Timestamp对象
-    if isinstance(date_value, pd.Timestamp):
-        return date_value.strftime('%Y-%m-%d')
-    
-    # 处理整数类型 (如时间戳或紧凑格式如20250421)
+    # 处理整数类型 (如YYYYMMDD格式)
     if isinstance(date_value, (int, float)):
         date_str = str(int(date_value))
-        # 如果是8位数字，假设是YYYYMMDD格式
         if len(date_str) == 8:
             try:
                 return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
@@ -39,46 +34,38 @@ def format_date(date_value):
                 pass
     
     # 确保是字符串类型
-    if not isinstance(date_value, str):
-        try:
-            date_str = str(date_value)
-        except:
-            return None
-    else:
-        date_str = date_value
-    
-    # 清理日期字符串
-    date_str = date_str.strip()
+    try:
+        date_str = str(date_value).strip() if not isinstance(date_value, str) else date_value.strip()
+    except:
+        return None
     
     # 已经是YYYY-MM-DD格式
     if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         return date_str
     
-    # 尝试不同的日期格式
-    formats = ['%Y-%m-%d', '%Y%m%d', '%Y/%m/%d', '%Y.%m.%d', '%Y年%m月%d日', '%d/%m/%Y', '%m/%d/%Y']
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str, fmt).strftime('%Y-%m-%d')
-        except ValueError:
-            continue
-    
-    # 如果所有格式都失败，尝试提取数字部分
-    date_numbers = re.findall(r'\d+', date_str)
-    if len(date_numbers) >= 3:
-        try:
-            year = int(date_numbers[0])
-            month = int(date_numbers[1])
-            day = int(date_numbers[2])
-            
-            # 确保年份格式正确（处理两位数年份）
-            if year < 100:
-                year += 2000 if year < 50 else 1900
-            
-            # 验证日期有效性
-            if 1 <= month <= 12 and 1 <= day <= 31:
-                return f"{year:04d}-{month:02d}-{day:02d}"
-        except Exception:
-            pass
+    # 使用pandas的to_datetime更高效地解析多种格式
+    try:
+        return pd.to_datetime(date_str).strftime('%Y-%m-%d')
+    except:
+        # 如果pandas解析失败，尝试提取数字部分
+        date_numbers = re.findall(r'\d+', date_str)
+        if len(date_numbers) >= 3:
+            try:
+                year = int(date_numbers[0])
+                month = int(date_numbers[1])
+                day = int(date_numbers[2])
+                
+                # 确保年份格式正确（处理两位数年份）
+                if year < 100:
+                    year += 2000 if year < 50 else 1900
+                
+                # 验证日期有效性
+                if 1 <= month <= 12 and 1 <= day <= 31:
+                    # 使用pandas验证日期是否有效
+                    date_obj = pd.Timestamp(year=year, month=month, day=day)
+                    return date_obj.strftime('%Y-%m-%d')
+            except:
+                pass
     
     return None
 
