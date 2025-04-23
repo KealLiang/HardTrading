@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from HardTrading.analysis.calculate_limit_up_success_rate import analyze_rate
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
@@ -167,12 +168,16 @@ def stocks_time_sharing_price():
     analyze_abnormal_stocks_time_sharing(dates_list)
 
 
+def analyze_advanced_on():
+    analyze_rate(['2025-04-21'])
+
+
 if __name__ == '__main__':
     # get_stock_datas()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # get_index_data()
     # check_stock_datas()
@@ -180,6 +185,7 @@ if __name__ == '__main__':
     # find_dragon()
     # find_yidong()
     # stocks_time_sharing_price()
+    analyze_advanced_on()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
     # get_lhb_datas()
