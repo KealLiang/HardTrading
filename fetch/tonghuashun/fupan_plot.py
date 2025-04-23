@@ -17,8 +17,8 @@ LABEL_CONFIG = {
     'width': 1.5,                   # 标签估计宽度
     'height': 0.8,                  # 标签估计高度
     'base_offset': 3,               # 基础偏移距离
-    'max_offset': 9,                # 最大偏移距离
-    'search_radius': 5,             # 搜索半径
+    'max_offset': 20,                # 最大偏移距离
+    'search_radius': 10,             # 搜索半径
     'alpha': 0.8,                   # 标签背景透明度
     'padding': 0.2,                 # 标签内边距
 }
@@ -327,9 +327,9 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             # 根据线条类型应用额外偏移
             line_offset = 0
             if line_type == 'main':
-                line_offset = 5
+                line_offset = base_offset // 2  # 使用配置的基础偏移的一半，而不是固定值5
             elif line_type == 'secondary':
-                line_offset = -5
+                line_offset = -base_offset // 2
                 
             if position['name'] in ['top', 'bottom']:
                 position['dy'] += line_offset
@@ -356,7 +356,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
                 
                 # 添加附加偏移
                 for dx, dy in additional_offsets:
-                    candidates.append((position['dx'] + dx, position['dy'] + dy))
+                    candidates.append((dx, dy))  # 直接使用计算好的偏移值
                     
                 # 使用智能空间查找
                 dx, dy = global_label_manager.find_best_empty_space(
@@ -364,7 +364,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
                 )
                 if dx != 0 or dy != 0:
                     # 将这个位置添加到候选的前面，优先考虑
-                    candidates.insert(0, (dx * base_offset * 2, dy * base_offset * 2))  # 放大偏移以增加间隔
+                    candidates.insert(0, (dx * base_offset, dy * base_offset))  # 放大偏移以增加间隔
                 
             # 尝试所有候选位置，找到第一个无碰撞的
             found_position = False
@@ -405,14 +405,14 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
                 if not is_highest_priority:
                     if final_position['name'] in ['right', 'left']:
                         # 水平方向，增加垂直偏移
-                        vertical_offset = (neighbors % 3) * 15
+                        vertical_offset = (neighbors % 3) * base_offset  # 使用配置的基础偏移
                         if neighbors % 2 == 0:
                             final_position['dy'] += vertical_offset
                         else:
                             final_position['dy'] -= vertical_offset
                     else:
                         # 垂直方向，增加水平偏移
-                        horizontal_offset = (neighbors % 3) * 15
+                        horizontal_offset = (neighbors % 3) * base_offset  # 使用配置的基础偏移
                         if neighbors % 2 == 0:
                             final_position['dx'] += horizontal_offset
                         else:
