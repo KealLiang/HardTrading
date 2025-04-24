@@ -133,7 +133,7 @@ def find_similar_trends():
 
 def fetch_ths_fupan():
     start_date = "20250415"
-    # end_date = '20250411'
+    # end_date = '20250424'
     end_date = None
     all_fupan(start_date, end_date)
 
@@ -147,14 +147,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250325'
+    start_date = '20250415'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250315', '20250423', './excel/market_analysis.xlsx')
+    plot_all('20250401', '20250424')
     # plot_all()
 
 
@@ -170,17 +170,17 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-22', '2025-04-24')
+    analyze_rate('2025-04-01', '2025-04-24')
 
 
 if __name__ == '__main__':
     # get_stock_datas()
-    analyze_advanced_on()
+    # analyze_advanced_on()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # get_hot_clouds()
+    get_hot_clouds()
     # find_similar_trends()
     # find_dragon()
     # find_yidong()

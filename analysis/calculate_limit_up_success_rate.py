@@ -83,7 +83,7 @@ def get_stock_status_next_day(stock_code, current_date, stock_files_dict):
         # 获取T日收盘价和T+1日开盘价
         current_close = current_day_data.iloc[0]['收盘']
         next_open = next_day_data.iloc[0]['开盘']
-        
+
         # 判断是否高开（开盘价大于等于前一日收盘价）
         is_high_open = next_open >= current_close
 
@@ -336,12 +336,12 @@ def analyze_limit_up_progression(start_date, end_date=None):
                     level_key = f"{board_count}进{board_count + 1}"
                     stats[level_key][status] += 1
                     stats[level_key]['total'] += 1
-                    
+
                     # 记录高开情况
                     if is_high_open:
                         stats[level_key][f'high_open_{status}'] += 1
                         stats[level_key]['high_open_total'] += 1
-                    
+
                     status_count["处理成功"] += 1
                     status_by_board[board_count]["处理成功"] += 1
                 else:
@@ -363,22 +363,24 @@ def analyze_limit_up_progression(start_date, end_date=None):
             for level, counts in stats.items():
                 total = counts['total']
                 high_open_total = counts['high_open_total']
+                all_survived = counts['survived'] + counts['promoted']
+                all_high_survived = counts['high_open_survived'] + counts['high_open_promoted']
                 if total > 0:
                     date_result[level] = {
                         'promoted_rate': (counts['promoted'] / total) * 100,
-                        'survived_rate': (counts['survived'] / total) * 100,
+                        'survived_rate': (all_survived / total) * 100,
                         'died_rate': (counts['died'] / total) * 100,
                         'promoted_count': counts['promoted'],
-                        'survived_count': counts['survived'],
+                        'survived_count': all_survived,
                         'died_count': counts['died'],
                         'total_count': total,
                         # 高开相关的统计指标
                         'high_open_total': high_open_total,
                         'high_open_promoted_count': counts['high_open_promoted'],
-                        'high_open_survived_count': counts['high_open_survived'],
+                        'high_open_survived_count': all_high_survived,
                         'high_open_died_count': counts['high_open_died'],
                         'high_open_promoted_rate': (counts['high_open_promoted'] / high_open_total) * 100 if high_open_total > 0 else 0,
-                        'high_open_survived_rate': (counts['high_open_survived'] / high_open_total) * 100 if high_open_total > 0 else 0,
+                        'high_open_survived_rate': (all_high_survived / high_open_total) * 100 if high_open_total > 0 else 0,
                         'high_open_died_rate': (counts['high_open_died'] / high_open_total) * 100 if high_open_total > 0 else 0
                     }
 
@@ -402,29 +404,29 @@ def format_excel_sheet(worksheet, column_order):
     """
     # 设置统一列宽为12个字符
     column_width = 12
-    
+
     # 定义背景颜色
     light_gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-    
+
     # 设置所有列宽相同
     for i in range(len(column_order)):
         col_letter = get_column_letter(i + 1)  # 列索引从1开始
         worksheet.column_dimensions[col_letter].width = column_width
-    
+
     # 应用交替背景色（按日期分组）
     current_date = None
     use_gray = True
-    
+
     # 从第2行开始（跳过标题行）
     for row_idx in range(2, worksheet.max_row + 1):
         date_value = worksheet.cell(row=row_idx, column=1).value
         if date_value != current_date:
             current_date = date_value
             use_gray = not use_gray  # 切换颜色
-        
+
         fill = light_gray_fill if use_gray else white_fill
-        
+
         # 为该行的所有单元格设置背景色
         for col_idx in range(1, worksheet.max_column + 1):
             worksheet.cell(row=row_idx, column=col_idx).fill = fill
@@ -512,16 +514,16 @@ def save_results_to_excel(results, date_list):
     new_df = new_df.drop(columns=['sort_key'])  # 删除辅助列
 
     # 重新安排列顺序，确保"总数"和"高开总数"在"晋级目标"前面
-    column_order = ['评估日期', '总数', '高开总数', '晋级目标', 
-                     '晋级率', '存活率', '死亡率', 
+    column_order = ['评估日期', '总数', '高开总数', '晋级目标',
+                     '晋级率', '存活率', '死亡率',
                      '高开晋级率', '高开存活率', '高开死亡率',
-                     '晋级数', '存活数', '死亡数', 
+                     '晋级数', '存活数', '死亡数',
                      '高开晋级数', '高开存活数', '高开死亡数']
     new_df = new_df[column_order]
 
     # 准备新数据
     existing_df = None
-    
+
     # 检查文件和sheet是否存在
     if os.path.exists(RESULT_FILE_PATH):
         try:
@@ -529,7 +531,7 @@ def save_results_to_excel(results, date_list):
                 if '晋级率' in xls.sheet_names:
                     # 读取现有数据
                     existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
-                    
+
                 # 获取所有除了'晋级率'以外的表
                 other_sheets = {}
                 for sheet_name in xls.sheet_names:
@@ -540,37 +542,37 @@ def save_results_to_excel(results, date_list):
             other_sheets = {}
     else:
         other_sheets = {}
-    
+
     # 合并数据（如有必要）
     final_df = new_df
     if existing_df is not None and not existing_df.empty:
         # 过滤掉已存在的日期数据
         existing_dates = set(existing_df['评估日期'].astype(str))
         new_records = new_df[~new_df['评估日期'].astype(str).isin(existing_dates)]
-        
+
         if new_records.empty:
             logger.info("所有日期数据已存在，不需要追加")
             return RESULT_FILE_PATH
-            
+
         # 合并数据
         final_df = pd.concat([existing_df, new_records], ignore_index=True)
-        
+
         # 重新排序合并后的数据
         final_df['sort_key'] = final_df['晋级目标'].apply(extract_board_level)
         final_df = final_df.sort_values(by=['评估日期', 'sort_key'])
         final_df = final_df.drop(columns=['sort_key'])
-    
+
     # 保存数据 - 简化写入方式
     with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl') as writer:
         final_df.to_excel(writer, sheet_name='晋级率', index=False)
-        
+
         # 写入其他表
         for sheet_name, sheet_df in other_sheets.items():
             sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-        
+
         # 应用格式设置
         format_excel_sheet(writer.sheets['晋级率'], column_order)
-    
+
     logger.info(f"已保存结果到: {RESULT_FILE_PATH}")
     return RESULT_FILE_PATH
 

@@ -1,8 +1,12 @@
 import os
-
+import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+
+# 忽略pandas的FutureWarning
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 
 def plot_market_overview(df, save_path):
@@ -262,28 +266,166 @@ def plot_dt_next_day_performance(df, save_path):
     plt.close()
 
 
-def plot_market_analysis(df, save_path='./images/market_analysis'):
-    """
-    绘制市场分析图表
-    Args:
-        df: DataFrame, 包含市场分析数据
-        save_path: str, 图片保存的基础路径
-    """
-    # 设置matplotlib中文字体
-    plt.rcParams['font.sans-serif'] = ['SimHei']
-    plt.rcParams['axes.unicode_minus'] = False
+def plot_limit_up_history_data(df, save_path):
+    """绘制涨停板历史数据综合分析图表"""
+    plt.figure(figsize=(16, 10))
 
-    # 确保保存目录存在
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    # 获取所有唯一日期并确保排序
+    dates = sorted(df['评估日期'].unique())
+    targets = sorted(df['晋级目标'].unique())
 
-    # 绘制各个图表
-    plot_market_overview(df, save_path)
-    plot_market_strength(df, save_path)
-    plot_limit_up_effect(df, save_path)
-    plot_zt_next_day_performance(df, save_path)
-    plot_dt_next_day_performance(df, save_path)
+    # 为每个日期创建x轴坐标映射
+    date_positions = {date: i for i, date in enumerate(dates)}
+    x_ticks = list(range(len(dates)))
 
-    print(f"所有图表已保存到 {save_path} 目录下")
+    # 创建主坐标轴和次坐标轴
+    ax1 = plt.gca()
+    ax2 = ax1.twinx()
+    ax3 = ax1.twinx()
+    ax3.spines['right'].set_position(('outward', 60))  # 调整第三个y轴的位置
+
+    # 设置颜色映射
+    colors = plt.cm.tab10(np.linspace(0, 1, len(targets)))
+
+    # 绘制晋级率折线（主坐标轴）
+    for i, target in enumerate(targets):
+        target_df = df[df['晋级目标'] == target]
+        if len(target_df) > 0:
+            # 将日期转换为X轴位置
+            x_pos = [date_positions[date] for date in target_df['评估日期']]
+
+            ax1.plot(x_pos, target_df['晋级率'] * 100,
+                     marker='o', linestyle='-', color=colors[i],
+                     linewidth=2, label=f'{target}晋级率',
+                     alpha=0.9)  # 晋级率是主要指标，透明度低
+
+            # 存活率和死亡率（次要指标）
+            ax1.plot(x_pos, target_df['存活率'] * 100,
+                     marker='s', linestyle='--', color=colors[i],
+                     linewidth=1.5, label=f'{target}存活率',
+                     alpha=0.5)  # 次要指标，透明度高
+            ax1.plot(x_pos, target_df['死亡率'] * 100,
+                     marker='^', linestyle=':', color=colors[i],
+                     linewidth=1, label=f'{target}死亡率',
+                     alpha=0.3)  # 次要指标，透明度更高
+
+    # 绘制数量柱状图（次坐标轴）
+    width = 0.8 / max(len(targets), 1)  # 防止除零，使用max确保分母至少为1
+
+    for i, target in enumerate(targets):
+        target_df = df[df['晋级目标'] == target].copy()
+        if len(target_df) > 0:
+            # 获取每个目标日期的x位置
+            x_pos = [date_positions[date] for date in target_df['评估日期']]
+
+            # 绘制总数柱状图（透明度降低）
+            ax2.bar([pos + (i - (len(targets) - 1) / 2) * width for pos in x_pos],
+                    target_df['总数'],
+                    width=width,
+                    color=colors[i],
+                    alpha=0.3,
+                    label=f'{target}总数')
+
+    # 绘制高开相关指标（第三坐标轴）
+    for i, target in enumerate(targets):
+        target_df = df[df['晋级目标'] == target]
+        if len(target_df) > 0:
+            # 将日期转换为X轴位置
+            x_pos = [date_positions[date] for date in target_df['评估日期']]
+
+            # 高开晋级率（重要指标）
+            ax3.plot(x_pos, target_df['高开晋级率'] * 100,
+                     marker='*', linestyle='-.', color=colors[i],
+                     linewidth=1.5, label=f'{target}高开晋级率',
+                     alpha=0.7)
+
+    # 设置标签和标题
+    ax1.set_xlabel('日期', fontsize=12)
+    ax1.set_ylabel('比率(%)', fontsize=12)
+    ax2.set_ylabel('数量', fontsize=12)
+    ax3.set_ylabel('高开相关指标(%)', fontsize=12)
+    plt.title('涨停板历史数据综合分析', fontsize=16)
+
+    # 设置x轴刻度和格式化日期标签
+    ax1.set_xticks(x_ticks)
+    # 格式化日期为YYYY-MM-DD格式
+    date_labels = [date.strftime('%Y-%m-%d') for date in dates]
+    ax1.set_xticklabels(date_labels, rotation=45, ha='right')
+
+    # 合并图例
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    lines3, labels3 = ax3.get_legend_handles_labels()
+
+    # 按类型分组排序图例
+    legend_items = []
+    legend_labels = []
+
+    # 先添加晋级率（最重要）
+    jj_lines = [line for line, label in zip(lines1, labels1) if '晋级率' in label]
+    jj_labels = [label for label in labels1 if '晋级率' in label]
+    legend_items.extend(jj_lines)
+    legend_labels.extend(jj_labels)
+
+    # 添加高开晋级率
+    gk_lines = [line for line, label in zip(lines3, labels3) if '高开晋级率' in label]
+    gk_labels = [label for label in labels3 if '高开晋级率' in label]
+    legend_items.extend(gk_lines)
+    legend_labels.extend(gk_labels)
+
+    # 添加存活率
+    sc_lines = [line for line, label in zip(lines1, labels1) if '存活率' in label]
+    sc_labels = [label for label in labels1 if '存活率' in label]
+    legend_items.extend(sc_lines)
+    legend_labels.extend(sc_labels)
+
+    # 添加死亡率
+    sw_lines = [line for line, label in zip(lines1, labels1) if '死亡率' in label]
+    sw_labels = [label for label in labels1 if '死亡率' in label]
+    legend_items.extend(sw_lines)
+    legend_labels.extend(sw_labels)
+
+    # 添加总数
+    zs_lines = [line for line, label in zip(lines2, labels2) if '总数' in label]
+    zs_labels = [label for label in labels2 if '总数' in label]
+    legend_items.extend(zs_lines)
+    legend_labels.extend(zs_labels)
+
+    # 创建图例，放置在图表下方
+    ax1.legend(legend_items, legend_labels, loc='upper center',
+               bbox_to_anchor=(0.5, -0.15), ncol=5, frameon=True,
+               fontsize=10, fancybox=True, shadow=True)
+
+    # 添加网格线
+    ax1.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.25)  # 为图例留出空间
+    plt.savefig(f'{save_path}_history.png')
+    plt.close()
+
+    print(f"涨停板历史数据分析图表已保存到 {save_path}_history.png")
+
+
+def handle_limit_up_data(end_date, limit_up_df, start_date):
+    """处理涨停历史数据的基本预处理"""
+    # 百分比数据转换为小数
+    for col in ['晋级率', '存活率', '死亡率', '高开晋级率', '高开存活率', '高开死亡率']:
+        if col in limit_up_df.columns:
+            limit_up_df[col] = limit_up_df[col].str.rstrip('%').astype('float') / 100
+
+    # 评估日期转换为日期类型
+    limit_up_df['评估日期'] = pd.to_datetime(limit_up_df['评估日期'], format='%Y-%m-%d')
+
+    # 日期过滤
+    if start_date:
+        start_date = pd.to_datetime(start_date, format='%Y%m%d')
+        limit_up_df = limit_up_df[limit_up_df['评估日期'] >= start_date]
+    if end_date:
+        end_date = pd.to_datetime(end_date, format='%Y%m%d')
+        limit_up_df = limit_up_df[limit_up_df['评估日期'] <= end_date]
+
+    return limit_up_df
 
 
 def filter_data_by_date(df, start_date=None, end_date=None):
@@ -311,28 +453,142 @@ def filter_data_by_date(df, start_date=None, end_date=None):
     return df
 
 
-def plot_all(start_date=None, end_date=None, data_path='./excel/market_analysis.xlsx'):
-    """测试绘图功能"""
-    # 读取Excel数据
-    df = pd.read_excel(data_path)
-    df.set_index('日期', inplace=True)
-
-    # 过滤日期范围
-    filtered_df = filter_data_by_date(df, start_date, end_date)
-
-    if filtered_df.empty:
-        print("\n警告: 过滤后的数据为空！请检查日期范围是否正确。")
+def plot_limit_up_key_metrics_combined(df, save_path):
+    """将晋级率、存活率、高开晋级率和高开存活率热力图合并到一张2x2分面图中"""
+    if df.empty:
+        print("警告：涨停板数据为空，跳过热力图绘制")
         return
 
-    # 如果指定了日期范围，在保存路径中添加日期信息
+    # 获取所有唯一日期和晋级目标
+    dates = sorted(df['评估日期'].unique())
+
+    # 简化排序：直接提取"进"后面的数字作为排序键（大的在上面）
+    targets = sorted(df['晋级目标'].unique(),
+                    key=lambda x: int(x.split('进')[1]) if '进' in x and x.split('进')[1].isdigit() else 0,
+                    reverse=True)
+
+    # 创建必要的目录
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # 创建2x2分面图布局
+    fig, axes = plt.subplots(2, 2, figsize=(20, 14), sharex=True)
+    plt.suptitle('涨停板指标分析', fontsize=20, y=0.98)
+
+    # 定义要绘制的指标 - 使用2x2布局
+    metrics = [
+        ('晋级率', '晋级率热力图 (%)', 'Reds', axes[0, 0]),
+        ('存活率', '存活率热力图 (%)', 'YlOrRd', axes[1, 0]),
+        ('高开晋级率', '高开晋级率热力图 (%)', 'Blues', axes[0, 1]),
+        ('高开存活率', '高开存活率热力图 (%)', 'GnBu', axes[1, 1])
+    ]
+
+    # 创建热力图绘制函数，避免代码重复
+    def draw_heatmap(metric_name, title, cmap, ax):
+        # 构建热力图数据
+        heatmap_data = pd.DataFrame(index=targets, columns=dates)
+
+        # 填充数据
+        for target in targets:
+            target_df = df[df['晋级目标'] == target]
+            for _, row in target_df.iterrows():
+                date = row['评估日期']
+                # 确保该列存在
+                if metric_name in row:
+                    value = row[metric_name] * 100  # 将小数转为百分比
+                    heatmap_data.loc[target, date] = value
+
+        # 使用infer_objects()避免FutureWarning
+        heatmap_data = heatmap_data.fillna(0).infer_objects()
+
+        # 设置热力图
+        sns.heatmap(heatmap_data, annot=True, fmt=".1f", cmap=cmap,
+                    linewidths=0.5, ax=ax, cbar_kws={'label': '百分比(%)'})
+
+        # 设置标题和标签
+        ax.set_title(title, fontsize=14, pad=10)  # 增加pad值防止重叠
+        ax.set_ylabel('晋级目标', fontsize=12)
+
+        # 格式化日期标签
+        date_labels = [date.strftime('%Y-%m-%d') for date in dates]
+        ax.set_xticklabels(date_labels, rotation=45, ha='right')
+
+        return ax
+
+    # 为每个指标创建热力图
+    for i, (metric_name, title, cmap, ax) in enumerate(metrics):
+        draw_heatmap(metric_name, title, cmap, ax)
+
+        # 只在底部子图设置x轴标签
+        if i >= 2:  # 下排图表
+            ax.set_xlabel('日期', fontsize=12)
+        else:
+            ax.set_xlabel('')
+
+    # 调整布局以防止重叠
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.92, hspace=0.15, wspace=0.1)  # 为总标题留出空间，调整子图间距
+
+    # 保存图形
+    plt.savefig(f'{save_path}_key_metrics_combined.png')
+    plt.close()
+
+    print(f"涨停板多指标热力图已保存到 {save_path}_key_metrics_combined.png")
+
+
+def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=None, limit_up_save_path=None):
+    """
+    绘制市场分析图表
+    Args:
+        df: DataFrame, 包含市场分析数据
+        save_path: str, 图片保存的基础路径
+        limit_up_df: DataFrame, 包含涨停板历史数据，可选
+        limit_up_save_path: str, 涨停板历史图片保存的基础路径，可选
+    """
+    # 设置matplotlib中文字体
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    # 确保保存目录存在
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # 绘制市场分析各个图表
+    plot_market_overview(df, save_path)
+    plot_market_strength(df, save_path)
+    plot_limit_up_effect(df, save_path)
+    plot_zt_next_day_performance(df, save_path)
+    # plot_dt_next_day_performance(df, save_path)
+
+    # 绘制涨停板历史数据图表
+    if limit_up_df is not None and limit_up_save_path is not None:
+        # plot_limit_up_history_data(limit_up_df, limit_up_save_path)
+        plot_limit_up_key_metrics_combined(limit_up_df, limit_up_save_path)
+
+
+def plot_all(start_date=None, end_date=None, path='./excel/'):
+    """绘制所有分析图表"""
+    market_analysis_path = path + 'market_analysis.xlsx'
+    limit_up_history = path + 'limit_up_history.xlsx'
+
+    # 读取市场分析Excel数据
+    df = pd.read_excel(market_analysis_path)
+    df.set_index('日期', inplace=True)
+    filtered_df = filter_data_by_date(df, start_date, end_date)
+
+    # 确定保存路径
     if start_date or end_date:
         date_range = f"{start_date or 'start'}_to_{end_date or 'end'}"
-        save_path = f'./images/market_analysis_{date_range}'
+        market_save_path = f'./images/market_analysis_{date_range}'
+        limit_up_save_path = f'./images/market_limit_up_{date_range}'
     else:
-        save_path = './images/market_analysis'
+        market_save_path = './images/market_analysis'
+        limit_up_save_path = './images/market_limit_up'
 
-    # 生成图表
-    plot_market_analysis(filtered_df, save_path)
+    # 读取涨停历史数据
+    limit_up_df = pd.read_excel(limit_up_history)
+    limit_up_df = handle_limit_up_data(end_date, limit_up_df, start_date)
+
+    # 生成所有图表
+    plot_market_analysis(filtered_df, market_save_path, limit_up_df, limit_up_save_path)
 
 
 if __name__ == "__main__":
