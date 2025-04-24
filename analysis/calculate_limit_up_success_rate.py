@@ -35,8 +35,8 @@ def is_limit_up(row, stock_code):
 
 def get_stock_status_next_day(stock_code, current_date, stock_files_dict):
     """
-    获取股票在下一个交易日的状态。
-    返回: 'promoted' (晋级, 即T+1日涨停), 'survived' (存活, 即T+1日上涨), 'died' (死亡, 即T+1日下跌), 或数据不可用时返回None
+    获取股票在下一个交易日的状态和高开情况。
+    返回: 包含状态和是否高开的元组，状态为'promoted' (晋级), 'survived' (存活), 'died' (死亡)，或数据不可用时返回None
     
     参数:
         current_date: 格式为'YYYY-MM-DD'的日期字符串
@@ -68,18 +68,31 @@ def get_stock_status_next_day(stock_code, current_date, stock_files_dict):
                                       '振幅', '涨跌幅', '涨跌额', '换手率'])
         stock_df['日期'] = pd.to_datetime(stock_df['日期']).dt.strftime('%Y-%m-%d')
 
-        # 获取下一日数据
+        # 获取当前日期(T日)数据
+        current_day_data = stock_df[stock_df['日期'] == current_date]
+        if current_day_data.empty:
+            logger.debug(f"股票 {stock_code} 在日期 {current_date} 没有数据")
+            return None
+
+        # 获取下一日(T+1日)数据
         next_day_data = stock_df[stock_df['日期'] == next_date]
         if next_day_data.empty:
             logger.debug(f"股票 {stock_code} 在日期 {next_date} 没有数据")
             return None
 
+        # 获取T日收盘价和T+1日开盘价
+        current_close = current_day_data.iloc[0]['收盘']
+        next_open = next_day_data.iloc[0]['开盘']
+        
+        # 判断是否高开（开盘价大于等于前一日收盘价）
+        is_high_open = next_open >= current_close
+
         if is_limit_up(next_day_data.iloc[0], stock_code):
-            return 'promoted'  # 晋级 (T+1日涨停)
+            return ('promoted', is_high_open)  # 晋级 (T+1日涨停)
         elif next_day_data.iloc[0]['涨跌幅'] > 0:
-            return 'survived'  # 存活 (T+1日上涨)
+            return ('survived', is_high_open)  # 存活 (T+1日上涨)
         else:
-            return 'died'  # 死亡 (T+1日下跌)
+            return ('died', is_high_open)  # 死亡 (T+1日下跌)
     except Exception as e:
         logger.error(f"处理股票 {stock_code} 日期 {current_date} 时出错: {e}")
         return None
@@ -297,8 +310,12 @@ def analyze_limit_up_progression(start_date, end_date=None):
             # 将当前日期的记录转换为DataFrame
             date_df = pd.DataFrame(date_records)
 
-            # 为当前日期初始化统计计数器
-            stats = defaultdict(lambda: {'promoted': 0, 'survived': 0, 'died': 0, 'total': 0})
+            # 为当前日期初始化统计计数器，增加高开相关的统计
+            stats = defaultdict(lambda: {
+                'promoted': 0, 'survived': 0, 'died': 0, 'total': 0,
+                'high_open_promoted': 0, 'high_open_survived': 0, 'high_open_died': 0,
+                'high_open_total': 0
+            })
             status_count = {"处理成功": 0, "缺少数据": 0}
             status_by_board = defaultdict(lambda: {"处理成功": 0, "缺少数据": 0})
             failed_stocks = []  # 记录处理失败的股票
@@ -310,14 +327,21 @@ def analyze_limit_up_progression(start_date, end_date=None):
                 stock_name = row['stock_name']
                 board_count = row['board_count']
 
-                # 获取次日状态
+                # 获取次日状态和高开情况
                 next_day_status = get_stock_status_next_day(stock_code, date_str, stock_files_dict)
 
                 if next_day_status:
+                    status, is_high_open = next_day_status
                     # 使用"X进Y"的格式表示板块，例如"1进2"表示1板晋级到2板
                     level_key = f"{board_count}进{board_count + 1}"
-                    stats[level_key][next_day_status] += 1
+                    stats[level_key][status] += 1
                     stats[level_key]['total'] += 1
+                    
+                    # 记录高开情况
+                    if is_high_open:
+                        stats[level_key][f'high_open_{status}'] += 1
+                        stats[level_key]['high_open_total'] += 1
+                    
                     status_count["处理成功"] += 1
                     status_by_board[board_count]["处理成功"] += 1
                 else:
@@ -338,6 +362,7 @@ def analyze_limit_up_progression(start_date, end_date=None):
             date_result = {}
             for level, counts in stats.items():
                 total = counts['total']
+                high_open_total = counts['high_open_total']
                 if total > 0:
                     date_result[level] = {
                         'promoted_rate': (counts['promoted'] / total) * 100,
@@ -346,7 +371,15 @@ def analyze_limit_up_progression(start_date, end_date=None):
                         'promoted_count': counts['promoted'],
                         'survived_count': counts['survived'],
                         'died_count': counts['died'],
-                        'total_count': total
+                        'total_count': total,
+                        # 高开相关的统计指标
+                        'high_open_total': high_open_total,
+                        'high_open_promoted_count': counts['high_open_promoted'],
+                        'high_open_survived_count': counts['high_open_survived'],
+                        'high_open_died_count': counts['high_open_died'],
+                        'high_open_promoted_rate': (counts['high_open_promoted'] / high_open_total) * 100 if high_open_total > 0 else 0,
+                        'high_open_survived_rate': (counts['high_open_survived'] / high_open_total) * 100 if high_open_total > 0 else 0,
+                        'high_open_died_rate': (counts['high_open_died'] / high_open_total) * 100 if high_open_total > 0 else 0
                     }
 
             # 将当前日期的结果保存到按日期分组的结果字典中
@@ -434,13 +467,21 @@ def save_results_to_excel(results, date_list):
             data.append({
                 '数据日期': date,
                 '总数': stats['total_count'],  # 总数放在数据日期后面
+                '高开总数': stats['high_open_total'], # 添加高开总数
                 '晋级目标': level,  # 直接使用"x进y"格式
                 '晋级率': f"{stats['promoted_rate']:.2f}%",
                 '存活率': f"{stats['survived_rate']:.2f}%",
                 '死亡率': f"{stats['died_rate']:.2f}%",
                 '晋级数': stats['promoted_count'],
                 '存活数': stats['survived_count'],
-                '死亡数': stats['died_count']
+                '死亡数': stats['died_count'],
+                # 添加高开相关的列
+                '高开晋级率': f"{stats['high_open_promoted_rate']:.2f}%",
+                '高开存活率': f"{stats['high_open_survived_rate']:.2f}%",
+                '高开死亡率': f"{stats['high_open_died_rate']:.2f}%",
+                '高开晋级数': stats['high_open_promoted_count'],
+                '高开存活数': stats['high_open_survived_count'],
+                '高开死亡数': stats['high_open_died_count']
             })
 
     # 创建DataFrame并排序
@@ -462,8 +503,12 @@ def save_results_to_excel(results, date_list):
     new_df = new_df.sort_values(by=['数据日期', 'sort_key'])
     new_df = new_df.drop(columns=['sort_key'])  # 删除辅助列
 
-    # 重新安排列顺序，确保"总数"在"数据日期"后面
-    column_order = ['数据日期', '总数', '晋级目标', '晋级率', '存活率', '死亡率', '晋级数', '存活数', '死亡数']
+    # 重新安排列顺序，确保"总数"和"高开总数"在"晋级目标"前面
+    column_order = ['数据日期', '总数', '高开总数', '晋级目标', 
+                     '晋级率', '存活率', '死亡率', 
+                     '高开晋级率', '高开存活率', '高开死亡率',
+                     '晋级数', '存活数', '死亡数', 
+                     '高开晋级数', '高开存活数', '高开死亡数']
     new_df = new_df[column_order]
 
     # 准备新数据
