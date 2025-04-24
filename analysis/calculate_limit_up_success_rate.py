@@ -459,23 +459,31 @@ def save_results_to_excel(results, date_list):
             logger.warning(f"日期 {date} 没有分析结果")
             continue
 
+        # 计算T+1日期 (评估日期)
+        date_compact = date.replace('-', '')
+        next_date_compact = get_next_trading_day(date_compact)
+        if not next_date_compact:
+            logger.warning(f"日期 {date} 的下一个交易日未找到，将使用原始日期")
+            eval_date = date
+        else:
+            eval_date = f"{next_date_compact[:4]}-{next_date_compact[4:6]}-{next_date_compact[6:8]}"
+
         # 获取当前日期的结果
         date_result = results[date]
 
         # 为每个板次创建记录
         for level, stats in date_result.items():
             data.append({
-                '数据日期': date,
-                '总数': stats['total_count'],  # 总数放在数据日期后面
-                '高开总数': stats['high_open_total'], # 添加高开总数
-                '晋级目标': level,  # 直接使用"x进y"格式
+                '评估日期': eval_date,  # 使用T+1日作为评估日期
+                '总数': stats['total_count'],
+                '高开总数': stats['high_open_total'],
+                '晋级目标': level,
                 '晋级率': f"{stats['promoted_rate']:.2f}%",
                 '存活率': f"{stats['survived_rate']:.2f}%",
                 '死亡率': f"{stats['died_rate']:.2f}%",
                 '晋级数': stats['promoted_count'],
                 '存活数': stats['survived_count'],
                 '死亡数': stats['died_count'],
-                # 添加高开相关的列
                 '高开晋级率': f"{stats['high_open_promoted_rate']:.2f}%",
                 '高开存活率': f"{stats['high_open_survived_rate']:.2f}%",
                 '高开死亡率': f"{stats['high_open_died_rate']:.2f}%",
@@ -500,11 +508,11 @@ def save_results_to_excel(results, date_list):
 
     # 添加辅助列用于排序，然后进行排序
     new_df['sort_key'] = new_df['晋级目标'].apply(extract_board_level)
-    new_df = new_df.sort_values(by=['数据日期', 'sort_key'])
+    new_df = new_df.sort_values(by=['评估日期', 'sort_key'])
     new_df = new_df.drop(columns=['sort_key'])  # 删除辅助列
 
     # 重新安排列顺序，确保"总数"和"高开总数"在"晋级目标"前面
-    column_order = ['数据日期', '总数', '高开总数', '晋级目标', 
+    column_order = ['评估日期', '总数', '高开总数', '晋级目标', 
                      '晋级率', '存活率', '死亡率', 
                      '高开晋级率', '高开存活率', '高开死亡率',
                      '晋级数', '存活数', '死亡数', 
@@ -513,25 +521,32 @@ def save_results_to_excel(results, date_list):
 
     # 准备新数据
     existing_df = None
-    sheet_exists = False
     
     # 检查文件和sheet是否存在
     if os.path.exists(RESULT_FILE_PATH):
         try:
             with pd.ExcelFile(RESULT_FILE_PATH) as xls:
-                sheet_exists = '晋级率' in xls.sheet_names
-                if sheet_exists:
+                if '晋级率' in xls.sheet_names:
                     # 读取现有数据
                     existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
+                    
+                # 获取所有除了'晋级率'以外的表
+                other_sheets = {}
+                for sheet_name in xls.sheet_names:
+                    if sheet_name != '晋级率':
+                        other_sheets[sheet_name] = pd.read_excel(xls, sheet_name)
         except Exception as e:
             logger.error(f"读取现有Excel文件出错: {e}")
+            other_sheets = {}
+    else:
+        other_sheets = {}
     
     # 合并数据（如有必要）
     final_df = new_df
     if existing_df is not None and not existing_df.empty:
         # 过滤掉已存在的日期数据
-        existing_dates = set(existing_df['数据日期'].astype(str))
-        new_records = new_df[~new_df['数据日期'].astype(str).isin(existing_dates)]
+        existing_dates = set(existing_df['评估日期'].astype(str))
+        new_records = new_df[~new_df['评估日期'].astype(str).isin(existing_dates)]
         
         if new_records.empty:
             logger.info("所有日期数据已存在，不需要追加")
@@ -542,37 +557,19 @@ def save_results_to_excel(results, date_list):
         
         # 重新排序合并后的数据
         final_df['sort_key'] = final_df['晋级目标'].apply(extract_board_level)
-        final_df = final_df.sort_values(by=['数据日期', 'sort_key'])
+        final_df = final_df.sort_values(by=['评估日期', 'sort_key'])
         final_df = final_df.drop(columns=['sort_key'])
     
-    # 保存数据
-    excel_mode = 'w'  # 默认模式：写入新文件
-    if os.path.exists(RESULT_FILE_PATH):
-        if sheet_exists:
-            # 先创建临时文件保存其他sheet的数据
-            temp_writer = pd.ExcelWriter(RESULT_FILE_PATH + '.temp', engine='openpyxl')
-            with pd.ExcelFile(RESULT_FILE_PATH) as xls:
-                for sheet_name in xls.sheet_names:
-                    if sheet_name != '晋级率':
-                        pd.read_excel(RESULT_FILE_PATH, sheet_name=sheet_name).to_excel(
-                            temp_writer, sheet_name=sheet_name, index=False)
-            temp_writer.close()
-            
-            # 复制回原文件
-            os.replace(RESULT_FILE_PATH + '.temp', RESULT_FILE_PATH)
-            excel_mode = 'a'  # 追加模式
-        else:
-            excel_mode = 'a'  # 追加模式
-
-    # 写入数据
-    with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl', mode=excel_mode) as writer:
+    # 保存数据 - 简化写入方式
+    with pd.ExcelWriter(RESULT_FILE_PATH, engine='openpyxl') as writer:
         final_df.to_excel(writer, sheet_name='晋级率', index=False)
         
+        # 写入其他表
+        for sheet_name, sheet_df in other_sheets.items():
+            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
         # 应用格式设置
-        if excel_mode == 'w' or (excel_mode == 'a' and '晋级率' not in writer.book.sheetnames):
-            format_excel_sheet(writer.sheets['晋级率'], column_order)
-        else:
-            format_excel_sheet(writer.book['晋级率'], column_order)
+        format_excel_sheet(writer.sheets['晋级率'], column_order)
     
     logger.info(f"已保存结果到: {RESULT_FILE_PATH}")
     return RESULT_FILE_PATH
@@ -610,8 +607,8 @@ def analyze_rate(start_date, end_date=None):
             with pd.ExcelFile(RESULT_FILE_PATH) as xls:
                 if '晋级率' in xls.sheet_names:
                     existing_df = pd.read_excel(RESULT_FILE_PATH, sheet_name='晋级率')
-                    existing_dates = set(existing_df['数据日期'].astype(str))
-                    logger.info(f"检测到已存在的数据日期: {sorted(list(existing_dates))}")
+                    existing_dates = set(existing_df['评估日期'].astype(str))
+                    logger.info(f"检测到已存在的评估日期: {sorted(list(existing_dates))}")
         except Exception as e:
             logger.error(f"读取现有结果文件时出错: {e}")
 
