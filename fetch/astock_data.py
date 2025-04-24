@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 class StockDataFetcher:
-    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10):
+    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False):
         """
         初始化A股数据获取类。
         表头-> 日期,股票代码,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
@@ -21,13 +21,19 @@ class StockDataFetcher:
         :param start_date: 数据的起始时间，格式为'YYYYMMDD'。
         :param end_date: 数据的结束时间，格式为'YYYYMMDD'，默认为当前日期。
         :param save_path: 数据保存的路径，默认为当前目录。
+        :param max_workers: 最大线程数，默认为10。
+        :param force_update: 是否强制更新已有日期的数据，默认为False。
         """
         self.start_date = start_date
         self.end_date = end_date or datetime.now().strftime('%Y%m%d')
         self.save_path = save_path
         self.max_workers = max_workers
+        self.force_update = force_update
         # 确保保存路径存在
         os.makedirs(self.save_path, exist_ok=True)
+        
+        if self.force_update:
+            logging.info("强制更新模式已启用，将覆盖指定日期范围内的所有数据")
 
     @timer
     def fetch_and_save_data(self):
@@ -97,28 +103,37 @@ class StockDataFetcher:
             existing_data['日期'] = pd.to_datetime(existing_data['日期'])
             new_data['日期'] = pd.to_datetime(new_data['日期'])
 
-            # 获取现有数据中的所有日期
-            existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
+            # 获取新数据的日期范围
+            new_data_dates = set(new_data['日期'].dt.strftime('%Y-%m-%d'))
+            
+            if self.force_update:
+                # 强制更新模式：删除现有数据中与新数据日期重叠的记录
+                existing_data = existing_data[~existing_data['日期'].dt.strftime('%Y-%m-%d').isin(new_data_dates)]
+                missing_data = new_data  # 所有新数据都将被添加
+                update_message = f"强制更新了 {len(new_data_dates)} 个日期的数据"
+            else:
+                # 常规模式：只添加缺失的日期数据
+                existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
+                # 筛选出新数据中不存在于现有数据的日期记录
+                missing_data = new_data[~new_data['日期'].dt.strftime('%Y-%m-%d').isin(existing_dates)]
+                update_message = f"更新了 {len(missing_data)} 条缺失的记录"
 
-            # 筛选出新数据中不存在于现有数据的日期记录
-            missing_data = new_data[~new_data['日期'].dt.strftime('%Y-%m-%d').isin(existing_dates)]
-
-            if not missing_data.empty:
-                # 将现有数据和缺失数据合并
+            if not missing_data.empty or (self.force_update and not new_data.empty):
+                # 将现有数据和新数据合并
                 combined_data = pd.concat([existing_data, missing_data])
                 # 按日期排序
                 combined_data = combined_data.sort_values(by='日期')
                 # 重写整个文件
                 combined_data.to_csv(file_path, index=False, header=False)
-                logging.info(f"Updated {os.path.basename(file_path)} with {len(missing_data)} missing records")
+                logging.info(f"已更新 {os.path.basename(file_path)}: {update_message}")
             else:
-                logging.info(f"No missing data to append for {os.path.basename(file_path)}")
+                logging.info(f"没有新数据需要更新：{os.path.basename(file_path)}")
 
         except pd.errors.EmptyDataError:
-            logging.warning(f"Empty file detected, overwriting {file_path}")
+            logging.warning(f"检测到空文件，重写 {file_path}")
             self._create_new_file(file_path, new_data)
         except Exception as e:
-            logging.error(f"Error updating {file_path}: {str(e)}")
+            logging.error(f"更新 {file_path} 时出错: {str(e)}")
             # 如果出错，尝试创建新文件
             self._create_new_file(file_path, new_data)
 
@@ -200,6 +215,7 @@ if __name__ == "__main__":
         start_date='20241206',
         end_date='20241207',
         save_path='./stock_data',
-        max_workers=2  # 可根据网络环境和硬件配置调整
+        max_workers=2,  # 可根据网络环境和硬件配置调整
+        force_update=False  # 是否强制更新已有日期的数据
     )
     data_fetcher.fetch_and_save_data()

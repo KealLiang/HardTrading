@@ -44,7 +44,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250401', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250421', save_path='./data/astocks',
                                     max_workers=16)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -170,16 +170,16 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-14', '2025-04-23')
+    analyze_rate('2025-04-22', '2025-04-22')
 
 
 if __name__ == '__main__':
-    # get_stock_datas()
+    get_stock_datas()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    analyze_advanced_on()
+    # analyze_advanced_on()
     # get_hot_clouds()
     # find_similar_trends()
     # find_dragon()
