@@ -379,9 +379,12 @@ def analyze_limit_up_progression(start_date, end_date=None):
                         'high_open_promoted_count': counts['high_open_promoted'],
                         'high_open_survived_count': all_high_survived,
                         'high_open_died_count': counts['high_open_died'],
-                        'high_open_promoted_rate': (counts['high_open_promoted'] / high_open_total) * 100 if high_open_total > 0 else 0,
-                        'high_open_survived_rate': (all_high_survived / high_open_total) * 100 if high_open_total > 0 else 0,
-                        'high_open_died_rate': (counts['high_open_died'] / high_open_total) * 100 if high_open_total > 0 else 0
+                        'high_open_promoted_rate': (counts[
+                                                        'high_open_promoted'] / high_open_total) * 100 if high_open_total > 0 else 0,
+                        'high_open_survived_rate': (
+                                                               all_high_survived / high_open_total) * 100 if high_open_total > 0 else 0,
+                        'high_open_died_rate': (counts[
+                                                    'high_open_died'] / high_open_total) * 100 if high_open_total > 0 else 0
                     }
 
             # 将当前日期的结果保存到按日期分组的结果字典中
@@ -515,10 +518,10 @@ def save_results_to_excel(results, date_list):
 
     # 重新安排列顺序，确保"总数"和"高开总数"在"晋级目标"前面
     column_order = ['评估日期', '总数', '高开总数', '晋级目标',
-                     '晋级率', '存活率', '死亡率',
-                     '高开晋级率', '高开存活率', '高开死亡率',
-                     '晋级数', '存活数', '死亡数',
-                     '高开晋级数', '高开存活数', '高开死亡数']
+                    '晋级率', '存活率', '死亡率',
+                    '高开晋级率', '高开存活率', '高开死亡率',
+                    '晋级数', '存活数', '死亡数',
+                    '高开晋级数', '高开存活数', '高开死亡数']
     new_df = new_df[column_order]
 
     # 准备新数据
@@ -587,7 +590,7 @@ def analyze_rate(start_date, end_date=None):
     """
     logger.info("开始分析连板晋级率...")
 
-    # 获取分析的日期列表
+    # 获取分析的日期列表(T日)
     date_list = get_date_range(start_date, end_date)
     if not date_list:
         logger.warning("没有找到符合条件的交易日。")
@@ -614,8 +617,18 @@ def analyze_rate(start_date, end_date=None):
         except Exception as e:
             logger.error(f"读取现有结果文件时出错: {e}")
 
-    # 过滤掉已存在的日期，只分析新的日期
-    new_dates = [date for date in date_list if date not in existing_dates]
+    # 将T日期转换为评估日期(T+1)，然后过滤已存在的日期
+    new_dates = []
+    for date in date_list:
+        # 获取T+1日期(评估日期)
+        date_compact = date.replace('-', '')
+        next_date_compact = get_next_trading_day(date_compact)
+        t_plus1 = f"{next_date_compact[:4]}-{next_date_compact[4:6]}-{next_date_compact[6:8]}"
+
+        # 如果评估日期不在已存在列表中，保留T日用于分析
+        if t_plus1 not in existing_dates:
+            new_dates.append(date)
+
     if not new_dates:
         logger.info("所有请求的日期数据已存在，无需重新分析。")
         return
