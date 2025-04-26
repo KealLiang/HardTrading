@@ -1,5 +1,6 @@
 import os
 import warnings
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -464,8 +465,8 @@ def plot_limit_up_key_metrics_combined(df, save_path):
 
     # 简化排序：直接提取"进"后面的数字作为排序键（大的在上面）
     targets = sorted(df['晋级目标'].unique(),
-                    key=lambda x: int(x.split('进')[1]) if '进' in x and x.split('进')[1].isdigit() else 0,
-                    reverse=True)
+                     key=lambda x: int(x.split('进')[1]) if '进' in x and x.split('进')[1].isdigit() else 0,
+                     reverse=True)
 
     # 创建必要的目录
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -529,13 +530,13 @@ def plot_limit_up_key_metrics_combined(df, save_path):
     plt.subplots_adjust(top=0.92, hspace=0.15, wspace=0.1)  # 为总标题留出空间，调整子图间距
 
     # 保存图形
-    plt.savefig(f'{save_path}_key_metrics_combined.png')
+    plt.savefig(f'{save_path}_promote_metrics_combined.png')
     plt.close()
 
-    print(f"涨停板多指标热力图已保存到 {save_path}_key_metrics_combined.png")
+    print(f"涨停板多指标热力图已保存到 {save_path}_promote_metrics_combined.png")
 
 
-def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=None, limit_up_save_path=None):
+def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=None):
     """
     绘制市场分析图表
     Args:
@@ -557,11 +558,9 @@ def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=N
     plot_limit_up_effect(df, save_path)
     plot_zt_next_day_performance(df, save_path)
     # plot_dt_next_day_performance(df, save_path)
-
     # 绘制涨停板历史数据图表
-    if limit_up_df is not None and limit_up_save_path is not None:
-        # plot_limit_up_history_data(limit_up_df, limit_up_save_path)
-        plot_limit_up_key_metrics_combined(limit_up_df, limit_up_save_path)
+    # plot_limit_up_history_data(limit_up_df, save_path)
+    plot_limit_up_key_metrics_combined(limit_up_df, save_path)
 
 
 def plot_all(start_date=None, end_date=None, path='./excel/'):
@@ -578,17 +577,15 @@ def plot_all(start_date=None, end_date=None, path='./excel/'):
     if start_date or end_date:
         date_range = f"{start_date or 'start'}_to_{end_date or 'end'}"
         market_save_path = f'./images/market_analysis_{date_range}'
-        limit_up_save_path = f'./images/market_limit_up_{date_range}'
     else:
         market_save_path = './images/market_analysis'
-        limit_up_save_path = './images/market_limit_up'
 
     # 读取涨停历史数据
     limit_up_df = pd.read_excel(limit_up_history)
     limit_up_df = handle_limit_up_data(end_date, limit_up_df, start_date)
 
     # 生成所有图表
-    plot_market_analysis(filtered_df, market_save_path, limit_up_df, limit_up_save_path)
+    plot_market_analysis(filtered_df, market_save_path, limit_up_df)
 
 
 if __name__ == "__main__":
