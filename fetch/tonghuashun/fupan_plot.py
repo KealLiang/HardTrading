@@ -249,7 +249,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         all_points = []
         
         for i, xi, yi, label in cleaned_data:
-            date_str = xi.strftime('%Y-%m-%d')
+            date_str = xi.strftime('%Y-%m-%d') if isinstance(xi, datetime) else str(xi)
             if date_str not in date_clusters:
                 date_clusters[date_str] = []
             date_clusters[date_str].append((i, xi, yi, label))
@@ -444,35 +444,39 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
                 date_index, yi, label_width, label_height
             )
 
-    # 提取数据并绘制最高连板折线
+    # 提取实际日期和交易日索引
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
+    # 使用交易日索引作为x轴，而不是真实日期
+    x_indices = list(range(len(lianban_dates)))
+    
+    # 提取数据并绘制最高连板折线
     lianban_days = [item[1] for item in lianban_results]
     lianban_labels = [', '.join(item[2]) for item in lianban_results]
-    ax.plot(lianban_dates, lianban_days, label='最高连续涨停天数', color='red', marker='o', alpha=0.7)
-    place_labels(lianban_dates, lianban_days, lianban_labels, 'red', 'main', priority=3)
+    ax.plot(x_indices, lianban_days, label='最高连续涨停天数', color='red', marker='o', alpha=0.7)
+    place_labels(x_indices, lianban_days, lianban_labels, 'red', 'main', priority=3)
 
     # 提取数据并绘制次高连板折线
     lianban_second_days = [item[1] for item in lianban_second_results]
     lianban_second_labels = [', '.join(item[2]) for item in lianban_second_results]
-    ax.plot(lianban_dates, lianban_second_days, label='次高连续涨停天数', color='pink', marker='D', linestyle='-.', alpha=0.6)
-    place_labels(lianban_dates, lianban_second_days, lianban_second_labels, 'pink', 'secondary', priority=1)
+    ax.plot(x_indices, lianban_second_days, label='次高连续涨停天数', color='pink', marker='D', linestyle='-.', alpha=0.6)
+    place_labels(x_indices, lianban_second_days, lianban_second_labels, 'pink', 'secondary', priority=1)
                 
     # 提取数据并绘制最高几板折线
     max_ji_ban_values = [item[1] for item in max_ji_ban_results]
     max_ji_ban_labels = [', '.join(item[2]) for item in max_ji_ban_results]
-    ax.plot(lianban_dates, max_ji_ban_values, label='最高几板', color='purple', marker='*')
-    place_labels(lianban_dates, max_ji_ban_values, max_ji_ban_labels, 'purple', 'main', priority=2)
+    ax.plot(x_indices, max_ji_ban_values, label='最高几板', color='purple', marker='*')
+    place_labels(x_indices, max_ji_ban_values, max_ji_ban_labels, 'purple', 'main', priority=2)
 
     # 提取数据并绘制跌停折线
     dieting_days = [item[1] for item in dieting_results]
     dieting_labels = [', '.join(item[2][:10]) + f'...{len(item[2])}' if len(item[2]) > 10 else ', '.join(item[2])
                       for item in dieting_results]  # 太长则省略
-    ax.plot(lianban_dates, dieting_days, label='连续跌停天数', color='green', marker='s')
-    place_labels(lianban_dates, dieting_days, dieting_labels, 'green', 'secondary', priority=1)
+    ax.plot(x_indices, dieting_days, label='连续跌停天数', color='green', marker='s')
+    place_labels(x_indices, dieting_days, dieting_labels, 'green', 'secondary', priority=1)
 
     # 添加副坐标轴并绘制首板数量折线
     ax2 = ax.twinx()  # 创建副坐标轴
-    ax2.plot(lianban_dates, shouban_counts, label='首板数量', color='blue', marker='p', linestyle='--', alpha=0.1)
+    ax2.plot(x_indices, shouban_counts, label='首板数量', color='blue', marker='p', linestyle='--', alpha=0.1)
     ax2.set_ylabel('数量', fontsize=12)  # 设置副 y 轴标签
 
     # 设置图表信息
@@ -480,8 +484,12 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     ax.set_title("连板/跌停/首板个股走势", fontsize=16)
     ax.set_xlabel("日期", fontsize=12)
     ax.set_ylabel("天数/板数", fontsize=12)  # 更新Y轴标签
-    ax.set_xticks(lianban_dates)  # 设置横轴刻度为所有日期
+    
+    # 设置等间距x轴刻度
+    ax.set_xticks(x_indices)
+    # 使用原始日期作为标签
     ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in lianban_dates], rotation=45, fontsize=9, ha='right')
+    
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置 y 轴刻度为整数
     ax.legend(loc='upper left')  # 主 y 轴图例
     ax2.legend(loc='upper right')  # 副 y 轴图例

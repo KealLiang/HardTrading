@@ -139,7 +139,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250320'  # 开始日期
+    start_date = '20250401'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -154,7 +154,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250401', '20250424')
+    plot_all('20250401', '20250425')
     # plot_all()
 
 
@@ -170,16 +170,16 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-15', '2025-04-24')
+    analyze_rate('2025-04-15', '2025-04-25')
 
 
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
-    analyze_advanced_on()
+    # analyze_advanced_on()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # get_hot_clouds()
     # find_similar_trends()
     # find_dragon()
