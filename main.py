@@ -16,7 +16,7 @@ from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from file_checker.stock_data import check_stock_datas
-from filters.find_abnormal import find_serious_abnormal_stocks
+from filters.find_abnormal import find_serious_abnormal_stocks, find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 
 
@@ -96,9 +96,11 @@ def find_dragon():
 
 def find_yidong():
     # date = '2025-04-22'
-    date = None
-    find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
+    # find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
+    start_date = '2025-03-10'
+    end_date = '2025-03-15'
+    find_serious_abnormal_stocks_range(start_date, end_date)
 
 def get_stock_concept_and_industry():
     fetch_and_save_stock_concept(
@@ -177,13 +179,13 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # analyze_advanced_on()
+    # find_yidong()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     draw_ths_fupan()
     # get_hot_clouds()
     # find_similar_trends()
     # find_dragon()
-    # find_yidong()
     # stocks_time_sharing_price()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()

@@ -129,8 +129,7 @@ def process_stock_file(filename, date, data_path, next_trading_day, check_updown
 
 
 @timer
-def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_day=True, check_updown_fluctuation=True,
-                                 use_multithread=True):
+def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_day=True, check_updown_fluctuation=True):
     """
     查找指定日期触发严重异动的股票，以及预测下一交易日可能触发严重异动的股票
     
@@ -138,7 +137,6 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
     :param data_path: 股票数据路径
     :param predict_next_day: 是否预测下一交易日可能的异动
     :param check_updown_fluctuation: 是否检查同向异常波动，默认True
-    :param use_multithread: 是否使用多线程加速，默认True
     :return: 严重异动股票列表
     """
     if date is None:
@@ -160,46 +158,18 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
     potential_stocks = []  # 可能在下一交易日触发的股票
     debug_stocks = []  # 调试用必显示股票
 
-    # 根据是否使用多线程选择不同的处理方式
-    if use_multithread and len(stock_files) > 100:  # 只有当股票数量足够多时才使用多线程
-        print(f"使用多线程处理 {len(stock_files)} 个股票文件，最大线程数: {MAX_WORKERS}")
-
-        # 使用线程池并行处理股票文件
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            # 创建任务列表
-            futures = [
-                executor.submit(
-                    process_stock_file,
-                    filename,
-                    date,
-                    data_path,
-                    next_trading_day,
-                    check_updown_fluctuation
-                )
-                for filename in stock_files
-            ]
-
-            # 使用tqdm显示进度
-            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="处理股票数据"):
-                triggered, potential, debug = future.result()
-                if triggered:
-                    triggered_stocks.append(triggered)
-                if potential:
-                    potential_stocks.append(potential)
-                if debug:
-                    debug_stocks.append(debug)
-    else:
-        # 单线程处理
-        for filename in tqdm(stock_files, desc="处理股票数据"):
-            triggered, potential, debug = process_stock_file(
-                filename, date, data_path, next_trading_day, check_updown_fluctuation
-            )
-            if triggered:
-                triggered_stocks.append(triggered)
-            if potential:
-                potential_stocks.append(potential)
-            if debug:
-                debug_stocks.append(debug)
+    # 单线程处理所有股票文件
+    # for filename in tqdm(stock_files, desc=f"正在处理日期[{date}]"):  # 多线程时日志会刷屏
+    for filename in stock_files:
+        triggered, potential, debug = process_stock_file(
+            filename, date, data_path, next_trading_day, check_updown_fluctuation
+        )
+        if triggered:
+            triggered_stocks.append(triggered)
+        if potential:
+            potential_stocks.append(potential)
+        if debug:
+            debug_stocks.append(debug)
 
     # 按触发原因排序
     triggered_stocks.sort(key=lambda x: x.trigger_reason)
@@ -208,30 +178,150 @@ def find_serious_abnormal_stocks(date, data_path='./data/astocks', predict_next_
     # 合并结果
     all_stocks = triggered_stocks + potential_stocks + debug_stocks
 
-    # 保存结果
-    # txt文件仍然按日期保存
-    # txt_file_path = f'./data/abnormal/serious_abnormal_{date}.txt'
-    # save_list_to_file(all_stocks, txt_file_path)
-
-    # Excel文件使用固定文件名，追加模式保存
-    excel_file_path = './excel/serious_abnormal_history.xlsx'
-    write_to_excel(all_stocks, excel_file_path, date)
-
     # 输出
-    print(f"\n已触发严重异动的股票数量: {len(triggered_stocks)}")
+    print(f"已触发严重异动的股票数量: {len(triggered_stocks)}")
     for stock in triggered_stocks:
         print(stock)
 
-    print(f"\n可能即将触发严重异动的股票数量: {len(potential_stocks)}")
+    print(f"可能即将触发严重异动的股票数量: {len(potential_stocks)}")
     for stock in potential_stocks:
         print(stock)
 
     if debug_stocks:
-        print(f"\n调试显示的股票数量: {len(debug_stocks)}")
+        print(f"调试显示的股票数量: {len(debug_stocks)}")
         for stock in debug_stocks:
             print(stock)
 
     return all_stocks
+
+
+def find_serious_abnormal_stocks_range(start_date=None, end_date=None, data_path='./data/astocks', 
+                                      predict_next_day=True, check_updown_fluctuation=True,
+                                      skip_existing=True):
+    """
+    在指定日期范围内查找触发严重异动的股票，使用多线程并行处理多个日期
+    
+    :param start_date: 开始日期，格式为'YYYY-MM-DD'，如果为None则使用end_date
+    :param end_date: 结束日期，格式为'YYYY-MM-DD'，如果为None则使用当前日期
+    :param data_path: 股票数据路径
+    :param predict_next_day: 是否预测下一交易日可能的异动
+    :param check_updown_fluctuation: 是否检查同向异常波动，默认True
+    :param skip_existing: 是否跳过已存在结果的日期，默认True
+    :return: 包含所有日期严重异动股票的字典，键为日期
+    """
+    # 处理日期参数
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+    
+    if start_date is None:
+        start_date = end_date
+    
+    # 确保日期格式正确
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    
+    # 获取日期范围内的所有交易日
+    current_dt = start_dt
+    trading_dates = []
+    
+    while current_dt <= end_dt:
+        current_date = current_dt.strftime('%Y-%m-%d')
+        if a_trade_calendar.is_trade_date(current_date):
+            trading_dates.append(current_date)
+        current_dt += timedelta(days=1)
+    
+    if not trading_dates:
+        print(f"在 {start_date} 到 {end_date} 范围内没有找到交易日")
+        return {}
+    
+    # 检查已存在的日期数据
+    excel_file_path = './excel/serious_abnormal_history.xlsx'
+    existing_dates = set()
+    
+    if skip_existing and os.path.exists(excel_file_path):
+        try:
+            existing_df = pd.read_excel(excel_file_path)
+            if '日期' in existing_df.columns:
+                existing_dates = set(existing_df['日期'].astype(str).unique())
+                print(f"已从Excel文件中读取 {len(existing_dates)} 个已处理日期")
+        except Exception as e:
+            print(f"读取现有Excel文件时出错: {e}")
+    
+    # 过滤掉已存在的日期
+    if skip_existing and existing_dates:
+        original_count = len(trading_dates)
+        trading_dates = [date for date in trading_dates if date not in existing_dates]
+        skipped_count = original_count - len(trading_dates)
+        if skipped_count > 0:
+            print(f"已跳过 {skipped_count} 个已处理的日期")
+    
+    if not trading_dates:
+        print("所有日期都已处理，无需重复计算")
+        return {}
+    
+    # 存储所有日期的结果
+    all_results = {}
+    
+    # 使用多线程并行处理多个日期
+    print(f"使用多线程处理 {len(trading_dates)} 个交易日，最大线程数: {MAX_WORKERS}")
+    
+    def process_date(date):
+        """处理单个日期的函数，用于多线程"""
+        try:
+            print(f"正在处理日期: {date}")
+            stocks = find_serious_abnormal_stocks(
+                date, 
+                data_path=data_path, 
+                predict_next_day=predict_next_day,
+                check_updown_fluctuation=check_updown_fluctuation
+            )
+            return date, stocks
+        except Exception as e:
+            print(f"处理日期 {date} 时出错: {e}")
+            return date, []
+    
+    # 使用线程池并行处理多个日期
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # 创建任务列表
+        futures = [executor.submit(process_date, date) for date in trading_dates]
+        
+        # 收集结果
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="处理多个日期"):
+            date, stocks = future.result()
+            if stocks:
+                all_results[date] = stocks
+    
+    # 输出汇总信息
+    print(f"已完成 {len(trading_dates)} 个交易日的严重异动股票查找")
+    for date, stocks in all_results.items():
+        triggered_stocks = [s for s in stocks if s.days_to_trigger == 0]
+        potential_stocks = [s for s in stocks if s.days_to_trigger > 0]
+        debug_stocks = [s for s in stocks if s.is_debug]
+        
+        print(f"日期 {date}: 已触发 {len(triggered_stocks)} 只, 潜在 {len(potential_stocks)} 只, 调试 {len(debug_stocks)} 只")
+    
+    # 串行写入Excel文件
+    print("开始写入Excel文件...")
+    excel_file_path = './excel/serious_abnormal_history.xlsx'
+    
+    # 先读取现有Excel文件
+    existing_df = None
+    if os.path.exists(excel_file_path):
+        try:
+            existing_df = pd.read_excel(excel_file_path)
+        except Exception as e:
+            print(f"读取现有Excel文件时出错: {e}")
+    
+    # 处理每个日期的数据并写入
+    for date, stocks in all_results.items():
+        write_to_excel(stocks, excel_file_path, date, existing_df)
+        # 更新existing_df以便下一次写入
+        try:
+            existing_df = pd.read_excel(excel_file_path)
+        except Exception as e:
+            print(f"更新Excel数据时出错: {e}")
+    
+    return all_results
 
 
 def is_abnormal_fluctuation(stock_code, stock_name, data_3d, stock_data=None, end_idx=None):
@@ -648,13 +738,14 @@ def get_next_trading_date(date):
     return next_date.strftime('%Y-%m-%d')
 
 
-def write_to_excel(result_list, output_path, date):
+def write_to_excel(result_list, output_path, date, existing_df=None):
     """
     将结果保存为Excel文件，使用追加模式
     
     :param result_list: 严重异动股票列表
     :param output_path: 输出路径
     :param date: 日期，用于标记数据来源
+    :param existing_df: 已存在的DataFrame，如果为None则从文件读取
     """
     # 选择正确的异常波动次数字段
     df_data = []
@@ -681,24 +772,27 @@ def write_to_excel(result_list, output_path, date):
     new_df = pd.DataFrame(df_data)
 
     try:
-        # 尝试读取现有文件
-        if os.path.exists(output_path):
+        # 尝试读取现有文件或使用传入的DataFrame
+        if existing_df is not None:
+            # 使用传入的DataFrame
+            combined_df = existing_df.copy()
+        elif os.path.exists(output_path):
             # 读取现有Excel文件
-            existing_df = pd.read_excel(output_path)
-
-            # 检查新数据中的日期是否已存在于文件中
-            if date in existing_df['日期'].astype(str).values:
-                # 删除已存在的同一日期的数据
-                existing_df = existing_df[existing_df['日期'].astype(str) != date]
-
-            # 合并现有数据和新数据
-            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
-
-            # 按日期降序排序
-            combined_df = combined_df.sort_values(by='日期', ascending=False)
+            combined_df = pd.read_excel(output_path)
         else:
             # 如果文件不存在，直接使用新数据
             combined_df = new_df
+            
+        # 检查新数据中的日期是否已存在于文件中
+        if date in combined_df['日期'].astype(str).values:
+            # 删除已存在的同一日期的数据
+            combined_df = combined_df[combined_df['日期'].astype(str) != date]
+
+        # 合并现有数据和新数据
+        combined_df = pd.concat([combined_df, new_df], ignore_index=True)
+
+        # 按日期降序排序
+        combined_df = combined_df.sort_values(by='日期', ascending=False)
 
         # 创建ExcelWriter对象
         writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
@@ -743,7 +837,7 @@ def write_to_excel(result_list, output_path, date):
         # 保存
         writer.close()
 
-        print(f"数据已追加保存到Excel文件: {output_path}")
+        print(f"日期 {date} 的数据已追加保存到Excel文件: {output_path}")
 
     except Exception as e:
         print(f"保存Excel文件时出错: {e}")
@@ -841,9 +935,16 @@ if __name__ == "__main__":
     # 示例用法
     import sys
 
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 2:
+        # 如果提供了两个参数，视为日期范围
+        start_date = sys.argv[1]
+        end_date = sys.argv[2]
+        find_serious_abnormal_stocks_range(start_date, end_date)
+    elif len(sys.argv) > 1:
+        # 如果只提供了一个参数，视为单个日期
         date = sys.argv[1]
+        find_serious_abnormal_stocks(date)
     else:
+        # 如果没有提供参数，使用当前日期
         date = datetime.now().strftime('%Y-%m-%d')
-
-    find_serious_abnormal_stocks(date)
+        find_serious_abnormal_stocks(date)
