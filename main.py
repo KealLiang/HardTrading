@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from HardTrading.analysis.daily_group import analyze_zt_reasons, find_stocks_by_hot_themes, get_latest_date_data
 from analysis.calculate_limit_up_success_rate import analyze_rate
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
@@ -98,7 +99,7 @@ def find_yidong():
     # date = '2025-04-28'
     # find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
-    start_date = '2025-04-01'
+    start_date = '2025-04-15'
     end_date = '2025-04-25'
     find_serious_abnormal_stocks_range(start_date, end_date)
 
@@ -172,7 +173,13 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-15', '2025-04-25')
+    analyze_rate('2025-04-01', '2025-04-25')
+
+
+def daily_group_analyze():
+    date="2025年04月25日"
+    # analyze_zt_reasons(date=date, output_format='normal', plot=True)
+    find_stocks_by_hot_themes(date=date, top_n=5)
 
 
 if __name__ == '__main__':
@@ -182,10 +189,11 @@ if __name__ == '__main__':
     # find_yidong()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # get_hot_clouds()
     # find_similar_trends()
     # find_dragon()
+    daily_group_analyze()
     # stocks_time_sharing_price()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
