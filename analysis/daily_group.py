@@ -3,6 +3,8 @@ from datetime import datetime
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.utils import get_column_letter
 
 
 def analyze_zt_reasons(excel_file='./excel/fupan_stocks.xlsx', start_date=None, end_date=None, top_n=20, plot=False):
@@ -214,8 +216,191 @@ def get_latest_date_data(excel_file):
         return None
 
 
+def convert_date_to_yyyymmdd(date_str):
+    """将YYYY年MM月DD日格式的日期转换为YYYYMMDD格式"""
+    if not isinstance(date_str, str):
+        return ""
+    try:
+        return datetime.strptime(date_str, "%Y年%m月%d日").strftime("%Y%m%d")
+    except:
+        return ""
+
+
+def format_excel_sheet(worksheet, columns):
+    """
+    设置Excel工作表的格式：调整列宽并为不同日期设置交替背景色
+    
+    参数:
+        worksheet: openpyxl的worksheet对象
+        columns: 列名列表
+    """
+    # 定义背景颜色
+    light_gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    
+    # 设置列宽 - 特殊处理宽列
+    column_widths = {
+        '涨停原因类别': 45,
+        '覆盖热点': 30
+    }
+    default_width = 15
+    
+    for i, column in enumerate(columns, 1):
+        col_letter = get_column_letter(i)
+        worksheet.column_dimensions[col_letter].width = column_widths.get(column, default_width)
+    
+    # 设置表头样式
+    header_font = Font(bold=True)
+    header_alignment = Alignment(horizontal='center', vertical='center')
+    
+    for col_idx, column in enumerate(columns, 1):
+        cell = worksheet.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+    
+    # 应用交替背景色（按日期分组）
+    current_date = None
+    use_gray = True
+    
+    # 从第2行开始（跳过标题行）
+    for row_idx in range(2, worksheet.max_row + 1):
+        date_value = worksheet.cell(row=row_idx, column=1).value
+        if date_value != current_date:
+            current_date = date_value
+            use_gray = not use_gray  # 切换颜色
+        
+        fill = light_gray_fill if use_gray else white_fill
+        
+        # 为该行的所有单元格设置背景色
+        for col_idx in range(1, worksheet.max_column + 1):
+            worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+
+def prepare_dataframe_for_excel(df):
+    """准备DataFrame用于Excel输出：转换列表、排序、格式化数字等"""
+    # 将列表类型转为字符串格式
+    if '覆盖热点' in df.columns:
+        df['覆盖热点'] = df['覆盖热点'].apply(lambda x: str(x) if isinstance(x, list) else x)
+    
+    # 调整列顺序，确保日期在最前面
+    if '日期' in df.columns:
+        cols = ['日期'] + [col for col in df.columns if col != '日期']
+        df = df[cols]
+    
+    # 创建临时列用于排序并排序
+    df['日期排序'] = df['日期'].apply(convert_date_to_yyyymmdd)
+    df = df.sort_values(['日期排序', '总得分'], ascending=[False, False])
+    df = df.drop('日期排序', axis=1)
+    
+    # 四舍五入处理数值列
+    decimal_columns = ['关注度加分', '原始得分', '总得分']
+    for col in decimal_columns:
+        if col in df.columns:
+            df[col] = df[col].round(3)
+    
+    return df
+
+
+def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', sheet_name='每日热门',
+                   skip_existing_dates=True):
+    """
+    将分析结果保存到Excel文件
+    
+    参数:
+    stock_scores: 股票得分列表
+    result_file: 保存结果的Excel文件路径
+    sheet_name: 工作表名称
+    skip_existing_dates: 是否跳过已存在的日期数据
+    
+    返回:
+    保存是否成功
+    """
+    if not stock_scores:
+        print("没有数据需要保存")
+        return False
+        
+    try:
+        # 将结果转换为DataFrame并进行初步处理
+        results_df = pd.DataFrame(stock_scores)
+        results_df = prepare_dataframe_for_excel(results_df)
+        
+        # 获取要处理的日期列表
+        processing_dates = set(results_df['日期'].unique())
+        
+        # 尝试读取现有数据并合并
+        existing_df = None
+        try:
+            existing_df = pd.read_excel(result_file, sheet_name=sheet_name)
+            
+            # 如果需要跳过已存在的日期
+            if skip_existing_dates and '日期' in existing_df.columns:
+                existing_dates = set(existing_df['日期'].unique())
+                
+                # 找出已存在的日期
+                dates_to_skip = processing_dates.intersection(existing_dates)
+                if dates_to_skip:
+                    print(f"跳过已存在的日期: {', '.join(sorted(dates_to_skip))}")
+                    
+                    # 只保留不存在的日期数据
+                    results_df = results_df[~results_df['日期'].isin(dates_to_skip)]
+                    
+                    # 如果过滤后没有数据，则直接返回
+                    if results_df.empty:
+                        print("所有日期数据已存在，无需更新")
+                        return True
+            
+            # 合并数据（新数据在前）
+            combined_df = pd.concat([results_df, existing_df], ignore_index=True)
+            
+            # 去重并重新排序
+            combined_df = combined_df.drop_duplicates(subset=['股票代码', '日期', '总得分'])
+            combined_df = prepare_dataframe_for_excel(combined_df)
+            
+            results_df = combined_df
+        except Exception as e:
+            # 如果没有现有数据或读取出错，就使用新数据
+            print(f"读取或合并现有数据时出错 (将使用新数据): {e}")
+        
+        # 准备写入Excel
+        import openpyxl
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
+        # 检查文件是否存在并加载或创建工作簿
+        try:
+            wb = openpyxl.load_workbook(result_file)
+        except FileNotFoundError:
+            wb = openpyxl.Workbook()
+            if 'Sheet' in wb.sheetnames:
+                wb.remove(wb['Sheet'])
+        
+        # 检查sheet是否存在，如果存在则删除
+        if sheet_name in wb.sheetnames:
+            wb.remove(wb[sheet_name])
+        
+        # 创建新的sheet并写入数据
+        ws = wb.create_sheet(title=sheet_name)
+        for r_idx, row in enumerate(dataframe_to_rows(results_df, index=False, header=True), 1):
+            for c_idx, value in enumerate(row, 1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+        
+        # 设置格式并保存
+        format_excel_sheet(ws, results_df.columns.tolist())
+        wb.save(result_file)
+        
+        print(f"\n✅ 分析结果已保存到 {result_file} 的 '{sheet_name}' 工作表")
+        return True
+    except Exception as e:
+        print(f"\n❌ 保存结果时出错: {e}")
+        import traceback
+        traceback.print_exc()  # 打印详细错误堆栈
+        return False
+
+
 def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_factor=2,
-                              attention_weight_factor=3, excel_file='./excel/fupan_stocks.xlsx'):
+                              attention_weight_factor=3, excel_file='./excel/fupan_stocks.xlsx',
+                              save_result=True, result_file='./excel/limit_up_history.xlsx', skip_existing_dates=True):
     """
     根据热点类别找出覆盖多个热点的股票
     
@@ -226,7 +411,10 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     weight_factor: 权重因子，决定第一名热点与最后一名热点的权重比例
     attention_weight_factor: 关注度榜权重因子，决定第一名关注度与最后一名的权重比例
     excel_file: Excel文件路径
-
+    save_result: 是否保存结果到Excel
+    result_file: 保存结果的Excel文件路径
+    skip_existing_dates: 是否跳过已存在的日期数据
+    
     返回:
     无，直接打印结果
     """
@@ -365,10 +553,10 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
             # 记录股票得分和覆盖的热点
             if score > 0:  # 只关注有覆盖热点的股票
                 stock_scores.append({
+                    '日期': current_date,  # 将日期放在最前面
                     '股票代码': stock_code,
                     '股票简称': stock_name,
                     '几天几板': stock_board,
-                    '日期': current_date,
                     '涨停原因类别': stock_reasons_str,
                     '覆盖热点': covered_hot_reasons,
                     '热点数量': len(covered_hot_reasons),
@@ -379,7 +567,7 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
                 })
 
         # 根据得分对股票排序
-        stock_scores.sort(key=lambda x: (x['总得分'], x['热点数量']), reverse=True)
+        stock_scores.sort(key=lambda x: x['总得分'], reverse=True)
 
         # 输出当天结果
         print(f"\n🏆 {current_date} 覆盖热点最多的股票:")
@@ -397,22 +585,29 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
         # 保存当天的分析结果
         all_stock_scores.extend(stock_scores)
 
+    # 保存结果到Excel
+    if save_result and all_stock_scores:
+        save_to_excel(all_stock_scores, result_file, '每日热门', skip_existing_dates)
+
     return all_stock_scores
 
 
 if __name__ == '__main__':
     # 文件路径
     excel_file = "E:/demo/MachineLearning/HardTrading/excel/fupan_stocks.xlsx"
+    result_file = "E:/demo/MachineLearning/HardTrading/excel/limit_up_history.xlsx"
 
     # 获取最新日期
     latest_date = get_latest_date_data(excel_file)
 
     # 找出覆盖热点最多的股票，权重因子为2（即第一名热点权重是最后一名的2倍）
-    # 单日分析，关注度榜权重也为2
-    find_stocks_by_hot_themes(excel_file, start_date="20250425", top_n=5, weight_factor=2, attention_weight_factor=2)
+    # 单日分析，关注度榜权重为3
+    find_stocks_by_hot_themes(start_date="20250425", top_n=5, weight_factor=2, attention_weight_factor=3,
+                              excel_file=excel_file, save_result=True, result_file=result_file)
 
     # 多日分析示例
-    # find_stocks_by_hot_themes(excel_file, start_date="20250420", end_date="20250425", top_n=5, weight_factor=2, attention_weight_factor=2)
+    # find_stocks_by_hot_themes(start_date="20250420", end_date="20250425", top_n=5, weight_factor=2, 
+    #                         attention_weight_factor=3, excel_file=excel_file, save_result=True, result_file=result_file)
 
     # 其他使用示例:
     # 单日分析并生成图表
