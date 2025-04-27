@@ -215,7 +215,7 @@ def get_latest_date_data(excel_file):
 
 
 def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_factor=2,
-                              excel_file='./excel/fupan_stocks.xlsx'):
+                              attention_weight_factor=3, excel_file='./excel/fupan_stocks.xlsx'):
     """
     根据热点类别找出覆盖多个热点的股票
     
@@ -224,8 +224,9 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     end_date: 结束日期，格式为 "YYYYMMDD"，None时等于start_date（单日）
     top_n: 获取排名前几的热点类别
     weight_factor: 权重因子，决定第一名热点与最后一名热点的权重比例
+    attention_weight_factor: 关注度榜权重因子，决定第一名关注度与最后一名的权重比例
     excel_file: Excel文件路径
-    
+
     返回:
     无，直接打印结果
     """
@@ -242,6 +243,13 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     if not daily_results:
         print("未获取到有效数据")
         return
+
+    # 读取关注度榜数据
+    try:
+        attention_data = pd.read_excel(excel_file, sheet_name="关注度榜", index_col=0)
+    except Exception as e:
+        print(f"读取关注度榜数据时出错: {e}")
+        attention_data = None
 
     # 单独处理每一天的数据，不合并
     all_stock_scores = []
@@ -290,6 +298,21 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
             # 合并当日数据
             day_stocks_df = pd.concat([lianban_df, shouban_df_adjusted], ignore_index=True)
 
+        # 获取当天的关注度榜数据（如果存在）
+        day_attention = None
+        if attention_data is not None and current_date in attention_data.columns:
+            day_attention = attention_data[current_date].dropna()
+            day_attention_stocks = day_attention.str.split(';').apply(lambda x: [item.strip() for item in x])
+
+            # 创建关注度榜DataFrame
+            attention_df = pd.DataFrame()
+            if not day_attention_stocks.empty:
+                attention_df = pd.DataFrame(day_attention_stocks.tolist())
+                # 假设第一列是股票代码，第二列是股票名称
+                if attention_df.shape[1] >= 2:
+                    attention_df.columns = ['股票代码', '股票简称'] + [f'列{i + 3}' for i in
+                                                                       range(attention_df.shape[1] - 2)]
+
         # 计算每只股票的热点覆盖得分
         stock_scores = []
 
@@ -321,6 +344,24 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
                     score += weight
                     covered_hot_reasons.append(hot_reason)
 
+            # 检查股票是否在关注度榜中，如果在则加分
+            attention_rank = -1
+            attention_bonus = 0
+
+            if day_attention is not None and not attention_df.empty:
+                # 在关注度榜中查找该股票
+                for idx, att_row in enumerate(day_attention_stocks):
+                    if len(att_row) >= 2 and (att_row[0] == stock_code or att_row[1] == stock_name):
+                        attention_rank = idx + 1  # 排名从1开始
+
+                        # 计算关注度加分，排名越靠前加分越高
+                        # 使用和热点相似的线性插值方法
+                        total_attention_stocks = len(day_attention_stocks)
+                        attention_bonus = 1 + (attention_weight_factor - 1) * (total_attention_stocks - idx - 1) / max(
+                            1, total_attention_stocks - 1)
+                        score += attention_bonus
+                        break
+
             # 记录股票得分和覆盖的热点
             if score > 0:  # 只关注有覆盖热点的股票
                 stock_scores.append({
@@ -331,18 +372,25 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
                     '涨停原因类别': stock_reasons_str,
                     '覆盖热点': covered_hot_reasons,
                     '热点数量': len(covered_hot_reasons),
-                    '得分': score
+                    '关注度排名': attention_rank if attention_rank > 0 else '未上榜',
+                    '关注度加分': attention_bonus,
+                    '原始得分': score - attention_bonus,
+                    '总得分': score
                 })
 
         # 根据得分对股票排序
-        stock_scores.sort(key=lambda x: (x['得分'], x['热点数量']), reverse=True)
+        stock_scores.sort(key=lambda x: (x['总得分'], x['热点数量']), reverse=True)
 
         # 输出当天结果
         print(f"\n🏆 {current_date} 覆盖热点最多的股票:")
         for i, stock in enumerate(stock_scores[:15], 1):  # 只显示前15只
             covered_hot_str = ', '.join(stock['覆盖热点'])
+            attention_info = ""
+            if stock['关注度排名'] != '未上榜':
+                attention_info = f" | 关注度排名: {stock['关注度排名']} (+{stock['关注度加分']:.2f}分)"
+
             print(
-                f"{i}. {stock['股票代码']} {stock['股票简称']} | {stock['几天几板']} | 得分: {stock['得分']:.2f} | 覆盖热点: {covered_hot_str}")
+                f"{i}. {stock['股票代码']} {stock['股票简称']} | {stock['几天几板']} | 得分: {stock['总得分']:.2f}{attention_info} | 覆盖热点: {covered_hot_str}")
             print(f"   原始涨停原因: {stock['涨停原因类别']}")
             print()
 
@@ -360,11 +408,11 @@ if __name__ == '__main__':
     latest_date = get_latest_date_data(excel_file)
 
     # 找出覆盖热点最多的股票，权重因子为2（即第一名热点权重是最后一名的2倍）
-    # 单日分析
-    find_stocks_by_hot_themes(excel_file, start_date="20250425", top_n=5, weight_factor=2)
+    # 单日分析，关注度榜权重也为2
+    find_stocks_by_hot_themes(excel_file, start_date="20250425", top_n=5, weight_factor=2, attention_weight_factor=2)
 
     # 多日分析示例
-    # find_stocks_by_hot_themes(excel_file, start_date="20250420", end_date="20250425", top_n=5, weight_factor=2)
+    # find_stocks_by_hot_themes(excel_file, start_date="20250420", end_date="20250425", top_n=5, weight_factor=2, attention_weight_factor=2)
 
     # 其他使用示例:
     # 单日分析并生成图表
