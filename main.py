@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from HardTrading.analysis.daily_group import analyze_zt_reasons, find_stocks_by_hot_themes, get_latest_date_data
 from analysis.calculate_limit_up_success_rate import analyze_rate
+from analysis.daily_group import find_stocks_by_hot_themes
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
-from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing, analyze_stocks_time_sharing
+from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -16,8 +16,7 @@ from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yy
 from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
-from file_checker.stock_data import check_stock_datas
-from filters.find_abnormal import find_serious_abnormal_stocks, find_serious_abnormal_stocks_range
+from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 
 
@@ -103,6 +102,7 @@ def find_yidong():
     end_date = '2025-04-25'
     find_serious_abnormal_stocks_range(start_date, end_date)
 
+
 def get_stock_concept_and_industry():
     fetch_and_save_stock_concept(
         concept_list=["云游戏", "新能源车"],
@@ -177,9 +177,9 @@ def analyze_advanced_on():
 
 
 def daily_group_analyze():
-    date="2025年04月25日"
-    # analyze_zt_reasons(date=date, output_format='normal', plot=True)
-    find_stocks_by_hot_themes(date=date, top_n=5)
+    start_date = "20250423"
+    end_date = "20250425"
+    find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=2)
 
 
 if __name__ == '__main__':
