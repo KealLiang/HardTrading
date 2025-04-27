@@ -216,16 +216,6 @@ def get_latest_date_data(excel_file):
         return None
 
 
-def convert_date_to_yyyymmdd(date_str):
-    """将YYYY年MM月DD日格式的日期转换为YYYYMMDD格式"""
-    if not isinstance(date_str, str):
-        return ""
-    try:
-        return datetime.strptime(date_str, "%Y年%m月%d日").strftime("%Y%m%d")
-    except:
-        return ""
-
-
 def format_excel_sheet(worksheet, columns):
     """
     设置Excel工作表的格式：调整列宽并为不同日期设置交替背景色
@@ -238,73 +228,48 @@ def format_excel_sheet(worksheet, columns):
     light_gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
     header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-    
+
     # 设置列宽 - 特殊处理宽列
-    column_widths = {
-        '涨停原因类别': 45,
-        '覆盖热点': 30
-    }
-    default_width = 15
-    
     for i, column in enumerate(columns, 1):
         col_letter = get_column_letter(i)
-        worksheet.column_dimensions[col_letter].width = column_widths.get(column, default_width)
-    
+        # 特殊处理宽列
+        if column == '涨停原因类别':
+            worksheet.column_dimensions[col_letter].width = 45
+        elif column == '覆盖热点':
+            worksheet.column_dimensions[col_letter].width = 30
+        else:
+            worksheet.column_dimensions[col_letter].width = 15
+
     # 设置表头样式
     header_font = Font(bold=True)
     header_alignment = Alignment(horizontal='center', vertical='center')
-    
+
     for col_idx, column in enumerate(columns, 1):
         cell = worksheet.cell(row=1, column=col_idx)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
-    
+
     # 应用交替背景色（按日期分组）
     current_date = None
     use_gray = True
-    
+
     # 从第2行开始（跳过标题行）
     for row_idx in range(2, worksheet.max_row + 1):
         date_value = worksheet.cell(row=row_idx, column=1).value
         if date_value != current_date:
             current_date = date_value
             use_gray = not use_gray  # 切换颜色
-        
+
         fill = light_gray_fill if use_gray else white_fill
-        
+
         # 为该行的所有单元格设置背景色
         for col_idx in range(1, worksheet.max_column + 1):
             worksheet.cell(row=row_idx, column=col_idx).fill = fill
 
 
-def prepare_dataframe_for_excel(df):
-    """准备DataFrame用于Excel输出：转换列表、排序、格式化数字等"""
-    # 将列表类型转为字符串格式
-    if '覆盖热点' in df.columns:
-        df['覆盖热点'] = df['覆盖热点'].apply(lambda x: str(x) if isinstance(x, list) else x)
-    
-    # 调整列顺序，确保日期在最前面
-    if '日期' in df.columns:
-        cols = ['日期'] + [col for col in df.columns if col != '日期']
-        df = df[cols]
-    
-    # 创建临时列用于排序并排序
-    df['日期排序'] = df['日期'].apply(convert_date_to_yyyymmdd)
-    df = df.sort_values(['日期排序', '总得分'], ascending=[False, False])
-    df = df.drop('日期排序', axis=1)
-    
-    # 四舍五入处理数值列
-    decimal_columns = ['关注度加分', '原始得分', '总得分']
-    for col in decimal_columns:
-        if col in df.columns:
-            df[col] = df[col].round(3)
-    
-    return df
-
-
 def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', sheet_name='每日热门',
-                   skip_existing_dates=True):
+                  skip_existing_dates=True):
     """
     将分析结果保存到Excel文件
     
@@ -320,75 +285,110 @@ def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', she
     if not stock_scores:
         print("没有数据需要保存")
         return False
-        
+
     try:
-        # 将结果转换为DataFrame并进行初步处理
+        # 将结果转换为DataFrame
         results_df = pd.DataFrame(stock_scores)
-        results_df = prepare_dataframe_for_excel(results_df)
-        
+
+        # 将列表类型转为字符串格式 "[item1, item2, item3]"
+        if '覆盖热点' in results_df.columns:
+            results_df['覆盖热点'] = results_df['覆盖热点'].apply(lambda x: str(x) if isinstance(x, list) else x)
+
+        # 调整列顺序，确保日期在最前面
+        if '日期' in results_df.columns:
+            cols = ['日期'] + [col for col in results_df.columns if col != '日期']
+            results_df = results_df[cols]
+
+        # 将日期转换为YYYYMMDD格式方便排序
+        # 创建临时列用于排序
+        results_df['日期排序'] = results_df['日期'].apply(lambda x:
+                                                          datetime.strptime(x, "%Y年%m月%d日").strftime(
+                                                              "%Y%m%d") if isinstance(x, str) else "")
+
+        # 排序：先按日期降序，再按总得分降序
+        results_df = results_df.sort_values(['日期排序', '总得分'], ascending=[False, False])
+
+        # 删除临时排序列
+        results_df = results_df.drop('日期排序', axis=1)
+
         # 获取要处理的日期列表
         processing_dates = set(results_df['日期'].unique())
-        
-        # 尝试读取现有数据并合并
-        existing_df = None
+
+        # 尝试读取现有数据
         try:
             existing_df = pd.read_excel(result_file, sheet_name=sheet_name)
-            
+
             # 如果需要跳过已存在的日期
             if skip_existing_dates and '日期' in existing_df.columns:
                 existing_dates = set(existing_df['日期'].unique())
-                
+
                 # 找出已存在的日期
                 dates_to_skip = processing_dates.intersection(existing_dates)
                 if dates_to_skip:
                     print(f"跳过已存在的日期: {', '.join(sorted(dates_to_skip))}")
-                    
+
                     # 只保留不存在的日期数据
                     results_df = results_df[~results_df['日期'].isin(dates_to_skip)]
-                    
+
                     # 如果过滤后没有数据，则直接返回
                     if results_df.empty:
                         print("所有日期数据已存在，无需更新")
                         return True
-            
+
             # 合并数据（新数据在前）
             combined_df = pd.concat([results_df, existing_df], ignore_index=True)
-            
-            # 去重并重新排序
+
+            # 去重（基于股票代码、日期和总得分的组合）
             combined_df = combined_df.drop_duplicates(subset=['股票代码', '日期', '总得分'])
-            combined_df = prepare_dataframe_for_excel(combined_df)
-            
+
+            # 重新排序
+            combined_df['日期排序'] = combined_df['日期'].apply(lambda x:
+                                                                datetime.strptime(x, "%Y年%m月%d日").strftime(
+                                                                    "%Y%m%d") if isinstance(x, str) else "")
+            combined_df = combined_df.sort_values(['日期排序', '总得分'], ascending=[False, False])
+            combined_df = combined_df.drop('日期排序', axis=1)
+
             results_df = combined_df
-        except Exception as e:
+        except:
             # 如果没有现有数据或读取出错，就使用新数据
-            print(f"读取或合并现有数据时出错 (将使用新数据): {e}")
-        
+            pass
+
+        # 在最终输出前进行一次四舍五入处理
+        decimal_columns = ['关注度加分', '原始得分', '总得分']
+        for col in decimal_columns:
+            if col in results_df.columns:
+                results_df[col] = results_df[col].round(3)
+
         # 准备写入Excel
         import openpyxl
         from openpyxl.utils.dataframe import dataframe_to_rows
-        
-        # 检查文件是否存在并加载或创建工作簿
+
+        # 检查文件是否存在，如果不存在则创建新的工作簿
         try:
             wb = openpyxl.load_workbook(result_file)
         except FileNotFoundError:
             wb = openpyxl.Workbook()
             if 'Sheet' in wb.sheetnames:
                 wb.remove(wb['Sheet'])
-        
+
         # 检查sheet是否存在，如果存在则删除
         if sheet_name in wb.sheetnames:
             wb.remove(wb[sheet_name])
-        
-        # 创建新的sheet并写入数据
+
+        # 创建新的sheet
         ws = wb.create_sheet(title=sheet_name)
+
+        # 将DataFrame写入到工作表
         for r_idx, row in enumerate(dataframe_to_rows(results_df, index=False, header=True), 1):
             for c_idx, value in enumerate(row, 1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
-        
-        # 设置格式并保存
+
+        # 设置格式
         format_excel_sheet(ws, results_df.columns.tolist())
+
+        # 保存工作簿
         wb.save(result_file)
-        
+
         print(f"\n✅ 分析结果已保存到 {result_file} 的 '{sheet_name}' 工作表")
         return True
     except Exception as e:

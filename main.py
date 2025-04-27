@@ -177,7 +177,7 @@ def analyze_advanced_on():
 
 
 def daily_group_analyze():
-    start_date = "20250423"
+    start_date = "20250421"
     end_date = "20250425"
     find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=2)
 
