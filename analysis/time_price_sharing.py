@@ -363,11 +363,8 @@ def plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data=None
         pass
 
     # 添加网格线和图例
-    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.grid(True, linestyle='--', alpha=0.3)
     plt.legend(loc='best', fontsize=10)
-
-    # 添加水平参考线（0%线）
-    plt.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
 
     plt.tight_layout()
 

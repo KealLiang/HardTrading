@@ -99,7 +99,7 @@ def find_yidong():
     # find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
     start_date = '2025-04-15'
-    end_date = '2025-04-25'
+    end_date = None
     find_serious_abnormal_stocks_range(start_date, end_date)
 
 
@@ -157,7 +157,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250401', '20250425')
+    plot_all('20250401', '20250428')
     # plot_all()
 
 
@@ -168,7 +168,7 @@ def stocks_time_sharing_price():
     # analyze_stocks_time_sharing(stock_codes, date_list)
 
     # 读取异动文件
-    dates_list = ["20250422"]  # 可以指定多个日期
+    dates_list = ["20250425", "20250428"]  # 可以指定多个日期
     analyze_abnormal_stocks_time_sharing(dates_list)
 
 
@@ -188,16 +188,16 @@ def daily_group_analyze():
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
-    analyze_advanced_on()
+    # analyze_advanced_on()
     # daily_group_analyze()
     # find_yidong()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    # draw_ths_fupan()
     # get_hot_clouds()
-    # find_similar_trends()
+    # draw_ths_fupan()
+    stocks_time_sharing_price()
     # find_dragon()
-    # stocks_time_sharing_price()
+    # find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
