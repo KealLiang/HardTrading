@@ -180,7 +180,7 @@ def analyze_advanced_on():
 
 def daily_group_analyze():
     start_date = "20250421"
-    end_date = "20250425"
+    end_date = "20250428"
     find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=3)
     # highlight_repeated_stocks()
 
@@ -189,13 +189,13 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # analyze_advanced_on()
-    # daily_group_analyze()
+    daily_group_analyze()
     # find_yidong()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # get_hot_clouds()
     # draw_ths_fupan()
-    stocks_time_sharing_price()
+    # stocks_time_sharing_price()
     # find_dragon()
     # find_similar_trends()
     # get_stock_concept_and_industry()
