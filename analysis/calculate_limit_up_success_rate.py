@@ -591,6 +591,9 @@ def analyze_rate(start_date, end_date=None):
     logger.info("开始分析连板晋级率...")
 
     # 获取分析的日期列表(T日)
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+    
     date_list = get_date_range(start_date, end_date)
     if not date_list:
         logger.warning("没有找到符合条件的交易日。")

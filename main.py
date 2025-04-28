@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from analysis.calculate_limit_up_success_rate import analyze_rate
-from analysis.daily_group import find_stocks_by_hot_themes
+from analysis.daily_group import find_stocks_by_hot_themes, highlight_repeated_stocks
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
@@ -173,20 +173,23 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    analyze_rate('2025-04-01', '2025-04-25')
+    start_date = '2025-04-20'
+    end_date = None
+    analyze_rate(start_date, end_date)
 
 
 def daily_group_analyze():
     start_date = "20250421"
     end_date = "20250425"
-    find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=2)
+    find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=3)
+    # highlight_repeated_stocks()
 
 
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
-    # analyze_advanced_on()
-    daily_group_analyze()
+    analyze_advanced_on()
+    # daily_group_analyze()
     # find_yidong()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
