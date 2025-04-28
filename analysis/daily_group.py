@@ -1,10 +1,13 @@
 from collections import Counter
 from datetime import datetime
+import traceback
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 
 def analyze_zt_reasons(excel_file='./excel/fupan_stocks.xlsx', start_date=None, end_date=None, top_n=20, plot=False):
@@ -360,9 +363,6 @@ def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', she
                 results_df[col] = results_df[col].round(3)
 
         # 准备写入Excel
-        import openpyxl
-        from openpyxl.utils.dataframe import dataframe_to_rows
-
         # 检查文件是否存在，如果不存在则创建新的工作簿
         try:
             wb = openpyxl.load_workbook(result_file)
@@ -393,7 +393,6 @@ def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', she
         return True
     except Exception as e:
         print(f"\n❌ 保存结果时出错: {e}")
-        import traceback
         traceback.print_exc()  # 打印详细错误堆栈
         return False
 
@@ -408,8 +407,8 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     start_date: 开始日期，格式为 "YYYYMMDD"，None时使用最新日期
     end_date: 结束日期，格式为 "YYYYMMDD"，None时等于start_date（单日）
     top_n: 获取排名前几的热点类别
-    weight_factor: 权重因子，决定第一名热点与最后一名热点的权重比例
-    attention_weight_factor: 关注度榜权重因子，决定第一名关注度与最后一名的权重比例
+    weight_factor: 权重因子，决定第一名热点与最后一名热点的权重比例，反比
+    attention_weight_factor: 关注度榜权重因子，决定第一名关注度与最后一名的权重比例，正比
     excel_file: Excel文件路径
     save_result: 是否保存结果到Excel
     result_file: 保存结果的Excel文件路径
@@ -524,9 +523,9 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
             covered_hot_reasons = []
 
             for hot_reason_idx, (hot_reason, _) in enumerate(top_hot_reasons):
-                # 计算权重: 从weight_factor递减到1
+                # 计算权重: 从1递增到weight_factor (反比，最后一名权重最高)
                 # 使用线性插值
-                weight = 1 + (weight_factor - 1) * (num_hot_reasons - 1 - hot_reason_idx) / max(1, num_hot_reasons - 1)
+                weight = 1 + (weight_factor - 1) * hot_reason_idx / max(1, num_hot_reasons - 1)
 
                 if any(hot_reason in r for r in stock_reasons):
                     score += weight
@@ -590,6 +589,77 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
         save_to_excel(all_stock_scores, result_file, '每日热门', skip_existing_dates)
 
     return all_stock_scores
+
+
+def highlight_repeated_stocks(excel_file='./excel/limit_up_history.xlsx', sheet_name='每日热门'):
+    """
+    给Excel文件中重复出现的股票的【股票简称】单元格标记浅黄色背景
+    
+    参数:
+    excel_file: Excel文件路径
+    sheet_name: 工作表名称
+    
+    返回:
+    标记是否成功
+    """
+    try:
+        # 定义浅黄色填充
+        light_yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+        
+        # 加载工作簿
+        wb = openpyxl.load_workbook(excel_file)
+        
+        # 检查sheet是否存在
+        if sheet_name not in wb.sheetnames:
+            print(f"工作表 '{sheet_name}' 不存在")
+            return False
+            
+        ws = wb[sheet_name]
+        
+        # 查找股票代码和股票简称的列索引
+        header_row = 1
+        stock_code_col = None
+        stock_name_col = None
+        
+        for col in range(1, ws.max_column + 1):
+            cell_value = ws.cell(row=header_row, column=col).value
+            if cell_value == '股票代码':
+                stock_code_col = col
+            elif cell_value == '股票简称':
+                stock_name_col = col
+        
+        if stock_code_col is None or stock_name_col is None:
+            print("未找到股票代码或股票简称列")
+            return False
+        
+        # 统计每个股票代码出现的次数
+        stock_codes = {}
+        for row in range(2, ws.max_row + 1):  # 从第2行开始（跳过标题行）
+            stock_code = ws.cell(row=row, column=stock_code_col).value
+            if stock_code:
+                if stock_code in stock_codes:
+                    stock_codes[stock_code].append(row)
+                else:
+                    stock_codes[stock_code] = [row]
+        
+        # 标记重复出现的股票简称为浅黄色
+        highlighted_count = 0
+        for stock_code, rows in stock_codes.items():
+            if len(rows) > 1:  # 股票重复出现
+                for row in rows:
+                    cell = ws.cell(row=row, column=stock_name_col)
+                    cell.fill = light_yellow_fill
+                    highlighted_count += 1
+        
+        # 保存工作簿
+        wb.save(excel_file)
+        
+        print(f"✅ 已成功标记 {highlighted_count} 个重复出现的股票简称")
+        return True
+    except Exception as e:
+        print(f"❌ 标记重复股票时出错: {e}")
+        traceback.print_exc()
+        return False
 
 
 if __name__ == '__main__':
