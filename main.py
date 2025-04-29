@@ -157,7 +157,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250401', '20250428')
+    plot_all('20250401', '20250429')
     # plot_all()
 
 
@@ -179,8 +179,8 @@ def analyze_advanced_on():
 
 
 def daily_group_analyze():
-    start_date = "20250421"
-    end_date = "20250428"
+    start_date = "20250423"
+    end_date = None
     find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=3)
     # highlight_repeated_stocks()
 
@@ -189,12 +189,12 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # analyze_advanced_on()
-    daily_group_analyze()
+    # daily_group_analyze()
     # find_yidong()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
-    # get_hot_clouds()
+    fupan_statistics_excel_plot()
     # draw_ths_fupan()
+    # get_hot_clouds()
     # stocks_time_sharing_price()
     # find_dragon()
     # find_similar_trends()

@@ -1,10 +1,10 @@
+import traceback
 from collections import Counter
 from datetime import datetime
-import traceback
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import openpyxl
+import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -197,28 +197,6 @@ def plot_reason_distribution(date, reasons_counter, top_n=15):
     plt.show()
 
 
-def get_latest_date_data(excel_file):
-    """
-    获取Excel文件中最新的日期
-    
-    参数:
-    excel_file: Excel文件路径
-    
-    返回:
-    最新的日期字符串，格式为 YYYYMMDD
-    """
-    try:
-        lianban_data = pd.read_excel(excel_file, sheet_name="连板数据", index_col=0)
-        latest_date = lianban_data.columns[-1]
-
-        # 将日期从 "YYYY年MM月DD日" 转换为 "YYYYMMDD"
-        dt = datetime.strptime(latest_date, "%Y年%m月%d日")
-        return dt.strftime("%Y%m%d")
-    except Exception as e:
-        print(f"获取最新日期时出错: {e}")
-        return None
-
-
 def format_excel_sheet(worksheet, columns):
     """
     设置Excel工作表的格式：调整列宽并为不同日期设置交替背景色
@@ -397,7 +375,7 @@ def save_to_excel(stock_scores, result_file='./excel/limit_up_history.xlsx', she
         return False
 
 
-def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_factor=2,
+def find_stocks_by_hot_themes(start_date, end_date=None, top_n=5, weight_factor=2,
                               attention_weight_factor=3, excel_file='./excel/fupan_stocks.xlsx',
                               save_result=True, result_file='./excel/limit_up_history.xlsx', skip_existing_dates=True):
     """
@@ -405,7 +383,7 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     
     参数:
     start_date: 开始日期，格式为 "YYYYMMDD"，None时使用最新日期
-    end_date: 结束日期，格式为 "YYYYMMDD"，None时等于start_date（单日）
+    end_date: 结束日期，格式为 "YYYYMMDD"，None时等于now
     top_n: 获取排名前几的热点类别
     weight_factor: 权重因子，决定第一名热点与最后一名热点的权重比例，反比
     attention_weight_factor: 关注度榜权重因子，决定第一名关注度与最后一名的权重比例，正比
@@ -417,12 +395,8 @@ def find_stocks_by_hot_themes(start_date=None, end_date=None, top_n=5, weight_fa
     返回:
     无，直接打印结果
     """
-    # 如果没有指定开始日期，获取最新日期
-    if start_date is None:
-        start_date = get_latest_date_data(excel_file)
-        if start_date is None:
-            print("无法获取有效日期")
-            return
+    if end_date is None:
+        end_date = datetime.today().strftime('%Y%m%d')
 
     # 分析涨停数据
     daily_results = analyze_zt_reasons(excel_file, start_date, end_date, top_n=top_n, plot=False)
@@ -605,33 +579,33 @@ def highlight_repeated_stocks(excel_file='./excel/limit_up_history.xlsx', sheet_
     try:
         # 定义浅黄色填充
         light_yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
-        
+
         # 加载工作簿
         wb = openpyxl.load_workbook(excel_file)
-        
+
         # 检查sheet是否存在
         if sheet_name not in wb.sheetnames:
             print(f"工作表 '{sheet_name}' 不存在")
             return False
-            
+
         ws = wb[sheet_name]
-        
+
         # 查找股票代码和股票简称的列索引
         header_row = 1
         stock_code_col = None
         stock_name_col = None
-        
+
         for col in range(1, ws.max_column + 1):
             cell_value = ws.cell(row=header_row, column=col).value
             if cell_value == '股票代码':
                 stock_code_col = col
             elif cell_value == '股票简称':
                 stock_name_col = col
-        
+
         if stock_code_col is None or stock_name_col is None:
             print("未找到股票代码或股票简称列")
             return False
-        
+
         # 统计每个股票代码出现的次数
         stock_codes = {}
         for row in range(2, ws.max_row + 1):  # 从第2行开始（跳过标题行）
@@ -641,7 +615,7 @@ def highlight_repeated_stocks(excel_file='./excel/limit_up_history.xlsx', sheet_
                     stock_codes[stock_code].append(row)
                 else:
                     stock_codes[stock_code] = [row]
-        
+
         # 标记重复出现的股票简称为浅黄色
         highlighted_count = 0
         for stock_code, rows in stock_codes.items():
@@ -650,10 +624,10 @@ def highlight_repeated_stocks(excel_file='./excel/limit_up_history.xlsx', sheet_
                     cell = ws.cell(row=row, column=stock_name_col)
                     cell.fill = light_yellow_fill
                     highlighted_count += 1
-        
+
         # 保存工作簿
         wb.save(excel_file)
-        
+
         print(f"✅ 已成功标记 {highlighted_count} 个重复出现的股票简称")
         return True
     except Exception as e:
@@ -666,9 +640,6 @@ if __name__ == '__main__':
     # 文件路径
     excel_file = "E:/demo/MachineLearning/HardTrading/excel/fupan_stocks.xlsx"
     result_file = "E:/demo/MachineLearning/HardTrading/excel/limit_up_history.xlsx"
-
-    # 获取最新日期
-    latest_date = get_latest_date_data(excel_file)
 
     # 找出覆盖热点最多的股票，权重因子为2（即第一名热点权重是最后一名的2倍）
     # 单日分析，关注度榜权重为3

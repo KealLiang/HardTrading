@@ -472,7 +472,7 @@ def plot_limit_up_key_metrics_combined(df, save_path):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # 创建2x2分面图布局
-    fig, axes = plt.subplots(2, 2, figsize=(20, 14), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(26, 14), sharex=True)
     plt.suptitle('涨停板指标分析', fontsize=20, y=0.98)
 
     # 定义要绘制的指标 - 使用2x2布局
