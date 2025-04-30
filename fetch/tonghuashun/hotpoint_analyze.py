@@ -61,53 +61,86 @@ def hot_words_cloud(days):
 
 
 def generate_combined_cloud(date, sorted_temp_df):
-    # 创建一个包含两个子图的图像，减小图像尺寸
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # 创建字体对象
-    font_prop = FontProperties(fname=font_path)
-    
-    # 生成概念词云
-    concepts = sorted_temp_df['涨停原因类别[' + date + ']'].str.split('+').explode().reset_index(drop=True)
-    concept_counts = concepts.value_counts().reset_index()
-    concept_counts.columns = ['概念', '出现次数']
-    concept_wordcloud = WordCloud(width=600, height=300, background_color='white',
-                      font_path=font_path).generate_from_frequencies(
-    dict(zip(concept_counts['概念'], concept_counts['出现次数'])))
-    
-    # 生成行业词云
-    sorted_temp_df['所属行业'] = sorted_temp_df['股票代码'].apply(get_industry_by_code)
-    industry_counts = sorted_temp_df['所属行业'].value_counts()
-    industry_wordcloud = WordCloud(
-        font_path=font_path,
-        background_color='white',
-        width=600,
-        height=300
-    ).generate_from_frequencies(dict(industry_counts))
-    
-    # 在子图中显示词云
-    ax1.imshow(concept_wordcloud, interpolation='bilinear')
-    ax1.set_title('概念词云', fontsize=14, fontproperties=font_prop)
-    ax1.axis('off')
-    
-    ax2.imshow(industry_wordcloud, interpolation='bilinear')
-    ax2.set_title('行业词云', fontsize=14, fontproperties=font_prop)
-    ax2.axis('off')
-    
-    # 调整布局并保存，降低DPI
-    plt.tight_layout()
-    plt.savefig(f"{save_path}{date}_combined.png", format='png', dpi=120, 
-                bbox_inches='tight', pad_inches=0.1)
-    plt.close()
-    
-    # 打印成功信息
-    print(f"合并词云图已保存: {date}_combined.png")
+    try:
+        # 创建一个包含两个子图的图像，减小图像尺寸
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # 创建字体对象
+        font_prop = FontProperties(fname=font_path)
+        
+        # 生成概念词云
+        concepts = sorted_temp_df['涨停原因类别[' + date + ']'].str.split('+').explode().reset_index(drop=True)
+        concept_counts = concepts.value_counts().reset_index()
+        concept_counts.columns = ['概念', '出现次数']
+        
+        # 检查概念数据是否可用
+        has_concept_data = not concept_counts.empty and concept_counts['概念'].notna().any()
+        
+        if has_concept_data:
+            concept_wordcloud = WordCloud(width=600, height=300, background_color='white',
+                          font_path=font_path).generate_from_frequencies(
+            dict(zip(concept_counts['概念'].fillna('未知概念'), concept_counts['出现次数'])))
+            
+            # 在子图中显示概念词云
+            ax1.imshow(concept_wordcloud, interpolation='bilinear')
+            ax1.set_title('概念词云', fontsize=14, fontproperties=font_prop)
+        else:
+            ax1.text(0.5, 0.5, '无概念数据可用', 
+                    fontsize=14, fontproperties=font_prop,
+                    ha='center', va='center')
+        ax1.axis('off')
+        
+        # 生成行业词云
+        sorted_temp_df['所属行业'] = sorted_temp_df['股票代码'].apply(get_industry_by_code)
+        # 过滤掉可能的None值和空字符串
+        industry_df = sorted_temp_df[sorted_temp_df['所属行业'].notna() & (sorted_temp_df['所属行业'] != '')]
+        industry_counts = industry_df['所属行业'].value_counts()
+        
+        # 检查是否有行业数据可用
+        if len(industry_counts) > 0:
+            industry_wordcloud = WordCloud(
+                font_path=font_path,
+                background_color='white',
+                width=600,
+                height=300
+            ).generate_from_frequencies(dict(industry_counts))
+            
+            # 在子图中显示行业词云
+            ax2.imshow(industry_wordcloud, interpolation='bilinear')
+            ax2.set_title('行业词云', fontsize=14, fontproperties=font_prop)
+        else:
+            ax2.text(0.5, 0.5, '无行业数据可用', 
+                    fontsize=14, fontproperties=font_prop,
+                    ha='center', va='center')
+        ax2.axis('off')
+        
+        # 调整布局并保存，降低DPI
+        plt.tight_layout()
+        plt.savefig(f"{save_path}{date}_combined.png", format='png', dpi=120, 
+                    bbox_inches='tight', pad_inches=0.1)
+        plt.close()
+        
+        # 打印成功信息
+        print(f"合并词云图已保存: {date}_combined.png")
+        
+    except Exception as e:
+        print(f"生成词云图时出错 {date}: {e}")
+        # 确保图形被关闭，防止资源泄漏
+        plt.close('all')
 
 
 # 通过AKShare获取个股所属行业信息
 def get_industry_by_code(code):
-    code = code.split('.')[0]  # 去除股票代码后缀
-    stock_info = ak.stock_individual_info_em(symbol=code)
-    if not stock_info.empty:
-        return stock_info.loc[6, 'value']
-    return None
+    try:
+        code = code.split('.')[0]  # 去除股票代码后缀
+        stock_info = ak.stock_individual_info_em(symbol=code)
+        if not stock_info.empty:
+            industry = stock_info.loc[6, 'value']
+            # 检查industry是否为float类型，如果是则转为字符串或使用默认值
+            if isinstance(industry, float):
+                return "未知行业"
+            return industry
+    except Exception as e:
+        print(f"获取股票{code}行业信息时出错: {e}")
+        return "未知行业"
+    return "未知行业"
