@@ -21,9 +21,17 @@ except ImportError:
     NLP_UTILS_AVAILABLE = False
     FORCE_CHAR_SIMILARITY = True
 
-# 输入和输出文件路径
-FUPAN_FILE = "./excel/fupan_stocks.xlsx"
-OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
+# 原因权重配置，只配置非默认权重(不为1)的原因
+# 权重越低，该原因在分组时的优先级越低；权重越高，优先级越高
+REASON_WEIGHTS = {
+    # 业绩相关的通用原因(降低权重)
+    "业绩增长": 0.7,
+    "同比扭亏为盈": 0.7,
+    # 重要概念(提高权重)
+    "芯片": 1.1,
+    "国产替代": 1.1,
+    "机器人": 1.1,
+}
 
 # 定义常见的同义词转换
 synonym_groups = {
@@ -58,6 +66,10 @@ synonym_groups = {
     "同比扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
                      "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
 }
+
+# 输入和输出文件路径
+FUPAN_FILE = "./excel/fupan_stocks.xlsx"
+OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 
 # 颜色列表 - 彩虹色系(深色)
 COLORS = [
@@ -109,16 +121,22 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
-def process_zt_data(start_date, end_date, clean_output=False):
+def process_zt_data(start_date, end_date, clean_output=False, custom_weights=None):
     """
     处理涨停数据，转换为更易于分析的格式
     
     :param start_date: 开始日期，格式为'YYYYMMDD'
     :param end_date: 结束日期，格式为'YYYYMMDD'
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
+    :param custom_weights: 自定义原因权重字典，用于覆盖默认的REASON_WEIGHTS
     """
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
+
+    # 合并权重字典
+    reason_weights = REASON_WEIGHTS.copy()
+    if custom_weights and isinstance(custom_weights, dict):
+        reason_weights.update(custom_weights)
 
     # 读取原始Excel数据
     sheets_to_process = ['连板数据', '首板数据']
@@ -274,7 +292,22 @@ def process_zt_data(start_date, end_date, clean_output=False):
 
     # 过滤掉未分类的原因，获取热门原因
     classified_reasons = [reason for reason in reason_counter.keys() if not reason.startswith('未分类_')]
-    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(8) if count > 0]
+
+    # 应用权重计算热门原因
+    weighted_reason_counter = {}
+    for reason in classified_reasons:
+        # 原始计数
+        count = reason_counter[reason]
+        # 应用权重
+        weighted_count = count * reason_weights.get(reason, 1.0)
+        weighted_reason_counter[reason] = weighted_count
+
+    # 使用加权后的计数选择热门原因
+    top_reasons = [reason for reason, _ in sorted(
+        weighted_reason_counter.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:8] if weighted_reason_counter[reason] > 0]
 
     # 如果没有足够的热门原因，使用默认分类
     if len(top_reasons) < 5:
@@ -318,18 +351,42 @@ def process_zt_data(start_date, end_date, clean_output=False):
         # 统计该股票的原因
         stock_reason_counter = Counter(data['reasons'])
 
+        # 为每个原因分配权重
+        weighted_reasons = {}
+
+        # 根据用户配置的权重计算
+        for reason, count in stock_reason_counter.items():
+            # 基础权重为该原因在股票中出现的次数
+            weight = count
+
+            # 应用自定义原因权重
+            reason_weight = reason_weights.get(reason, 1.0)
+            weight *= reason_weight
+
+            weighted_reasons[reason] = weight
+
         # 检查是否有热门原因
         found_top_reason = False
-        for top_reason in top_reasons:
-            if top_reason in stock_reason_counter:
-                stock_reason_group[stock_key] = top_reason
-                found_top_reason = True
-                break
+        best_top_reason = None
+        best_top_reason_weight = -1
 
-        # 如果没有热门原因，使用该股票最常见的原因
-        if not found_top_reason and stock_reason_counter:
-            most_common_reason = stock_reason_counter.most_common(1)[0][0]
-            stock_reason_group[stock_key] = most_common_reason
+        # 在热门原因中找出权重最高的
+        for top_reason in top_reasons:
+            if top_reason in weighted_reasons:
+                weight = weighted_reasons[top_reason]
+                if weight > best_top_reason_weight:
+                    best_top_reason = top_reason
+                    best_top_reason_weight = weight
+
+        # 如果找到了热门原因，使用权重最高的热门原因
+        if best_top_reason:
+            stock_reason_group[stock_key] = best_top_reason
+            found_top_reason = True
+
+        # 如果没有热门原因，使用该股票权重最高的原因
+        if not found_top_reason and weighted_reasons:
+            best_reason = max(weighted_reasons.items(), key=lambda x: x[1])[0]
+            stock_reason_group[stock_key] = best_reason
 
     # 创建图例作为第一列
     ws.column_dimensions['A'].width = 15
@@ -777,10 +834,18 @@ if __name__ == "__main__":
     # 示例用法
     start_date = "20240101"
     end_date = "20240601"
-    
-    # 处理涨停数据，设置clean_output=True可清空现有Excel重新生成
-    # process_zt_data(start_date, end_date, clean_output=True)
-    process_zt_data(start_date, end_date)
+
+    # 自定义原因权重示例
+    custom_reason_weights = {
+        "华为": 1.5,  # 提高华为相关原因的权重
+        "军工": 1.2,  # 提高军工相关原因的权重
+        "业绩增长": 0.1,  # 大幅降低业绩增长原因的权重
+        "高送转": 0.4  # 降低高送转原因的权重
+    }
+
+    # 处理涨停数据
+    # 使用自定义权重: custom_weights=custom_reason_weights
+    process_zt_data(start_date, end_date, custom_weights=custom_reason_weights)
 
     # 为【未分类原因】归类
     consolidate_unclassified_reasons()
