@@ -6,7 +6,7 @@ from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
-from analysis.whimsical import process_zt_data
+from analysis.whimsical import process_zt_data, consolidate_unclassified_reasons
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -187,9 +187,13 @@ def daily_group_analyze():
 
 
 def whimsical_fupan_analyze():
-    start_date = "20250414"
-    end_date = "20250429"
-    process_zt_data(start_date, end_date)
+    # 执行归类分析
+    # start_date = "20250414"
+    # end_date = "20250429"
+    # process_zt_data(start_date, end_date)
+
+    # 为【未分类原因】归类
+    consolidate_unclassified_reasons()
 
 
 

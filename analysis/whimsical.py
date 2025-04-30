@@ -12,6 +12,15 @@ from openpyxl.utils import get_column_letter
 
 from utils.date_util import get_trading_days
 
+# 导入NLP工具模块 (如果可用)
+try:
+    from utils.nlp_utils import check_nlp_ready, calc_similarity, find_semantic_clusters, FORCE_CHAR_SIMILARITY
+
+    NLP_UTILS_AVAILABLE = True
+except ImportError:
+    NLP_UTILS_AVAILABLE = False
+    FORCE_CHAR_SIMILARITY = True
+
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
@@ -19,21 +28,35 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 # 定义常见的同义词转换
 synonym_groups = {
     "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人"],
+    "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
+    "化工": ['化工', '氟化工', '化学制药', '化学制品', '环氧丙烷', '环氧丙烷衍生品', '精细化工', '氯碱化工',
+             '石油化工'],
     "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏"],
     "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC"],
     "数字经济": ["数字经济", "数字化", "数字技术", "数字转型"],
     "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
-    "国企改革": ["国企改革", "国资改革", "国资国企改革", "国企整合"],
+    "国企改革": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '天津国企', '福建国企', '上海国企',
+                 "陕西国资", "山西国资", "广西国资"],
     "华为": ["华为", "华为产业链", "鸿蒙", "昇腾"],
-    "电子": ["电子", "消费电子", "苹果概念"],
+    "电子": ['电子', '消费电子', '苹果概念', '苹果'],
     "券商": ["券商", "证券", "参股券商"],
     "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
-    "军工": ["军工", "国防军工", "航空航天", "战斗机"],
-    "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
+    "军工": ["军工", "国防军工", "航空航天", "战斗机", "大飞机"],
     "汽车": ["汽车", "整车", "汽配", "车载"],
     "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
     "互联网": ["互联网", "电商", "社交", "游戏"],
-    "金融": ["金融", "保险", "银行", "信托", "支付"]
+    "金融": ["金融", "保险", "银行", "信托", "支付"],
+    "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计'],
+    "数据中心": ["数据中心", "数据中心发电机"],
+    "电池": ["锂电池", "锂电池回收", "HJT电池", "固态电池", "钠离子电池"],
+    "减速器": ["减速器", "行星减速器", "变速器"],
+    "光刻胶": ["光刻胶", "光刻机"],
+    "蜜雪冰城供应商": ["蜜雪冰城供应商", "蜜雪冰城合作"],
+    "首发经济": ["首店经济", "首发经济"],
+    "业绩增长": ["一季报增长", "年报增长", "一季报预增", "年报、一季报增长", "一季报净利增长", "一季报大增",
+                 "一季度业绩增长", "一季报业绩增长", "一季报净利预增", "一季报净利润增长", "业绩增长", "业绩预增"],
+    "同比扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
+                     "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
 }
 
 # 颜色列表 - 彩虹色系(深色)
@@ -416,6 +439,29 @@ def consolidate_unclassified_reasons():
     读取未分类原因sheet，分析可以归类到现有synonym_groups的原因
     并将结果打印到控制台
     """
+    # 检查NLP环境
+    use_semantic = False
+    word_vectors = None
+
+    if NLP_UTILS_AVAILABLE:
+        if FORCE_CHAR_SIMILARITY:
+            print("当前使用字符相似度模式，不使用gensim")
+            use_semantic = False
+        else:
+            try:
+                use_semantic, word_vectors, message = check_nlp_ready()
+                if use_semantic:
+                    print(f"NLP环境就绪: {message}")
+                else:
+                    print(f"NLP环境未就绪: {message}")
+                    print("将使用基本字符匹配进行分析")
+            except Exception as e:
+                print(f"NLP模块加载失败: {e}")
+                print("将使用基本字符匹配进行分析")
+    else:
+        print("未找到NLP工具模块，将使用基本字符匹配")
+        print("如需启用语义分析功能，请使用: pip install --only-binary=:all: gensim numpy")
+
     try:
         # 读取Excel文件中的未分类原因sheet
         df_unclassified = pd.read_excel(OUTPUT_FILE, sheet_name="未分类原因", header=0)
@@ -446,79 +492,110 @@ def consolidate_unclassified_reasons():
         suggestions = {}
         remaining_unclassified = {}
 
+        # 基础匹配逻辑，无需NLP库支持
         for reason, count in unclassified_reasons.items():
             matched = False
             best_match = None
             best_match_score = 0
+            match_type = ""
 
-            # 检查是否可以直接匹配到现有组
-            for group_name, synonyms in current_groups.items():
-                # 1. 直接包含匹配
-                for synonym in synonyms:
+            # 1. 基于字符匹配的方法
+            for group_name, synonym_set in current_groups.items():
+                # 直接包含匹配
+                for synonym in synonym_set:
                     if synonym in reason or reason in synonym:
-                        if len(synonym) > best_match_score:
+                        match_score = len(synonym) / max(len(reason), 1)
+                        if match_score > best_match_score:
                             best_match = group_name
-                            best_match_score = len(synonym)
+                            best_match_score = match_score
                             matched = True
+                            match_type = "字符匹配"
 
-                # 2. 组名匹配
+                # 组名匹配
                 if group_name in reason or reason in group_name:
-                    if len(group_name) > best_match_score:
+                    match_score = len(group_name) / max(len(reason), 1)
+                    if match_score > best_match_score:
                         best_match = group_name
-                        best_match_score = len(group_name)
+                        best_match_score = match_score
                         matched = True
+                        match_type = "组名匹配"
+
+            # 2. 进行语义相似度匹配 (如果NLP环境可用)
+            if not matched and use_semantic and word_vectors is not None:
+                for group_name in current_groups.keys():
+                    # 计算与组名的语义相似度
+                    group_sim = calc_similarity(reason, group_name, word_vectors)
+
+                    # 计算与组内词汇的最大相似度
+                    max_synonym_sim = 0
+                    for synonym in current_groups[group_name]:
+                        syn_sim = calc_similarity(reason, synonym, word_vectors)
+                        max_synonym_sim = max(max_synonym_sim, syn_sim)
+
+                    # 取与组名和组内词汇相似度的最大值
+                    final_sim = max(group_sim, max_synonym_sim)
+
+                    # 使用相对保守的阈值
+                    if final_sim > 0.6 and final_sim > best_match_score:
+                        best_match = group_name
+                        best_match_score = final_sim
+                        matched = True
+                        match_type = f"语义相似度({final_sim:.2f})"
 
             if matched:
                 if best_match not in suggestions:
                     suggestions[best_match] = []
-                suggestions[best_match].append((reason, count))
+                suggestions[best_match].append((reason, count, match_type))
             else:
                 remaining_unclassified[reason] = count
 
-        # 打印可以归类的原因
-        print("=" * 50)
-        print("可以归类到现有分组的原因:")
-        print("=" * 50)
+        # 先收集所有推荐结果再显示
 
-        for group_name, reasons in suggestions.items():
-            print(f"\n【{group_name}】分组可添加以下同义词:")
-            for reason, count in sorted(reasons, key=lambda x: x[1], reverse=True):
-                print(f"  - \"{reason}\" (出现{count}次)")
-
-        # 打印生成的Python代码片段
-        print("\n" + "=" * 50)
-        print("建议更新的synonym_groups代码:")
-        print("=" * 50)
-
+        # 现有分组的更新建议
+        updated_groups = {}
         for group_name in synonym_groups.keys():
             current_synonyms = list(synonym_groups[group_name])
             new_synonyms = []
 
             if group_name in suggestions:
-                for reason, _ in suggestions[group_name]:
+                for reason, _, _ in suggestions[group_name]:
                     if reason not in current_synonyms:
                         new_synonyms.append(reason)
 
-            # 只打印有更新的组
+            # 只保存有更新的组
             if new_synonyms:
-                print(f'        "{group_name}": {current_synonyms + new_synonyms},')
+                updated_groups[group_name] = current_synonyms + new_synonyms
+
+        # 打印可以归类的原因
+        print("=" * 60)
+        print("可以归类到现有分组的原因:")
+        print("=" * 60)
+
+        for group_name, reasons in suggestions.items():
+            print(f"\n【{group_name}】分组可添加以下同义词:")
+            for reason, count, match_type in sorted(reasons, key=lambda x: x[1], reverse=True):
+                print(f"  - \"{reason}\" (出现{count}次) - 匹配方式: {match_type}")
 
         # 打印剩余未分类的原因
         if remaining_unclassified:
-            print("\n" + "=" * 50)
+            print("\n" + "=" * 60)
             print("仍然无法归类的原因:")
-            print("=" * 50)
+            print("=" * 60)
 
             for reason, count in sorted(remaining_unclassified.items(), key=lambda x: x[1], reverse=True):
                 if count >= 3:  # 仅显示出现次数较多的原因
                     print(f"  - \"{reason}\" (出现{count}次)")
 
-        print("\n建议为这些常见的未分类原因创建新分组:")
+        # 发现新的潜在分组
+        print("\n" + "=" * 60)
+        print("潜在的新分组分析:")
+        print("=" * 60)
 
-        # 分析未分类原因中是否有需要创建新分组的
+        # 基于常见关键词分析
         common_keywords = [
             "ChatGPT", "风电", "稀土", "碳中和", "元宇宙", "区块链",
-            "锂电池", "生成式AI", "储能", "数据中心"
+            "锂电池", "生成式AI", "储能", "数据中心", "虚拟现实", "航天",
+            "电池", "生物科技", "云计算", "大数据"
         ]
 
         potential_new_groups = {}
@@ -531,15 +608,156 @@ def consolidate_unclassified_reasons():
             if matching_reasons:
                 potential_new_groups[keyword] = matching_reasons
 
-        # 打印可能的新分组
+        # 收集潜在新分组
+        new_group_suggestions = {}
         for group_name, reasons in potential_new_groups.items():
-            if sum(count for _, count in reasons) >= 5:  # 累计出现5次以上才创建新分组
-                print(f"\n【{group_name}】新分组可包含:")
+            total_count = sum(count for _, count in reasons)
+            if total_count >= 5:  # 累计出现5次以上才创建新分组
+                # 按出现次数降序排序的原因列表
+                sorted_reasons = [reason for reason, _ in sorted(reasons, key=lambda x: x[1], reverse=True)]
+                new_group_suggestions[group_name] = sorted_reasons
+
+                print(f"\n【{group_name}】新分组可包含 (总计{total_count}次):")
                 for reason, count in sorted(reasons, key=lambda x: x[1], reverse=True):
                     print(f"  - \"{reason}\" (出现{count}次)")
 
+        # 仅在NLP环境可用时执行语义聚类
+        semantic_clusters = []
+        if use_semantic and word_vectors is not None and len(remaining_unclassified) > 5:
+            print("\n" + "=" * 60)
+            print("基于语义相似度的聚类分析:")
+            print("=" * 60)
+
+            # 使用NLP工具进行语义聚类
+            clusters = find_semantic_clusters(remaining_unclassified, word_vectors, threshold=0.7)
+
+            # 打印发现的语义簇
+            for i, cluster in enumerate(clusters, 1):
+                total = sum(count for _, count in cluster)
+                if total >= 5:  # 显示总频次达到阈值的簇
+                    # 找出簇中出现频率最高的原因作为组名
+                    most_common_reason = max(cluster, key=lambda x: x[1])[0]
+                    # 按出现次数降序排序的原因列表
+                    sorted_reasons = [reason for reason, _ in sorted(cluster, key=lambda x: x[1], reverse=True)]
+                    # 避免重复的组名
+                    if most_common_reason not in new_group_suggestions:
+                        semantic_clusters.append((most_common_reason, sorted_reasons))
+
+                    print(f"\n语义簇 #{i} (总计{total}次):")
+                    for reason, count in sorted(cluster, key=lambda x: x[1], reverse=True):
+                        print(f"  - \"{reason}\" (出现{count}次)")
+
+                    # 推荐可能的分组名称
+                    print(f"  推荐分组名: \"{most_common_reason}\"")
+
+        # 如果没有NLP环境，使用基础的相似度分析
+        char_similarity_clusters = []
+        if not use_semantic and len(remaining_unclassified) > 5:
+            print("\n" + "=" * 60)
+            print("基于字符相似度的分析:")
+            print("=" * 60)
+            print("提示: 安装NLP工具可获得更准确的语义聚类分析")
+
+            # 简单字符相似度方法
+            def get_common_chars(str1, str2):
+                # 计算两个字符串的公共字符数量
+                common = 0
+                for c in str1:
+                    if c in str2:
+                        common += 1
+                return common
+
+            # 使用简单字符相似度进行聚类
+            clustered = set()
+            clusters = []
+
+            reasons_list = list(remaining_unclassified.keys())
+            for i, reason1 in enumerate(reasons_list):
+                if reason1 in clustered:
+                    continue
+
+                cluster = [(reason1, remaining_unclassified[reason1])]
+                clustered.add(reason1)
+
+                for reason2 in reasons_list[i + 1:]:
+                    if reason2 in clustered:
+                        continue
+
+                    # 计算基本字符相似度
+                    common_chars = get_common_chars(reason1, reason2)
+                    sim_score = common_chars / max(len(reason1), len(reason2))
+
+                    if sim_score > 0.5:  # 阈值比NLP版本更保守
+                        cluster.append((reason2, remaining_unclassified[reason2]))
+                        clustered.add(reason2)
+
+                if len(cluster) > 1:  # 至少形成了一个簇
+                    clusters.append(cluster)
+
+            # 打印发现的字符簇
+            for i, cluster in enumerate(clusters, 1):
+                total = sum(count for _, count in cluster)
+                if total >= 5:  # 显示总频次达到阈值的簇
+                    # 找出簇中出现频率最高的原因作为组名
+                    most_common_reason = max(cluster, key=lambda x: x[1])[0]
+                    # 按出现次数降序排序的原因列表
+                    sorted_reasons = [reason for reason, _ in sorted(cluster, key=lambda x: x[1], reverse=True)]
+                    # 避免重复的组名
+                    if most_common_reason not in new_group_suggestions:
+                        char_similarity_clusters.append((most_common_reason, sorted_reasons))
+
+                    print(f"\n字符簇 #{i} (总计{total}次):")
+                    for reason, count in sorted(cluster, key=lambda x: x[1], reverse=True):
+                        print(f"  - \"{reason}\" (出现{count}次)")
+
+                    # 推荐可能的分组名称
+                    print(f"  推荐分组名: \"{most_common_reason}\"")
+
+        # 先打印现有分组的建议更新
+        print("\n" + "=" * 60)
+        print("建议更新的synonym_groups代码:")
+        print("=" * 60)
+
+        for group_name, synonyms in updated_groups.items():
+            print(f'    "{group_name}": {synonyms},')
+
+        # 打印所有建议的新分组（包括潜在分组、语义簇和字符簇）的代码
+        if new_group_suggestions or semantic_clusters or char_similarity_clusters:
+            print("\n" + "=" * 60)
+            print("建议添加的新分组代码:")
+            print("=" * 60)
+
+            # 创建已使用组名的集合，避免重复
+            used_group_names = set()
+
+            # 输出潜在新分组
+            for group_name, reasons in new_group_suggestions.items():
+                if group_name in used_group_names:
+                    continue
+                used_group_names.add(group_name)
+                reasons_str = ", ".join([f'"{r}"' for r in reasons])
+                print(f'    "{group_name}": [{reasons_str}],')
+
+            # 输出语义聚类分组
+            for group_name, reasons in semantic_clusters:
+                if group_name in used_group_names:
+                    continue
+                used_group_names.add(group_name)
+                reasons_str = ", ".join([f'"{r}"' for r in reasons])
+                print(f'    "{group_name}": [{reasons_str}],')
+
+            # 输出字符相似度聚类分组
+            for group_name, reasons in char_similarity_clusters:
+                if group_name in used_group_names:
+                    continue
+                used_group_names.add(group_name)
+                reasons_str = ", ".join([f'"{r}"' for r in reasons])
+                print(f'    "{group_name}": [{reasons_str}],')
+
     except Exception as e:
+        import traceback
         print(f"处理未分类原因时出错: {e}")
+        print(traceback.format_exc())
 
 
 if __name__ == "__main__":
