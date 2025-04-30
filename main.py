@@ -158,7 +158,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250401', '20250429')
+    plot_all('20250401', '20250430')
     # plot_all()
 
 
@@ -188,12 +188,12 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    # start_date = "20250414"
-    # end_date = "20250429"
-    # process_zt_data(start_date, end_date)
+    start_date = "20250414"
+    end_date = "20250430"
+    process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
-    consolidate_unclassified_reasons()
+    # consolidate_unclassified_reasons()
 
 
 
@@ -202,12 +202,12 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # analyze_advanced_on()
     # daily_group_analyze()
-    # find_yidong()
+    # whimsical_fupan_analyze()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # get_hot_clouds()
-    whimsical_fupan_analyze()
+    # find_yidong()
     # stocks_time_sharing_price()
     # find_dragon()
     # find_similar_trends()

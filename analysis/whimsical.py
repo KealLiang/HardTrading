@@ -27,7 +27,7 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 
 # 定义常见的同义词转换
 synonym_groups = {
-    "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人"],
+    "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人", "PEEK材料"],
     "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
     "化工": ['化工', '氟化工', '化学制药', '化学制品', '环氧丙烷', '环氧丙烷衍生品', '精细化工', '氯碱化工',
              '石油化工'],
@@ -109,12 +109,13 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
-def process_zt_data(start_date, end_date):
+def process_zt_data(start_date, end_date, clean_output=False):
     """
     处理涨停数据，转换为更易于分析的格式
     
     :param start_date: 开始日期，格式为'YYYYMMDD'
     :param end_date: 结束日期，格式为'YYYYMMDD'
+    :param clean_output: 是否清空现有Excel并重新创建，默认为False
     """
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
@@ -135,7 +136,16 @@ def process_zt_data(start_date, end_date):
         print("没有找到需要处理的数据")
         return
 
-    # 创建新的工作簿
+    # 创建新的工作簿或清空现有工作簿
+    if clean_output and os.path.exists(OUTPUT_FILE):
+        try:
+            # 尝试删除现有文件
+            os.remove(OUTPUT_FILE)
+            print(f"已清空并将重新创建文件: {OUTPUT_FILE}")
+        except Exception as e:
+            print(f"清空文件失败: {e}")
+            print("将尝试使用新的工作簿覆盖现有文件")
+
     wb = Workbook()
     ws = wb.active
     ws.title = "涨停分析"
@@ -397,13 +407,13 @@ def process_zt_data(start_date, end_date):
                 # 创建备注
                 comment_text = ""
                 if '几天几板' in stock['info']:
-                    comment_text += f"几天几板: {stock['info']['几天几板']}\n"
+                    comment_text += f"{stock['info']['几天几板']}\n"
                 if '首次涨停时间' in stock['info']:
-                    comment_text += f"首次涨停时间: {stock['info']['首次涨停时间']}\n"
+                    comment_text += f"{stock['info']['首次涨停时间']}\n"
                 if '涨停开板次数' in stock['info']:
-                    comment_text += f"涨停开板次数: {stock['info']['涨停开板次数']}\n"
+                    comment_text += f"{stock['info']['涨停开板次数']}\n"
                 if '涨停原因类别' in stock['info']:
-                    comment_text += f"涨停原因类别: {stock['info']['涨停原因类别']}"
+                    comment_text += f"{stock['info']['涨停原因类别']}"
 
                 cell.comment = Comment(comment_text, "分析系统")
 
@@ -767,6 +777,9 @@ if __name__ == "__main__":
     # 示例用法
     start_date = "20240101"
     end_date = "20240601"
+    
+    # 处理涨停数据，设置clean_output=True可清空现有Excel重新生成
+    # process_zt_data(start_date, end_date, clean_output=True)
     process_zt_data(start_date, end_date)
 
     # 为【未分类原因】归类

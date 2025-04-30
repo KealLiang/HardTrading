@@ -9,6 +9,8 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+from utils import date_util
+
 
 def analyze_zt_reasons(excel_file='./excel/fupan_stocks.xlsx', start_date=None, end_date=None, top_n=20, plot=False):
     """
@@ -396,7 +398,8 @@ def find_stocks_by_hot_themes(start_date, end_date=None, top_n=5, weight_factor=
     无，直接打印结果
     """
     if end_date is None:
-        end_date = datetime.today().strftime('%Y%m%d')
+        today = datetime.today().strftime('%Y%m%d')
+        end_date = date_util.get_current_or_prev_trading_day(today)
 
     # 分析涨停数据
     daily_results = analyze_zt_reasons(excel_file, start_date, end_date, top_n=top_n, plot=False)

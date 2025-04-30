@@ -1,11 +1,13 @@
-from datetime import datetime, timedelta
+import logging
 import re
+from datetime import datetime, timedelta
+
 import pandas as pd
 import pandas_market_calendars as mcal
-import logging
 
 # 配置logging
 logger = logging.getLogger('date_util')
+
 
 def format_date(date_value):
     """
@@ -19,11 +21,11 @@ def format_date(date_value):
     """
     if date_value is None:
         return None
-    
+
     # 处理datetime和pandas Timestamp对象
     if isinstance(date_value, (datetime, pd.Timestamp)):
         return date_value.strftime('%Y-%m-%d')
-    
+
     # 处理整数类型 (如YYYYMMDD格式)
     if isinstance(date_value, (int, float)):
         date_str = str(int(date_value))
@@ -32,17 +34,17 @@ def format_date(date_value):
                 return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
             except:
                 pass
-    
+
     # 确保是字符串类型
     try:
         date_str = str(date_value).strip() if not isinstance(date_value, str) else date_value.strip()
     except:
         return None
-    
+
     # 已经是YYYY-MM-DD格式
     if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         return date_str
-    
+
     # 使用pandas的to_datetime更高效地解析多种格式
     try:
         return pd.to_datetime(date_str).strftime('%Y-%m-%d')
@@ -54,11 +56,11 @@ def format_date(date_value):
                 year = int(date_numbers[0])
                 month = int(date_numbers[1])
                 day = int(date_numbers[2])
-                
+
                 # 确保年份格式正确（处理两位数年份）
                 if year < 100:
                     year += 2000 if year < 50 else 1900
-                
+
                 # 验证日期有效性
                 if 1 <= month <= 12 and 1 <= day <= 31:
                     # 使用pandas验证日期是否有效
@@ -66,7 +68,7 @@ def format_date(date_value):
                     return date_obj.strftime('%Y-%m-%d')
             except:
                 pass
-    
+
     return None
 
 
@@ -189,3 +191,34 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     if len(prev_days) < n + 1:
         raise ValueError("历史交易日数量不足")
     return prev_days[-(n + 1)].strftime('%Y-%m-%d')
+
+
+def get_current_or_prev_trading_day(date: str) -> str:
+    """
+    获取指定日期，如果是交易日则直接返回，否则返回前一个交易日
+    Args:
+        date: 日期字符串，格式为 'YYYYMMDD'
+    Returns:
+        str: 交易日，格式为 'YYYYMMDD'，如果没有找到则返回None
+    """
+    try:
+        # 将输入日期转换为datetime对象
+        date_dt = datetime.strptime(date, '%Y%m%d')
+
+        # 获取A股市场日历
+        sse = mcal.get_calendar('SSE')
+
+        # 检查输入日期是否为交易日
+        check_days = sse.valid_days(start_date=date_dt, end_date=date_dt)
+        check_days = remove_holidays(check_days)
+
+        # 如果是交易日，直接返回
+        if len(check_days) > 0:
+            return date
+
+        # 如果不是交易日，则获取前一个交易日
+        return get_prev_trading_day(date)
+
+    except Exception as e:
+        logger.error(f"获取当前或前一个交易日时出错: {str(e)}")
+        return None
