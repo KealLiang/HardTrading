@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from HardTrading.fetch.tonghuashun.whimsical import process_zt_data
 from analysis.calculate_limit_up_success_rate import analyze_rate
 from analysis.daily_group import find_stocks_by_hot_themes, highlight_repeated_stocks
 from analysis.fupan_statistics import fupan_all_statistics
@@ -107,7 +108,7 @@ def get_stock_concept_and_industry():
     fetch_and_save_stock_concept(
         concept_list=["云游戏", "新能源车"],
         industry_list=["银行", "房地产"],
-        output_path="./data/concepts_data/筛选的概念与行业数据.xlsx"
+        output_path="./excel/all_concepts.xlsx"
     )
 
 
@@ -185,6 +186,13 @@ def daily_group_analyze():
     # highlight_repeated_stocks()
 
 
+def whimsical_fupan_analyze():
+    start_date = "20250421"
+    end_date = "20250429"
+    process_zt_data(start_date, end_date)
+
+
+
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
@@ -192,9 +200,10 @@ if __name__ == '__main__':
     # daily_group_analyze()
     # find_yidong()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # draw_ths_fupan()
     # get_hot_clouds()
+    whimsical_fupan_analyze()
     # stocks_time_sharing_price()
     # find_dragon()
     # find_similar_trends()
