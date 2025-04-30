@@ -16,6 +16,26 @@ from utils.date_util import get_trading_days
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 
+# 定义常见的同义词转换
+synonym_groups = {
+    "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人"],
+    "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏"],
+    "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC"],
+    "数字经济": ["数字经济", "数字化", "数字技术", "数字转型"],
+    "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
+    "国企改革": ["国企改革", "国资改革", "国资国企改革", "国企整合"],
+    "华为": ["华为", "华为产业链", "鸿蒙", "昇腾"],
+    "电子": ["电子", "消费电子", "苹果概念"],
+    "券商": ["券商", "证券", "参股券商"],
+    "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
+    "军工": ["军工", "国防军工", "航空航天", "战斗机"],
+    "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
+    "汽车": ["汽车", "整车", "汽配", "车载"],
+    "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
+    "互联网": ["互联网", "电商", "社交", "游戏"],
+    "金融": ["金融", "保险", "银行", "信托", "支付"]
+}
+
 # 颜色列表 - 彩虹色系(深色)
 COLORS = [
     "FF5A5A",  # 红色
@@ -40,26 +60,6 @@ def normalize_reason(reason):
     """
     # 移除所有空格
     reason = re.sub(r'\s+', '', reason)
-
-    # 定义常见的同义词转换
-    synonym_groups = {
-        "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人"],
-        "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏"],
-        "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC"],
-        "数字经济": ["数字经济", "数字化", "数字技术", "数字转型"],
-        "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
-        "国企改革": ["国企改革", "国资改革", "国资国企改革", "国企整合"],
-        "华为": ["华为", "华为产业链", "鸿蒙", "昇腾"],
-        "电子": ["电子", "消费电子", "苹果概念"],
-        "券商": ["券商", "证券", "参股券商"],
-        "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
-        "军工": ["军工", "国防军工", "航空航天", "战斗机"],
-        "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
-        "汽车": ["汽车", "整车", "汽配", "车载"],
-        "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
-        "互联网": ["互联网", "电商", "社交", "游戏"],
-        "金融": ["金融", "保险", "银行", "信托", "支付"]
-    }
 
     # 保存原始原因，用于后续分析未分类的原因
     original_reason = reason
@@ -411,6 +411,137 @@ def process_zt_data(start_date, end_date):
     print(f"数据处理完成，已保存到 {OUTPUT_FILE}")
 
 
+def consolidate_unclassified_reasons():
+    """
+    读取未分类原因sheet，分析可以归类到现有synonym_groups的原因
+    并将结果打印到控制台
+    """
+    try:
+        # 读取Excel文件中的未分类原因sheet
+        df_unclassified = pd.read_excel(OUTPUT_FILE, sheet_name="未分类原因", header=0)
+
+        # 收集所有未分类原因及其出现次数
+        unclassified_reasons = {}
+
+        # 处理可能的多列布局
+        for i in range(0, df_unclassified.shape[1], 2):
+            if i + 1 < df_unclassified.shape[1]:
+                reason_col = df_unclassified.iloc[:, i]
+                count_col = df_unclassified.iloc[:, i + 1]
+
+                for j in range(len(reason_col)):
+                    reason = reason_col.iloc[j]
+                    count = count_col.iloc[j]
+
+                    if pd.notna(reason) and pd.notna(count):
+                        unclassified_reasons[reason] = count
+
+        # 获取当前的同义词组
+        current_groups = {
+            group_name: set(synonyms)
+            for group_name, synonyms in synonym_groups.items()
+        }
+
+        # 分析每个未分类原因是否可以归入现有分组
+        suggestions = {}
+        remaining_unclassified = {}
+
+        for reason, count in unclassified_reasons.items():
+            matched = False
+            best_match = None
+            best_match_score = 0
+
+            # 检查是否可以直接匹配到现有组
+            for group_name, synonyms in current_groups.items():
+                # 1. 直接包含匹配
+                for synonym in synonyms:
+                    if synonym in reason or reason in synonym:
+                        if len(synonym) > best_match_score:
+                            best_match = group_name
+                            best_match_score = len(synonym)
+                            matched = True
+
+                # 2. 组名匹配
+                if group_name in reason or reason in group_name:
+                    if len(group_name) > best_match_score:
+                        best_match = group_name
+                        best_match_score = len(group_name)
+                        matched = True
+
+            if matched:
+                if best_match not in suggestions:
+                    suggestions[best_match] = []
+                suggestions[best_match].append((reason, count))
+            else:
+                remaining_unclassified[reason] = count
+
+        # 打印可以归类的原因
+        print("=" * 50)
+        print("可以归类到现有分组的原因:")
+        print("=" * 50)
+
+        for group_name, reasons in suggestions.items():
+            print(f"\n【{group_name}】分组可添加以下同义词:")
+            for reason, count in sorted(reasons, key=lambda x: x[1], reverse=True):
+                print(f"  - \"{reason}\" (出现{count}次)")
+
+        # 打印生成的Python代码片段
+        print("\n" + "=" * 50)
+        print("建议更新的synonym_groups代码:")
+        print("=" * 50)
+
+        for group_name in synonym_groups.keys():
+            current_synonyms = list(synonym_groups[group_name])
+            new_synonyms = []
+
+            if group_name in suggestions:
+                for reason, _ in suggestions[group_name]:
+                    if reason not in current_synonyms:
+                        new_synonyms.append(reason)
+
+            # 只打印有更新的组
+            if new_synonyms:
+                print(f'        "{group_name}": {current_synonyms + new_synonyms},')
+
+        # 打印剩余未分类的原因
+        if remaining_unclassified:
+            print("\n" + "=" * 50)
+            print("仍然无法归类的原因:")
+            print("=" * 50)
+
+            for reason, count in sorted(remaining_unclassified.items(), key=lambda x: x[1], reverse=True):
+                if count >= 3:  # 仅显示出现次数较多的原因
+                    print(f"  - \"{reason}\" (出现{count}次)")
+
+        print("\n建议为这些常见的未分类原因创建新分组:")
+
+        # 分析未分类原因中是否有需要创建新分组的
+        common_keywords = [
+            "ChatGPT", "风电", "稀土", "碳中和", "元宇宙", "区块链",
+            "锂电池", "生成式AI", "储能", "数据中心"
+        ]
+
+        potential_new_groups = {}
+        for keyword in common_keywords:
+            matching_reasons = []
+            for reason, count in remaining_unclassified.items():
+                if keyword.lower() in reason.lower():
+                    matching_reasons.append((reason, count))
+
+            if matching_reasons:
+                potential_new_groups[keyword] = matching_reasons
+
+        # 打印可能的新分组
+        for group_name, reasons in potential_new_groups.items():
+            if sum(count for _, count in reasons) >= 5:  # 累计出现5次以上才创建新分组
+                print(f"\n【{group_name}】新分组可包含:")
+                for reason, count in sorted(reasons, key=lambda x: x[1], reverse=True):
+                    print(f"  - \"{reason}\" (出现{count}次)")
+
+    except Exception as e:
+        print(f"处理未分类原因时出错: {e}")
+
+
 if __name__ == "__main__":
     # 设置当前工作目录为脚本所在目录
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -419,3 +550,6 @@ if __name__ == "__main__":
     start_date = "20240101"
     end_date = "20240601"
     process_zt_data(start_date, end_date)
+
+    # 为【未分类原因】归类
+    consolidate_unclassified_reasons()
