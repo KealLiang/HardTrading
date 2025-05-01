@@ -32,3 +32,26 @@ def convert_stock_code(code: str) -> str:
         return f"sh{code}"
     else:
         raise ValueError("无法识别的股票代码格式！")
+
+
+def get_stock_market(code: str) -> str:
+    """
+    确定股票所处的市场
+    :param code: 股票代码，如'600000'
+    :return: 市场类型，返回值为：'main'（主板）, 'gem'（创业板）, 'star'（科创板）, 'bse'（北交所）
+    """
+    if not isinstance(code, str):
+        code = str(code)
+
+    if code.startswith('60') or code.startswith('00'):  # 上交所主板、深交所主板
+        return 'main'
+    elif code.startswith('688'):  # 科创板
+        return 'star'
+    elif code.startswith('300') or code.startswith('301'):  # 创业板
+        return 'gem'
+    elif code.startswith('8'):  # 北交所
+        return 'bse'
+    elif code.startswith(('11', '12', '13', '14', '18', '20', '110', '113', '123', '128')):  # 债券类，归为主板
+        return 'main'
+    else:
+        raise ValueError(f"无法识别的股票代码市场: {code}")

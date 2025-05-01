@@ -11,6 +11,8 @@ from dtaidistance import dtw
 from matplotlib import font_manager
 from tqdm import tqdm
 
+from utils.stock_util import get_stock_market
+
 font_path = 'fonts/微软雅黑.ttf'
 font_prop = font_manager.FontProperties(fname=font_path)
 
@@ -458,7 +460,7 @@ def cal_window_size(start_date, end_date):
 
 
 def find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes=None, data_dir=".",
-                              method="close_price", trend_end_date=None):
+                              method="close_price", trend_end_date=None, same_market=False):
     """
     主函数：寻找历史相似走势
 
@@ -470,6 +472,7 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法
     trend_end_date: datetime - 趋势结束日期（用于寻找其他时间段）
+    same_market: bool - 是否只查找同一市场的股票
     """
     logging.info("开始加载目标股票数据...")
     target_file = next(
@@ -492,6 +495,27 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     if stock_codes is None:
         stock_codes = [f.split('_')[0] for f in os.listdir(data_dir) if
                        f.endswith('.csv') and not f.startswith(f"{target_stock_code}_")]
+
+    # 如果需要在同一市场中查找，过滤掉不同市场的股票
+    if same_market:
+        try:
+            target_market = get_stock_market(target_stock_code)
+            filtered_stock_codes = []
+
+            for code in stock_codes:
+                try:
+                    if get_stock_market(code) == target_market:
+                        filtered_stock_codes.append(code)
+                except ValueError:
+                    # 跳过无法识别市场的股票代码
+                    logging.warning(f"跳过无法识别市场的股票代码: {code}")
+                    continue
+
+            stock_codes = filtered_stock_codes
+            logging.info(f"过滤后在{target_market}市场内共有{len(stock_codes)}只候选股票")
+        except ValueError as e:
+            logging.error(f"确定目标股票市场时出错: {str(e)}")
+            # 如果无法确定目标股票的市场，则不进行过滤
 
     # 分两种模式处理
     if trend_end_date is None:
@@ -523,7 +547,7 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
 def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=".", method="close_price",
                               future_days=10):
     """
-    找出某只个股与自身不同时期的相似度，并画图包括“未来天数”的K线。
+    找出某只个股与自身不同时期的相似度，并画图包括"未来天数"的K线。
 
     参数:
     target_stock_code: str - 目标股票代码
@@ -617,5 +641,9 @@ if __name__ == "__main__":
     # 1.寻找自身相似时期
     find_self_similar_windows(target_stock_code, start_date, end_date, data_dir, method="weighted")
 
-    # 2.寻找同时期相似个股
+    # 2.寻找同时期相似个股（不限制市场）
     # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
+
+    # 3.寻找同市场内的相似个股
+    # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, 
+    #                          method="weighted", same_market=True)

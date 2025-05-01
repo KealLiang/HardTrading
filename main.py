@@ -113,11 +113,12 @@ def get_stock_concept_and_industry():
 
 
 def find_similar_trends():
+    formatter = "%Y%m%d"
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "301225"  # 目标股票代码
-    start_date = datetime(2025, 2, 28)
-    end_date = datetime(2025, 3, 17)
-    trend_end_date = datetime(2025, 3, 17)  # 被查找个股的趋势结束日期
+    target_stock_code = "601086"  # 目标股票代码
+    start_date = datetime.strptime('20250407', formatter)
+    end_date = datetime.strptime('20250416', formatter)
+    trend_end_date = datetime.strptime('20250428', formatter)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -132,7 +133,7 @@ def find_similar_trends():
     # ]
     stock_codes = None
     find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted",
-                              trend_end_date=trend_end_date)
+                              trend_end_date=trend_end_date, same_market=True)
 
 
 def fetch_ths_fupan():
@@ -202,7 +203,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # analyze_advanced_on()
     # daily_group_analyze()
-    whimsical_fupan_analyze()
+    # whimsical_fupan_analyze()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # draw_ths_fupan()
@@ -210,7 +211,7 @@ if __name__ == '__main__':
     # find_yidong()
     # stocks_time_sharing_price()
     # find_dragon()
-    # find_similar_trends()
+    find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
