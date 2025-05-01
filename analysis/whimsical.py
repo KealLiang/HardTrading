@@ -21,55 +21,40 @@ except ImportError:
     NLP_UTILS_AVAILABLE = False
     FORCE_CHAR_SIMILARITY = True
 
-# 原因权重配置，只配置非默认权重(不为1)的原因
-# 权重越低，该原因在分组时的优先级越低；权重越高，优先级越高
-REASON_WEIGHTS = {
-    # 业绩相关的通用原因(降低权重)
-    "业绩增长": 0.7,
-    "同比扭亏为盈": 0.7,
-    # 重要概念(提高权重)
-    "芯片": 1.1,
-    "国产替代": 1.1,
-    "机器人": 1.1,
-}
-
 # 定义常见的同义词转换
 synonym_groups = {
     "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人", "PEEK材料"],
     "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
     "化工": ['化工', '氟化工', '化学制药', '化学制品', '环氧丙烷', '环氧丙烷衍生品', '精细化工', '氯碱化工',
              '石油化工'],
-    "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏"],
-    "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC"],
-    "数字经济": ["数字经济", "数字化", "数字技术", "数字转型"],
+    "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏", "锂电池", "锂电池回收", "HJT电池",
+               "固态电池", "钠离子电池", "氢能源"],
+    "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计'],
+    "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC", "DEEPSEEK"],
+    "跨境电商": ["跨境电商", "跨境支付", "外销", "大模型", "GPT", "AIGC"],
     "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
     "国企改革": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '天津国企', '福建国企', '上海国企',
                  "陕西国资", "山西国资", "广西国资"],
-    "华为": ["华为", "华为产业链", "鸿蒙", "昇腾"],
     "电子": ['电子', '消费电子', '苹果概念', '苹果'],
-    "券商": ["券商", "证券", "参股券商"],
     "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
     "军工": ["军工", "国防军工", "航空航天", "战斗机", "大飞机"],
-    "汽车": ["汽车", "整车", "汽配", "车载"],
     "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
-    "互联网": ["互联网", "电商", "社交", "游戏"],
-    "金融": ["金融", "保险", "银行", "信托", "支付"],
-    "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计'],
-    "数据中心": ["数据中心", "数据中心发电机"],
-    "电池": ["锂电池", "锂电池回收", "HJT电池", "固态电池", "钠离子电池"],
-    "减速器": ["减速器", "行星减速器", "变速器"],
-    "光刻胶": ["光刻胶", "光刻机"],
-    "蜜雪冰城供应商": ["蜜雪冰城供应商", "蜜雪冰城合作"],
-    "首发经济": ["首店经济", "首发经济"],
+    "金融": ["金融", "保险", "银行", "信托"],
     "业绩增长": ["一季报增长", "年报增长", "一季报预增", "年报、一季报增长", "一季报净利增长", "一季报大增",
+                 "年报净利增长",
                  "一季度业绩增长", "一季报业绩增长", "一季报净利预增", "一季报净利润增长", "业绩增长", "业绩预增"],
     "同比扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
                      "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
 }
 
-# 输入和输出文件路径
-FUPAN_FILE = "./excel/fupan_stocks.xlsx"
-OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
+# 排除列表 - 这些原因不会被选为热门原因
+EXCLUDED_REASONS = [
+    # "业绩增长",
+    # "同比扭亏为盈",
+]
+
+# 未分类原因的最小打印阈值
+UNCLASSIFIED_PRINT_THRESHOLD = 7
 
 # 颜色列表 - 彩虹色系(深色)
 COLORS = [
@@ -87,6 +72,10 @@ COLORS = [
 
 # 多次上榜但无热门原因的颜色
 MULTI_COLOR = "E0E0E0"  # 浅灰色
+
+# 输入和输出文件路径
+FUPAN_FILE = "./excel/fupan_stocks.xlsx"
+OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 
 
 def normalize_reason(reason):
@@ -121,22 +110,16 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
-def process_zt_data(start_date, end_date, clean_output=False, custom_weights=None):
+def process_zt_data(start_date, end_date, clean_output=False):
     """
     处理涨停数据，转换为更易于分析的格式
-    
+
     :param start_date: 开始日期，格式为'YYYYMMDD'
     :param end_date: 结束日期，格式为'YYYYMMDD'
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
-    :param custom_weights: 自定义原因权重字典，用于覆盖默认的REASON_WEIGHTS
     """
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
-
-    # 合并权重字典
-    reason_weights = REASON_WEIGHTS.copy()
-    if custom_weights and isinstance(custom_weights, dict):
-        reason_weights.update(custom_weights)
 
     # 读取原始Excel数据
     sheets_to_process = ['连板数据', '首板数据']
@@ -253,6 +236,16 @@ def process_zt_data(start_date, end_date, clean_output=False, custom_weights=Non
     reason_counter = Counter(all_reasons)
     unclassified_reasons = [reason for reason in reason_counter.keys() if reason.startswith('未分类_')]
 
+    # 打印出现次数超过阈值的未分类原因
+    if unclassified_reasons:
+        print("\n======== 未分类原因统计（出现次数 >= {}）========".format(UNCLASSIFIED_PRINT_THRESHOLD))
+        for reason in sorted(unclassified_reasons, key=lambda x: reason_counter[x], reverse=True):
+            count = reason_counter[reason]
+            if count >= UNCLASSIFIED_PRINT_THRESHOLD:
+                original_reason = reason.replace('未分类_', '')
+                print(f"  {original_reason}: {count}次")
+        print("================================================\n")
+
     # 创建未分类原因的sheet
     if unclassified_reasons:
         unclassified_ws = wb.create_sheet(title="未分类原因")
@@ -291,23 +284,11 @@ def process_zt_data(start_date, end_date, clean_output=False, custom_weights=Non
         print(f"未分类的涨停原因已保存到工作簿的 '未分类原因' 页")
 
     # 过滤掉未分类的原因，获取热门原因
-    classified_reasons = [reason for reason in reason_counter.keys() if not reason.startswith('未分类_')]
+    classified_reasons = [reason for reason in reason_counter.keys()
+                          if not reason.startswith('未分类_') and reason not in EXCLUDED_REASONS]
 
-    # 应用权重计算热门原因
-    weighted_reason_counter = {}
-    for reason in classified_reasons:
-        # 原始计数
-        count = reason_counter[reason]
-        # 应用权重
-        weighted_count = count * reason_weights.get(reason, 1.0)
-        weighted_reason_counter[reason] = weighted_count
-
-    # 使用加权后的计数选择热门原因
-    top_reasons = [reason for reason, _ in sorted(
-        weighted_reason_counter.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:8] if weighted_reason_counter[reason] > 0]
+    # 选择热门原因 (排除指定的原因)
+    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(8) if count > 0]
 
     # 如果没有足够的热门原因，使用默认分类
     if len(top_reasons) < 5:
@@ -351,42 +332,18 @@ def process_zt_data(start_date, end_date, clean_output=False, custom_weights=Non
         # 统计该股票的原因
         stock_reason_counter = Counter(data['reasons'])
 
-        # 为每个原因分配权重
-        weighted_reasons = {}
-
-        # 根据用户配置的权重计算
-        for reason, count in stock_reason_counter.items():
-            # 基础权重为该原因在股票中出现的次数
-            weight = count
-
-            # 应用自定义原因权重
-            reason_weight = reason_weights.get(reason, 1.0)
-            weight *= reason_weight
-
-            weighted_reasons[reason] = weight
-
         # 检查是否有热门原因
         found_top_reason = False
-        best_top_reason = None
-        best_top_reason_weight = -1
-
-        # 在热门原因中找出权重最高的
         for top_reason in top_reasons:
-            if top_reason in weighted_reasons:
-                weight = weighted_reasons[top_reason]
-                if weight > best_top_reason_weight:
-                    best_top_reason = top_reason
-                    best_top_reason_weight = weight
+            if top_reason in stock_reason_counter:
+                stock_reason_group[stock_key] = top_reason
+                found_top_reason = True
+                break
 
-        # 如果找到了热门原因，使用权重最高的热门原因
-        if best_top_reason:
-            stock_reason_group[stock_key] = best_top_reason
-            found_top_reason = True
-
-        # 如果没有热门原因，使用该股票权重最高的原因
-        if not found_top_reason and weighted_reasons:
-            best_reason = max(weighted_reasons.items(), key=lambda x: x[1])[0]
-            stock_reason_group[stock_key] = best_reason
+        # 如果没有热门原因，使用该股票最常见的原因
+        if not found_top_reason and stock_reason_counter:
+            most_common_reason = stock_reason_counter.most_common(1)[0][0]
+            stock_reason_group[stock_key] = most_common_reason
 
     # 创建图例作为第一列
     ws.column_dimensions['A'].width = 15
@@ -464,9 +421,9 @@ def process_zt_data(start_date, end_date, clean_output=False, custom_weights=Non
                 # 创建备注
                 comment_text = ""
                 if '几天几板' in stock['info']:
-                    comment_text += f"{stock['info']['几天几板']}\n"
+                    comment_text += f"{stock['info']['几天几板']} "
                 if '首次涨停时间' in stock['info']:
-                    comment_text += f"{stock['info']['首次涨停时间']}\n"
+                    comment_text += f"{stock['info']['首次涨停时间']} "
                 if '涨停开板次数' in stock['info']:
                     comment_text += f"{stock['info']['涨停开板次数']}\n"
                 if '涨停原因类别' in stock['info']:
@@ -835,17 +792,9 @@ if __name__ == "__main__":
     start_date = "20240101"
     end_date = "20240601"
 
-    # 自定义原因权重示例
-    custom_reason_weights = {
-        "华为": 1.5,  # 提高华为相关原因的权重
-        "军工": 1.2,  # 提高军工相关原因的权重
-        "业绩增长": 0.1,  # 大幅降低业绩增长原因的权重
-        "高送转": 0.4  # 降低高送转原因的权重
-    }
-
-    # 处理涨停数据
-    # 使用自定义权重: custom_weights=custom_reason_weights
-    process_zt_data(start_date, end_date, custom_weights=custom_reason_weights)
+    # 处理涨停数据，设置clean_output=True可清空现有Excel重新生成
+    # process_zt_data(start_date, end_date, clean_output=True)
+    process_zt_data(start_date, end_date)
 
     # 为【未分类原因】归类
     consolidate_unclassified_reasons()
