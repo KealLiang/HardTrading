@@ -33,6 +33,7 @@ synonym_groups = {
     "AI": ["AI", "人工智能", "算力", "大模型", "GPT", "AIGC", "DEEPSEEK"],
     "跨境电商": ["跨境电商", "跨境支付", "外销", "大模型", "GPT", "AIGC"],
     "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
+    "房地产": ["房地产"],
     "国企改革": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '天津国企', '福建国企', '上海国企',
                  "陕西国资", "山西国资", "广西国资"],
     "电子": ['电子', '消费电子', '苹果概念', '苹果'],
@@ -49,8 +50,8 @@ synonym_groups = {
 
 # 排除列表 - 这些原因不会被选为热门原因
 EXCLUDED_REASONS = [
-    # "业绩增长",
-    # "同比扭亏为盈",
+    "业绩增长",
+    "同比扭亏为盈",
 ]
 
 # 未分类原因的最小打印阈值
@@ -288,15 +289,15 @@ def process_zt_data(start_date, end_date, clean_output=False):
                           if not reason.startswith('未分类_') and reason not in EXCLUDED_REASONS]
 
     # 选择热门原因 (排除指定的原因)
-    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(8) if count > 0]
+    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(9) if count > 0]
 
     # 如果没有足够的热门原因，使用默认分类
     if len(top_reasons) < 5:
-        default_reasons = ["新能源", "AI", "医药", "半导体", "军工", "大消费", "汽车", "旅游"]
+        default_reasons = ["新能源", "AI", "医药", "半导体", "军工", "大消费", "汽车", "旅游", "电力"]
         for reason in default_reasons:
             if reason not in top_reasons:
                 top_reasons.append(reason)
-            if len(top_reasons) >= 8:
+            if len(top_reasons) >= 9:
                 break
 
     # 为每个原因分配颜色
@@ -359,9 +360,9 @@ def process_zt_data(start_date, end_date, clean_output=False):
     cell = ws.cell(row=multi_row, column=1, value="多次上榜")
     cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
 
-    # 添加首板/连板分割线说明
+    # 添加首板/连板分隔cell说明
     separator_row = multi_row + 1
-    ws.cell(row=separator_row, column=1, value="分隔线 = 首板")
+    ws.cell(row=separator_row, column=1, value="分隔cell = 首板")
     separator_cell = ws.cell(row=separator_row + 1, column=1)
     separator_cell.border = Border(bottom=Side(style='double', color='000000'))
 
@@ -396,14 +397,23 @@ def process_zt_data(start_date, end_date, clean_output=False):
 
             # 先找出每列的连板和首板分界行号
             first_connection_idx = None
+            for idx, stock in enumerate(sorted_stocks):
+                if stock['board_level'] == 1 and stock['sheet_name'] == '首板数据':
+                    first_connection_idx = idx
+                    break
 
-            # 写入排序后的数据
-            for row_idx, stock in enumerate(sorted_stocks, start=2):
+            # 写入连板股票数据
+            row_idx = 2
+            for idx, stock in enumerate(sorted_stocks):
+                # 达到分界点，插入空行作为分隔
+                if first_connection_idx is not None and idx == first_connection_idx:
+                    # 添加空行作为分隔
+                    row_idx += 1
+                    separator_cell = ws.cell(row=row_idx - 1, column=col_idx)
+                    # 设置底色为黑色
+                    separator_cell.fill = PatternFill(start_color="000000", fill_type="darkTrellis")
+
                 stock_key = f"{stock['code']}_{stock['name']}"
-
-                # 记录首个首板的位置
-                if first_connection_idx is None and stock['board_level'] == 1 and stock['sheet_name'] == '首板数据':
-                    first_connection_idx = row_idx
 
                 # 计算该股票在当前分析区间内的上榜次数
                 appearances_count = len(all_stocks[stock_key]['appearances'])
@@ -442,16 +452,7 @@ def process_zt_data(start_date, end_date, clean_output=False):
                     if stock_key not in stock_reason_group or stock_reason_group[stock_key] not in reason_colors:
                         cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
 
-            # 添加首板和连板的分隔线
-            if first_connection_idx is not None:
-                # 第一个首板的前一行添加下边框
-                separator_cell = ws.cell(row=first_connection_idx - 1, column=col_idx)
-                separator_cell.border = Border(
-                    left=separator_cell.border.left if separator_cell.border else None,
-                    right=separator_cell.border.right if separator_cell.border else None,
-                    top=separator_cell.border.top if separator_cell.border else None,
-                    bottom=Side(style='double', color='000000')
-                )
+                row_idx += 1
 
     # 保存工作簿
     wb.save(OUTPUT_FILE)

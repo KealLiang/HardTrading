@@ -188,8 +188,8 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250421"
-    end_date = "20250430"
+    start_date = "20250416"
+    end_date = "20250428"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
