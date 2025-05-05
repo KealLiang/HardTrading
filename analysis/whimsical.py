@@ -34,8 +34,8 @@ synonym_groups = {
     "跨境电商": ["跨境电商", "跨境支付", "外销", "大模型", "GPT", "AIGC"],
     "半导体": ["半导体", "芯片", "存储芯片", "集成电路"],
     "房地产": ["房地产"],
-    "国企改革": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '天津国企', '福建国企', '上海国企',
-                 "陕西国资", "山西国资", "广西国资"],
+    "国企": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '天津国企', '福建国企', '上海国企',
+             "陕西国资", "山西国资", "广西国资", "央企"],
     "电子": ['电子', '消费电子', '苹果概念', '苹果'],
     "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
     "军工": ["军工", "国防军工", "航空航天", "战斗机", "大飞机"],
@@ -52,6 +52,7 @@ synonym_groups = {
 EXCLUDED_REASONS = [
     "业绩增长",
     "同比扭亏为盈",
+    "国企",
 ]
 
 # 未分类原因的最小打印阈值
@@ -411,17 +412,21 @@ def process_zt_data(start_date, end_date, clean_output=False):
                     row_idx += 1
                     separator_cell = ws.cell(row=row_idx - 1, column=col_idx)
                     # 设置底色为黑色
-                    separator_cell.fill = PatternFill(start_color="000000", fill_type="darkTrellis")
+                    separator_cell.fill = PatternFill(start_color="000000", fill_type="solid")
+                    separator_cell.border = Border(
+                        bottom=Side(style='double', color='FFFFFF')
+                    )
 
                 stock_key = f"{stock['code']}_{stock['name']}"
 
                 # 计算该股票在当前分析区间内的上榜次数
                 appearances_count = len(all_stocks[stock_key]['appearances'])
 
-                # 在股票名称后添加上榜次数
-                display_name = stock['name']
-                if appearances_count > 1:
-                    display_name = f"{stock['name']}{appearances_count}"
+                # 获取当前板数，用于显示在名称后
+                current_board_level = stock['board_level'] if stock['board_level'] != 1 else ''
+
+                # 在股票名称后添加当天涨停板数（y板数）
+                display_name = f"{stock['name']}{current_board_level}"
 
                 cell = ws.cell(row=row_idx, column=col_idx, value=display_name)
 
