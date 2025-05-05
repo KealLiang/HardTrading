@@ -189,7 +189,7 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250407"
+    start_date = "20250414"
     end_date = "20250430"
     process_zt_data(start_date, end_date, clean_output=True)
 

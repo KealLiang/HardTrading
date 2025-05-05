@@ -55,8 +55,8 @@ EXCLUDED_REASONS = [
     "国企",
 ]
 
-# 未分类原因的最小打印阈值
-UNCLASSIFIED_PRINT_THRESHOLD = 7
+# 选取top n的原因着色
+TOP_N = 9
 
 # 颜色列表 - 彩虹色系(深色)
 COLORS = [
@@ -68,9 +68,18 @@ COLORS = [
     "9966FF",  # 紫色
     "FF66B3",  # 粉色
     "5ACDCD",  # 青色
-    "FF8A8A",  # 浅红色
-    "FFAA33"  # 金色
+    "DDA0DD",  # 浅紫红
+    "FFB366",  # 浅橙色
+    "FFF066",  # 浅黄色
+    "90EE90",  # 浅绿色
+    "87CEFA",  # 浅蓝色
+    "B19CD9",  # 浅紫色
+    "FFB6C1",  # 浅粉色
+    "E1FFFF",  # 浅青色
 ]
+
+# 未分类原因的最小打印阈值
+UNCLASSIFIED_PRINT_THRESHOLD = 7
 
 # 多次上榜但无热门原因的颜色
 MULTI_COLOR = "E0E0E0"  # 浅灰色
@@ -290,15 +299,14 @@ def process_zt_data(start_date, end_date, clean_output=False):
                           if not reason.startswith('未分类_') and reason not in EXCLUDED_REASONS]
 
     # 选择热门原因 (排除指定的原因)
-    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(9) if count > 0]
+    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(TOP_N) if count > 0]
 
-    # 如果没有足够的热门原因，使用默认分类
-    if len(top_reasons) < 5:
-        default_reasons = ["新能源", "AI", "医药", "半导体", "军工", "大消费", "汽车", "旅游", "电力"]
-        for reason in default_reasons:
+    # 如果没有足够的热门原因，使用synonym_groups中的分类
+    if len(top_reasons) < TOP_N:
+        for reason in synonym_groups.keys():
             if reason not in top_reasons:
                 top_reasons.append(reason)
-            if len(top_reasons) >= 9:
+            if len(top_reasons) >= TOP_N:
                 break
 
     # 为每个原因分配颜色
