@@ -137,7 +137,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250415"
+    start_date = "20250425"
     # end_date = '20250424'
     end_date = None
     all_fupan(start_date, end_date)
@@ -199,10 +199,10 @@ def whimsical_fupan_analyze():
 
 
 if __name__ == '__main__':
-    # get_stock_datas()
+    get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    whimsical_fupan_analyze()
+    # whimsical_fupan_analyze()
     # analyze_advanced_on()
     # daily_group_analyze()
     # fupan_statistics_to_excel()

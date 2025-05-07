@@ -8,6 +8,7 @@ import pandas_market_calendars as mcal
 import pywencai
 from wordcloud import WordCloud
 from matplotlib.font_manager import FontProperties
+from config.holder import config
 
 # 确保字体文件路径正确
 font_path = 'fonts/微软雅黑.ttf'
@@ -40,7 +41,7 @@ def hot_words_cloud(days):
         try:
             print(f"正在处理日期: {date}")
             param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-            df = pywencai.get(query=param, sort_key='成交金额', sort_order='desc', loop=True)
+            df = pywencai.get(query=param, sort_key='成交金额', sort_order='desc', loop=True, cookie=config.ths_cookie)
 
             selected_columns = ['股票代码', '股票简称', '最新价', '最新涨跌幅', '首次涨停时间[' + date + ']',
                                 '连续涨停天数[' + date + ']', '涨停原因类别[' + date + ']',

@@ -1,7 +1,7 @@
 /data/astocks/
 /wordclouds/hot/
 /fetch/tonghuashun/excel/
-/config.ini
+/config/default.ini
 /data/concepts_data/
 /data/astocks_minute/
 /kline_charts/
@@ -9,3 +9,4 @@
 /data/long/
 __pycache__/
 images/
+local.ini

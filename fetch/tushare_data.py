@@ -1,13 +1,12 @@
-import configparser
 from datetime import datetime
 
 import tushare as ts
 
+from config.holder import config
+
 
 def get_token():
-    config = configparser.ConfigParser()
-    config.read('config.ini')  # 读取配置文件
-    return config['API']['tushare_token']
+    return config.get('API', 'tushare_token')
 
 
 def fetch_fund_data(ts_code, start_date='20230101', end_date=None):

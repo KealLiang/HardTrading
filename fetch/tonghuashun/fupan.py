@@ -6,6 +6,7 @@ import pandas as pd
 import pywencai
 
 from utils.date_util import get_trading_days
+from config.holder import config
 
 fupan_file = "./excel/fupan_stocks.xlsx"
 # 涨停缓存
@@ -13,7 +14,7 @@ zt_cache = {}
 
 
 def query_wencai(param):
-    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True)
+    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=config.ths_cookie)
     return df
 
 

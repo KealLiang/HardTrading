@@ -8,6 +8,8 @@ import pandas as pd
 import tushare as ts
 
 from threading import Lock
+
+from config.holder import config
 from decorators.practical import timer
 from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
     get_dieting_stocks
@@ -24,10 +26,8 @@ def init_tushare():
         tushare.Pro: Tushare Pro API 实例
     """
     try:
-        # config = configparser.ConfigParser()
-        # config.read('config.ini')  # 读取配置文件
-        # ts.set_token(config['API']['tushare_token'])
-        ts.set_token('823b48b8fbb6f051271f07ebd1180209a077532aa14eae61cc89fcd9')
+        token = config.get('API', 'tushare_token')
+        ts.set_token(token)
         return ts.pro_api()
     except Exception as e:
         print(f"初始化 Tushare 失败: {str(e)}")
