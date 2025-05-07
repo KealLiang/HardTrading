@@ -9,6 +9,12 @@ import pandas_market_calendars as mcal
 logger = logging.getLogger('date_util')
 
 
+def remove_holidays(prev_days):
+    custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC'), pd.Timestamp('2025-05-05', tz='UTC')]
+    prev_days = [day for day in prev_days if day not in custom_holidays]
+    return prev_days
+
+
 def format_date(date_value):
     """
     将各种格式的日期统一转换为标准的'YYYY-MM-DD'格式。
@@ -159,12 +165,6 @@ def get_prev_trading_day(date: str) -> str:
     except Exception as e:
         print(f"获取前一个交易日时出错: {str(e)}")
         return None
-
-
-def remove_holidays(prev_days):
-    custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC')]
-    prev_days = [day for day in prev_days if day not in custom_holidays]
-    return prev_days
 
 
 def get_n_trading_days_before(date: str, n: int) -> str:

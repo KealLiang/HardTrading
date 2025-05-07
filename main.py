@@ -99,7 +99,7 @@ def find_yidong():
     # date = '2025-04-28'
     # find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
-    start_date = '2025-04-15'
+    start_date = '2025-04-25'
     end_date = None
     find_serious_abnormal_stocks_range(start_date, end_date)
 
@@ -159,7 +159,9 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    plot_all('20250401', '20250430')
+    start_date = '20250415'
+    end_date = None
+    plot_all(start_date, end_date)
     # plot_all()
 
 
@@ -170,12 +172,12 @@ def stocks_time_sharing_price():
     # analyze_stocks_time_sharing(stock_codes, date_list)
 
     # 读取异动文件
-    dates_list = ["20250425", "20250428"]  # 可以指定多个日期
+    dates_list = ["20250506", "20250507"]  # 可以指定多个日期
     analyze_abnormal_stocks_time_sharing(dates_list)
 
 
 def analyze_advanced_on():
-    start_date = '2025-04-20'
+    start_date = '2025-04-25'
     end_date = None
     analyze_rate(start_date, end_date)
 
@@ -189,8 +191,8 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250414"
-    end_date = "20250430"
+    start_date = "20250416"
+    end_date = "20250507"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
@@ -199,7 +201,7 @@ def whimsical_fupan_analyze():
 
 
 if __name__ == '__main__':
-    get_stock_datas()
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
@@ -207,9 +209,9 @@ if __name__ == '__main__':
     # daily_group_analyze()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    # get_hot_clouds()
     # find_yidong()
-    # stocks_time_sharing_price()
+    stocks_time_sharing_price()
+    # get_hot_clouds()
     # find_dragon()
     # find_similar_trends()
     # get_stock_concept_and_industry()

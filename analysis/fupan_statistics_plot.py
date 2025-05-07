@@ -1,5 +1,6 @@
 import os
 import warnings
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -565,6 +566,9 @@ def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=N
 
 def plot_all(start_date=None, end_date=None, path='./excel/'):
     """绘制所有分析图表"""
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
+
     market_analysis_path = path + 'market_analysis.xlsx'
     limit_up_history = path + 'limit_up_history.xlsx'
 
