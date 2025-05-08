@@ -137,14 +137,14 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250425"
+    start_date = "20250414"
     # end_date = '20250424'
     end_date = None
     all_fupan(start_date, end_date)
 
 
 def draw_ths_fupan():
-    start_date = '20250401'  # 开始日期
+    start_date = '20250414'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -204,12 +204,12 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
+    whimsical_fupan_analyze()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
