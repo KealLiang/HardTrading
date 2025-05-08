@@ -5,22 +5,22 @@ from datetime import datetime
 import pandas as pd
 import pywencai
 
-from utils.date_util import get_trading_days
 from config.holder import config
+from utils.date_util import get_trading_days
 
-fupan_file = "./excel/fupan_stocks.xlsx"
+# fupan_file = "./excel/fupan_stocks.xlsx" # Removed global variable
 # 涨停缓存
 zt_cache = {}
 
 
-def query_wencai(param):
-    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=config.ths_cookie)
+def query_wencai(param, cookie):  # Added cookie parameter
+    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=cookie)
     return df
 
 
-def get_fanbao_stocks(date):
-    param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-    df = query_wencai(param)
+def get_fanbao_stocks(date, board_suffix=""):
+    param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
+    df = query_wencai(param, config.ths_cookie)
     if df is None:
         return pd.DataFrame()
 
@@ -42,15 +42,16 @@ def get_fanbao_stocks(date):
     return sorted_correction_df
 
 
-def get_zt_stocks(date):
+def get_zt_stocks(date, board_suffix=""):
     # 检查缓存中是否有数据
-    if date in zt_cache:
-        print(f"使用缓存数据：{date}")
-        jj_df = zt_cache[date]
+    cache_key = (date, board_suffix)
+    if cache_key in zt_cache:
+        print(f"使用缓存数据：{date} ({board_suffix})")
+        jj_df = zt_cache[cache_key]
     else:
         # 设置查询参数
-        param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-        df = query_wencai(param)
+        param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
+        df = query_wencai(param, config.ths_cookie)
         if df is None:
             df = pd.DataFrame()
         # 选择需要的列
@@ -61,19 +62,20 @@ def get_zt_stocks(date):
         ]
         jj_df = df[selected_columns]
         # 将数据添加到缓存
-        zt_cache[date] = jj_df
+        zt_cache[cache_key] = jj_df
     return jj_df
 
 
-def get_lianban_stocks(date):
+def get_lianban_stocks(date, board_suffix=""):
     """
     获取指定日期的连板个股数据。
 
     :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
     :return: 连板个股的DataFrame。
     """
 
-    jj_df = get_zt_stocks(date)
+    jj_df = get_zt_stocks(date, board_suffix)
 
     # 筛选出连续涨停天数大于1的股票
     lianban_df = jj_df[jj_df[f'几天几板[{date}]'] != '首板涨停']
@@ -84,15 +86,16 @@ def get_lianban_stocks(date):
     return sorted_lianban_df
 
 
-def get_shouban_stocks(date):
+def get_shouban_stocks(date, board_suffix=""):
     """
     获取指定日期的首板个股数据。
 
     :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
     :return: 连板个股的DataFrame。
     """
 
-    jj_df = get_zt_stocks(date)
+    jj_df = get_zt_stocks(date, board_suffix)
 
     # 筛选出连续涨停天数大于1的股票
     lianban_df = jj_df[jj_df[f'几天几板[{date}]'] == '首板涨停']
@@ -103,16 +106,17 @@ def get_shouban_stocks(date):
     return sorted_lianban_df
 
 
-def get_dieting_stocks(date):
+def get_dieting_stocks(date, board_suffix=""):
     """
     获取指定日期的跌停个股数据。
 
     :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-    df = query_wencai(param)
+    param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
+    df = query_wencai(param, config.ths_cookie)
     if df is None:
         return pd.DataFrame()
 
@@ -130,16 +134,17 @@ def get_dieting_stocks(date):
     return sorted_luoban_df
 
 
-def get_open_dieting_stocks(date):
+def get_open_dieting_stocks(date, board_suffix=""):
     """
     获取指定日期的开盘跌停个股数据。
 
     :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-    df = query_wencai(param)
+    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
+    df = query_wencai(param, config.ths_cookie)
     if df is None:
         return pd.DataFrame()
 
@@ -154,23 +159,24 @@ def get_open_dieting_stocks(date):
     return sorted_dt_df
 
 
-def get_zaban_stocks(date):
+def get_zaban_stocks(date, board_suffix=""):
     """
     获取指定日期的炸板个股数据。
 
     :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
     :return: 炸板个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
-    df = query_wencai(param)
+    param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
+    df = query_wencai(param, config.ths_cookie)
     if df is None:
         return pd.DataFrame()
 
     # 选择需要的列
     selected_columns = [
         '股票代码', '股票简称', f'涨停开板次数[{date}]', f'首次涨停时间[{date}]',
-        '上市板块', '最新价', f'曾涨停[{date}]', '最新涨跌幅',
+        '最新价', f'曾涨停[{date}]', '最新涨跌幅',
         f'涨停封板时长[{date}]', f'涨停时间明细[{date}]'
     ]
     zaban_df = df[selected_columns]
@@ -183,16 +189,17 @@ def get_zaban_stocks(date):
     return sorted_zaban_df
 
 
-def get_top_attention_stocks(date):
+def get_top_attention_stocks(date, board_suffix=""):
     """
     获取指定日期的关注度榜个股数据。
     
     :param date: 查询日期，格式为'YYYYMMDD'
+    :param board_suffix: 板块筛选后缀
     :return: 关注度榜个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}关注度前二十"
-    df = query_wencai(param)
+    param = f"{date}关注度前二十，{board_suffix}"  # Added board_suffix to query
+    df = query_wencai(param, config.ths_cookie)
     if df is None:
         return pd.DataFrame()
 
@@ -209,17 +216,18 @@ def get_top_attention_stocks(date):
     return sorted_top_df
 
 
-def save_to_excel(dataframes, dates, fupan_type):
+def save_to_excel(dataframes, dates, fupan_type, target_excel_file):
     """
     将多个日期的DataFrame保存到一个Excel文件中，日期作为列名。
 
+    :param target_excel_file: 目标Excel文件路径
     :param fupan_type: 复盘类型（对应 Excel 的 sheet 名）。
     :param dataframes: 包含所有日期 DataFrame 的字典，键为日期。
     :param dates: 日期列表。
     """
     # 如果文件存在且包含该 sheet，读取已有数据；否则创建新数据
-    if sheet_exists(fupan_file, fupan_type):
-        existing_data = pd.read_excel(fupan_file, sheet_name=fupan_type, index_col=0)
+    if sheet_exists(target_excel_file, fupan_type):
+        existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
     else:
         existing_data = pd.DataFrame()
 
@@ -232,7 +240,7 @@ def save_to_excel(dataframes, dates, fupan_type):
 
         # 如果该日期已经存在，则跳过
         if date_formatted in new_data.columns:
-            print(f"数据 {date_formatted} 已存在，跳过追加。")
+            print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过追加。")
             continue
 
         # 合并数据
@@ -241,13 +249,17 @@ def save_to_excel(dataframes, dates, fupan_type):
     # 按序号排序
     new_data = new_data.sort_index()
 
+    # 确保目录存在
+    os.makedirs(os.path.dirname(target_excel_file), exist_ok=True)
+
     # 写入 Excel 文件
-    with pd.ExcelWriter(fupan_file, engine="openpyxl", mode="a" if os.path.exists(fupan_file) else "w") as writer:
-        if os.path.exists(fupan_file) and fupan_type in writer.book.sheetnames:
+    with pd.ExcelWriter(target_excel_file, engine="openpyxl",
+                        mode="a" if os.path.exists(target_excel_file) else "w") as writer:
+        if os.path.exists(target_excel_file) and fupan_type in writer.book.sheetnames:
             # 如果 sheet 存在，删除旧的 sheet 再写入
             del writer.book[fupan_type]
         new_data.to_excel(writer, sheet_name=fupan_type, index=True)
-    print(f"Data saved to {fupan_file}, sheet: {fupan_type}")
+    print(f"Data saved to {target_excel_file}, sheet: {fupan_type}")
 
 
 def sheet_exists(file_path, sheet_name):
@@ -267,9 +279,12 @@ def sheet_exists(file_path, sheet_name):
                 return False
     except FileNotFoundError:
         return False
+    except Exception as e:  # Catch other potential errors like bad zip file
+        print(f"Error checking sheet existence for {file_path}, sheet {sheet_name}: {e}")
+        return False
 
 
-def daily_fupan(fupan_type, start_date, end_date):
+def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file):
     fupan_functions = {
         '连板数据': get_lianban_stocks,
         '跌停数据': get_dieting_stocks,
@@ -280,7 +295,7 @@ def daily_fupan(fupan_type, start_date, end_date):
     }
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
-    print(f"交易日列表：{trading_days}")
+    print(f"交易日列表：{trading_days} for {board_suffix}")
 
     # 对每个交易日获取连板个股数据并保存
     dataframes = {}
@@ -288,36 +303,54 @@ def daily_fupan(fupan_type, start_date, end_date):
     for trade_date in trading_days:
         date_formatted = datetime.strptime(trade_date, '%Y%m%d').strftime('%Y年%m月%d日')
 
-        if sheet_exists(fupan_file, fupan_type) and pd.read_excel(fupan_file, sheet_name=fupan_type,
-                                                                  index_col=0).columns.isin(
+        if sheet_exists(target_excel_file, fupan_type) and pd.read_excel(target_excel_file, sheet_name=fupan_type,
+                                                                         index_col=0).columns.isin(
             [date_formatted]).any():
-            print(f"数据 {date_formatted} 已存在，跳过获取。")
+            print(f"数据 {date_formatted} ({board_suffix}) 已存在于 {target_excel_file}，跳过获取。")
             exclude_days.append(trade_date)
             continue
 
+        print(f"正在获取 {trade_date} 的 {fupan_type} 数据 ({board_suffix})...")
         # 动态调用方法
-        lianban_stocks_df = fupan_functions.get(fupan_type, lambda x: None)(trade_date)
-        dataframes[trade_date] = lianban_stocks_df
+        # Pass board_suffix to the fetched function
+        stock_data_df = fupan_functions.get(fupan_type, lambda x, bs: pd.DataFrame())(trade_date, board_suffix)
+        dataframes[trade_date] = stock_data_df
 
     # 保存所有日期数据到一个Excel文件
-    dates = [d for d in trading_days if d not in exclude_days]
+    dates_to_save = [d for d in trading_days if d not in exclude_days]
     if dataframes:
-        save_to_excel(dataframes, dates, fupan_type)
+        save_to_excel(dataframes, dates_to_save, fupan_type, target_excel_file)
 
 
 def all_fupan(start_date=None, end_date=None):
-    # end_date = "20241201"
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
-    for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
-        daily_fupan(fupan_type, start_date, end_date)
+
+    board_configs = [
+        {"suffix": "", "file": "./excel/fupan_stocks.xlsx"},
+        {"suffix": "非主板", "file": "./excel/fupan_stocks_non_main.xlsx"}
+    ]
+
+    for config_item in board_configs:
+        board_suffix = config_item["suffix"]
+        target_excel_file = config_item["file"]
+        print(f"\nProcessing for: {board_suffix}, output to: {target_excel_file}")
+        for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
+            print(f"--- Starting fupan type: {fupan_type} ---")
+            daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file)
 
 
 if __name__ == "__main__":
     # 设置当前工作目录为脚本所在目录
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
     # 添加 utils 模块所在的目录到 sys.path
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+    sys.path.append(os.path.abspath(os.path.join(script_dir, '../..')))
 
-    start_date = "20250101"
+    start_date = "20250101"  # Example, adjust as needed
+    # For testing a single day and type:
+    # current_date = datetime.now().strftime('%Y%m%d')
+    # daily_fupan('连板数据', current_date, current_date, "非科创板，非北交所", "./excel/fupan_stocks.xlsx")
+    # daily_fupan('连板数据', current_date, current_date, "科创板或北交所", "./excel/fupan_stocks_non_main.xlsx")
+
     all_fupan(start_date)
