@@ -40,12 +40,11 @@ def hot_words_cloud(days):
     for date in trading_days:
         try:
             print(f"正在处理日期: {date}")
-            param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，非科创板，非北交所"
+            param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST"
             df = pywencai.get(query=param, sort_key='成交金额', sort_order='desc', loop=True, cookie=config.ths_cookie)
 
             selected_columns = ['股票代码', '股票简称', '最新价', '最新涨跌幅', '首次涨停时间[' + date + ']',
-                                '连续涨停天数[' + date + ']', '涨停原因类别[' + date + ']',
-                                'a股市值(不含限售股)[' + date + ']', '涨停类型[' + date + ']']
+                                '连续涨停天数[' + date + ']', '涨停原因类别[' + date + ']']
             jj_df = df[selected_columns]
 
             # 按照'连板数'列进行降序排序
