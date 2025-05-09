@@ -13,14 +13,14 @@ from utils.date_util import get_trading_days
 zt_cache = {}
 
 
-def query_wencai(param, cookie):  # Added cookie parameter
-    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=cookie)
+def query_wencai(param):  # Added cookie parameter
+    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=config.ths_cookie)
     return df
 
 
 def get_fanbao_stocks(date, board_suffix=""):
-    param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
-    df = query_wencai(param, config.ths_cookie)
+    param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -50,8 +50,8 @@ def get_zt_stocks(date, board_suffix=""):
         jj_df = zt_cache[cache_key]
     else:
         # 设置查询参数
-        param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
-        df = query_wencai(param, config.ths_cookie)
+        param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+        df = query_wencai(param)
         if df is None or df.empty:
             return pd.DataFrame()
         # 选择需要的列
@@ -119,8 +119,8 @@ def get_dieting_stocks(date, board_suffix=""):
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
-    df = query_wencai(param, config.ths_cookie)
+    param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -147,8 +147,8 @@ def get_open_dieting_stocks(date, board_suffix=""):
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
-    df = query_wencai(param, config.ths_cookie)
+    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    df = query_wencai(param)
     if df is None:
         return pd.DataFrame()
 
@@ -172,8 +172,8 @@ def get_zaban_stocks(date, board_suffix=""):
     :return: 炸板个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
-    df = query_wencai(param, config.ths_cookie)
+    param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -203,7 +203,7 @@ def get_top_attention_stocks(date, board_suffix=""):
     """
     # 设置查询参数
     param = f"{date}关注度前二十，{board_suffix}"  # Added board_suffix to query
-    df = query_wencai(param, config.ths_cookie)
+    df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -326,14 +326,16 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         save_to_excel(dataframes, dates_to_save, fupan_type, target_excel_file)
 
 
-def all_fupan(start_date=None, end_date=None):
+def all_fupan(start_date=None, end_date=None, types='all'):
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
 
-    board_configs = [
-        {"suffix": "", "file": "./excel/fupan_stocks.xlsx"},
-        {"suffix": "非主板", "file": "./excel/fupan_stocks_non_main.xlsx"}
-    ]
+    board_configs = []
+
+    if 'all' in types:
+        board_configs.append({"suffix": "", "file": "./excel/fupan_stocks.xlsx"})
+    if 'else' in types:
+        board_configs.append({"suffix": "，非主板", "file": "./excel/fupan_stocks_non_main.xlsx"})
 
     for config_item in board_configs:
         board_suffix = config_item["suffix"]
