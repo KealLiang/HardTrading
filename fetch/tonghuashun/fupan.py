@@ -21,7 +21,7 @@ def query_wencai(param, cookie):  # Added cookie parameter
 def get_fanbao_stocks(date, board_suffix=""):
     param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
     df = query_wencai(param, config.ths_cookie)
-    if df is None:
+    if df is None or df.empty:
         return pd.DataFrame()
 
     selected_columns = [
@@ -52,8 +52,8 @@ def get_zt_stocks(date, board_suffix=""):
         # 设置查询参数
         param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
         df = query_wencai(param, config.ths_cookie)
-        if df is None:
-            df = pd.DataFrame()
+        if df is None or df.empty:
+            return pd.DataFrame()
         # 选择需要的列
         selected_columns = [
             '股票代码', '股票简称', f'涨停开板次数[{date}]', f'最终涨停时间[{date}]',
@@ -76,6 +76,8 @@ def get_lianban_stocks(date, board_suffix=""):
     """
 
     jj_df = get_zt_stocks(date, board_suffix)
+    if jj_df is None or jj_df.empty:
+        return jj_df
 
     # 筛选出连续涨停天数大于1的股票
     lianban_df = jj_df[jj_df[f'几天几板[{date}]'] != '首板涨停']
@@ -96,6 +98,8 @@ def get_shouban_stocks(date, board_suffix=""):
     """
 
     jj_df = get_zt_stocks(date, board_suffix)
+    if jj_df is None or jj_df.empty:
+        return jj_df
 
     # 筛选出连续涨停天数大于1的股票
     lianban_df = jj_df[jj_df[f'几天几板[{date}]'] == '首板涨停']
@@ -117,7 +121,7 @@ def get_dieting_stocks(date, board_suffix=""):
     # 设置查询参数
     param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
     df = query_wencai(param, config.ths_cookie)
-    if df is None:
+    if df is None or df.empty:
         return pd.DataFrame()
 
     # 选择需要的列
@@ -170,7 +174,7 @@ def get_zaban_stocks(date, board_suffix=""):
     # 设置查询参数
     param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST，{board_suffix}"
     df = query_wencai(param, config.ths_cookie)
-    if df is None:
+    if df is None or df.empty:
         return pd.DataFrame()
 
     # 选择需要的列
@@ -200,7 +204,7 @@ def get_top_attention_stocks(date, board_suffix=""):
     # 设置查询参数
     param = f"{date}关注度前二十，{board_suffix}"  # Added board_suffix to query
     df = query_wencai(param, config.ths_cookie)
-    if df is None:
+    if df is None or df.empty:
         return pd.DataFrame()
 
     # 选择需要的列
