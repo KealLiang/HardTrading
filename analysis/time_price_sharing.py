@@ -11,6 +11,8 @@ import pandas as pd
 from scipy.spatial.distance import euclidean
 from sklearn.preprocessing import minmax_scale
 
+from utils.date_util import get_trading_days, get_prev_trading_day
+
 # 解决中文显示问题
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 用黑体显示中文
 matplotlib.rcParams['axes.unicode_minus'] = False  # 正常显示负号
@@ -388,8 +390,6 @@ def analyze_stocks_time_sharing(stock_codes, start_date, end_date=None, deviatio
     end_date (str, optional): 结束日期，格式为 "YYYYMMDD"，如果为None则等于start_date
     deviation_data (dict, optional): 股票代码到偏离度数据的映射，格式为 {code: {'10d': value, '30d': value}}
     """
-    from utils.date_util import get_trading_days
-
     # 如果未提供结束日期，则使用开始日期
     if end_date is None:
         end_date = start_date
@@ -492,16 +492,20 @@ def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_po
     date_separators = []  # 存储日期分隔线位置
     total_index = 0  # 累计索引，用于连续定位
 
-    # 收集每只股票在每个日期的收盘价和开盘价
+    # 收集每只股票在每个日期的收盘价和开盘价，以及前一交易日的收盘价
     closing_prices = {}  # 格式: {stock_code: {date: price}}
     opening_prices = {}  # 格式: {stock_code: {date: price}}
-    first_day_open_prices = {}  # 格式: {stock_code: price} - 整个周期的首日开盘价
+    prev_day_closing_prices = {}  # 格式: {stock_code: {date: prev_day_close}}
+    start_offsets = {}  # 格式: {stock_code: offset_value} - 每只股票的起始点偏移值
 
     # 第一步：收集基础数据和价格信息
     for date_index, date_str in enumerate(date_list):
         date_formatted = datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
         start_index_of_day = total_index
         max_points_in_day = 0
+
+        # 获取前一交易日
+        prev_trading_day = get_prev_trading_day(date_str) if date_index == 0 else None
 
         for stock_code in stocks:
             if stock_code not in all_data:
@@ -525,15 +529,41 @@ def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_po
             if stock_code not in closing_prices:
                 closing_prices[stock_code] = {}
                 opening_prices[stock_code] = {}
+                prev_day_closing_prices[stock_code] = {}
 
             # 存储收盘价和开盘价
             if '收盘' in day_data.columns:
                 closing_prices[stock_code][date_str] = day_data['收盘'].iloc[-1]
                 opening_prices[stock_code][date_str] = day_data['收盘'].iloc[0]
 
-                # 记录首日开盘价，用于整个周期的涨跌幅计算
-                if date_index == 0:
-                    first_day_open_prices[stock_code] = day_data['收盘'].iloc[0]
+                # 对于第一天，尝试获取前一交易日的收盘价，作为起始偏移计算基准
+                if date_index == 0 and prev_trading_day:
+                    # 如果是第一天且前一交易日存在
+                    try:
+                        # 获取前一交易日的K线数据
+                        prev_day_data = ak.stock_zh_a_hist(symbol=stock_code,
+                                                           start_date=prev_trading_day,
+                                                           end_date=prev_trading_day,
+                                                           adjust="")
+                        if prev_day_data is not None and not prev_day_data.empty:
+                            prev_close = prev_day_data['收盘'].iloc[0]
+                            prev_day_closing_prices[stock_code][date_str] = prev_close
+
+                            # 计算第一天开盘相对于前一交易日收盘的涨跌幅
+                            curr_open = opening_prices[stock_code][date_str]
+                            start_offset = ((curr_open / prev_close) - 1) * 100
+                            start_offsets[stock_code] = start_offset
+
+                            print(f"股票 {stock_code}: 首日起始偏移值 {start_offset:.2f}%")
+                            print(f"  前一交易日({prev_trading_day})收盘: {prev_close:.2f}")
+                            print(f"  首日({date_str})开盘: {curr_open:.2f}")
+                    except Exception as e:
+                        print(f"获取股票 {stock_code} 前一交易日收盘价时出错: {e}")
+                        # 如果无法获取前一交易日数据，则起始偏移为0
+                        start_offsets[stock_code] = 0
+                elif date_index == 0:
+                    # 如果无法获取前一交易日，默认使用0作为起始偏移
+                    start_offsets[stock_code] = 0
 
             # 收集原始涨跌幅数据
             all_changes.extend([c for c in day_data['涨跌幅'].values if pd.notna(c) and np.isfinite(c)])
@@ -595,11 +625,11 @@ def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_po
                     x_ticks.append(pos)
                     x_labels.append(label)
 
-    # 第三步：绘制图形，正确处理跨日涨跌幅
+    # 第三步：绘制图形，使用真实起始点
     adjusted_data = {}  # 存储调整后的连续涨跌幅数据，用于后续分析
 
     for stock_code in stocks:
-        if stock_code not in all_data or stock_code not in first_day_open_prices:
+        if stock_code not in all_data:
             continue
 
         stock_dfs = all_data[stock_code]
@@ -612,8 +642,19 @@ def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_po
             dev_30d = deviation_data[stock_code].get('30d', 0)
             stock_label += f" [10d:{int(round(dev_10d))}% 30d:{int(round(dev_30d))}%]"
 
-        # 首日开盘价，作为整个周期的基准
-        first_open = first_day_open_prices[stock_code]
+        # 获取起始偏移值
+        start_offset = start_offsets.get(stock_code, 0)
+
+        # 找到首日开盘价，作为整个周期的基准
+        first_open = None
+        for date_str in date_list:
+            if date_str in opening_prices.get(stock_code, {}):
+                first_open = opening_prices[stock_code][date_str]
+                break
+
+        if first_open is None:
+            print(f"警告: 股票 {stock_code} 没有找到首日开盘价，跳过绘图")
+            continue
 
         # 按日期依次处理
         all_x = []  # 存储所有x坐标
@@ -649,25 +690,25 @@ def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_po
             prices = day_data['收盘'].values
             x_indices = np.arange(day_indices[date_str][0], day_indices[date_str][0] + len(prices))
 
-            # 计算相对于首日开盘价的涨跌幅
-            absolute_changes = [(price / first_open - 1) * 100 for price in prices]
+            # 计算相对于首日开盘价的涨跌幅，并加上起始偏移
+            absolute_changes = [(price / first_open - 1) * 100 + start_offset for price in prices]
 
             # 添加到总数据中
             all_x.extend(x_indices)
             all_y.extend(absolute_changes)
 
-            # 打印调试信息
+            # 打印调试信息，显示跨日变化
             if date_index > 0 and date_str in opening_prices.get(stock_code, {}) and date_list[
                 date_index - 1] in closing_prices.get(stock_code, {}):
                 prev_close = closing_prices[stock_code][date_list[date_index - 1]]
                 curr_open = opening_prices[stock_code][date_str]
-                prev_close_change = (prev_close / first_open - 1) * 100
-                curr_open_change = (curr_open / first_open - 1) * 100
+                prev_close_change = (prev_close / first_open - 1) * 100 + start_offset
+                curr_open_change = (curr_open / first_open - 1) * 100 + start_offset
                 overnight_gap = curr_open_change - prev_close_change
 
                 print(f"股票 {stock_code}: 日期 {date_list[date_index - 1]} 至 {date_str} 的跨日变化:")
-                print(f"  前日收盘: {prev_close:.2f} (涨跌幅: {prev_close_change:.2f}%)")
-                print(f"  当日开盘: {curr_open:.2f} (涨跌幅: {curr_open_change:.2f}%)")
+                print(f"  前日收盘: {prev_close:.2f} (调整后涨跌幅: {prev_close_change:.2f}%)")
+                print(f"  当日开盘: {curr_open:.2f} (调整后涨跌幅: {curr_open_change:.2f}%)")
                 print(f"  隔夜价差: {overnight_gap:.2f}%")
 
         # 绘制股票数据线
@@ -765,7 +806,6 @@ def analyze_abnormal_stocks_time_sharing(start_date=None, end_date=None,
         end_date = start_date
 
     # 获取日期范围中的所有股票
-    from utils.date_util import get_trading_days
     trading_days = get_trading_days(start_date, end_date)
     print(f"分析日期范围: {start_date} 至 {end_date}, 共 {len(trading_days)} 个交易日")
 

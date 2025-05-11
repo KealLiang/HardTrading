@@ -171,11 +171,10 @@ def stocks_time_sharing_price():
     end_date = "20250509"
 
     # 手动指定
-    # stock_codes = ["600610", "001212", "301209", "002165", "601086"]
-    stock_codes = ["600610", "601086", "302132"]
-    # analyze_stocks_time_sharing(stock_codes, start_date, end_date)
+    stock_codes = ["600610", "601086", "302132", "002190", "600855"]
+    analyze_stocks_time_sharing(stock_codes, start_date, end_date)
     # 读取异动文件
-    analyze_abnormal_stocks_time_sharing(start_date, end_date)
+    # analyze_abnormal_stocks_time_sharing(start_date, end_date)
 
 
 def analyze_advanced_on():
