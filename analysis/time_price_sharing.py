@@ -378,39 +378,362 @@ def plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data=None
     # plt.show()
 
 
-def analyze_stocks_time_sharing(stock_codes, date_list, deviation_data=None):
+def analyze_stocks_time_sharing(stock_codes, start_date, end_date=None, deviation_data=None):
     """
-    主函数：获取并分析多只股票在多个日期内的分时数据，并保存图表
+    主函数：获取并分析多只股票在日期范围内的分时数据，并保存在一张连续图表中
     
     参数:
     stock_codes (list): 股票代码列表，如 ["000001", "600000"]
-    dates (list): 日期字符串列表，格式为 ["YYYYMMDD", "YYYYMMDD"], 如 ["20230601", "20230602"]
+    start_date (str): 开始日期，格式为 "YYYYMMDD"，如 "20230601"
+    end_date (str, optional): 结束日期，格式为 "YYYYMMDD"，如果为None则等于start_date
     deviation_data (dict, optional): 股票代码到偏离度数据的映射，格式为 {code: {'10d': value, '30d': value}}
     """
-    if not isinstance(date_list, list):
-        date_list = [date_list]  # 如果传入的是单个日期字符串，转为列表
+    from utils.date_util import get_trading_days
 
+    # 如果未提供结束日期，则使用开始日期
+    if end_date is None:
+        end_date = start_date
+
+    # 获取日期范围内的所有交易日
+    date_list = get_trading_days(start_date, end_date)
+
+    if not date_list:
+        print(f"在 {start_date} 至 {end_date} 期间没有找到交易日")
+        return
+
+    print(f"\n--- 开始处理日期范围: {start_date} 至 {end_date}, 共 {len(date_list)} 个交易日 ---")
+
+    # 创建一个合并的数据字典，以股票代码为键，包含多日的分时数据
+    all_data = {}
+    all_stock_names = {}
+    total_points = 0  # 用于计算图表宽度
+
+    # 收集所有日期的分时数据
     for date_str in date_list:
-        print(f"\n--- 开始处理日期: {date_str} ---")
+        print(f"\n--- 处理日期: {date_str} ---")
         print(f"开始获取 {len(stock_codes)} 只股票在 {date_str} 的分时数据...")
 
-        # 获取分时数据和股票名称
+        # 获取当天的分时数据和股票名称
         data_dict, stock_names = fetch_time_sharing_data(stock_codes, date_str)
 
-        # 绘制分时数据对比图并保存
-        if data_dict:  # 仅在获取到数据时绘图
-            plot_time_sharing_data(data_dict, stock_names, date_str, deviation_data)
+        # 更新股票名称字典
+        all_stock_names.update(stock_names)
+
+        if not data_dict:
+            print(f"日期 {date_str} 未获取到任何有效数据，跳过该日。")
+            continue
+
+        # 计算当天数据点数量，用于后续确定图表宽度
+        for code, df in data_dict.items():
+            if df is not None and not df.empty:
+                if code not in all_data:
+                    all_data[code] = []
+                # 添加日期字段以便于区分不同日期的数据
+                df['date'] = date_str
+                all_data[code].append(df)
+                total_points += len(df)
+
+    if not all_data:
+        print("未获取到任何有效数据，无法绘图")
+        return
+
+    # 绘制合并后的分时数据图表
+    plot_continuous_time_sharing_data(all_data, all_stock_names, date_list, total_points, deviation_data)
+
+
+def plot_continuous_time_sharing_data(all_data, stock_names, date_list, total_points, deviation_data=None):
+    """
+    将多只股票在多个交易日的分时数据绘制在同一张图上，日期连续排列
+    
+    参数:
+    all_data (dict): 包含每只股票多日分时数据的字典，格式为 {code: [df1, df2, ...]}
+    stock_names (dict): 股票代码到股票名称的映射
+    date_list (list): 日期字符串列表，格式为 ["YYYYMMDD", ...]
+    total_points (int): 总数据点数量，用于确定图表宽度
+    deviation_data (dict, optional): 股票代码到偏离度数据的映射
+    """
+    if not all_data:
+        print("没有可用的数据进行绘图")
+        return
+
+    # 根据日期数量动态调整图表尺寸
+    num_days = len(date_list)
+    # 基础宽度为15，每增加一天增加3的宽度
+    fig_width = min(15 + (num_days - 1) * 3, 30)  # 限制最大宽度为30
+    plt.figure(figsize=(fig_width, 8))
+
+    # 设置颜色循环
+    stocks = list(all_data.keys())
+    colors = plt.cm.tab10(np.linspace(0, 1, len(stocks)))
+    # 定义线型和标记
+    linestyles = ['-', '--', '-.', ':']
+    markers = ['o', 's', '^', 'v', 'D', 'x', '+', '*', '.', ',']
+    marker_sizes = {'o': 4, 's': 4, '^': 5, 'v': 5, 'D': 4, 'x': 5, '+': 6, '*': 6, '.': 3, ',': 3}
+    linewidths = [1.5, 2, 1.5, 2]
+
+    # 为每个股票分配固定的视觉属性
+    stock_properties = {}
+    for i, stock_code in enumerate(stocks):
+        stock_properties[stock_code] = {
+            'color': colors[i % len(colors)],
+            'linestyle': linestyles[i % len(linestyles)],
+            'marker': markers[i % len(markers)],
+            'linewidth': linewidths[i % len(linewidths)],
+            'markevery': 20,  # 每20个点标记一次
+            'markersize': marker_sizes.get(markers[i % len(markers)], 5)
+        }
+
+    # 存储所有涨跌幅数据用于设置y轴范围
+    all_changes = []
+
+    # 记录日期的索引位置和数据点信息
+    day_indices = {}  # 格式: {date_str: (start_index, end_index)}
+    day_ticks = {}  # 格式: {date_str: [(index, time_label), ...]}
+    date_separators = []  # 存储日期分隔线位置
+    total_index = 0  # 累计索引，用于连续定位
+
+    # 收集每只股票在每个日期的收盘价和开盘价
+    closing_prices = {}  # 格式: {stock_code: {date: price}}
+    opening_prices = {}  # 格式: {stock_code: {date: price}}
+    first_day_open_prices = {}  # 格式: {stock_code: price} - 整个周期的首日开盘价
+
+    # 第一步：收集基础数据和价格信息
+    for date_index, date_str in enumerate(date_list):
+        date_formatted = datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+        start_index_of_day = total_index
+        max_points_in_day = 0
+
+        for stock_code in stocks:
+            if stock_code not in all_data:
+                continue
+
+            stock_dfs = all_data[stock_code]
+            # 找到当天的数据
+            day_data = None
+            for df in stock_dfs:
+                if df['date'].iloc[0] == date_str:
+                    day_data = df
+                    break
+
+            if day_data is None or day_data.empty or '涨跌幅' not in day_data.columns:
+                continue
+
+            points_in_day = len(day_data)
+            max_points_in_day = max(max_points_in_day, points_in_day)
+
+            # 初始化价格存储结构
+            if stock_code not in closing_prices:
+                closing_prices[stock_code] = {}
+                opening_prices[stock_code] = {}
+
+            # 存储收盘价和开盘价
+            if '收盘' in day_data.columns:
+                closing_prices[stock_code][date_str] = day_data['收盘'].iloc[-1]
+                opening_prices[stock_code][date_str] = day_data['收盘'].iloc[0]
+
+                # 记录首日开盘价，用于整个周期的涨跌幅计算
+                if date_index == 0:
+                    first_day_open_prices[stock_code] = day_data['收盘'].iloc[0]
+
+            # 收集原始涨跌幅数据
+            all_changes.extend([c for c in day_data['涨跌幅'].values if pd.notna(c) and np.isfinite(c)])
+
+        # 记录每天的位置信息
+        if max_points_in_day > 0:
+            day_indices[date_str] = (start_index_of_day, start_index_of_day + max_points_in_day)
+
+            # 为每天创建时间刻度标签集合
+            day_ticks[date_str] = []
+
+            # 记录标准时间点的位置
+            if max_points_in_day >= 241:  # 标准交易日
+                time_points = [
+                    (0, '9:30'),
+                    (60, '10:30'),
+                    (120, '11:30/13:00'),
+                    (181, '14:00'),
+                    (max_points_in_day - 1, '15:00')
+                ]
+
+                for pos, label in time_points:
+                    day_ticks[date_str].append((start_index_of_day + pos, f"{date_formatted}\n{label}"))
+            else:
+                # 非标准交易日
+                day_ticks[date_str].append((start_index_of_day, f"{date_formatted}\n开盘"))
+                day_ticks[date_str].append((start_index_of_day + max_points_in_day - 1, f"{date_formatted}\n收盘"))
+
+            # 记录日期分隔位置
+            total_index += max_points_in_day
+            if date_index < len(date_list) - 1:
+                date_separators.append(total_index - 0.5)
+
+    # 第二步：生成x轴标签，移除重叠标签
+    x_ticks = []
+    x_labels = []
+
+    for date_index, date_str in enumerate(date_list):
+        if date_str not in day_ticks:
+            continue
+
+        # 第一天使用所有标签
+        if date_index == 0:
+            for pos, label in day_ticks[date_str]:
+                # 最后一个点的标签只在整个周期的最后一天显示
+                if pos == day_indices[date_str][1] - 1 and date_index < len(date_list) - 1:
+                    continue
+                x_ticks.append(pos)
+                x_labels.append(label)
         else:
-            print(f"日期 {date_str} 未获取到任何有效数据，跳过绘图。")
+            # 非第一天只显示首个标签和中间标签，不显示前一天已经显示的标签
+            for idx, (pos, label) in enumerate(day_ticks[date_str]):
+                # 只添加每天的第一个标签和中间标签，跳过最后标签（除最后一天外）
+                if idx == 0 or (idx < len(day_ticks[date_str]) - 1):
+                    x_ticks.append(pos)
+                    x_labels.append(label)
+                elif idx == len(day_ticks[date_str]) - 1 and date_index == len(date_list) - 1:
+                    # 只在最后一天添加收盘标签
+                    x_ticks.append(pos)
+                    x_labels.append(label)
+
+    # 第三步：绘制图形，正确处理跨日涨跌幅
+    adjusted_data = {}  # 存储调整后的连续涨跌幅数据，用于后续分析
+
+    for stock_code in stocks:
+        if stock_code not in all_data or stock_code not in first_day_open_prices:
+            continue
+
+        stock_dfs = all_data[stock_code]
+        props = stock_properties[stock_code]
+
+        # 准备股票标签
+        stock_label = f"{stock_code} {stock_names.get(stock_code, '')}"
+        if deviation_data and stock_code in deviation_data:
+            dev_10d = deviation_data[stock_code].get('10d', 0)
+            dev_30d = deviation_data[stock_code].get('30d', 0)
+            stock_label += f" [10d:{int(round(dev_10d))}% 30d:{int(round(dev_30d))}%]"
+
+        # 首日开盘价，作为整个周期的基准
+        first_open = first_day_open_prices[stock_code]
+
+        # 按日期依次处理
+        all_x = []  # 存储所有x坐标
+        all_y = []  # 存储所有y坐标
+
+        for date_index, date_str in enumerate(date_list):
+            if date_str not in day_indices:
+                continue
+
+            # 找到当天数据
+            day_data = None
+            for df in stock_dfs:
+                if df['date'].iloc[0] == date_str:
+                    day_data = df
+                    break
+
+            # 如果当天没有数据，跳过
+            if day_data is None or day_data.empty or '收盘' not in day_data.columns:
+                # 跳过天数，保持x轴对齐
+                start_idx, end_idx = day_indices[date_str]
+                current_index_gap = end_idx - start_idx
+
+                # 如果前一天有数据，需要在图上绘制水平线表示缺失
+                if all_y and date_index > 0:
+                    prev_value = all_y[-1]
+                    # 添加水平线上的两个点：当天开始和结束
+                    all_x.extend([start_idx, end_idx - 1])
+                    all_y.extend([prev_value, prev_value])
+
+                continue
+
+            # 当天价格数据
+            prices = day_data['收盘'].values
+            x_indices = np.arange(day_indices[date_str][0], day_indices[date_str][0] + len(prices))
+
+            # 计算相对于首日开盘价的涨跌幅
+            absolute_changes = [(price / first_open - 1) * 100 for price in prices]
+
+            # 添加到总数据中
+            all_x.extend(x_indices)
+            all_y.extend(absolute_changes)
+
+            # 打印调试信息
+            if date_index > 0 and date_str in opening_prices.get(stock_code, {}) and date_list[
+                date_index - 1] in closing_prices.get(stock_code, {}):
+                prev_close = closing_prices[stock_code][date_list[date_index - 1]]
+                curr_open = opening_prices[stock_code][date_str]
+                prev_close_change = (prev_close / first_open - 1) * 100
+                curr_open_change = (curr_open / first_open - 1) * 100
+                overnight_gap = curr_open_change - prev_close_change
+
+                print(f"股票 {stock_code}: 日期 {date_list[date_index - 1]} 至 {date_str} 的跨日变化:")
+                print(f"  前日收盘: {prev_close:.2f} (涨跌幅: {prev_close_change:.2f}%)")
+                print(f"  当日开盘: {curr_open:.2f} (涨跌幅: {curr_open_change:.2f}%)")
+                print(f"  隔夜价差: {overnight_gap:.2f}%")
+
+        # 绘制股票数据线
+        if all_x and all_y:
+            plt.plot(all_x, all_y,
+                     label=stock_label,
+                     color=props['color'],
+                     linestyle=props['linestyle'],
+                     linewidth=props['linewidth'],
+                     marker=props['marker'],
+                     markevery=props['markevery'],
+                     markersize=props['markersize'])
+
+            # 存储调整后的数据
+            adjusted_data[stock_code] = {'x': all_x, 'y': all_y}
+
+    # 添加日期分隔线
+    for sep in date_separators:
+        plt.axvline(x=sep, color='gray', linestyle='-', alpha=0.5)
+
+    # 重新计算y轴范围
+    all_adjusted_values = []
+    for stock_data in adjusted_data.values():
+        all_adjusted_values.extend(stock_data['y'])
+
+    # 设置y轴范围
+    if all_adjusted_values:
+        min_change = min(all_adjusted_values)
+        max_change = max(all_adjusted_values)
+        y_margin = max(0.5, (max_change - min_change) * 0.1)
+        plt.ylim(min_change - y_margin, max_change + y_margin)
+
+    # 设置x轴刻度和标签
+    plt.xticks(x_ticks, x_labels, rotation=45)
+
+    # 设置图表标题和标签
+    date_range_text = f"{date_list[0]} 至 {date_list[-1]}" if len(date_list) > 1 else date_list[0]
+    plt.title(f"股票分时涨跌幅连续对比 ({date_range_text})", fontsize=16)
+    plt.xlabel("日期和时间", fontsize=12)
+    plt.ylabel("涨跌幅 (%)", fontsize=12)
+
+    # 添加网格线和图例
+    plt.grid(True, linestyle='--', alpha=0.3)
+    plt.legend(loc='best', fontsize=10)
+
+    plt.tight_layout()
+
+    # 保存图表
+    os.makedirs(save_dir, exist_ok=True)
+    save_filename = os.path.join(save_dir, f"time_price_sharing_{date_list[0]}_to_{date_list[-1]}.png")
+    plt.savefig(save_filename)
+    print(f"图表已保存至: {save_filename}")
+
+    # plt.show()
 
 
-def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./excel/serious_abnormal_history.xlsx'):
+def analyze_abnormal_stocks_time_sharing(start_date=None, end_date=None,
+                                         excel_file_path='./excel/serious_abnormal_history.xlsx'):
     """
     读取serious_abnormal_history.xlsx中的异动股票数据，生成分时图
     
     参数:
-    date_list (list, optional): 日期字符串列表，格式为 ["YYYYMMDD", ...], 如 ["20230601"]. 
+    start_date (str, optional): 开始日期字符串，格式为 "YYYYMMDD", 如 "20230601". 
                               如果为None，则使用Excel中的所有日期。
+    end_date (str, optional): 结束日期字符串，格式为 "YYYYMMDD", 如果为None则等于start_date。
+    excel_file_path (str): Excel文件路径
     """
     try:
         df = pd.read_excel(excel_file_path)
@@ -423,14 +746,34 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
     filtered_df = df[(df['异动方向'] == "上涨") & (~df['股票名称'].str.contains('ST', na=False))]
     print(f"筛选后的上涨非ST股票数据: {len(filtered_df)} 条记录")
 
-    # 如果没有指定日期，则使用Excel中的所有日期
-    if date_list is None or len(date_list) == 0:
+    # 如果没有指定日期范围，则使用Excel中的所有日期
+    if start_date is None:
         unique_dates = filtered_df['日期'].unique()
         date_list = [d.strftime("%Y%m%d") for d in pd.to_datetime(unique_dates)]
         print(f"未指定日期，将使用Excel中的所有 {len(date_list)} 个日期")
 
-    # 按日期处理
-    for date_str in date_list:
+        # 如果有多个日期，按顺序排序
+        if len(date_list) > 1:
+            date_list.sort()
+            start_date = date_list[0]
+            end_date = date_list[-1]
+        else:
+            start_date = date_list[0]
+            end_date = start_date
+    elif end_date is None:
+        # 如果只指定了开始日期，结束日期等于开始日期
+        end_date = start_date
+
+    # 获取日期范围中的所有股票
+    from utils.date_util import get_trading_days
+    trading_days = get_trading_days(start_date, end_date)
+    print(f"分析日期范围: {start_date} 至 {end_date}, 共 {len(trading_days)} 个交易日")
+
+    # 收集所有日期的股票代码和偏离度数据
+    all_stock_codes = set()  # 使用集合避免重复
+    deviation_data = {}  # 存储偏离度数据
+
+    for date_str in trading_days:
         date_obj = datetime.strptime(date_str, "%Y%m%d")
         date_formatted = date_obj.strftime("%Y-%m-%d")
 
@@ -441,9 +784,7 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
             # 按30日偏离度和10日偏离度降序排序
             date_stocks = date_stocks.sort_values(by=['30日偏离度(%)', '10日偏离度(%)'], ascending=False)
 
-            # 获取股票代码列表和偏离度数据
-            stock_codes = []
-            deviation_data = {}  # 用于存储偏离度数据
+            print(f"日期 {date_formatted} 有 {len(date_stocks)} 只符合条件的异动股票")
 
             for _, row in date_stocks.iterrows():
                 code = row['股票代码']
@@ -455,33 +796,40 @@ def analyze_abnormal_stocks_time_sharing(date_list=None, excel_file_path='./exce
                 else:
                     continue  # 跳过无法处理的代码
 
-                stock_codes.append(code_str)
+                all_stock_codes.add(code_str)
 
-                # 收集偏离度数据
+                # 收集偏离度数据，如果同一股票在多个日期出现，使用最新日期的数据
                 deviation_data[code_str] = {
                     '10d': row['10日偏离度(%)'] if '10日偏离度(%)' in row else 0,
                     '30d': row['30日偏离度(%)'] if '30日偏离度(%)' in row else 0
                 }
-
-            print(f"日期 {date_formatted} 有 {len(stock_codes)} 只符合条件的异动股票")
-
-            # 调用time_price_sharing的函数生成分时图，传递偏离度数据
-            analyze_stocks_time_sharing(stock_codes, date_str, deviation_data)
         else:
             print(f"日期 {date_formatted} 没有符合条件的异动股票数据")
+
+    # 将集合转为列表
+    stock_codes = list(all_stock_codes)
+
+    if stock_codes:
+        print(f"范围内共有 {len(stock_codes)} 只不同的异动股票")
+        # 调用新的分时图函数，传递日期范围
+        analyze_stocks_time_sharing(stock_codes, start_date, end_date, deviation_data)
+    else:
+        print(f"在日期范围 {start_date} 至 {end_date} 内没有找到符合条件的异动股票")
 
 
 # 示例用法
 if __name__ == "__main__":
-    # 方法1：手动指定股票和日期
+    # 方法1：手动指定股票和日期范围
     # codes = ["002165", "002570", "600249", "001234", "601086"]
-    # dates = ["20250416", "20250417", "20250418"]
-    # analyze_stocks_time_sharing(codes, dates)
+    # start_date = "20250416"
+    # end_date = "20250418"  # 可选的结束日期，不指定则等于start_date
+    # analyze_stocks_time_sharing(codes, start_date, end_date)
 
     # 方法2：从异动股票Excel中读取数据并生成分时图
-    # 指定特定日期
-    dates_list = ["20250422"]  # 可以指定多个日期
-    analyze_abnormal_stocks_time_sharing(dates_list)
+    # 指定特定日期范围
+    start_date = "20250422"
+    end_date = "20250424"  # 可选的结束日期，不指定则等于start_date
+    analyze_abnormal_stocks_time_sharing(start_date, end_date)
 
     # 不指定日期，使用Excel中的所有日期
     # analyze_abnormal_stocks_time_sharing()

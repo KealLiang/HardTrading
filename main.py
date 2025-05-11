@@ -5,7 +5,7 @@ from analysis.daily_group import find_stocks_by_hot_themes, highlight_repeated_s
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
-from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
+from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing, analyze_stocks_time_sharing
 from analysis.whimsical import process_zt_data, consolidate_unclassified_reasons
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
@@ -167,14 +167,15 @@ def fupan_statistics_excel_plot():
 
 
 def stocks_time_sharing_price():
-    # 手动指定
-    # stock_codes = ["002165", "002570", "600249", "001234", "601086"]
-    # date_list = ["20250414", "20250415"]
-    # analyze_stocks_time_sharing(stock_codes, date_list)
+    start_date = "20250506"
+    end_date = "20250509"
 
+    # 手动指定
+    # stock_codes = ["600610", "001212", "301209", "002165", "601086"]
+    stock_codes = ["600610", "601086", "302132"]
+    # analyze_stocks_time_sharing(stock_codes, start_date, end_date)
     # 读取异动文件
-    dates_list = ["20250506", "20250507"]  # 可以指定多个日期
-    analyze_abnormal_stocks_time_sharing(dates_list)
+    analyze_abnormal_stocks_time_sharing(start_date, end_date)
 
 
 def analyze_advanced_on():
@@ -210,8 +211,8 @@ if __name__ == '__main__':
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
-    # stocks_time_sharing_price()
+    # fupan_statistics_excel_plot()
+    stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
     # find_similar_trends()
