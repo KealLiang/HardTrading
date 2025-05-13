@@ -137,11 +137,11 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250409"
-    end_date = '20250509'
-    # end_date = None
+    start_date = "20250509"
+    # end_date = '20250512'
+    end_date = None
     # all_fupan(start_date, end_date)
-    all_fupan(start_date, end_date, types='else')
+    all_fupan(start_date, end_date, types='all,else')
 
 
 def draw_ths_fupan():
@@ -167,11 +167,11 @@ def fupan_statistics_excel_plot():
 
 
 def stocks_time_sharing_price():
-    start_date = "20250506"
-    end_date = "20250509"
+    start_date = "20250508"
+    end_date = "20250513"
 
     # 手动指定
-    stock_codes = ["600610", "601086", "302132", "002190", "600855"]
+    stock_codes = ["600610", "601086", "302132", "002190", "002809"]
     analyze_stocks_time_sharing(stock_codes, start_date, end_date)
     # 读取异动文件
     # analyze_abnormal_stocks_time_sharing(start_date, end_date)
@@ -192,8 +192,8 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250416"
-    end_date = "20250509"
+    start_date = "20250421"
+    end_date = "20250513"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
