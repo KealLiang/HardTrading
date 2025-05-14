@@ -192,7 +192,7 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250421"
+    start_date = "20250423"
     end_date = "20250513"
     process_zt_data(start_date, end_date, clean_output=True)
 
@@ -205,13 +205,13 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
+    whimsical_fupan_analyze()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    stocks_time_sharing_price()
+    # stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
     # find_similar_trends()

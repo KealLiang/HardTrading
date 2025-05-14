@@ -21,12 +21,11 @@ except ImportError:
     NLP_UTILS_AVAILABLE = False
     FORCE_CHAR_SIMILARITY = True
 
-# 定义常见的同义词转换
+# 定义常见的同义词转换，顺序重要
 synonym_groups = {
-    "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人", "PEEK材料"],
     "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税"],
     "化工": ['化工', '氟化工', '化学制药', '化学制品', '环氧丙烷', '环氧丙烷衍生品', '精细化工', '氯碱化工', '石油化工',
-             '氯碱', '化纤', '化学纤维'],
+             '氯碱', '化纤', '化学纤维', "PEEK材料"],
     "新能源": ["新能源", "新能源汽车", "新能源车", "电动车", "动力电池", "光伏", "锂电池", "锂电池回收", "HJT电池",
                "固态电池", "钠离子电池", "氢能源"],
     "AI": ["AI", "人工智能", "DEEPSEEK", '大模型', 'GPT', 'AIGC', "MCP", "MCP服务"],
@@ -34,7 +33,8 @@ synonym_groups = {
     "半导体": ["半导体", "芯片", "芯片概念", "存储芯片", "集成电路", "光刻胶", "光刻机", "芯片概念", "半导体材料"],
     "军工": ["军工", "国防军工", "航空航天", "战斗机", "大飞机", "军贸", "无人机", "成飞概念"],
     "数据中心": ['数据中心', '数据中心电源', '液冷服务器', '服务器测试', '液冷'],
-    "跨境": ['跨境电商', '跨境支付', '外销', '电商', '港口航运', '港口', '统一大市场', '一带一路'],
+    "跨境": ['跨境电商', '跨境支付', '外销', '电商', '电子商务', '港口航运', '港口', '统一大市场', '一带一路'],
+    "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人", "PEEK材料"],
     "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计', '核电', '光伏'],
     "航天": ["商业航天", "航天工程"],
     "华为": ["华为", "华为昇腾"],
@@ -49,14 +49,14 @@ synonym_groups = {
     "业绩增长": ["一季报增长", "年报增长", "一季报预增", "年报、一季报增长", "一季报净利增长", "一季报大增",
                  "年报净利增长",
                  "一季度业绩增长", "一季报业绩增长", "一季报净利预增", "一季报净利润增长", "业绩增长", "业绩预增"],
-    "同比扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
+    "扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
                      "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
 }
 
 # 排除列表 - 这些原因不会被选为热门原因
 EXCLUDED_REASONS = [
     "业绩增长",
-    "同比扭亏为盈",
+    "扭亏为盈",
     "国企",
 ]
 
@@ -302,17 +302,22 @@ def process_zt_data(start_date, end_date, clean_output=False):
     # 过滤掉未分类的原因，获取热门原因
     classified_reasons = [reason for reason in reason_counter.keys()
                           if not reason.startswith('未分类_') and reason not in EXCLUDED_REASONS]
+    
+    # 确保所有原因的出现次数都被正确计算
+    # 首先创建包含所有可能原因的计数字典
+    all_reason_counts = {reason: 0 for reason in synonym_groups.keys()}
+    
+    # 然后用实际统计的次数更新
+    for reason, count in reason_counter.items():
+        if not reason.startswith('未分类_'):
+            all_reason_counts[reason] = count
 
     # 选择热门原因 (排除指定的原因)
-    top_reasons = [reason for reason, count in Counter(classified_reasons).most_common(TOP_N) if count > 0]
-
-    # 如果没有足够的热门原因，使用synonym_groups中的分类
-    if len(top_reasons) < TOP_N:
-        for reason in synonym_groups.keys():
-            if reason not in top_reasons:
-                top_reasons.append(reason)
-            if len(top_reasons) >= TOP_N:
-                break
+    # 按出现次数倒序选择TOP_N个原因
+    top_reasons = [reason for reason, count in sorted(all_reason_counts.items(), 
+                                                    key=lambda x: x[1], 
+                                                    reverse=True) 
+                  if count > 0 and reason not in EXCLUDED_REASONS][:TOP_N]
 
     # 为每个原因分配颜色
     reason_colors = {reason: COLORS[i % len(COLORS)] for i, reason in enumerate(top_reasons)}
@@ -364,18 +369,44 @@ def process_zt_data(start_date, end_date, clean_output=False):
     ws.column_dimensions['A'].width = 15
     ws.cell(row=1, column=1, value="热门概念图例").font = Font(bold=True)
 
-    # 添加各个原因图例
-    for i, reason in enumerate(top_reasons, start=2):
-        cell = ws.cell(row=i, column=1, value=reason)
+    # 添加各个热门原因图例（带次数）
+    current_row = 2
+    for i, reason in enumerate(top_reasons, start=0):
+        count = all_reason_counts.get(reason, 0)
+        cell = ws.cell(row=current_row, column=1, value=f"{reason}({count})")
         cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
+        current_row += 1
 
+    # 添加未入选着色的原因（按出现次数倒序）
+    # 所有synonym_groups中的原因（除了TOP_N和EXCLUDED_REASONS）
+    non_top_reasons = [r for r in synonym_groups.keys() 
+                      if r not in top_reasons and r not in EXCLUDED_REASONS]
+    sorted_non_top = sorted(non_top_reasons, key=lambda x: all_reason_counts[x], reverse=True)
+    
+    for reason in sorted_non_top:
+        count = all_reason_counts.get(reason, 0)
+        ws.cell(row=current_row, column=1, value=f"{reason}({count})")
+        current_row += 1
+    
+    # 在EXCLUDED_REASONS原因前添加分隔线
+    if EXCLUDED_REASONS:
+        separator_cell = ws.cell(row=current_row, column=1, value="以下是排除的概念")
+        separator_cell.border = Border(top=Side(style='thin', color='000000'))
+        separator_cell.font = Font(italic=True, size=9)
+        current_row += 1
+    
+    # 添加EXCLUDED_REASONS原因（放在最后）
+    for reason in EXCLUDED_REASONS:
+        count = all_reason_counts.get(reason, 0)
+        ws.cell(row=current_row, column=1, value=f"{reason}({count})")
+        current_row += 1
+    
     # 添加多次上榜图例
-    multi_row = len(top_reasons) + 2
-    cell = ws.cell(row=multi_row, column=1, value="多次上榜")
+    cell = ws.cell(row=current_row, column=1, value="多次上榜")
     cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
-
+    
     # 添加首板/连板分隔cell说明
-    separator_row = multi_row + 1
+    separator_row = current_row + 1
     ws.cell(row=separator_row, column=1, value="分隔cell = 首板")
     separator_cell = ws.cell(row=separator_row + 1, column=1)
     separator_cell.border = Border(bottom=Side(style='double', color='000000'))
