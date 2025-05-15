@@ -45,7 +45,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250415', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250425', save_path='./data/astocks',
                                     max_workers=16)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -167,15 +167,15 @@ def fupan_statistics_excel_plot():
 
 
 def stocks_time_sharing_price():
-    start_date = "20250509"
-    end_date = "20250514"
+    start_date = "20250512"
+    end_date = "20250515"
 
     # 手动指定
     # stock_codes = ["600610", "601086", "302132", "002190", "002809"]
     stock_codes = ["603535", "002640", "600794", "603967", "603569"]
-    analyze_stocks_time_sharing(stock_codes, start_date, end_date)
+    # analyze_stocks_time_sharing(stock_codes, start_date, end_date)
     # 读取异动文件
-    # analyze_abnormal_stocks_time_sharing(start_date, end_date)
+    analyze_abnormal_stocks_time_sharing(start_date, end_date)
 
 
 def analyze_advanced_on():
@@ -194,7 +194,7 @@ def daily_group_analyze():
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250423"
-    end_date = "20250514"
+    end_date = "20250515"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类

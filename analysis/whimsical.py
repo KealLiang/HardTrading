@@ -33,15 +33,16 @@ synonym_groups = {
     "半导体": ["半导体", "芯片", "芯片概念", "存储芯片", "集成电路", "光刻胶", "光刻机", "芯片概念", "半导体材料"],
     "军工": ["军工", "国防军工", "航空航天", "战斗机", "大飞机", "军贸", "无人机", "成飞概念"],
     "数据中心": ['数据中心', '数据中心电源', '液冷服务器', '服务器测试', '液冷'],
-    "跨境": ['跨境电商', '跨境支付', '外销', '电商', '电子商务', '港口航运', '港口', '统一大市场', '一带一路'],
+    "跨境": ['跨境电商', '跨境支付', '外销', '港口航运', '港口', '统一大市场', '一带一路', '航运', '航运物流'],
     "机器人": ["机器人", "人形机器人", "服务机器人", "工业机器人", "PEEK材料"],
-    "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计', '核电', '光伏'],
+    "电力": ['海上风电', '风电', '风电设备', '风电运营', '电机', '发电机', '电力', '绿色电力', '电力设计', '核电',
+             '光伏'],
     "航天": ["商业航天", "航天工程"],
     "华为": ["华为", "华为昇腾"],
     "房地产": ["房地产"],
     "国企": ['国企改革', '国资改革', '国资国企改革', '国企整合', '国企', '国资', '天津国企', '福建国企', '上海国企',
              "陕西国资", "山西国资", "广西国资", "央企", "北京国资", "南京国资", "湖北国资"],
-    "电子": ['电子', '消费电子', '苹果概念', '苹果'],
+    "电子": ['电子', '消费电子', '苹果概念', '苹果', '电商', '电子商务'],
     "汽车零部件": ["汽车零部件", "汽车制动零部件", "家电零部件", "汽车零部件出口", "航空零部件"],
     "医药": ["医药", "创新药", "疫苗", "生物医药", "医疗器械"],
     "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
@@ -50,7 +51,7 @@ synonym_groups = {
                  "年报净利增长",
                  "一季度业绩增长", "一季报业绩增长", "一季报净利预增", "一季报净利润增长", "业绩增长", "业绩预增"],
     "扭亏为盈": ["一季报同比扭亏为盈", "一季报同比扭亏", "年报净利同比扭亏为盈", "一季报预计同比扭亏为盈",
-                     "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
+                 "一季报扭亏", "扭亏为盈", "一季报扭亏为盈", "业绩减亏", "业绩扭亏"],
 }
 
 # 排除列表 - 这些原因不会被选为热门原因
@@ -302,11 +303,11 @@ def process_zt_data(start_date, end_date, clean_output=False):
     # 过滤掉未分类的原因，获取热门原因
     classified_reasons = [reason for reason in reason_counter.keys()
                           if not reason.startswith('未分类_') and reason not in EXCLUDED_REASONS]
-    
+
     # 确保所有原因的出现次数都被正确计算
     # 首先创建包含所有可能原因的计数字典
     all_reason_counts = {reason: 0 for reason in synonym_groups.keys()}
-    
+
     # 然后用实际统计的次数更新
     for reason, count in reason_counter.items():
         if not reason.startswith('未分类_'):
@@ -314,10 +315,10 @@ def process_zt_data(start_date, end_date, clean_output=False):
 
     # 选择热门原因 (排除指定的原因)
     # 按出现次数倒序选择TOP_N个原因
-    top_reasons = [reason for reason, count in sorted(all_reason_counts.items(), 
-                                                    key=lambda x: x[1], 
-                                                    reverse=True) 
-                  if count > 0 and reason not in EXCLUDED_REASONS][:TOP_N]
+    top_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
+                                                      key=lambda x: x[1],
+                                                      reverse=True)
+                   if count > 0 and reason not in EXCLUDED_REASONS][:TOP_N]
 
     # 为每个原因分配颜色
     reason_colors = {reason: COLORS[i % len(COLORS)] for i, reason in enumerate(top_reasons)}
@@ -379,32 +380,32 @@ def process_zt_data(start_date, end_date, clean_output=False):
 
     # 添加未入选着色的原因（按出现次数倒序）
     # 所有synonym_groups中的原因（除了TOP_N和EXCLUDED_REASONS）
-    non_top_reasons = [r for r in synonym_groups.keys() 
-                      if r not in top_reasons and r not in EXCLUDED_REASONS]
+    non_top_reasons = [r for r in synonym_groups.keys()
+                       if r not in top_reasons and r not in EXCLUDED_REASONS]
     sorted_non_top = sorted(non_top_reasons, key=lambda x: all_reason_counts[x], reverse=True)
-    
+
     for reason in sorted_non_top:
         count = all_reason_counts.get(reason, 0)
         ws.cell(row=current_row, column=1, value=f"{reason}({count})")
         current_row += 1
-    
+
     # 在EXCLUDED_REASONS原因前添加分隔线
     if EXCLUDED_REASONS:
         separator_cell = ws.cell(row=current_row, column=1, value="以下是排除的概念")
         separator_cell.border = Border(top=Side(style='thin', color='000000'))
         separator_cell.font = Font(italic=True, size=9)
         current_row += 1
-    
+
     # 添加EXCLUDED_REASONS原因（放在最后）
     for reason in EXCLUDED_REASONS:
         count = all_reason_counts.get(reason, 0)
         ws.cell(row=current_row, column=1, value=f"{reason}({count})")
         current_row += 1
-    
+
     # 添加多次上榜图例
     cell = ws.cell(row=current_row, column=1, value="多次上榜")
     cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
-    
+
     # 添加首板/连板分隔cell说明
     separator_row = current_row + 1
     ws.cell(row=separator_row, column=1, value="分隔cell = 首板")
