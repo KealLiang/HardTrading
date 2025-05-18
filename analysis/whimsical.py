@@ -559,7 +559,7 @@ def process_zt_data(start_date, end_date, clean_output=False):
             ws.cell(row=3, column=idx, value="--")
 
     # 在第一列添加涨跌幅和成交量的标签，并设置样式
-    label_cell_1 = ws.cell(row=2, column=1, value="指数涨跌")
+    label_cell_1 = ws.cell(row=2, column=1, value="创业指")
     label_cell_1.alignment = Alignment(horizontal="center", vertical="center")
     label_cell_1.font = Font(bold=True)
     label_cell_1.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")

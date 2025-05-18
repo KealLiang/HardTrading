@@ -194,6 +194,15 @@ def daily_group_analyze():
     # highlight_repeated_stocks()
 
 
+def dejavu_fupan_analyze():
+    # 示例用法
+    start_date = "20250421"
+    end_date = "20250516"
+
+    # 处理连板数据
+    process_dejavu_data(start_date, end_date)
+
+
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250425"
@@ -204,25 +213,16 @@ def whimsical_fupan_analyze():
     # consolidate_unclassified_reasons()
 
 
-def dejavu_fupan_analyze():
-    # 示例用法
-    start_date = "20250421"
-    end_date = "20250516"
-
-    # 处理连板数据
-    process_dejavu_data(start_date, end_date)
-
-
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    whimsical_fupan_analyze()
+    # whimsical_fupan_analyze()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
