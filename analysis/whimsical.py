@@ -88,11 +88,37 @@ COLORS = [
 UNCLASSIFIED_PRINT_THRESHOLD = 7
 
 # 多次上榜但无热门原因的颜色
-MULTI_COLOR = "E0E0E0"  # 浅灰色
+MULTI_COLOR = "E0FFFF"
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
+
+# 指数数据文件路径
+INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
+
+# 表头颜色
+HEADER_COLOR = "E0E0E0"  # 浅灰色
+
+# 红绿色系定义，用于涨跌幅颜色表示
+RED_COLORS = [
+    "FFCCCC",  # 浅红色 (0-1%)
+    "FF9999",  # 淡红色 (1-2%)
+    "FF6666",  # 红色 (2-3%)
+    "FF3333",  # 深红色 (3-5%)
+    "FF0000",  # 大红色 (>5%)
+]
+
+GREEN_COLORS = [
+    "CCFFCC",  # 浅绿色 (0-1%)
+    "99FF99",  # 淡绿色 (1-2%)
+    "66FF66",  # 绿色 (2-3%)
+    "33FF33",  # 深绿色 (3-5%)
+    "00CC00",  # 大绿色 (>5%)
+]
+
+# 涨跌幅颜色阈值
+PCT_CHANGE_THRESHOLDS = [1.0, 2.0, 3.0, 5.0]
 
 
 def normalize_reason(reason):
@@ -127,6 +153,75 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
+def get_color_by_pct_change(pct_change):
+    """
+    根据涨跌幅返回对应的颜色代码
+    
+    :param pct_change: 涨跌幅百分比
+    :return: 颜色代码
+    """
+    if pd.isna(pct_change):
+        return "FFFFFF"  # 白色
+
+    # 初始化颜色索引为0 (最浅)
+    color_idx = 0
+    abs_change = abs(pct_change)
+
+    # 根据涨跌幅绝对值确定颜色深浅
+    for i, threshold in enumerate(PCT_CHANGE_THRESHOLDS):
+        if abs_change >= threshold:
+            color_idx = i + 1
+
+    # 如果超过最后一个阈值，使用最深的颜色
+    color_idx = min(color_idx, len(RED_COLORS) - 1)
+
+    # 根据正负选择红色或绿色
+    if pct_change >= 0:
+        return RED_COLORS[color_idx]
+    else:
+        return GREEN_COLORS[color_idx]
+
+
+def load_index_data():
+    """
+    加载创业板指数数据
+    
+    :return: 以日期为键的字典，包含涨跌幅和成交量信息
+    """
+    try:
+        # 检查指数数据文件是否存在
+        if not os.path.exists(INDEX_FILE):
+            print(f"创业板指数文件不存在: {INDEX_FILE}")
+            return {}
+
+        # 读取CSV文件 (无表头)
+        df = pd.read_csv(INDEX_FILE, header=None,
+                         names=['date', 'open', 'high', 'low', 'close', 'volume'])
+
+        # 计算每日涨跌幅
+        df['pct_change'] = df['close'].pct_change() * 100
+
+        # 将成交量转换为亿元 (原始数据单位为成交量，而非手数)
+        # 注意：volume可能已经是以元为单位，需根据实际数据调整
+        df['volume_100m'] = df['volume'] / 100000000  # 转换为亿元
+
+        # 以日期为键创建字典
+        index_data = {}
+        for _, row in df.iterrows():
+            # 确保日期格式与date_columns中的键完全一致
+            date_obj = pd.to_datetime(row['date'])
+            date_str = date_obj.strftime('%Y年%m月%d日')
+            index_data[date_str] = {
+                'pct_change': row['pct_change'],
+                'volume_100m': row['volume_100m']
+            }
+
+        return index_data
+    except Exception as e:
+        print(f"读取创业板指数数据失败: {e}")
+        return {}
+
+
 def process_zt_data(start_date, end_date, clean_output=False):
     """
     处理涨停数据，转换为更易于分析的格式
@@ -137,6 +232,12 @@ def process_zt_data(start_date, end_date, clean_output=False):
     """
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
+
+    # 读取指数数据
+    index_data = load_index_data()
+    if not index_data:
+        print(f"警告: 未能加载创业板指数数据，请确保文件存在: {INDEX_FILE}")
+        print("将继续处理涨停数据，但不会显示指数信息。")
 
     # 读取原始Excel数据
     sheets_to_process = ['连板数据', '首板数据']
@@ -370,8 +471,8 @@ def process_zt_data(start_date, end_date, clean_output=False):
     ws.column_dimensions['A'].width = 15
     ws.cell(row=1, column=1, value="热门概念图例").font = Font(bold=True)
 
-    # 添加各个热门原因图例（带次数）
-    current_row = 2
+    # 添加各个热门原因图例（带次数）- 图例从第4行开始，因为第2、3行要留给涨跌幅和成交量的标签
+    current_row = 4
     for i, reason in enumerate(top_reasons, start=0):
         count = all_reason_counts.get(reason, 0)
         cell = ws.cell(row=current_row, column=1, value=f"{reason}({count})")
@@ -392,7 +493,7 @@ def process_zt_data(start_date, end_date, clean_output=False):
     # 在EXCLUDED_REASONS原因前添加分隔线
     if EXCLUDED_REASONS:
         separator_cell = ws.cell(row=current_row, column=1, value="以下是排除的概念")
-        separator_cell.border = Border(top=Side(style='thin', color='000000'))
+        separator_cell.border = Border(top=Side(style='hair', color='000000'))
         separator_cell.font = Font(italic=True, size=9)
         current_row += 1
 
@@ -410,29 +511,79 @@ def process_zt_data(start_date, end_date, clean_output=False):
     separator_row = current_row + 1
     ws.cell(row=separator_row, column=1, value="分隔cell = 首板")
     separator_cell = ws.cell(row=separator_row + 1, column=1)
-    separator_cell.border = Border(bottom=Side(style='double', color='000000'))
+    separator_cell.border = Border(bottom=Side(style='dashed', color='000000'))
 
     # 设置日期表头(从第二列开始)
     date_columns = {}
     for idx, trade_date in enumerate(trading_days, start=2):
-        date_formatted = datetime.strptime(trade_date, '%Y%m%d').strftime('%Y年%m月%d日')
-        cell = ws.cell(row=1, column=idx, value=date_formatted)
+        date_obj = datetime.strptime(trade_date, '%Y%m%d')
+        date_formatted = date_obj.strftime('%Y年%m月%d日')
+
+        # 获取星期几的中文名称
+        weekday_name = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'][date_obj.weekday()]
+        cell = ws.cell(row=1, column=idx, value=f"{date_obj.strftime('%Y-%m-%d')}\n{weekday_name}")
 
         # 设置表头样式
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
             top=Side(style='thin'),
             bottom=Side(style='thin')
         )
+        # 增强表头样式
+        cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
 
         # 设置列宽
         column_letter = get_column_letter(idx)
         ws.column_dimensions[column_letter].width = 15
 
         date_columns[date_formatted] = idx
+
+        # 添加指数涨跌幅数据 (第二行)
+        if date_formatted in index_data:
+            # 涨跌幅数据 (第二行)
+            pct_change = index_data[date_formatted]['pct_change']
+            pct_cell = ws.cell(row=2, column=idx, value=f"{pct_change:.2f}%")
+            pct_cell.alignment = Alignment(horizontal="center", vertical="center")
+            pct_cell.fill = PatternFill(start_color=get_color_by_pct_change(pct_change), fill_type="solid")
+
+            # 成交量数据 (第三行)
+            volume = index_data[date_formatted]['volume_100m']
+            volume_cell = ws.cell(row=3, column=idx, value=f"{volume:.2f}")
+            volume_cell.alignment = Alignment(horizontal="center", vertical="center")
+        else:
+            # 如果没有指数数据，添加空单元格
+            ws.cell(row=2, column=idx, value="--")
+            ws.cell(row=3, column=idx, value="--")
+
+    # 在第一列添加涨跌幅和成交量的标签，并设置样式
+    label_cell_1 = ws.cell(row=2, column=1, value="指数涨跌")
+    label_cell_1.alignment = Alignment(horizontal="center", vertical="center")
+    label_cell_1.font = Font(bold=True)
+    label_cell_1.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+    label_cell_2 = ws.cell(row=3, column=1, value="成交量(亿)")
+    label_cell_2.alignment = Alignment(horizontal="center", vertical="center")
+    label_cell_2.font = Font(bold=True)
+    label_cell_2.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+    # 美化标题行
+    title_cell = ws.cell(row=1, column=1)
+    title_cell.font = Font(bold=True)
+    title_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 添加指数行和个股行之间的分隔线
+    for col_idx in range(1, len(trading_days) + 2):
+        cell = ws.cell(row=3, column=col_idx)
+        cell.border = Border(
+            bottom=Side(style='double', color='000000')
+        )
+
+    # 冻结首行和首列
+    ws.freeze_panes = ws.cell(row=4, column=2)  # 冻结A1:A3和B1:X3
 
     # 对每日数据进行排序并写入工作表
     for date, col_idx in date_columns.items():
@@ -448,8 +599,8 @@ def process_zt_data(start_date, end_date, clean_output=False):
                     first_connection_idx = idx
                     break
 
-            # 写入连板股票数据
-            row_idx = 2
+            # 写入连板股票数据 (从第4行开始，因为前3行是日期、涨跌幅和成交量)
+            row_idx = 4
             for idx, stock in enumerate(sorted_stocks):
                 # 达到分界点，插入空行作为分隔
                 if first_connection_idx is not None and idx == first_connection_idx:
@@ -458,9 +609,9 @@ def process_zt_data(start_date, end_date, clean_output=False):
                     separator_cell = ws.cell(row=row_idx - 1, column=col_idx)
                     # 设置底色为黑色
                     separator_cell.fill = PatternFill(start_color="333333", fill_type="solid")
-                    separator_cell.border = Border(
-                        bottom=Side(style='double', color='FFFFFF')
-                    )
+                    # separator_cell.border = Border(
+                    #     bottom=Side(style='double', color='FFFFFF')
+                    # )
 
                 stock_key = f"{stock['code']}_{stock['name']}"
 

@@ -2,6 +2,7 @@ from datetime import datetime
 
 from analysis.calculate_limit_up_success_rate import analyze_rate
 from analysis.daily_group import find_stocks_by_hot_themes, highlight_repeated_stocks
+from analysis.dejavu import process_dejavu_data
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
@@ -49,6 +50,8 @@ def get_stock_datas():
                                     max_workers=16)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
+    # 获取指数数据
+    get_index_data()
 
 
 def get_stock_minute_datas():
@@ -193,26 +196,34 @@ def daily_group_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250423"
-    end_date = "20250515"
+    start_date = "20250425"
+    end_date = "20250516"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
     # consolidate_unclassified_reasons()
 
 
+def dejavu_fupan_analyze():
+    # 示例用法
+    start_date = "20250421"
+    end_date = "20250516"
+
+    # 处理连板数据
+    process_dejavu_data(start_date, end_date)
+
 
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
+    whimsical_fupan_analyze()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
-    stocks_time_sharing_price()
+    # stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
     # find_similar_trends()
