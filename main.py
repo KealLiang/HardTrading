@@ -46,7 +46,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250425', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250506', save_path='./data/astocks',
                                     max_workers=16)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -148,7 +148,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250414'  # 开始日期
+    start_date = '20250418'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -206,7 +206,7 @@ def dejavu_fupan_analyze():
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250425"
-    end_date = "20250516"
+    end_date = "20250519"
     process_zt_data(start_date, end_date, clean_output=True)
 
     # 为【未分类原因】归类
@@ -217,12 +217,12 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
+    whimsical_fupan_analyze()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # get_hot_clouds()
     # find_dragon()
