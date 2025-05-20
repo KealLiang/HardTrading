@@ -102,7 +102,7 @@ def find_yidong():
     # date = '2025-04-28'
     # find_serious_abnormal_stocks(date, check_updown_fluctuation=False)
 
-    start_date = '2025-04-25'
+    start_date = '2025-04-30'
     end_date = None
     find_serious_abnormal_stocks_range(start_date, end_date)
 
@@ -148,7 +148,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250418'  # 开始日期
+    start_date = '20250421'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -156,14 +156,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250415'
+    start_date = '20250430'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250423'
+    start_date = '20250425'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -182,13 +182,13 @@ def stocks_time_sharing_price():
 
 
 def analyze_advanced_on():
-    start_date = '2025-04-25'
+    start_date = '2025-04-30'
     end_date = None
     analyze_rate(start_date, end_date)
 
 
 def daily_group_analyze():
-    start_date = "20250425"
+    start_date = "20250430"
     end_date = None
     find_stocks_by_hot_themes(start_date, end_date, top_n=5, weight_factor=3)
     # highlight_repeated_stocks()
@@ -205,8 +205,8 @@ def dejavu_fupan_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250425"
-    end_date = "20250519"
+    start_date = "20250430"
+    end_date = "20250520"
     process_zt_data(start_date, end_date, clean_output=True)
     add_vba_for_excel()
 
