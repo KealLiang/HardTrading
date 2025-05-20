@@ -11,6 +11,7 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
 from utils.date_util import get_trading_days
+from utils.excel_vba_util import add_vba_to_sheet
 
 # 导入NLP工具模块 (如果可用)
 try:
@@ -984,6 +985,12 @@ def consolidate_unclassified_reasons():
         import traceback
         print(f"处理未分类原因时出错: {e}")
         print(traceback.format_exc())
+
+
+def add_vba_for_excel():
+    vba_file = "./scripts/highlight_same_cell.vba"
+    output_xlsm = add_vba_to_sheet(OUTPUT_FILE, vba_file, "涨停分析")
+    print(f"已添加高亮相同股票的VBA脚本，保存为: {output_xlsm}")
 
 
 if __name__ == "__main__":
