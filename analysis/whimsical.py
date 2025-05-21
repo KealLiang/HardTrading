@@ -124,27 +124,44 @@ PCT_CHANGE_THRESHOLDS = [1.0, 2.0, 3.0, 5.0]
 
 def normalize_reason(reason):
     """
-    将原因标准化，处理同一类型的不同表述
+    将原因标准化，处理同一类型的不同表述，优先匹配最具体的模式
     """
     # 移除所有空格
     reason = re.sub(r'\s+', '', reason)
     original_reason = reason
 
+    # 存储所有匹配结果及其匹配长度
+    matches = []
+    
     # 检查原因属于哪个组
     for main_reason, synonyms in synonym_groups.items():
         for synonym in synonyms:
             # 处理通配符匹配
             if '%' in synonym:
+                # 提取不含通配符的实际文本部分
+                actual_text = synonym.replace('%', '')
+                
                 # 转换SQL风格通配符为正则表达式
                 pattern = synonym.replace('%', '.*')
                 # 确保整个模式是正则表达式
                 pattern = f"^{pattern}$"
+                
                 if re.search(pattern, reason):
-                    return main_reason
+                    # 计算匹配强度 - 实际文本越长越具体
+                    match_strength = len(actual_text)
+                    matches.append((main_reason, match_strength, synonym))
+            
             # 保留原有的包含匹配
             elif synonym in reason:
-                return main_reason
+                match_strength = len(synonym)
+                matches.append((main_reason, match_strength, synonym))
 
+    # 如果有匹配，选择匹配强度最高的（最具体的）
+    if matches:
+        # 按匹配强度降序排序
+        matches.sort(key=lambda x: x[1], reverse=True)
+        return matches[0][0]  # 返回最佳匹配的主原因
+        
     # 如果没有匹配到组，返回原始原因，并标记为未分类
     return f"未分类_{original_reason}"
 
