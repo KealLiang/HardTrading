@@ -1,13 +1,14 @@
 from datetime import datetime
 
 from analysis.calculate_limit_up_success_rate import analyze_rate
-from analysis.daily_group import find_stocks_by_hot_themes, highlight_repeated_stocks
+from analysis.daily_group import find_stocks_by_hot_themes
 from analysis.dejavu import process_dejavu_data
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
-from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing, analyze_stocks_time_sharing
-from analysis.whimsical import process_zt_data, consolidate_unclassified_reasons, add_vba_for_excel
+from analysis.stock_price_plotter import plot_multiple_stocks
+from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
+from analysis.whimsical import process_zt_data, add_vba_for_excel
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -47,7 +48,7 @@ def get_index_data():
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250506', save_path='./data/astocks',
-                                    max_workers=16)
+                                    max_workers=8)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
     # 获取指数数据
@@ -181,6 +182,16 @@ def stocks_time_sharing_price():
     analyze_abnormal_stocks_time_sharing(start_date, end_date)
 
 
+def plot_stock_daily_prices():
+    # 指定股票代码列表和日期范围
+    stock_codes = ["603399", "600036", "601318", "000001", "600000"]
+    start_date = "20250430"
+    end_date = "20250523"
+    
+    # 画出日对比图
+    plot_multiple_stocks(stock_codes, start_date, end_date, equal_spacing=True)
+
+
 def analyze_advanced_on():
     start_date = '2025-05-06'
     end_date = None
@@ -223,8 +234,9 @@ if __name__ == '__main__':
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
+    plot_stock_daily_prices()
     # get_hot_clouds()
     # find_dragon()
     # find_similar_trends()
