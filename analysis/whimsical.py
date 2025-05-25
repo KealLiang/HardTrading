@@ -24,6 +24,7 @@ except ImportError:
 
 # 定义常见的同义词转换，顺序重要
 synonym_groups = {
+    "医药": ["%医药%", "创新药", "%疫苗%", "%医疗器械%", "%养老%", "%合成生物%", "%重组蛋白%", "%原料药%"],
     "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税", "化妆品", "麦角硫因", "电商", "电子商务",
                "消费电子", "%宠物%", "家电", "%益生菌%"],
     "重组": ["%重组%", "%控制权%"],
@@ -35,8 +36,7 @@ synonym_groups = {
     "新能源": ["%新能源%", "%电动车%", "%动力电池%", "%光伏%", "%锂电池%", "%氢%", "%可控核聚变%", "%节能环保%",
                "特斯拉", "固态电池"],
     "电力": ["%风电%", "%电力%", "%核电%", "%电网设备%", "电机"],
-    "化工": ["%化工%", "%化学%", "%环氧丙烷%", "%氯碱%", "%化纤%", "%涂料%", "%季戊四醇%", "%聚酯%", "%混凝土%",
-             "%钛白粉%", "%造纸%", "%原料药%", "%纺织%"],
+    "化工": ["%化工%", "%环氧丙烷%", "%氯碱%", "%化纤%", "%涂料%", "%季戊四醇%", "%聚酯%", "%钛白粉%", "%造纸%", "%纺织%"],
     "新材料": ["%PEEK材料%", "%碳纤维%", "%高温合金%", "%稀土永磁%"],
     "军工": ["%军工%", "%国防%", "%航空%", "%战斗机%", "%大飞机%", "%军贸%", "%无人机%", "%成飞%"],
     "航天": ["%航天%", "%低空经济%", "%飞行汽车%"],
@@ -48,7 +48,6 @@ synonym_groups = {
                  "%智能家居%"],
     "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
     "金融": ["%金融%", "%保险%", "%银行%", "%信托%", "%AH%", "腾讯"],
-    "医药": ["%医药%", "%创新药%", "%疫苗%", "%生物医药%", "%医疗器械%", "%养老%", "%合成生物%", "%重组蛋白%"],
     "华为": ["%华为%", "%鸿蒙%"],
     "国企": ["%国企%", "%国资%", "%央企%", "%中字头%", "%兵装%"],
     "业绩增长": ["%业绩%", "%报增%", "%净利%", "%预增%"],
@@ -130,39 +129,39 @@ def normalize_reason(reason):
     reason = re.sub(r'\s+', '', reason)
     original_reason = reason
 
-    # 存储所有匹配结果及其匹配长度
+    # 存储所有匹配结果及其匹配信息
     matches = []
-    
+
     # 检查原因属于哪个组
     for main_reason, synonyms in synonym_groups.items():
         for synonym in synonyms:
             # 处理通配符匹配
             if '%' in synonym:
-                # 提取不含通配符的实际文本部分
-                actual_text = synonym.replace('%', '')
-                
                 # 转换SQL风格通配符为正则表达式
-                pattern = synonym.replace('%', '.*')
-                # 确保整个模式是正则表达式
-                pattern = f"^{pattern}$"
+                pattern = synonym.replace('%', '(.*)')
+                regex = re.compile(f"^{pattern}$")
+                match = regex.search(reason)
                 
-                if re.search(pattern, reason):
-                    # 计算匹配强度 - 实际文本越长越具体
-                    match_strength = len(actual_text)
+                if match:
+                    # 计算匹配的具体部分
+                    matched_text = reason
+                    for group in match.groups():
+                        matched_text = matched_text.replace(group, '')
+                    
+                    # 匹配强度 = 匹配文本长度 / 原文长度
+                    match_strength = len(matched_text) / len(reason)
                     matches.append((main_reason, match_strength, synonym))
             
             # 保留原有的包含匹配
             elif synonym in reason:
-                match_strength = len(synonym)
+                match_strength = len(synonym) / len(reason)
                 matches.append((main_reason, match_strength, synonym))
 
-    # 如果有匹配，选择匹配强度最高的（最具体的）
+    # 如果有匹配，选择匹配强度最高的
     if matches:
-        # 按匹配强度降序排序
         matches.sort(key=lambda x: x[1], reverse=True)
-        return matches[0][0]  # 返回最佳匹配的主原因
-        
-    # 如果没有匹配到组，返回原始原因，并标记为未分类
+        return matches[0][0]
+
     return f"未分类_{original_reason}"
 
 
@@ -479,16 +478,16 @@ def process_zt_data(start_date, end_date, clean_output=False):
         # 统计该股票的原因
         stock_reason_counter = Counter(data['reasons'])
 
-        # 检查是否有热门原因
-        found_top_reason = False
-        for top_reason in top_reasons:
-            if top_reason in stock_reason_counter:
-                stock_reason_group[stock_key] = top_reason
-                found_top_reason = True
-                break
+        # 先检查哪些原因是热门原因
+        top_reasons_found = [reason for reason in top_reasons if reason in stock_reason_counter]
 
-        # 如果没有热门原因，使用该股票最常见的原因
-        if not found_top_reason and stock_reason_counter:
+        if top_reasons_found:
+            # 如果有多个热门原因，选择出现次数最多的
+            top_reason_counts = [(reason, stock_reason_counter[reason]) for reason in top_reasons_found]
+            top_reason_counts.sort(key=lambda x: x[1], reverse=True)
+            stock_reason_group[stock_key] = top_reason_counts[0][0]
+        elif stock_reason_counter:
+            # 如果没有热门原因，使用该股票最常见的原因
             most_common_reason = stock_reason_counter.most_common(1)[0][0]
             stock_reason_group[stock_key] = most_common_reason
 
