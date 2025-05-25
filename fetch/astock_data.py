@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -7,12 +9,13 @@ import akshare as ak
 import pandas as pd
 
 from decorators.practical import timer
+from utils.date_util import get_trading_days, format_date
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class StockDataFetcher:
-    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False):
+    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False, max_sleep_time=2):
         """
         初始化A股数据获取类。
         表头-> 日期,股票代码,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
@@ -23,14 +26,19 @@ class StockDataFetcher:
         :param save_path: 数据保存的路径，默认为当前目录。
         :param max_workers: 最大线程数，默认为10。
         :param force_update: 是否强制更新已有日期的数据，默认为False。
+        :param max_sleep_time: 随机休眠的最大毫秒数，用于避免请求过于频繁。
         """
         self.start_date = start_date
         self.end_date = end_date or datetime.now().strftime('%Y%m%d')
         self.save_path = save_path
         self.max_workers = max_workers
         self.force_update = force_update
+        self.max_sleep_time = max_sleep_time
         # 确保保存路径存在
         os.makedirs(self.save_path, exist_ok=True)
+        
+        # 获取交易日列表
+        self.trading_days = get_trading_days(self.start_date, self.end_date)
         
         if self.force_update:
             logging.info("强制更新模式已启用，将覆盖指定日期范围内的所有数据")
@@ -66,6 +74,15 @@ class StockDataFetcher:
         处理单只股票的数据获取和保存（线程安全）
         """
         try:
+            # 检查是否需要获取数据
+            if not self._need_update(stock_code, stock_name):
+                logging.info(f"股票 {stock_code}({stock_name}) 不需要更新数据")
+                return
+                
+            # 添加随机休眠以避免请求过于频繁被限制
+            sleep_time = random.uniform(0, self.max_sleep_time)
+            time.sleep(sleep_time / 1000.0)
+            
             stock_data = ak.stock_zh_a_hist(
                 symbol=stock_code,
                 start_date=self.start_date,
@@ -75,6 +92,50 @@ class StockDataFetcher:
             self._save_stock_data(stock_code, stock_name, stock_data)
         except Exception as e:
             raise RuntimeError(f"Failed to process {stock_code}: {str(e)}")
+            
+    def _need_update(self, stock_code, stock_name):
+        """
+        判断是否需要更新数据
+        
+        :param stock_code: 股票代码
+        :param stock_name: 股票名称
+        :return: 是否需要更新数据
+        """
+        # 强制更新模式下始终返回True
+        if self.force_update:
+            return True
+            
+        safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
+        file_name = f"{stock_code}_{safe_name}.csv"
+        file_path = os.path.join(self.save_path, file_name)
+        
+        # 如果文件不存在，需要更新
+        if not os.path.exists(file_path):
+            return True
+            
+        try:
+            # 读取现有文件的所有数据
+            existing_data = pd.read_csv(file_path, header=None,
+                                    names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+                                           '振幅', '涨跌幅', '涨跌额', '换手率'])
+
+            # 确保日期列是日期类型
+            existing_data['日期'] = pd.to_datetime(existing_data['日期'])
+            
+            # 获取现有数据的日期范围
+            existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
+            
+            # 检查交易日是否都已存在
+            formatted_trading_days = [format_date(day) for day in self.trading_days]
+            missing_days = [day for day in formatted_trading_days if day not in existing_dates]
+            
+            # 如果有缺失的交易日，需要更新
+            return len(missing_days) > 0
+            
+        except Exception as e:
+            logging.warning(f"检查 {file_path} 是否需要更新时出错: {str(e)}")
+            # 出错时保守处理，返回需要更新
+            return True
 
     def _save_stock_data(self, stock_code, stock_name, stock_data):
         """
@@ -216,6 +277,7 @@ if __name__ == "__main__":
         end_date='20241207',
         save_path='./stock_data',
         max_workers=2,  # 可根据网络环境和硬件配置调整
-        force_update=False  # 是否强制更新已有日期的数据
+        force_update=False,  # 是否强制更新已有日期的数据
+        max_sleep_time=2  # 随机休眠的最大毫秒数
     )
     data_fetcher.fetch_and_save_data()
