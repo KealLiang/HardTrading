@@ -149,7 +149,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250421'  # 开始日期
+    start_date = '20250506'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -216,8 +216,8 @@ def dejavu_fupan_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250506"
-    end_date = "20250523"
+    start_date = "20250508"
+    end_date = "20250526"
     process_zt_data(start_date, end_date, clean_output=True)
     add_vba_for_excel()
 
@@ -229,8 +229,8 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    whimsical_fupan_analyze()
-    # find_yidong()
+    # whimsical_fupan_analyze()
+    find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
