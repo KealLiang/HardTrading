@@ -48,7 +48,7 @@ def get_index_data():
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250506', save_path='./data/astocks',
-                                    max_workers=8)
+                                    max_workers=4)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
     # 获取指数数据
@@ -216,8 +216,8 @@ def dejavu_fupan_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250508"
-    end_date = "20250526"
+    start_date = "20250509"
+    end_date = "20250527"
     process_zt_data(start_date, end_date, clean_output=True)
     add_vba_for_excel()
 
@@ -230,11 +230,11 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    find_yidong()
+    # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
     # get_hot_clouds()
