@@ -2,6 +2,7 @@ import logging
 import os
 import random
 import time
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 class StockDataFetcher:
-    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False, max_sleep_time=2):
+    def __init__(self, start_date, end_date=None, save_path='./', max_workers=3, force_update=False, max_sleep_time=5000, max_retries=3):
         """
         初始化A股数据获取类。
         表头-> 日期,股票代码,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
@@ -24,9 +25,10 @@ class StockDataFetcher:
         :param start_date: 数据的起始时间，格式为'YYYYMMDD'。
         :param end_date: 数据的结束时间，格式为'YYYYMMDD'，默认为当前日期。
         :param save_path: 数据保存的路径，默认为当前目录。
-        :param max_workers: 最大线程数，默认为10。
+        :param max_workers: 最大线程数，默认为3。
         :param force_update: 是否强制更新已有日期的数据，默认为False。
         :param max_sleep_time: 随机休眠的最大毫秒数，用于避免请求过于频繁。
+        :param max_retries: 单只股票数据获取的最大重试次数，默认为3。
         """
         self.start_date = start_date
         self.end_date = end_date or datetime.now().strftime('%Y%m%d')
@@ -34,14 +36,62 @@ class StockDataFetcher:
         self.max_workers = max_workers
         self.force_update = force_update
         self.max_sleep_time = max_sleep_time
+        self.max_retries = max_retries
+        
         # 确保保存路径存在
         os.makedirs(self.save_path, exist_ok=True)
         
         # 获取交易日列表
         self.trading_days = get_trading_days(self.start_date, self.end_date)
         
+        # 任务状态文件路径
+        self.task_status_file = os.path.join(self.save_path, 'task_status.json')
+        
+        # 初始化或加载任务状态
+        self.task_status = self._load_task_status()
+        
         if self.force_update:
             logging.info("强制更新模式已启用，将覆盖指定日期范围内的所有数据")
+
+    def _load_task_status(self):
+        """
+        加载任务状态，如果不存在则创建新的
+        """
+        if os.path.exists(self.task_status_file):
+            try:
+                with open(self.task_status_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                logging.warning(f"加载任务状态文件失败: {str(e)}，将创建新的任务状态")
+        
+        return {}
+
+    def _save_task_status(self):
+        """
+        保存任务状态到文件
+        """
+        try:
+            with open(self.task_status_file, 'w', encoding='utf-8') as f:
+                json.dump(self.task_status, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"保存任务状态文件失败: {str(e)}")
+
+    def _update_task_status(self, stock_code, stock_name, status, retry_count=0):
+        """
+        更新股票的任务状态
+        
+        :param stock_code: 股票代码
+        :param stock_name: 股票名称
+        :param status: 状态，可选值：'待处理', '处理中', '已完成', '失败_待重试', '失败_跳过'
+        :param retry_count: 重试次数
+        """
+        self.task_status[stock_code] = {
+            'name': stock_name,
+            'status': status,
+            'retry_count': retry_count,
+            'last_update': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        self._save_task_status()
 
     @timer
     def fetch_and_save_data(self):
@@ -49,17 +99,48 @@ class StockDataFetcher:
         获取所有A股股票的每日数据，并保存到CSV文件。
         """
         # 获取所有A股股票代码和名称
-        stock_real_time = ak.stock_zh_a_spot_em()
-        stock_list = stock_real_time[['代码', '名称']].values.tolist()
+        try:
+            stock_real_time = ak.stock_zh_a_spot_em()
+            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+        except Exception as e:
+            logging.error(f"获取股票列表失败: {str(e)}")
+            logging.info("请手动打开浏览器访问东方财富网（如：https://quote.eastmoney.com/concept/sh603777.html?from=classic）完成验证操作。")
+            input("完成验证后请按回车键继续...")
+            # 重新尝试获取股票列表
+            stock_real_time = ak.stock_zh_a_spot_em()
+            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+
+        # 优先处理待重试的股票
+        priority_stocks = []
+        normal_stocks = []
+        
+        for stock_code, stock_name in stock_list:
+            if stock_code in self.task_status:
+                status = self.task_status[stock_code]['status']
+                if status == '失败_待重试' and self.task_status[stock_code]['retry_count'] < self.max_retries:
+                    priority_stocks.append((stock_code, stock_name))
+                elif status != '已完成' and status != '失败_跳过':
+                    normal_stocks.append((stock_code, stock_name))
+            else:
+                normal_stocks.append((stock_code, stock_name))
+        
+        # 合并优先股票和普通股票
+        combined_stocks = priority_stocks + normal_stocks
+        
+        if not combined_stocks:
+            logging.info("没有需要处理的股票数据")
+            return
+
+        logging.info(f"共有 {len(combined_stocks)} 只股票需要处理，其中 {len(priority_stocks)} 只为待重试")
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
                 executor.submit(
-                    self._process_single_stock,
+                    self._process_single_stock_with_retry,
                     stock_code,
                     stock_name
                 ): (stock_code, stock_name)
-                for stock_code, stock_name in stock_list
+                for stock_code, stock_name in combined_stocks
             }
 
             for future in as_completed(futures):
@@ -67,7 +148,91 @@ class StockDataFetcher:
                 try:
                     future.result()
                 except Exception as e:
-                    print(f"Error processing {stock_code}: {str(e)}")
+                    logging.error(f"处理股票 {stock_code}({stock_name}) 时发生错误: {str(e)}")
+
+    def _process_single_stock_with_retry(self, stock_code, stock_name):
+        """
+        处理单只股票的数据获取和保存，包含重试逻辑
+        """
+        retry_count = 0
+        if stock_code in self.task_status:
+            retry_count = self.task_status[stock_code].get('retry_count', 0)
+        
+        # 更新状态为处理中
+        self._update_task_status(stock_code, stock_name, '处理中', retry_count)
+        
+        # 检查是否需要更新数据
+        if not self._need_update(stock_code, stock_name):
+            logging.info(f"股票 {stock_code}({stock_name}) 不需要更新数据")
+            self._update_task_status(stock_code, stock_name, '已完成', retry_count)
+            return
+        
+        # 检查是否为退市股票，如果是则直接跳过
+        if '退市' in stock_name:
+            logging.info(f"股票 {stock_code}({stock_name}) 为退市股票，跳过数据获取")
+            self._update_task_status(stock_code, stock_name, '无数据_跳过', retry_count)
+            return
+        
+        while retry_count <= self.max_retries:
+            try:
+                # 添加随机休眠以避免请求过于频繁被限制
+                sleep_time = random.uniform(1000, self.max_sleep_time)
+                time.sleep(sleep_time / 1000.0)
+                
+                # 尝试获取股票数据
+                stock_data = ak.stock_zh_a_hist(
+                    symbol=stock_code,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    adjust="qfq"
+                )
+                
+                # 检查返回的数据是否为空或无效
+                if stock_data.empty:
+                    # 如果是第一次尝试就返回空数据，可能是股票本身没有数据，不需要重试
+                    if retry_count == 0:
+                        logging.info(f"股票 {stock_code}({stock_name}) 没有返回数据，可能是新股或已退市，跳过")
+                        self._update_task_status(stock_code, stock_name, '无数据_跳过', retry_count)
+                        return
+                    else:
+                        raise ValueError("获取到的数据为空")
+                
+                # 数据获取成功，保存数据
+                self._save_stock_data(stock_code, stock_name, stock_data)
+                
+                # 更新状态为已完成
+                self._update_task_status(stock_code, stock_name, '已完成', retry_count)
+                
+                logging.info(f"成功获取并保存股票 {stock_code}({stock_name}) 的数据")
+                return
+                
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e)
+                
+                # 如果是空数据错误且不是第一次尝试，可能是股票本身没有数据
+                if "空" in error_msg or "empty" in error_msg.lower():
+                    logging.info(f"股票 {stock_code}({stock_name}) 没有返回数据，可能是新股或已退市，跳过")
+                    self._update_task_status(stock_code, stock_name, '无数据_跳过', retry_count)
+                    return
+                
+                if retry_count > self.max_retries:
+                    logging.error(f"股票 {stock_code}({stock_name}) 数据获取失败，已达到最大重试次数: {error_msg}")
+                    self._update_task_status(stock_code, stock_name, '失败_跳过', retry_count)
+                    break
+                
+                logging.warning(f"股票 {stock_code}({stock_name}) 数据获取失败，准备第 {retry_count} 次重试: {error_msg}")
+                
+                # 判断是否可能需要人工验证
+                if "请求失败" in error_msg or "验证" in error_msg or "超时" in error_msg:
+                    logging.info(f"股票 {stock_code}({stock_name}) 数据拉取失败，可能需要手动进行滑动验证。")
+                    logging.info("请打开浏览器访问东方财富网（如：https://quote.eastmoney.com/concept/sh603777.html?from=classic）完成验证操作。")
+                    input("完成验证后请按回车键继续...")
+                
+                self._update_task_status(stock_code, stock_name, '失败_待重试', retry_count)
+                
+                # 增加更长的等待时间
+                time.sleep(random.uniform(3000, 8000) / 1000.0)
 
     def _process_single_stock(self, stock_code, stock_name):
         """
@@ -278,6 +443,6 @@ if __name__ == "__main__":
         save_path='./stock_data',
         max_workers=2,  # 可根据网络环境和硬件配置调整
         force_update=False,  # 是否强制更新已有日期的数据
-        max_sleep_time=2  # 随机休眠的最大毫秒数
+        max_sleep_time=5000  # 随机休眠的最大毫秒数
     )
     data_fetcher.fetch_and_save_data()
