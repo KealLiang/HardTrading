@@ -8,7 +8,8 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
 from utils.date_util import get_trading_days, format_date, count_trading_days_between
-from analysis.whimsical import get_color_by_pct_change, normalize_reason
+from analysis.whimsical import get_color_by_pct_change
+from utils.theme_color_util import extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
@@ -48,47 +49,6 @@ MAX_TRACKING_DAYS_AFTER_BREAK = 5
 # 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
 # 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
 REENTRY_DAYS_THRESHOLD = 4
-
-# 涨跌幅颜色映射函数
-def get_color_for_pct_change(pct_change):
-    """
-    根据涨跌幅返回颜色代码
-    
-    Args:
-        pct_change: 涨跌幅百分比
-        
-    Returns:
-        str: 16进制颜色代码
-    """
-    if pct_change is None:
-        return "CCCCCC"  # 浅灰色，表示数据缺失
-        
-    # 将涨跌幅转换为浮点数
-    try:
-        pct = float(pct_change)
-    except:
-        return "CCCCCC"  # 无法转换时返回浅灰色
-    
-    # 涨跌停板情况
-    if pct >= 9.5:
-        return "FFD700"  # 涨停 - 金黄色
-    if pct <= -9.5:
-        return "00CC00"  # 跌停 - 深绿色
-    
-    # 普通涨跌幅
-    if pct > 0:
-        # 上涨 - 黄色系
-        intensity = min(255, int(200 * pct / 10) + 55)  # 根据涨幅计算黄色强度
-        return f"FFFF{hex(255-intensity)[2:].zfill(2).upper()}"  # 黄色系，涨幅越大越深
-    elif pct < 0:
-        # 下跌 - 绿色系
-        intensity = min(255, int(200 * abs(pct) / 10) + 55)  # 根据跌幅计算绿色强度
-        green = hex(intensity)[2:].zfill(2).upper()
-        return f"{green}FF{green}"
-    else:
-        # 平盘 - 浅灰色
-        return "E6E6E6"
-
 
 def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
     """
@@ -584,7 +544,7 @@ def get_concept_from_board_text(board_text):
     match = re.search(r'\(([^)]+)\)', board_text)
     if match:
         concept = match.group(1).strip()
-        # 使用normalize_reason对概念进行规范化
+        # 使用theme_color_util中的normalize_reason对概念进行规范化
         try:
             normalized_concept = normalize_reason(concept)
             return normalized_concept if not normalized_concept.startswith("未分类") else concept
@@ -661,6 +621,37 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws = wb.active
     ws.title = f"涨停梯队{start_date[:6]}"
     
+    # 收集所有概念信息，用于生成颜色映射
+    all_concepts = []
+    stock_concepts = {}
+    
+    # 从result_df中收集所有概念
+    for _, row in result_df.iterrows():
+        concept = row.get('concept', '其他')
+        if pd.isna(concept) or not concept:
+            concept = "其他"
+        
+        # 提取概念中的原因
+        reasons = extract_reasons(concept)
+        if reasons:
+            all_concepts.extend(reasons)
+            stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
+    
+    # 获取热门概念的颜色映射
+    reason_colors, top_reasons = get_reason_colors(all_concepts)
+    
+    # 为每只股票确定主要概念组
+    all_stocks = {}
+    for stock_key, reasons in stock_concepts.items():
+        all_stocks[stock_key] = {
+            'name': stock_key.split('_')[1],
+            'reasons': reasons,
+            'appearances': [1]  # 简化处理，只需要一个非空列表
+        }
+    
+    # 获取每只股票的主要概念组
+    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
+    
     # 设置日期表头（第1行）
     ws.cell(row=1, column=1, value="题材概念")
     ws.cell(row=1, column=2, value="股票简称")
@@ -688,7 +679,6 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.cell(row=1, column=2).alignment = Alignment(horizontal='center')
     ws.cell(row=1, column=1).border = BORDER_STYLE
     ws.cell(row=1, column=2).border = BORDER_STYLE
-    # 为前两列表头也添加字体加粗
     ws.cell(row=1, column=1).font = Font(bold=True)
     ws.cell(row=1, column=2).font = Font(bold=True)
     
@@ -706,9 +696,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             concept = "其他"
         
         # 设置概念列（第一列）
-        ws.cell(row=row_idx, column=1, value=f"[{concept}]")
-        ws.cell(row=row_idx, column=1).alignment = Alignment(horizontal='left')
-        ws.cell(row=row_idx, column=1).border = BORDER_STYLE
+        concept_cell = ws.cell(row=row_idx, column=1, value=f"[{concept}]")
+        concept_cell.alignment = Alignment(horizontal='left')
+        concept_cell.border = BORDER_STYLE
+        
+        # 根据股票所属概念组设置颜色
+        stock_key = f"{stock_code}_{stock_name}"
+        if stock_key in stock_reason_group:
+            reason = stock_reason_group[stock_key]
+            if reason in reason_colors:
+                concept_cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
+                # 如果背景色较深，使用白色字体
+                if reason_colors[reason] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
+                    concept_cell.font = Font(color="FFFFFF")
         
         # 设置股票简称列（第二列）
         ws.cell(row=row_idx, column=2, value=stock_name)
@@ -764,7 +764,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                             if pct_change is not None:
                                 cell.value = f"{pct_change:.2f}%"
                                 # 设置背景色 - 根据涨跌幅
-                                color = get_color_for_pct_change(pct_change)
+                                color = get_color_by_pct_change(pct_change)
                                 if color:
                                     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
                             else:
