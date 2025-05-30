@@ -677,16 +677,20 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         
         ws.cell(row=1, column=col, value=date_with_weekday)
         
-        # 设置日期单元格样式：居中、自动换行、边框
+        # 设置日期单元格样式：居中、自动换行、边框、字体加粗
         date_cell = ws.cell(row=1, column=col)
         date_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         date_cell.border = BORDER_STYLE
+        date_cell.font = Font(bold=True)
     
     # 设置前两列的格式
     ws.cell(row=1, column=1).alignment = Alignment(horizontal='center')
     ws.cell(row=1, column=2).alignment = Alignment(horizontal='center')
     ws.cell(row=1, column=1).border = BORDER_STYLE
     ws.cell(row=1, column=2).border = BORDER_STYLE
+    # 为前两列表头也添加字体加粗
+    ws.cell(row=1, column=1).font = Font(bold=True)
+    ws.cell(row=1, column=2).font = Font(bold=True)
     
     # 填充数据行
     for i, (_, stock) in enumerate(result_df.iterrows()):
