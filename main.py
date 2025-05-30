@@ -9,6 +9,7 @@ from analysis.seek_historical_similar import find_other_similar_trends
 from analysis.stock_price_plotter import plot_multiple_stocks
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
 from analysis.whimsical import process_zt_data, add_vba_for_excel
+from analysis.ladder_chart import build_ladder_chart
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
@@ -225,6 +226,16 @@ def whimsical_fupan_analyze():
     # consolidate_unclassified_reasons()
 
 
+def generate_ladder_chart():
+    start_date = "20250401"  # 调整为Excel中有数据的日期范围
+    end_date = "20250531"
+    output_file = "./excel/ladder_analysis.xlsx"
+    min_board_level = 2
+    
+    # 构建梯队图
+    build_ladder_chart(start_date, end_date, output_file, min_board_level)
+
+
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
@@ -234,7 +245,7 @@ if __name__ == '__main__':
     # daily_group_analyze()
     # analyze_advanced_on()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
     # get_hot_clouds()
@@ -248,3 +259,4 @@ if __name__ == '__main__':
     # backtrade_simulate()
     # get_index_data()
     # check_stock_datas()
+    generate_ladder_chart()
