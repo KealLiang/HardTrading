@@ -2,6 +2,8 @@ import logging
 import os
 import random
 import time
+import threading
+import winsound
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -40,6 +42,21 @@ class StockDataFetcher:
         # 获取交易日列表
         self.trading_days = get_trading_days(self.start_date, self.end_date)
         
+        # 添加暂停标志，用于在遇到验证码时暂停所有线程
+        self.pause_flag = threading.Event()
+        self.pause_flag.set()  # 初始状态为不暂停
+        
+        # 添加锁，确保只有一个线程会触发验证处理
+        self.verification_lock = threading.Lock()
+        
+        # 标记是否正在处理验证，使用类变量确保全局可见
+        self._verification_in_progress = False
+        
+        # 添加一个计数器，跟踪已完成的任务数量
+        self.completed_tasks = 0
+        self.total_tasks = 0
+        self.task_lock = threading.Lock()
+        
         if self.force_update:
             logging.info("强制更新模式已启用，将覆盖指定日期范围内的所有数据")
 
@@ -49,8 +66,22 @@ class StockDataFetcher:
         获取所有A股股票的每日数据，并保存到CSV文件。
         """
         # 获取所有A股股票代码和名称
-        stock_real_time = ak.stock_zh_a_spot_em()
-        stock_list = stock_real_time[['代码', '名称']].values.tolist()
+        try:
+            stock_real_time = ak.stock_zh_a_spot_em()
+            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+        except Exception as e:
+            logging.error(f"获取股票列表失败: {str(e)}")
+            self._handle_verification_needed("获取股票列表时可能需要验证")
+            # 重新尝试获取股票列表
+            stock_real_time = ak.stock_zh_a_spot_em()
+            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+        
+        # 设置总任务数
+        self.total_tasks = len(stock_list)
+        logging.info(f"开始处理 {self.total_tasks} 只股票数据")
+        
+        # 在开始处理前暂停，等待用户确认
+        self._pause_for_confirmation("按回车键开始处理...", use_beep=False)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
@@ -66,8 +97,78 @@ class StockDataFetcher:
                 stock_code, stock_name = futures[future]
                 try:
                     future.result()
+                    # 更新完成任务计数
+                    with self.task_lock:
+                        self.completed_tasks += 1
+                        if self.completed_tasks % 50 == 0:
+                            logging.info(f"已完成 {self.completed_tasks}/{self.total_tasks} 只股票数据处理")
                 except Exception as e:
-                    print(f"Error processing {stock_code}: {str(e)}")
+                    error_msg = str(e)
+                    print(f"Error processing {stock_code}: {error_msg}")
+                    
+                    # 检查是否是连接中断错误，这可能是由于需要验证码
+                    if "Connection aborted" in error_msg or "RemoteDisconnected" in error_msg:
+                        self._trigger_verification(f"处理股票 {stock_code}({stock_name}) 时连接中断")
+        
+        logging.info(f"所有股票数据处理完成，共 {self.completed_tasks}/{self.total_tasks} 只")
+
+    def _trigger_verification(self, message):
+        """
+        触发验证处理，使用全局锁确保只有一个线程能触发
+        """
+        # 使用锁确保只有一个线程会触发验证处理
+        if not self._verification_in_progress:  # 先检查一次，避免不必要的锁竞争
+            with self.verification_lock:
+                # 双重检查，确保在获取锁的过程中状态没有被改变
+                if not self._verification_in_progress:
+                    self._verification_in_progress = True
+                    self._handle_verification_needed(message)
+
+    def _pause_for_confirmation(self, message, use_beep=True):
+        """
+        暂停并等待用户确认
+        
+        :param message: 显示给用户的消息
+        :param use_beep: 是否发出声音提醒
+        """
+        if use_beep:
+            self._play_beep()
+        
+        logging.info(message)
+        input(message)
+        logging.info("继续执行...")
+
+    def _play_beep(self):
+        """
+        发出声音提醒
+        """
+        try:
+            winsound.Beep(1000, 500)  # 1000Hz, 持续500毫秒
+            winsound.Beep(1500, 500)  # 1500Hz, 持续500毫秒
+        except:
+            # 如果不支持声音，则忽略错误
+            pass
+
+    def _handle_verification_needed(self, message):
+        """
+        处理需要验证的情况：暂停所有线程，发出声音提醒，等待用户处理
+        """
+        # 设置暂停标志，所有线程将在检查点等待
+        self.pause_flag.clear()
+        
+        # 发出声音提醒
+        self._play_beep()
+        
+        logging.warning(f"检测到可能需要验证码: {message}")
+        logging.warning("请打开浏览器访问东方财富网（如：https://quote.eastmoney.com/concept/sh603777.html?from=classic）完成验证操作")
+        
+        self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
+        
+        # 恢复运行
+        self.pause_flag.set()
+        self._verification_in_progress = False
+        
+        logging.info("已恢复数据获取")
 
     def _process_single_stock(self, stock_code, stock_name):
         """
@@ -78,20 +179,49 @@ class StockDataFetcher:
             if not self._need_update(stock_code, stock_name):
                 logging.info(f"股票 {stock_code}({stock_name}) 不需要更新数据")
                 return
+            
+            # 检查是否为退市股票，如果是则直接跳过
+            if '退市' in stock_name:
+                logging.info(f"股票 {stock_code}({stock_name}) 为退市股票，跳过数据获取")
+                return
+                
+            # 在每次请求前检查是否需要暂停
+            self._wait_if_paused()
                 
             # 添加随机休眠以避免请求过于频繁被限制
             sleep_time = random.uniform(0, self.max_sleep_time)
             time.sleep(sleep_time / 1000.0)
             
-            stock_data = ak.stock_zh_a_hist(
-                symbol=stock_code,
-                start_date=self.start_date,
-                end_date=self.end_date,
-                adjust="qfq"
-            )
+            stock_data = self._fetch_stock_data(stock_code)
+            
+            # 检查返回的数据是否为空
+            if stock_data.empty:
+                logging.info(f"股票 {stock_code}({stock_name}) 没有返回数据，可能是新股或已退市，跳过")
+                return
+                
             self._save_stock_data(stock_code, stock_name, stock_data)
         except Exception as e:
             raise RuntimeError(f"Failed to process {stock_code}: {str(e)}")
+    
+    def _fetch_stock_data(self, stock_code):
+        """
+        获取股票数据，封装为单独方法便于后续扩展或修改
+        
+        :param stock_code: 股票代码
+        :return: 股票数据DataFrame
+        """
+        return ak.stock_zh_a_hist(
+            symbol=stock_code,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            adjust="qfq"
+        )
+    
+    def _wait_if_paused(self):
+        """
+        检查是否需要暂停，如果需要则等待
+        """
+        self.pause_flag.wait()
             
     def _need_update(self, stock_code, stock_name):
         """
@@ -101,11 +231,14 @@ class StockDataFetcher:
         :param stock_name: 股票名称
         :return: 是否需要更新数据
         """
+        # 在每次检查前检查是否需要暂停
+        self._wait_if_paused()
+        
         # 强制更新模式下始终返回True
         if self.force_update:
             return True
             
-        safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
+        safe_name = self._get_safe_file_name(stock_name)
         file_name = f"{stock_code}_{safe_name}.csv"
         file_path = os.path.join(self.save_path, file_name)
         
@@ -137,11 +270,23 @@ class StockDataFetcher:
             # 出错时保守处理，返回需要更新
             return True
 
+    def _get_safe_file_name(self, stock_name):
+        """
+        获取安全的文件名，替换特殊字符
+        
+        :param stock_name: 股票名称
+        :return: 安全的文件名
+        """
+        return stock_name.replace('*ST', 'xST').replace('/', '_')
+
     def _save_stock_data(self, stock_code, stock_name, stock_data):
         """
         线程安全的股票数据保存方法
         """
-        safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
+        # 在保存前检查是否需要暂停
+        self._wait_if_paused()
+        
+        safe_name = self._get_safe_file_name(stock_name)
         file_name = f"{stock_code}_{safe_name}.csv"
         file_path = os.path.join(self.save_path, file_name)
 
