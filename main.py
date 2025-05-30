@@ -150,7 +150,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250506'  # 开始日期
+    start_date = '20250509'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -217,10 +217,10 @@ def dejavu_fupan_analyze():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250509"
-    end_date = "20250527"
+    start_date = "20250515"
+    end_date = "20250530"
     process_zt_data(start_date, end_date, clean_output=True)
-    add_vba_for_excel()
+    # add_vba_for_excel()
 
     # 为【未分类原因】归类
     # consolidate_unclassified_reasons()
@@ -228,19 +228,18 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = "20250401"  # 调整为Excel中有数据的日期范围
-    end_date = "20250531"
-    output_file = "./excel/ladder_analysis.xlsx"
+    end_date = "20250530"
     min_board_level = 2
     
     # 构建梯队图
-    build_ladder_chart(start_date, end_date, output_file, min_board_level)
+    build_ladder_chart(start_date, end_date, min_board_level=min_board_level)
 
 
 if __name__ == '__main__':
-    get_stock_datas()
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
+    whimsical_fupan_analyze()
     # generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
