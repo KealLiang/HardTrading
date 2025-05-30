@@ -7,7 +7,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
-from utils.date_util import get_trading_days, format_date
+from utils.date_util import get_trading_days, format_date, count_trading_days_between
 from analysis.whimsical import get_color_by_pct_change, normalize_reason
 
 # 输入和输出文件路径
@@ -40,8 +40,14 @@ BOARD_COLORS = {
 }
 
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
+# 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
 # 设置为None表示一直跟踪到分析周期结束
 MAX_TRACKING_DAYS_AFTER_BREAK = 5
+
+# 断板后再次达到2板的交易日间隔阈值
+# 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
+# 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
+REENTRY_DAYS_THRESHOLD = 4
 
 # 涨跌幅颜色映射函数
 def get_color_for_pct_change(pct_change):
@@ -65,16 +71,15 @@ def get_color_for_pct_change(pct_change):
     
     # 涨跌停板情况
     if pct >= 9.5:
-        return "FF0000"  # 涨停 - 大红色
+        return "FFD700"  # 涨停 - 金黄色
     if pct <= -9.5:
         return "00CC00"  # 跌停 - 深绿色
     
     # 普通涨跌幅
     if pct > 0:
-        # 上涨 - 红色系
-        intensity = min(255, int(200 * pct / 10) + 55)  # 根据涨幅计算红色强度
-        red = hex(intensity)[2:].zfill(2).upper()
-        return f"FF{red}{red}"
+        # 上涨 - 黄色系
+        intensity = min(255, int(200 * pct / 10) + 55)  # 根据涨幅计算黄色强度
+        return f"FFFF{hex(255-intensity)[2:].zfill(2).upper()}"  # 黄色系，涨幅越大越深
     elif pct < 0:
         # 下跌 - 绿色系
         intensity = min(255, int(200 * abs(pct) / 10) + 55)  # 根据跌幅计算绿色强度
@@ -106,28 +111,47 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
         # 移除可能的市场后缀（如.SH、.SZ等）
         clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
         
-        # 处理股票名称中的特殊字符
+        # 目标日期（YYYY-MM-DD格式）
+        target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
+        
+        # 查找对应的文件
+        file_path = None
+        
         if stock_name:
+            # 如果提供了股票名称，直接尝试使用
             safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
-            file_name = f"{clean_code}_{safe_name}.csv"
-        else:
-            # 如果未提供名称，尝试查找匹配的文件
-            file_found = False
+            possible_file = f"{clean_code}_{safe_name}.csv"
+            if os.path.exists(os.path.join(save_path, possible_file)):
+                file_path = os.path.join(save_path, possible_file)
+        
+        # 如果没有找到文件，尝试查找匹配的文件
+        if not file_path:
             for file in os.listdir(save_path):
-                if file.startswith(f"{clean_code}_"):
-                    file_name = file
-                    file_found = True
+                # 匹配文件名前缀为股票代码的文件
+                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                    file_path = os.path.join(save_path, file)
                     break
-            if not file_found:
-                # print(f"未找到股票代码 {stock_code} 的数据文件")
-                return None
         
-        # 构建文件路径
-        file_path = os.path.join(save_path, file_name)
+        if not file_path:
+            # 如果还是没找到，可能需要处理前导零的情况（如000565可能保存为565）
+            if clean_code.startswith('0'):
+                # 尝试去掉前导零
+                stripped_code = clean_code.lstrip('0')
+                if stripped_code:  # 确保不是全零
+                    for file in os.listdir(save_path):
+                        if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
+                            file_path = os.path.join(save_path, file)
+                            break
+            
+            # 对于上交所股票，可能需要处理6开头的代码
+            elif clean_code.startswith('6'):
+                for file in os.listdir(save_path):
+                    if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                        file_path = os.path.join(save_path, file)
+                        break
         
-        # 检查文件是否存在
-        if not os.path.exists(file_path):
-            # print(f"数据文件不存在: {file_path}")
+        # 如果仍然没有找到文件
+        if not file_path:
             return None
         
         # 读取CSV文件
@@ -135,22 +159,18 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
                          names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
                                '振幅', '涨跌幅', '涨跌额', '换手率'])
         
-        # 格式化目标日期为 YYYY-MM-DD 格式
-        target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
-        
         # 查找目标日期的数据
         target_row = df[df['日期'] == target_date]
         
         # 如果找到数据，返回涨跌幅
         if not target_row.empty:
             return target_row['涨跌幅'].values[0]
-        else:
-            # 如果没有找到数据，可能是停牌
-            # print(f"未找到股票 {stock_code} 在 {target_date} 的数据，可能停牌")
-            return None
+        
+        # 如果没有找到对应日期的数据，可能是停牌或者数据不完整
+        return None
         
     except Exception as e:
-        # print(f"获取股票 {stock_code} 的涨跌幅时出错: {e}")
+        print(f"获取股票 {stock_code} ({stock_name}) 在 {date_str_yyyymmdd} 的涨跌幅时出错: {e}")
         return None
 
 
@@ -402,16 +422,17 @@ def load_lianban_data(start_date, end_date):
         return pd.DataFrame()
 
 
-def identify_first_significant_board(df, min_board_level=2):
+def identify_first_significant_board(df, min_board_level=2, reentry_days_threshold=REENTRY_DAYS_THRESHOLD):
     """
-    识别每只股票首次达到显著连板（例如2板或以上）的日期
+    识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
     Args:
         df: 连板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         min_board_level: 最小显著连板天数，默认为2
+        reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到2板会作为新记录
         
     Returns:
-        pandas.DataFrame: 添加了首次显著连板信息的DataFrame
+        pandas.DataFrame: 添加了连板信息的DataFrame
     """
     # 创建结果DataFrame，包含股票代码、名称、首次显著连板日期和当日连板天数
     result = []
@@ -440,11 +461,13 @@ def identify_first_significant_board(df, min_board_level=2):
             
         print(f"\n分析股票: {stock_code}_{stock_name}")
         
-        # 检查每一个日期列
-        first_significant_date = None
-        board_level_at_first = None
+        # 存储所有板块出现的时间点
+        significant_board_dates = []  # 存储显著连板日期
+        continuous_board_dates = []   # 存储连续的连板日期，用于判断断板
+        last_significant_entry = None  # 最近一次记录的条目
         
-        for col in date_columns:
+        # 检查每一个日期列
+        for col_idx, col in enumerate(date_columns):
             board_days = row[col]
             
             if pd.notna(board_days):  # 只处理非空单元格
@@ -453,30 +476,74 @@ def identify_first_significant_board(df, min_board_level=2):
                 # 如果连板天数大于等于最小显著连板天数
                 if board_days and board_days >= min_board_level:
                     print(f"    找到显著连板: {board_days}板")
-                    # 记录首次达到显著连板的日期和当日连板天数
-                    if not first_significant_date:
-                        first_significant_date = col
-                        board_level_at_first = board_days
+                    
+                    # 记录为显著连板日期
+                    current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
+                    
+                    # 记录连续连板日期，用于确定最后一次连板的日期
+                    continuous_board_dates.append(current_date)
+                    
+                    # 如果是首次显著连板，或者是断板后超过阈值天数再次达到2板
+                    is_new_entry = False
+                    
+                    if not significant_board_dates:
+                        # 第一次显著连板
+                        is_new_entry = True
+                    elif board_days == 2 and continuous_board_dates:
+                        # 检查之前的连板日期，判断是否是断板后间隔足够长再次达到2板
                         
+                        # 找到上一个连续连板区间的最后一个日期
+                        # 首先检查之前的日期中是否有连板记录
+                        previous_board_dates = [d for d in continuous_board_dates if d < current_date]
+                        
+                        if previous_board_dates:
+                            # 获取上一个连板区间的最后日期
+                            last_board_date = max(previous_board_dates)
+                            
+                            # 计算间隔交易日天数
+                            days_since_last_board = count_trading_days_between(last_board_date, current_date)
+                            
+                            print(f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, 当前日期: {current_date.strftime('%Y-%m-%d')}, 交易日间隔: {days_since_last_board}天")
+                            
+                            # 判断是否满足再次入选条件
+                            # 使用交易日计算
+                            if days_since_last_board > reentry_days_threshold:
+                                print(f"    断板后{days_since_last_board}个交易日再次达到2板，作为新记录")
+                                is_new_entry = True
+                                # 清空连续连板日期列表，开始新的连板区间记录
+                                continuous_board_dates = [current_date]
+                    
+                    # 添加到显著连板日期列表
+                    significant_board_dates.append(current_date)
+                    
+                    if is_new_entry:
                         # 构建一个板块数据字典
                         all_board_data = {}
                         for date_col in date_columns:
                             all_board_data[date_col] = row[date_col]
                         
+                        # 获取当前日期的概念（可能已更新）
+                        current_concept = row.get('概念', '其他')
+                        
                         # 添加到结果列表
-                        result.append({
+                        entry = {
                             'stock_code': stock_code,
                             'stock_name': stock_name,
-                            'first_significant_date': first_significant_date,
-                            'board_level_at_first': board_level_at_first,
+                            'first_significant_date': current_date,
+                            'board_level_at_first': board_days,
                             'all_board_data': all_board_data,
-                            'concept': row.get('概念', '其他')
-                        })
+                            'concept': current_concept,
+                            'entry_type': 'reentry' if len(significant_board_dates) > 1 else 'first'
+                        }
                         
-                        print(f"    记录首次显著连板: {stock_name} 在 {first_significant_date} 达到 {board_level_at_first}板")
+                        result.append(entry)
+                        last_significant_entry = entry
                         
-                        # 找到第一次显著连板后，可以结束此股票的循环
-                        break
+                        print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
+                else:
+                    # 如果不是显著连板，可能是断板
+                    # 在这里不更新continuous_board_dates，这样保持最后一次连板的日期
+                    pass
     
     # 转换为DataFrame
     result_df = pd.DataFrame(result)
@@ -488,16 +555,6 @@ def identify_first_significant_board(df, min_board_level=2):
     
     print(f"找到{len(result_df)}只达到显著连板的股票")
         
-    # 转换日期格式
-    try:
-        # 将日期列名转换为datetime对象
-        result_df['first_significant_date'] = result_df['first_significant_date'].apply(
-            lambda x: datetime.strptime(x, '%Y年%m月%d日') if '年' in x else pd.to_datetime(x)
-        )
-    except Exception as e:
-        print(f"日期转换出错: {e}")
-        print("日期示例:", result_df['first_significant_date'].iloc[0] if not result_df.empty else "无数据")
-    
     # 按首次显著连板日期和连板天数排序
     result_df = result_df.sort_values(
         by=['first_significant_date', 'board_level_at_first'], 
@@ -538,7 +595,7 @@ def get_concept_from_board_text(board_text):
     return "其他"
 
 
-def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2, max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK):
+def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2, max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD):
     """
     构建梯队形态的涨停复盘图
     
@@ -548,6 +605,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         output_file: 输出文件路径
         min_board_level: 最小显著连板天数，默认为2
         max_tracking_days: 断板后跟踪的最大天数，默认取全局配置
+        reentry_days: 断板后再次上榜的天数阈值，默认取全局配置
     """
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
     
@@ -589,8 +647,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 if col not in ['纯代码', '股票名称', '股票代码', '概念'] and pd.notna(row[col]):
                     print(f"  {col}: {row[col]}")
                     
-    # 识别每只股票首次达到显著连板的日期
-    result_df = identify_first_significant_board(lianban_df, min_board_level)
+    # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
+    result_df = identify_first_significant_board(lianban_df, min_board_level, reentry_days)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有连板{min_board_level}次及以上的股票")
         return
@@ -686,10 +744,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                         last_board_date = stock.get('last_board_date')
                         
                         if last_board_date and max_tracking_days is not None:
-                            # 计算当前日期与最后连板日期的天数差
-                            days_after_break = (current_date_obj - last_board_date).days
+                            # 计算当前日期与最后连板日期的交易日天数差
+                            # 使用交易日计算替代日历日计算
+                            days_after_break = count_trading_days_between(last_board_date, current_date_obj)
                             
-                            # 如果超过跟踪天数，不显示涨跌幅
+                            # 如果断板后的交易日天数超过跟踪天数，不显示涨跌幅
                             if days_after_break > max_tracking_days:
                                 # 单元格留空
                                 continue
@@ -754,6 +813,8 @@ if __name__ == "__main__":
                         help='最小显著连板天数 (默认: 2)')
     parser.add_argument('--max_tracking', type=int, default=MAX_TRACKING_DAYS_AFTER_BREAK,
                         help=f'断板后跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_AFTER_BREAK}，设为-1表示一直跟踪)')
+    parser.add_argument('--reentry_days', type=int, default=REENTRY_DAYS_THRESHOLD,
+                        help=f'断板后再次达到2板作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
     
     args = parser.parse_args()
     
@@ -770,4 +831,4 @@ if __name__ == "__main__":
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
     
     # 构建梯队图
-    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, max_tracking) 
+    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, max_tracking, args.reentry_days) 

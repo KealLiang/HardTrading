@@ -241,6 +241,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
+    generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
@@ -259,4 +260,3 @@ if __name__ == '__main__':
     # backtrade_simulate()
     # get_index_data()
     # check_stock_datas()
-    generate_ladder_chart()
