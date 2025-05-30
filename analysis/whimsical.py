@@ -1,6 +1,5 @@
 import math
 import os
-import re
 from collections import Counter
 from datetime import datetime
 
@@ -13,8 +12,9 @@ from openpyxl.utils import get_column_letter
 from utils.date_util import get_trading_days
 from utils.excel_vba_util import add_vba_to_sheet
 from utils.theme_color_util import (
-    normalize_reason, extract_reasons, get_reason_colors, 
-    get_stock_reason_group, synonym_groups, EXCLUDED_REASONS, TOP_N
+    extract_reasons, get_reason_colors,
+    get_stock_reason_group, synonym_groups, EXCLUDED_REASONS, TOP_N,
+    create_legend_sheet, get_color_by_pct_change, MULTI_COLOR, HEADER_COLOR
 )
 
 # 导入NLP工具模块 (如果可用)
@@ -29,67 +29,12 @@ except ImportError:
 # 未分类原因的最小打印阈值
 UNCLASSIFIED_PRINT_THRESHOLD = 5
 
-# 多次上榜但无热门原因的颜色
-MULTI_COLOR = "E0FFFF"
-
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 
 # 指数数据文件路径
 INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
-
-# 表头颜色
-HEADER_COLOR = "E0E0E0"  # 浅灰色
-
-# 红绿色系定义，用于涨跌幅颜色表示
-RED_COLORS = [
-    "FFCCCC",  # 浅红色 (0-1%)
-    "FF9999",  # 淡红色 (1-2%)
-    "FF6666",  # 红色 (2-3%)
-    "FF3333",  # 深红色 (3-5%)
-    "FF0000",  # 大红色 (>5%)
-]
-
-GREEN_COLORS = [
-    "CCFFCC",  # 浅绿色 (0-1%)
-    "99FF99",  # 淡绿色 (1-2%)
-    "66FF66",  # 绿色 (2-3%)
-    "33FF33",  # 深绿色 (3-5%)
-    "00CC00",  # 大绿色 (>5%)
-]
-
-# 涨跌幅颜色阈值
-PCT_CHANGE_THRESHOLDS = [1.0, 2.0, 3.0, 5.0]
-
-
-def get_color_by_pct_change(pct_change):
-    """
-    根据涨跌幅返回对应的颜色代码
-    
-    :param pct_change: 涨跌幅百分比
-    :return: 颜色代码
-    """
-    if pd.isna(pct_change):
-        return "FFFFFF"  # 白色
-
-    # 初始化颜色索引为0 (最浅)
-    color_idx = 0
-    abs_change = abs(pct_change)
-
-    # 根据涨跌幅绝对值确定颜色深浅
-    for i, threshold in enumerate(PCT_CHANGE_THRESHOLDS):
-        if abs_change >= threshold:
-            color_idx = i + 1
-
-    # 如果超过最后一个阈值，使用最深的颜色
-    color_idx = min(color_idx, len(RED_COLORS) - 1)
-
-    # 根据正负选择红色或绿色
-    if pct_change >= 0:
-        return RED_COLORS[color_idx]
-    else:
-        return GREEN_COLORS[color_idx]
 
 
 def load_index_data():
@@ -525,6 +470,9 @@ def process_zt_data(start_date, end_date, clean_output=False):
                         cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
 
                 row_idx += 1
+
+    # 创建单独的图例工作表
+    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons)
 
     # 保存工作簿
     wb.save(OUTPUT_FILE)
