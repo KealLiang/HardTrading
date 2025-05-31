@@ -13,6 +13,7 @@ from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
     create_legend_sheet, get_color_for_pct_change
 )
+from utils.stock_util import get_stock_market
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
@@ -688,6 +689,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.cell(row=1, column=1).font = Font(bold=True)
     ws.cell(row=1, column=2).font = Font(bold=True)
 
+    # 定义蓝色系颜色映射（4板及以上，每2板一个档次）
+    HIGH_BOARD_COLORS = {
+        4: "E6F3FF",  # 4板 - 最浅蓝色
+        6: "CCE8FF",  # 6板 - 浅蓝色
+        8: "99D1FF",  # 8板 - 中蓝色
+        10: "66BAFF", # 10板 - 深蓝色
+        12: "3394FF", # 12板 - 更深蓝色
+        14: "0073E6", # 14板及以上 - 最深蓝色
+    }
+
     # 填充数据行
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 2  # 行索引，从第2行开始（第1行是日期标题）
@@ -715,11 +726,53 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 # 如果背景色较深，使用白色字体
                 if reason_colors[reason] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
                     concept_cell.font = Font(color="FFFFFF")
-
-        # 设置股票简称列（第二列）
-        ws.cell(row=row_idx, column=2, value=stock_name)
-        ws.cell(row=row_idx, column=2).alignment = Alignment(horizontal='left')
-        ws.cell(row=row_idx, column=2).border = BORDER_STYLE
+                    
+        # 计算股票的最高板数
+        max_board_level = 0
+        for day_data in all_board_data.values():
+            if pd.notna(day_data) and day_data and day_data > max_board_level:
+                max_board_level = int(day_data)
+        
+        # 根据股票代码确定市场类型
+        market_type = ""
+        try:
+            # 提取纯代码部分（去除可能的后缀）
+            pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+            # 去除可能的市场前缀（如sh、sz）
+            if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+                pure_stock_code = pure_stock_code[2:]
+                
+            market = get_stock_market(pure_stock_code)
+            if market == 'gem':  # 创业板
+                market_type = "*"
+            elif market == 'bse':  # 北交所
+                market_type = "**"
+        except Exception as e:
+            # 如果获取市场类型出错，不添加标记
+            print(f"获取股票 {stock_code} 市场类型出错: {e}")
+            pass
+            
+        # 设置股票简称列（第二列），添加市场标记
+        stock_display_name = f"{stock_name}{market_type}"
+        name_cell = ws.cell(row=row_idx, column=2, value=stock_display_name)
+        name_cell.alignment = Alignment(horizontal='left')
+        name_cell.border = BORDER_STYLE
+        
+        # 为曾经到过4板及以上的个股，设置蓝色背景
+        if max_board_level >= 4:
+            # 找出最接近的颜色档位
+            color_level = 4
+            for level in sorted(HIGH_BOARD_COLORS.keys()):
+                if max_board_level >= level:
+                    color_level = level
+            
+            # 设置背景色
+            bg_color = HIGH_BOARD_COLORS[color_level]
+            name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
+            
+            # 对于深色背景，使用白色字体
+            if color_level >= 12:
+                name_cell.font = Font(color="FFFFFF")
 
         # 填充每个交易日的数据
         for j, formatted_day in enumerate(formatted_trading_days):
@@ -801,7 +854,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     reason_counter = Counter(all_concepts)
 
     # 使用公共函数创建图例工作表
-    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons)
+    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS)
 
     # 保存Excel文件
     try:

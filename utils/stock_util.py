@@ -47,7 +47,7 @@ def get_stock_market(code: str) -> str:
         return 'main'
     elif code.startswith('688'):  # 科创板
         return 'star'
-    elif code.startswith('300') or code.startswith('301'):  # 创业板
+    elif code.startswith('300') or code.startswith('301') or code.startswith('302'):  # 创业板
         return 'gem'
     elif code.startswith('8'):  # 北交所
         return 'bse'

@@ -300,7 +300,7 @@ def get_color_for_pct_change(pct_change):
         return "E6E6E6"
 
 
-def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons):
+def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None):
     """
     创建颜色图例工作表
     
@@ -309,6 +309,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons):
         reason_counter: 原因计数器(Counter对象)
         reason_colors: 原因到颜色的映射字典
         top_reasons: 热门原因列表
+        high_board_colors: 高板数颜色映射字典，默认为None
     
     Returns:
         openpyxl.worksheet.worksheet.Worksheet: 创建的图例工作表对象
@@ -388,6 +389,31 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons):
     multi_cell = legend_ws.cell(row=current_row, column=1, value="多次上榜")
     multi_cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
     current_row += 1
+    
+    # 添加板数颜色图例（如果提供）
+    if high_board_colors:
+        # 添加分隔行
+        separator_cell = legend_ws.cell(row=current_row, column=1, value="高板数颜色")
+        separator_cell.border = Border(top=Side(style='thin', color='000000'))
+        separator_cell.font = Font(bold=True)
+        current_row += 1
+        
+        # 添加高板数颜色图例
+        for board_level, color in sorted(high_board_colors.items()):
+            # 如果是最后一个，显示为"X板及以上"
+            if board_level == max(high_board_colors.keys()):
+                label = f"{board_level}板及以上"
+            else:
+                label = f"{board_level}板"
+                
+            name_cell = legend_ws.cell(row=current_row, column=1, value=label)
+            name_cell.fill = PatternFill(start_color=color, fill_type="solid")
+            
+            # 对于深色背景，使用白色字体
+            if board_level >= 12:
+                name_cell.font = Font(color="FFFFFF")
+                
+            current_row += 1
 
     # 设置所有单元格的边框
     for row in legend_ws.iter_rows(min_row=1, max_row=current_row - 1, min_col=1, max_col=2):
