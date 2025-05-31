@@ -9,11 +9,11 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
 from utils.date_util import get_trading_days, count_trading_days_between
+from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
-    create_legend_sheet, get_color_for_pct_change
+    create_legend_sheet, get_color_for_pct_change, add_market_indicators
 )
-from utils.stock_util import get_stock_market
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
@@ -468,11 +468,11 @@ def load_shouban_data(start_date, end_date):
 
                 stock_code = parts[0].strip()
                 stock_name = parts[1].strip()
-                
+
                 # 处理股票代码，去除可能的市场前缀
                 if stock_code.startswith(('sh', 'sz', 'bj')):
                     stock_code = stock_code[2:]
-                
+
                 # 用于标记首板
                 board_info = "首板涨停"
                 concept = "其他"
@@ -740,7 +740,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if lianban_df.empty:
         print("未获取到有效的连板数据")
         return
-        
+
     # 加载首板数据
     shouban_df = load_shouban_data(start_date, end_date)
     print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
@@ -804,9 +804,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.cell(row=1, column=2, value="股票简称")
 
     # 设置日期列标题
+    date_columns = {}  # 用于保存日期到列索引的映射
     for i, formatted_day in enumerate(formatted_trading_days):
         date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
         col = i + 3  # 前两列是概念和股票名称
+        date_columns[formatted_day] = col
 
         # 添加日期标题和星期几
         weekday = date_obj.weekday()
@@ -829,33 +831,36 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.cell(row=1, column=1).font = Font(bold=True)
     ws.cell(row=1, column=2).font = Font(bold=True)
 
+    # 添加大盘指标行（创业指和成交量）
+    add_market_indicators(ws, date_columns)
+
     # 定义蓝色系颜色映射（4板及以上，每2板一个档次）
     HIGH_BOARD_COLORS = {
         4: "E6F3FF",  # 4板 - 最浅蓝色
         6: "CCE8FF",  # 6板 - 浅蓝色
         8: "99D1FF",  # 8板 - 中蓝色
-        10: "66BAFF", # 10板 - 深蓝色
-        12: "3394FF", # 12板 - 更深蓝色
-        14: "0073E6", # 14板及以上 - 最深蓝色
+        10: "66BAFF",  # 10板 - 深蓝色
+        12: "3394FF",  # 12板 - 更深蓝色
+        14: "0073E6",  # 14板及以上 - 最深蓝色
     }
-    
+
     # 收集所有已入选连板梯队的股票代码
     lianban_stock_codes = set()
     for _, row in result_df.iterrows():
         # 纯代码作为标识
         pure_code = row['stock_code'].split('_')[0] if '_' in row['stock_code'] else row['stock_code']
         lianban_stock_codes.add(pure_code)
-    
+
     print(f"共有{len(lianban_stock_codes)}只股票已入选连板梯队")
 
     # 填充数据行
     for i, (_, stock) in enumerate(result_df.iterrows()):
-        row_idx = i + 2  # 行索引，从第2行开始（第1行是日期标题）
+        row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
         stock_code = stock['stock_code']
         stock_name = stock['stock_name']
         all_board_data = stock['all_board_data']
-        
+
         # 提取纯代码
         pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
         if pure_stock_code.startswith(('sh', 'sz', 'bj')):
@@ -870,6 +875,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         concept_cell = ws.cell(row=row_idx, column=1, value=f"[{concept}]")
         concept_cell.alignment = Alignment(horizontal='left')
         concept_cell.border = BORDER_STYLE
+        concept_cell.font = Font(size=9)  # 设置小一号字体
 
         # 根据股票所属概念组设置颜色
         stock_key = f"{stock_code}_{stock_name}"
@@ -879,14 +885,14 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 concept_cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
                 # 如果背景色较深，使用白色字体
                 if reason_colors[reason] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
-                    concept_cell.font = Font(color="FFFFFF")
-                    
+                    concept_cell.font = Font(color="FFFFFF", size=9)  # 保持小一号字体
+
         # 计算股票的最高板数
         max_board_level = 0
         for day_data in all_board_data.values():
             if pd.notna(day_data) and day_data and day_data > max_board_level:
                 max_board_level = int(day_data)
-        
+
         # 根据股票代码确定市场类型
         market_type = ""
         try:
@@ -899,13 +905,13 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             # 如果获取市场类型出错，不添加标记
             print(f"获取股票 {stock_code} 市场类型出错: {e}")
             pass
-            
+
         # 设置股票简称列（第二列），添加市场标记
         stock_display_name = f"{stock_name}{market_type}"
         name_cell = ws.cell(row=row_idx, column=2, value=stock_display_name)
         name_cell.alignment = Alignment(horizontal='left')
         name_cell.border = BORDER_STYLE
-        
+
         # 为曾经到过4板及以上的个股，设置蓝色背景
         if max_board_level >= 4:
             # 找出最接近的颜色档位
@@ -913,14 +919,14 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             for level in sorted(HIGH_BOARD_COLORS.keys()):
                 if max_board_level >= level:
                     color_level = level
-            
+
             # 设置背景色
             bg_color = HIGH_BOARD_COLORS[color_level]
             name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
-            
+
             # 对于深色背景，使用白色字体
             if color_level >= 12:
-                name_cell.font = Font(color="FFFFFF")
+                name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
 
         # 填充每个交易日的数据
         for j, formatted_day in enumerate(formatted_trading_days):
@@ -928,15 +934,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
             # 获取当日的连板信息
             board_days = all_board_data.get(formatted_day)
-            
+
             # 标记是否在首板数据中找到该股票
             found_in_shouban = False
-            
+
             # 如果该日期没有连板数据，检查首板数据
             if not pd.notna(board_days) and shouban_df is not None and not shouban_df.empty:
                 # 查找在首板数据中是否有该股票在该日期的记录
                 shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
-                if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(shouban_row[formatted_day].values[0]):
+                if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(
+                        shouban_row[formatted_day].values[0]):
                     # 该股票在该日期有首板记录
                     found_in_shouban = True
 
@@ -964,7 +971,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 # 显示为"首板"并使用特殊颜色
                 cell.value = "首板"
                 cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
-                
+
                 # 更新最后连板日期以便可以继续跟踪
                 stock['last_board_date'] = current_date_obj
             else:
@@ -1013,25 +1020,25 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
 
-    # 冻结前两列和第一行
-    ws.freeze_panes = 'C2'
+    # 冻结前两列和前三行
+    ws.freeze_panes = ws.cell(row=4, column=3)
 
     # 创建统计原因的计数器
     reason_counter = Counter(all_concepts)
 
     # 使用公共函数创建图例工作表
     create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS)
-    
+
     # 在图例中添加首板颜色说明
     legend_ws = wb["题材颜色图例"]
     current_row = len(legend_ws['A']) + 1
-    
+
     # 添加分隔行
     separator_cell = legend_ws.cell(row=current_row, column=1, value="特殊标记")
     separator_cell.border = Border(top=Side(style='thin', color='000000'))
     separator_cell.font = Font(bold=True)
     current_row += 1
-    
+
     # 添加首板说明
     shouban_cell = legend_ws.cell(row=current_row, column=1, value="首板涨停")
     shouban_cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")

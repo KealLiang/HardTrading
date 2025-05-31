@@ -14,7 +14,8 @@ from utils.excel_vba_util import add_vba_to_sheet
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors,
     get_stock_reason_group, synonym_groups, EXCLUDED_REASONS, TOP_N,
-    create_legend_sheet, get_color_by_pct_change, MULTI_COLOR, HEADER_COLOR
+    create_legend_sheet, MULTI_COLOR, HEADER_COLOR,
+    load_index_data, add_market_indicators
 )
 
 # 导入NLP工具模块 (如果可用)
@@ -37,46 +38,6 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
 
 
-def load_index_data():
-    """
-    加载创业板指数数据
-    
-    :return: 以日期为键的字典，包含涨跌幅和成交量信息
-    """
-    try:
-        # 检查指数数据文件是否存在
-        if not os.path.exists(INDEX_FILE):
-            print(f"创业板指数文件不存在: {INDEX_FILE}")
-            return {}
-
-        # 读取CSV文件 (无表头)
-        df = pd.read_csv(INDEX_FILE, header=None,
-                         names=['date', 'open', 'high', 'low', 'close', 'volume'])
-
-        # 计算每日涨跌幅
-        df['pct_change'] = df['close'].pct_change() * 100
-
-        # 将成交量转换为亿元 (原始数据单位为成交量，而非手数)
-        # 注意：volume可能已经是以元为单位，需根据实际数据调整
-        df['volume_100m'] = df['volume'] / 100000000  # 转换为亿元
-
-        # 以日期为键创建字典
-        index_data = {}
-        for _, row in df.iterrows():
-            # 确保日期格式与date_columns中的键完全一致
-            date_obj = pd.to_datetime(row['date'])
-            date_str = date_obj.strftime('%Y年%m月%d日')
-            index_data[date_str] = {
-                'pct_change': row['pct_change'],
-                'volume_100m': row['volume_100m']
-            }
-
-        return index_data
-    except Exception as e:
-        print(f"读取创业板指数数据失败: {e}")
-        return {}
-
-
 def process_zt_data(start_date, end_date, clean_output=False):
     """
     处理涨停数据，转换为更易于分析的格式
@@ -89,7 +50,7 @@ def process_zt_data(start_date, end_date, clean_output=False):
     trading_days = get_trading_days(start_date, end_date)
 
     # 读取指数数据
-    index_data = load_index_data()
+    index_data = load_index_data(INDEX_FILE)
     if not index_data:
         print(f"警告: 未能加载创业板指数数据，请确保文件存在: {INDEX_FILE}")
         print("将继续处理涨停数据，但不会显示指数信息。")
@@ -357,46 +318,13 @@ def process_zt_data(start_date, end_date, clean_output=False):
 
         date_columns[date_formatted] = idx
 
-        # 添加指数涨跌幅数据 (第二行)
-        if date_formatted in index_data:
-            # 涨跌幅数据 (第二行)
-            pct_change = index_data[date_formatted]['pct_change']
-            pct_cell = ws.cell(row=2, column=idx, value=f"{pct_change:.2f}%")
-            pct_cell.alignment = Alignment(horizontal="center", vertical="center")
-            pct_cell.fill = PatternFill(start_color=get_color_by_pct_change(pct_change), fill_type="solid")
-
-            # 成交量数据 (第三行)
-            volume = index_data[date_formatted]['volume_100m']
-            volume_cell = ws.cell(row=3, column=idx, value=f"{volume:.2f}")
-            volume_cell.alignment = Alignment(horizontal="center", vertical="center")
-        else:
-            # 如果没有指数数据，添加空单元格
-            ws.cell(row=2, column=idx, value="--")
-            ws.cell(row=3, column=idx, value="--")
-
     # 在第一列添加涨跌幅和成交量的标签，并设置样式
-    label_cell_1 = ws.cell(row=2, column=1, value="创业指")
-    label_cell_1.alignment = Alignment(horizontal="center", vertical="center")
-    label_cell_1.font = Font(bold=True)
-    label_cell_1.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+    ws.cell(row=1, column=1, value="热门概念图例").font = Font(bold=True)
+    ws.cell(row=1, column=1).fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+    ws.cell(row=1, column=1).alignment = Alignment(horizontal="center", vertical="center")
 
-    label_cell_2 = ws.cell(row=3, column=1, value="成交量(亿)")
-    label_cell_2.alignment = Alignment(horizontal="center", vertical="center")
-    label_cell_2.font = Font(bold=True)
-    label_cell_2.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
-
-    # 美化标题行
-    title_cell = ws.cell(row=1, column=1)
-    title_cell.font = Font(bold=True)
-    title_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    # 添加指数行和个股行之间的分隔线
-    for col_idx in range(1, len(trading_days) + 2):
-        cell = ws.cell(row=3, column=col_idx)
-        cell.border = Border(
-            bottom=Side(style='double', color='000000')
-        )
+    # 添加大盘指标行（创业指和成交量）
+    add_market_indicators(ws, date_columns, index_data, INDEX_FILE)
 
     # 冻结首行和首列
     ws.freeze_panes = ws.cell(row=4, column=2)  # 冻结A1:A3和B1:X3

@@ -1,3 +1,4 @@
+import os
 import re
 from collections import Counter
 
@@ -390,7 +391,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
     multi_cell = legend_ws.cell(row=current_row, column=1, value="多次上榜")
     multi_cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
     current_row += 1
-    
+
     # 添加板数颜色图例（如果提供）
     if high_board_colors:
         # 添加分隔行
@@ -398,7 +399,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
         separator_cell.border = Border(top=Side(style='thin', color='000000'))
         separator_cell.font = Font(bold=True)
         current_row += 1
-        
+
         # 添加高板数颜色图例
         for board_level, color in sorted(high_board_colors.items()):
             # 如果是最后一个，显示为"X板及以上"
@@ -406,14 +407,14 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
                 label = f"{board_level}板及以上"
             else:
                 label = f"{board_level}板"
-                
+
             name_cell = legend_ws.cell(row=current_row, column=1, value=label)
             name_cell.fill = PatternFill(start_color=color, fill_type="solid")
-            
+
             # 对于深色背景，使用白色字体
             if board_level >= 12:
                 name_cell.font = Font(color="FFFFFF")
-                
+
             current_row += 1
 
     # 设置所有单元格的边框
@@ -427,3 +428,108 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
             )
 
     return legend_ws
+
+
+def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
+    """
+    加载创业板指数数据
+    
+    Args:
+        index_file: 指数数据文件路径，默认为创业板指数
+        
+    Returns:
+        dict: 以日期为键的字典，包含涨跌幅和成交量信息
+    """
+    try:
+        # 检查指数数据文件是否存在
+        if not os.path.exists(index_file):
+            print(f"创业板指数文件不存在: {index_file}")
+            return {}
+
+        # 读取CSV文件 (无表头)
+        df = pd.read_csv(index_file, header=None,
+                         names=['date', 'open', 'high', 'low', 'close', 'volume'])
+
+        # 计算每日涨跌幅
+        df['pct_change'] = df['close'].pct_change() * 100
+
+        # 将成交量转换为亿元 (原始数据单位为成交量，而非手数)
+        # 注意：volume可能已经是以元为单位，需根据实际数据调整
+        df['volume_100m'] = df['volume'] / 100000000  # 转换为亿元
+
+        # 以日期为键创建字典
+        index_data = {}
+        for _, row in df.iterrows():
+            # 确保日期格式与date_columns中的键完全一致
+            date_obj = pd.to_datetime(row['date'])
+            date_str = date_obj.strftime('%Y年%m月%d日')
+            index_data[date_str] = {
+                'pct_change': row['pct_change'],
+                'volume_100m': row['volume_100m']
+            }
+
+        return index_data
+    except Exception as e:
+        print(f"读取创业板指数数据失败: {e}")
+        return {}
+
+
+def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv"):
+    """
+    在Excel表格中添加大盘指标行（创业指和成交量）
+    
+    Args:
+        ws: openpyxl工作表对象
+        date_columns: 日期列映射字典，键为日期字符串，值为列索引
+        index_data: 已加载的指数数据，如果为None则会尝试加载
+        index_file: 指数数据文件路径，默认为创业板指数
+        
+    Returns:
+        bool: 是否成功添加指标
+    """
+    # 如果没有提供指数数据，尝试加载
+    if index_data is None:
+        index_data = load_index_data(index_file)
+        if not index_data:
+            print("未能加载创业板指数数据，将不显示大盘指标")
+            return False
+
+    # 在第一列添加涨跌幅和成交量的标签，并设置样式
+    label_cell_1 = ws.cell(row=2, column=1, value="创业指")
+    label_cell_1.alignment = Alignment(horizontal="center", vertical="center")
+    label_cell_1.font = Font(bold=True, size=9)  # 设置小一号字体
+    label_cell_1.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+    label_cell_2 = ws.cell(row=3, column=1, value="成交量(亿)")
+    label_cell_2.alignment = Alignment(horizontal="center", vertical="center")
+    label_cell_2.font = Font(bold=True, size=9)  # 设置小一号字体
+    label_cell_2.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+    # 为每个日期列添加指数数据
+    for date_str, col_idx in date_columns.items():
+        if date_str in index_data:
+            # 涨跌幅数据 (第二行)
+            pct_change = index_data[date_str]['pct_change']
+            pct_cell = ws.cell(row=2, column=col_idx, value=f"{pct_change:.2f}%")
+            pct_cell.alignment = Alignment(horizontal="center", vertical="center")
+            pct_cell.fill = PatternFill(start_color=get_color_by_pct_change(pct_change), fill_type="solid")
+            pct_cell.font = Font(size=9)  # 设置小一号字体
+
+            # 成交量数据 (第三行)
+            volume = index_data[date_str]['volume_100m']
+            volume_cell = ws.cell(row=3, column=col_idx, value=f"{volume:.2f}")
+            volume_cell.alignment = Alignment(horizontal="center", vertical="center")
+            volume_cell.font = Font(size=9)  # 设置小一号字体
+        else:
+            # 如果没有指数数据，添加空单元格
+            ws.cell(row=2, column=col_idx, value="--").font = Font(size=9)
+            ws.cell(row=3, column=col_idx, value="--").font = Font(size=9)
+
+    # 添加指数行和个股行之间的分隔线
+    for col_idx in range(1, max(date_columns.values()) + 2):
+        cell = ws.cell(row=3, column=col_idx)
+        cell.border = Border(
+            bottom=Side(style='double', color='000000')
+        )
+
+    return True
