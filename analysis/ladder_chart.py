@@ -371,8 +371,8 @@ def load_lianban_data(start_date, end_date):
         # 重置索引，将股票代码和名称变为普通列
         pivot_df = pivot_df.reset_index()
 
-        # 添加一个概念列
-        concept_mapping = result_df.groupby('纯代码')['概念'].first().to_dict()
+        # 添加一个概念列（使用最新的概念，而不是第一次出现的概念）
+        concept_mapping = result_df.groupby('纯代码')['概念'].last().to_dict()
         pivot_df['概念'] = pivot_df['纯代码'].map(concept_mapping)
 
         # 添加标准格式的股票代码列
@@ -382,6 +382,142 @@ def load_lianban_data(start_date, end_date):
 
     except Exception as e:
         print(f"加载连板数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
+
+def load_shouban_data(start_date, end_date):
+    """
+    从Excel中加载首板数据
+    
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+        
+    Returns:
+        pandas.DataFrame: 处理后的首板数据
+    """
+    try:
+        # 读取首板数据sheet
+        try:
+            df = pd.read_excel(FUPAN_FILE, sheet_name="首板数据")
+            print(f"成功读取首板数据sheet，共有{len(df)}行，{len(df.columns)}列")
+        except Exception as e:
+            print(f"读取首板数据sheet失败: {e}")
+            return pd.DataFrame()
+
+        # 将日期列转换为datetime格式
+        date_columns = []
+
+        # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
+        for col in df.columns:
+            if isinstance(col, str):
+                if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
+                    date_columns.append(col)
+                elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
+                    date_columns.append(col)
+
+        if not date_columns:
+            print("首板数据中未找到有效的日期列")
+            print("当前列名: ", list(df.columns))
+            return pd.DataFrame()
+
+        # 过滤日期范围
+        filtered_date_columns = []
+        for col in date_columns:
+            # 将两种格式的日期都转换为datetime
+            if '年' in col:
+                # 中文格式: YYYY年MM月DD日
+                date_parts = re.findall(r'\d+', col)
+                if len(date_parts) == 3:
+                    date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
+                else:
+                    continue
+            else:
+                # 标准格式: YYYY/MM/DD
+                date_obj = pd.to_datetime(col)
+
+            date_str = date_obj.strftime('%Y%m%d')
+            if date_str >= start_date and date_str <= end_date:
+                filtered_date_columns.append(col)
+
+        if not filtered_date_columns:
+            print(f"首板数据中未找到{start_date}到{end_date}范围内的数据")
+            return pd.DataFrame()
+
+        # 创建一个新的DataFrame来存储处理后的数据
+        processed_data = []
+
+        # 遍历每个日期列，提取股票信息
+        for date_col in filtered_date_columns:
+            date_obj = datetime.strptime(date_col, '%Y年%m月%d日') if '年' in date_col else pd.to_datetime(date_col)
+            date_str = date_obj.strftime('%Y%m%d')
+
+            # 遍历该日期列中的每个单元格
+            for _, cell_value in df[date_col].items():
+                if pd.isna(cell_value):
+                    continue
+
+                # 解析单元格内容，格式: "股票代码; 股票名称; ...; 首板涨停; ..."
+                cell_text = str(cell_value)
+                parts = cell_text.split(';')
+
+                if len(parts) < 5:
+                    continue
+
+                stock_code = parts[0].strip()
+                stock_name = parts[1].strip()
+                
+                # 处理股票代码，去除可能的市场前缀
+                if stock_code.startswith(('sh', 'sz', 'bj')):
+                    stock_code = stock_code[2:]
+                
+                # 用于标记首板
+                board_info = "首板涨停"
+                concept = "其他"
+
+                # 提取概念信息（通常是最后一个部分）
+                for i, part in enumerate(parts):
+                    if i == len(parts) - 1:
+                        concept = part.strip()
+
+                processed_data.append({
+                    '股票代码': f"{stock_code}_{stock_name}",
+                    '纯代码': stock_code,
+                    '股票名称': stock_name,
+                    '日期': date_col,
+                    '连板天数': 1,  # 首板为1
+                    '连板信息': board_info,
+                    '概念': concept
+                })
+
+        # 转换为DataFrame
+        result_df = pd.DataFrame(processed_data)
+
+        if result_df.empty:
+            print("未能从首板数据中提取有效的数据")
+            return pd.DataFrame()
+
+        print(f"处理后的首板数据: {len(result_df)}行，包含{len(filtered_date_columns)}个日期列")
+
+        # 透视数据，以便每只股票占一行，每个日期占一列
+        pivot_df = result_df.pivot(index=['纯代码', '股票名称'], columns='日期', values='连板天数')
+
+        # 重置索引，将股票代码和名称变为普通列
+        pivot_df = pivot_df.reset_index()
+
+        # 添加一个概念列（使用最新的概念，而不是第一次出现的概念）
+        concept_mapping = result_df.groupby('纯代码')['概念'].last().to_dict()
+        pivot_df['概念'] = pivot_df['纯代码'].map(concept_mapping)
+
+        # 添加标准格式的股票代码列
+        pivot_df['股票代码'] = pivot_df['纯代码'] + '_' + pivot_df['股票名称']
+
+        return pivot_df
+
+    except Exception as e:
+        print(f"加载首板数据时出错: {e}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
@@ -604,6 +740,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if lianban_df.empty:
         print("未获取到有效的连板数据")
         return
+        
+    # 加载首板数据
+    shouban_df = load_shouban_data(start_date, end_date)
+    print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
 
     # 调试输出连板数据
     print("\n检查连板数据：")
@@ -698,6 +838,15 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         12: "3394FF", # 12板 - 更深蓝色
         14: "0073E6", # 14板及以上 - 最深蓝色
     }
+    
+    # 收集所有已入选连板梯队的股票代码
+    lianban_stock_codes = set()
+    for _, row in result_df.iterrows():
+        # 纯代码作为标识
+        pure_code = row['stock_code'].split('_')[0] if '_' in row['stock_code'] else row['stock_code']
+        lianban_stock_codes.add(pure_code)
+    
+    print(f"共有{len(lianban_stock_codes)}只股票已入选连板梯队")
 
     # 填充数据行
     for i, (_, stock) in enumerate(result_df.iterrows()):
@@ -706,6 +855,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         stock_code = stock['stock_code']
         stock_name = stock['stock_name']
         all_board_data = stock['all_board_data']
+        
+        # 提取纯代码
+        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+            pure_stock_code = pure_stock_code[2:]
 
         # 获取概念
         concept = stock.get('concept', '其他')
@@ -736,12 +890,6 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         # 根据股票代码确定市场类型
         market_type = ""
         try:
-            # 提取纯代码部分（去除可能的后缀）
-            pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-            # 去除可能的市场前缀（如sh、sz）
-            if pure_stock_code.startswith(('sh', 'sz', 'bj')):
-                pure_stock_code = pure_stock_code[2:]
-                
             market = get_stock_market(pure_stock_code)
             if market == 'gem':  # 创业板
                 market_type = "*"
@@ -780,6 +928,17 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
             # 获取当日的连板信息
             board_days = all_board_data.get(formatted_day)
+            
+            # 标记是否在首板数据中找到该股票
+            found_in_shouban = False
+            
+            # 如果该日期没有连板数据，检查首板数据
+            if not pd.notna(board_days) and shouban_df is not None and not shouban_df.empty:
+                # 查找在首板数据中是否有该股票在该日期的记录
+                shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
+                if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(shouban_row[formatted_day].values[0]):
+                    # 该股票在该日期有首板记录
+                    found_in_shouban = True
 
             cell = ws.cell(row=row_idx, column=col_idx)
 
@@ -800,6 +959,13 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 cell.font = Font(color="FFFFFF", bold=True)
 
                 # 记录当前日期为最后一次连板的日期
+                stock['last_board_date'] = current_date_obj
+            elif found_in_shouban:
+                # 显示为"首板"并使用特殊颜色
+                cell.value = "首板"
+                cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
+                
+                # 更新最后连板日期以便可以继续跟踪
                 stock['last_board_date'] = current_date_obj
             else:
                 # 检查当日日期是否在首次显著连板日期之后
@@ -855,6 +1021,33 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 使用公共函数创建图例工作表
     create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS)
+    
+    # 在图例中添加首板颜色说明
+    legend_ws = wb["题材颜色图例"]
+    current_row = len(legend_ws['A']) + 1
+    
+    # 添加分隔行
+    separator_cell = legend_ws.cell(row=current_row, column=1, value="特殊标记")
+    separator_cell.border = Border(top=Side(style='thin', color='000000'))
+    separator_cell.font = Font(bold=True)
+    current_row += 1
+    
+    # 添加首板说明
+    shouban_cell = legend_ws.cell(row=current_row, column=1, value="首板涨停")
+    shouban_cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
+    shouban_cell.border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    # 添加说明文字
+    legend_ws.cell(row=current_row, column=2, value="梯队股再次首板").border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
 
     # 保存Excel文件
     try:

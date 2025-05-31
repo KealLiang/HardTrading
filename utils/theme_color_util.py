@@ -293,7 +293,8 @@ def get_color_for_pct_change(pct_change):
     elif pct < 0:
         # 下跌 - 绿色系
         intensity = min(255, int(200 * abs(pct) / 10) + 55)  # 根据跌幅计算绿色强度
-        green = hex(intensity)[2:].zfill(2).upper()
+        green_value = 255 - intensity + 55  # 保证最小值
+        green = hex(max(0, min(255, green_value)))[2:].zfill(2).upper()
         return f"{green}FF{green}"
     else:
         # 平盘 - 浅灰色
