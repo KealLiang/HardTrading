@@ -236,7 +236,7 @@ def update_synonym_groups():
     manager = SynonymManager(threshold=0.6, min_group_size=5, disable_progress_bar=True)
     
     # 自动处理同义词分组更新
-    manager.update_from_latest_file()
+    manager.update_from_latest_file(debug_phrases=["机器视觉", "智能无人车"])
 
 
 def generate_ladder_chart():
