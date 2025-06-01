@@ -15,7 +15,7 @@ from utils.theme_color_util import (
     extract_reasons, get_reason_colors,
     get_stock_reason_group, synonym_groups, EXCLUDED_REASONS, TOP_N,
     create_legend_sheet, MULTI_COLOR, HEADER_COLOR,
-    load_index_data, add_market_indicators
+    load_index_data, add_market_indicators, save_unique_reasons
 )
 
 # 导入NLP工具模块 (如果可用)
@@ -38,13 +38,14 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
 
 
-def process_zt_data(start_date, end_date, clean_output=False):
+def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True):
     """
     处理涨停数据，转换为更易于分析的格式
 
     :param start_date: 开始日期，格式为'YYYYMMDD'
     :param end_date: 结束日期，格式为'YYYYMMDD'
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
+    :param save_reasons: 是否保存去重后的涨停原因，默认为True
     """
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
@@ -165,6 +166,16 @@ def process_zt_data(start_date, end_date, clean_output=False):
                             'first_time': first_time,
                             'sheet_name': sheet_name  # 记录来源sheet，用于区分连板和首板
                         })
+
+    # 如果需要，保存去重后的涨停原因
+    if save_reasons and all_reasons:
+        # 生成包含日期范围的文件名
+        reasons_file = f"./data/reasons/unique_reasons_{start_date}_to_{end_date}.json"
+        success, message = save_unique_reasons(all_reasons, reasons_file)
+        if success:
+            print(message)
+        else:
+            print(f"警告: {message}")
 
     # 统计所有原因并找出未分类的原因
     reason_counter = Counter(all_reasons)

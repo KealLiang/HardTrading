@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from collections import Counter
@@ -7,16 +8,18 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
 # 同义词组定义
 synonym_groups = {
-    "医药": ["%医药%", "创新药", "%疫苗%", "%医疗器械%", "%养老%", "%合成生物%", "%重组蛋白%", "%原料药%", "中成药"],
+    "医药": ["%医药%", "创新药", "%疫苗%", "%医疗器械%", "%养老%", "%合成生物%", "%重组蛋白%", "%原料药%", "中成药",
+             "麦角硫因"],
     "新消费": ["%宠物%", "艺术黄金", "%珠宝%", "%首饰%", "%新消费%", "%AR%", "%VR%"],
     "无人经济": ["%无人驾驶%", "%智能物流%", "%自动驾驶%", "%无人配送%", "%无人机%"],
     "新传媒": ["%IP经济%", "IP", "小红书"],
+    "机器人": ["%机器人%", "%减速器%"],
     "半导体": ["%半导体%", "%芯片%", "%存储芯片%", "%集成电路%", "%光刻%", "%集成电路%"],
     "电子元件": ["%铜缆%", "%电子元件%", "%PCB%", "%连接器%", "%卫星通信%", "%雷达%", "%电线电缆%"],
     "AI": ["%AI%", "%人工智能%", "%DeepSeek%", "%大模型%", "%GPT%", "%AIGC%", "%MCP%", "%脑机接口%"],
     "算力": ["%算力%", "%液冷%", "%数据中心电源%", "%服务器测试%", "数据中心"],
-    "新能源": ["%新能源%", "%电动车%", "%动力电池%", "%光伏%", "%锂电池%", "%氢%", "%可控核聚变%", "%节能环保%",
-               "特斯拉", "固态电池", "%核电%", "%核能%"],
+    "核聚变": ["%氢%", "%可控核聚变%", "%核电%", "%核能%", "固态电池"],
+    "新能源": ["%新能源%", "%电动车%", "%动力电池%", "%光伏%", "%锂电池%", "%节能环保%", "特斯拉"],
     "重组": ["%重组%", "%控制权%"],
     "电力": ["%风电%", "%电力%", "%核电%", "%电网设备%", "电机"],
     "化工": ["%化工%", "%环氧丙烷%", "%氯碱%", "%化纤%", "%涂料%", "%季戊四醇%", "%聚酯%", "%钛白粉%", "%造纸%",
@@ -24,12 +27,11 @@ synonym_groups = {
     "新材料": ["%PEEK材料%", "%碳纤维%", "%高温合金%", "%稀土永磁%"],
     "军工": ["%军工%", "%国防%", "%航空%", "%战斗机%", "%大飞机%", "%军贸%", "%成飞%"],
     "航天": ["%航天%", "%低空经济%", "%飞行汽车%"],
-    "机器人": ["%机器人%", "%减速器%"],
     "跨境": ["%跨境%", "%外销%", "%港口%", "%一带一路%", "%航运%", "%出海%", "统一大市场"],
     "房地产": ["%房地产%", "%城市更新%", "%建筑%", "%室内设计%"],
     "汽车": ["%汽车%", "%压缩机%"],
     "消费电子": ["%消费电子%", "%苹果%", "%智能穿戴%", "%光学元件%", "%汽车电子%", "%智能座舱%", "%智能家居%"],
-    "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税", "化妆品", "麦角硫因", "电商", "电子商务",
+    "大消费": ["消费", "白酒", "食品", "饮料", "零售", "商超", "免税", "化妆品", "电商", "电子商务",
                "消费电子", "家电", "%益生菌%"],
     "旅游": ["旅游", "酒店", "民航", "免税", "出行"],
     "金融": ["%金融%", "%保险%", "%银行%", "%信托%", "%AH%", "腾讯"],
@@ -533,3 +535,53 @@ def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/
         )
 
     return True
+
+
+def save_unique_reasons(all_reasons, output_file="./data/reasons/unique_reasons.json"):
+    """
+    将所有涨停原因去重并保存为JSON文件
+    
+    Args:
+        all_reasons: 所有原因的列表
+        output_file: 输出文件路径
+        
+    Returns:
+        tuple: (success, message) - 是否成功保存和相关信息
+    """
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+        # 统计原因出现次数
+        reason_counter = Counter(all_reasons)
+
+        # 分离已分类和未分类的原因
+        classified_reasons = {}
+        unclassified_reasons = {}
+
+        for reason, count in reason_counter.items():
+            if reason.startswith('未分类_'):
+                # 移除"未分类_"前缀
+                original_reason = reason.replace('未分类_', '')
+                unclassified_reasons[original_reason] = count
+            else:
+                classified_reasons[reason] = count
+
+        # 创建包含所有信息的字典
+        reason_data = {
+            "classified": {k: v for k, v in sorted(classified_reasons.items(), key=lambda item: item[1], reverse=True)},
+            "unclassified": {k: v for k, v in
+                             sorted(unclassified_reasons.items(), key=lambda item: item[1], reverse=True)},
+            "total_classified": len(classified_reasons),
+            "total_unclassified": len(unclassified_reasons),
+            "total_reasons": len(reason_counter)
+        }
+
+        # 保存为JSON文件
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(reason_data, f, ensure_ascii=False, indent=2)
+
+        return True, f"成功保存{len(reason_counter)}个涨停原因到 {output_file}"
+
+    except Exception as e:
+        return False, f"保存涨停原因失败: {str(e)}"
