@@ -220,17 +220,6 @@ def dejavu_fupan_analyze():
     process_dejavu_data(start_date, end_date)
 
 
-def whimsical_fupan_analyze():
-    # 执行归类分析
-    start_date = "20250515"
-    end_date = "20250530"
-    process_zt_data(start_date, end_date, clean_output=True)
-    # add_vba_for_excel()
-
-    # 为【未分类原因】归类
-    # consolidate_unclassified_reasons()
-
-
 def update_synonym_groups():
     """
     更新同义词分组，基于已有的涨停原因数据文件
@@ -238,9 +227,22 @@ def update_synonym_groups():
     """
     # 创建同义词分组管理器
     manager = SynonymManager(threshold=0.6, min_group_size=5)
-    
+
     # 自动处理同义词分组更新
     manager.update_from_latest_file(debug_phrases=["机器视觉", "智能无人车"])
+
+
+def whimsical_fupan_analyze():
+    # 执行归类分析
+    start_date = "20250515"
+    end_date = "20250530"
+    process_zt_data(start_date, end_date, clean_output=True)
+    # add_vba_for_excel()
+
+    # 为【未分类原因】归类1
+    # consolidate_unclassified_reasons()
+    # 为【未分类原因】归类2
+    # update_synonym_groups()
 
 
 def generate_ladder_chart():
@@ -256,9 +258,8 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    whimsical_fupan_analyze()
-    # update_synonym_groups()
-    # generate_ladder_chart()
+    # whimsical_fupan_analyze()
+    generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
