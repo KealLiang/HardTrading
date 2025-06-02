@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -326,27 +327,24 @@ def load_lianban_data(start_date, end_date):
                 if len(parts) < 5:
                     continue
 
+                # 根据fupan.py中get_zt_stocks方法的固定字段顺序提取信息
+                # 字段顺序: 股票代码, 股票简称, 涨停开板次数, 最终涨停时间, 几天几板, 最新价, 首次涨停时间, 最新涨跌幅, 连续涨停天数, 涨停原因类别
                 stock_code = parts[0].strip()
                 stock_name = parts[1].strip()
 
-                # 查找板块信息
-                board_info = None
-                concept = "其他"
-
-                for i, part in enumerate(parts):
-                    part = part.strip()
-                    if '天' in part and '板' in part:
-                        board_info = part
-                    # 通常最后一个部分是概念信息，以+分隔
-                    if i == len(parts) - 1:
-                        concept = part
+                # 确保parts有足够的元素
+                open_count = parts[2].strip() if len(parts) > 2 else None
+                final_time = parts[3].strip() if len(parts) > 3 else None
+                board_info = parts[4].strip() if len(parts) > 4 else None
+                first_time = parts[6].strip() if len(parts) > 6 else None
+                concept = parts[-1].strip() if parts else "其他"  # 最后一个元素通常是概念信息
 
                 # 如果找到连板信息
                 if board_info:
                     board_days, _ = extract_board_info(board_info)
 
                     if board_days:
-                        processed_data.append({
+                        stock_data = {
                             '股票代码': f"{stock_code}_{stock_name}",
                             '纯代码': stock_code,
                             '股票名称': stock_name,
@@ -354,7 +352,17 @@ def load_lianban_data(start_date, end_date):
                             '连板天数': board_days,
                             '连板信息': board_info,
                             '概念': concept
-                        })
+                        }
+
+                        # 添加额外的详细信息
+                        if first_time:
+                            stock_data['首次涨停时间'] = first_time
+                        if final_time:
+                            stock_data['最终涨停时间'] = final_time
+                        if open_count:
+                            stock_data['涨停开板次数'] = open_count
+
+                        processed_data.append(stock_data)
 
         # 转换为DataFrame
         result_df = pd.DataFrame(processed_data)
@@ -377,6 +385,22 @@ def load_lianban_data(start_date, end_date):
 
         # 添加标准格式的股票代码列
         pivot_df['股票代码'] = pivot_df['纯代码'] + '_' + pivot_df['股票名称']
+
+        # 创建一个股票详细信息的映射，用于后续添加备注
+        stock_details = {}
+        for _, row in result_df.iterrows():
+            stock_key = f"{row['纯代码']}_{row['日期']}"
+            details = {}
+
+            # 收集可能存在的详细信息
+            for field in ['首次涨停时间', '最终涨停时间', '涨停开板次数', '连板信息']:
+                if field in row and not pd.isna(row[field]):
+                    details[field] = row[field]
+
+            stock_details[stock_key] = details
+
+        # 将详细信息添加到pivot_df的属性中，以便后续使用
+        pivot_df.attrs['stock_details'] = stock_details
 
         return pivot_df
 
@@ -741,6 +765,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         print("未获取到有效的连板数据")
         return
 
+    # 获取股票详细信息映射
+    stock_details = lianban_df.attrs.get('stock_details', {})
+
     # 加载首板数据
     shouban_df = load_shouban_data(start_date, end_date)
     print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
@@ -964,6 +991,25 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
                 # 文字颜色设为白色以增强可读性
                 cell.font = Font(color="FFFFFF", bold=True)
+
+                # 添加备注信息（仅对连板股票）
+                stock_detail_key = f"{pure_stock_code}_{formatted_day}"
+                if stock_detail_key in stock_details:
+                    details = stock_details[stock_detail_key]
+                    comment_text = ""
+
+                    # 构建备注文本
+                    if '连板信息' in details:
+                        comment_text += f"{details['连板信息']} "
+                    if '首次涨停时间' in details:
+                        comment_text += f"\n首次涨停: {details['首次涨停时间']} "
+                    if '最终涨停时间' in details:
+                        comment_text += f"\n最终涨停: {details['最终涨停时间']} "
+                    if '涨停开板次数' in details:
+                        comment_text += f"\n开板次数: {details['涨停开板次数']}"
+
+                    if comment_text:
+                        cell.comment = Comment(comment_text.strip(), "涨停信息")
 
                 # 记录当前日期为最后一次连板的日期
                 stock['last_board_date'] = current_date_obj
