@@ -50,6 +50,11 @@ BOARD_COLORS = {
 # 设置为None表示一直跟踪到分析周期结束
 MAX_TRACKING_DAYS_AFTER_BREAK = 8
 
+# 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
+# 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
+# 设置为0表示不显示入选前的走势
+MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
+
 # 断板后再次达到2板的交易日间隔阈值
 # 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
 # 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
@@ -818,7 +823,7 @@ def get_market_marker(stock_code):
 
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
-                       include_non_main_first_board=False):
+                       include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY):
     """
     构建梯队形态的涨停复盘图
     
@@ -830,6 +835,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         max_tracking_days: 断板后跟踪的最大天数，默认取全局配置
         reentry_days: 断板后再次上榜的天数阈值，默认取全局配置
         include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板，默认为False
+        max_tracking_days_before: 入选前跟踪的最大天数，默认取全局配置
     """
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
@@ -1146,6 +1152,24 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                     cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
                             else:
                                 cell.value = "停牌"
+                    # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
+                    elif max_tracking_days_before > 0:
+                        # 计算当前日期与首次显著连板日期的交易日天数差
+                        days_before_entry = count_trading_days_between(current_date_obj, stock['first_significant_date'])
+                        
+                        # 如果在入选前跟踪天数范围内，显示涨跌幅
+                        if 1 <= days_before_entry <= max_tracking_days_before:
+                            day_in_yyyymmdd = date_mapping.get(formatted_day)
+                            if day_in_yyyymmdd:
+                                pct_change = get_stock_daily_pct_change(stock_code, day_in_yyyymmdd, stock_name)
+                                if pct_change is not None:
+                                    cell.value = f"{pct_change:.2f}%"
+                                    # 设置背景色 - 根据涨跌幅
+                                    color = get_color_for_pct_change(pct_change)
+                                    if color:
+                                        cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                                else:
+                                    cell.value = "停牌"
                 except Exception as e:
                     print(f"处理日期时出错: {e}, 日期: {formatted_day}")
 
@@ -1231,6 +1255,8 @@ if __name__ == "__main__":
                         help=f'断板后再次达到2板作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
     parser.add_argument('--include_non_main_first_board', action='store_true',
                         help='是否将非主板股票的首次涨停也视为显著连板')
+    parser.add_argument('--max_tracking_before', type=int, default=MAX_TRACKING_DAYS_BEFORE_ENTRY,
+                        help=f'入选前跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_BEFORE_ENTRY}，设为0表示不显示入选前走势)')
 
     args = parser.parse_args()
 
@@ -1247,4 +1273,6 @@ if __name__ == "__main__":
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
 
     # 构建梯队图
-    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, max_tracking, args.reentry_days, args.include_non_main_first_board)
+    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, 
+                       max_tracking, args.reentry_days, args.include_non_main_first_board,
+                       args.max_tracking_before)
