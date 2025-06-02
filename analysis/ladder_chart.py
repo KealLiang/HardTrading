@@ -547,14 +547,16 @@ def load_shouban_data(start_date, end_date):
         return pd.DataFrame()
 
 
-def identify_first_significant_board(df, min_board_level=2, reentry_days_threshold=REENTRY_DAYS_THRESHOLD):
+def identify_first_significant_board(df, shouban_df=None, min_board_level=2, reentry_days_threshold=REENTRY_DAYS_THRESHOLD, include_non_main_first_board=False):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
     Args:
         df: 连板数据DataFrame，已透视处理，每行一只股票，每列一个日期
+        shouban_df: 首板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         min_board_level: 最小显著连板天数，默认为2
         reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到2板会作为新记录
+        include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板
         
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
@@ -574,6 +576,9 @@ def identify_first_significant_board(df, min_board_level=2, reentry_days_thresho
 
     # 将日期列按时间排序
     date_columns.sort()
+
+    # 创建一个集合来存储已经处理过的非主板首板股票代码
+    processed_non_main_stocks = set()
 
     # 遍历每行（每只股票）
     for idx, row in df.iterrows():
@@ -664,12 +669,87 @@ def identify_first_significant_board(df, min_board_level=2, reentry_days_thresho
 
                         result.append(entry)
                         last_significant_entry = entry
+                        
+                        # 将该股票添加到已处理集合中
+                        processed_non_main_stocks.add(stock_code)
 
                         print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
                 else:
                     # 如果不是显著连板，可能是断板
                     # 在这里不更新continuous_board_dates，这样保持最后一次连板的日期
                     pass
+
+    # 处理非主板股票的首板数据
+    if include_non_main_first_board and shouban_df is not None and not shouban_df.empty:
+        print("\n处理非主板股票的首板数据...")
+        
+        # 找出首板数据的日期列
+        shouban_date_columns = [col for col in shouban_df.columns if col not in ['纯代码', '股票名称', '股票代码', '概念']]
+        shouban_date_columns.sort()
+        
+        # 遍历每只首板股票
+        for idx, row in shouban_df.iterrows():
+            stock_code = row['纯代码']
+            stock_name = row['股票名称']
+            
+            # 跳过代码或名称为空的行或已经在连板数据中处理过的股票
+            if not stock_code or not stock_name or stock_code in processed_non_main_stocks:
+                continue
+                
+            # 判断是否为非主板股票
+            try:
+                market = get_stock_market(stock_code)
+                if market in ['gem', 'star', 'bse']:  # 非主板股票
+                    print(f"\n分析非主板首板股票: {stock_code}_{stock_name} (市场: {market})")
+                    
+                    # 检查每一个日期列
+                    for col in shouban_date_columns:
+                        board_days = row[col]
+                        
+                        if pd.notna(board_days) and board_days == 1:  # 首板
+                            print(f"  日期 {col}: 首板涨停")
+                            
+                            # 记录为显著连板日期
+                            current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
+                            
+                            # 构建一个板块数据字典，合并首板数据和连板数据
+                            all_board_data = {}
+                            
+                            # 先填充所有日期的数据为None
+                            for date_col in date_columns:
+                                all_board_data[date_col] = None
+                            
+                            # 从首板数据中获取该股票的所有日期数据
+                            for date_col in shouban_date_columns:
+                                if pd.notna(row[date_col]):
+                                    all_board_data[date_col] = row[date_col]
+                            
+                            # 从连板数据中查找该股票，并合并数据
+                            lianban_row = df[df['纯代码'] == stock_code]
+                            if not lianban_row.empty:
+                                for date_col in date_columns:
+                                    if date_col in lianban_row.columns and pd.notna(lianban_row[date_col].values[0]):
+                                        all_board_data[date_col] = lianban_row[date_col].values[0]
+                            
+                            # 获取当前日期的概念
+                            current_concept = row.get('概念', '其他')
+                            
+                            # 添加到结果列表
+                            entry = {
+                                'stock_code': stock_code,
+                                'stock_name': stock_name,
+                                'first_significant_date': current_date,
+                                'board_level_at_first': 1,  # 首板
+                                'all_board_data': all_board_data,
+                                'concept': current_concept,
+                                'entry_type': 'non_main_first_board'
+                            }
+                            
+                            result.append(entry)
+                            print(f"    记录非主板首板: {stock_name} 在 {col} 首板涨停")
+            except Exception as e:
+                print(f"判断股票 {stock_code} 市场类型时出错: {e}")
+                continue
 
     # 转换为DataFrame
     result_df = pd.DataFrame(result)
@@ -722,7 +802,8 @@ def get_concept_from_board_text(board_text):
 
 
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
-                       max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD):
+                       max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
+                       include_non_main_first_board=False):
     """
     构建梯队形态的涨停复盘图
     
@@ -733,6 +814,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         min_board_level: 最小显著连板天数，默认为2
         max_tracking_days: 断板后跟踪的最大天数，默认取全局配置
         reentry_days: 断板后再次上榜的天数阈值，默认取全局配置
+        include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板，默认为False
     """
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
@@ -782,7 +864,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                     print(f"  {col}: {row[col]}")
 
     # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
-    result_df = identify_first_significant_board(lianban_df, min_board_level, reentry_days)
+    result_df = identify_first_significant_board(lianban_df, shouban_df, min_board_level, reentry_days, include_non_main_first_board)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有连板{min_board_level}次及以上的股票")
         return
@@ -1132,6 +1214,8 @@ if __name__ == "__main__":
                         help=f'断板后跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_AFTER_BREAK}，设为-1表示一直跟踪)')
     parser.add_argument('--reentry_days', type=int, default=REENTRY_DAYS_THRESHOLD,
                         help=f'断板后再次达到2板作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
+    parser.add_argument('--include_non_main_first_board', action='store_true',
+                        help='是否将非主板股票的首次涨停也视为显著连板')
 
     args = parser.parse_args()
 
@@ -1148,4 +1232,4 @@ if __name__ == "__main__":
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
 
     # 构建梯队图
-    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, max_tracking, args.reentry_days)
+    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, max_tracking, args.reentry_days, args.include_non_main_first_board)

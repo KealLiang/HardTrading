@@ -251,7 +251,7 @@ def generate_ladder_chart():
     min_board_level = 2
     
     # 构建梯队图
-    build_ladder_chart(start_date, end_date, min_board_level=min_board_level)
+    build_ladder_chart(start_date, end_date, min_board_level=min_board_level, include_non_main_first_board=True)
 
 
 if __name__ == '__main__':
