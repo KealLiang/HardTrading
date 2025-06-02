@@ -26,9 +26,9 @@ MAX_TRACKING_DAYS_AFTER_BREAK = 8
 # 设置为0表示不显示入选前的走势
 MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
 
-# 断板后再次达到2板的交易日间隔阈值
-# 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
-# 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
+# 断板后再次达到入选的交易日间隔阈值
+# 例如设置为4，当股票断板后第5个交易日或之后再次达到入选时，会作为新的一行记录
+# 如果一只股票断板后超过这个交易日天数又再次达到入选，则视为新的一行记录
 REENTRY_DAYS_THRESHOLD = 4
 
 # 是否显示周期涨跌幅列
@@ -621,7 +621,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         df: 连板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         shouban_df: 首板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         min_board_level: 最小显著连板天数，默认为2
-        reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到2板会作为新记录
+        reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到入选条件会作为新记录
         include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板
         
     Returns:
@@ -766,8 +766,8 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                 if not significant_board_dates:
                     # 第一次显著连板
                     is_new_entry = True
-                elif board_days == 2 and continuous_board_dates:
-                    # 检查是否是断板后间隔足够长再次达到2板
+                elif continuous_board_dates:
+                    # 检查是否是断板后间隔足够长再次达到入选条件
                     previous_board_dates = [d for d in continuous_board_dates if d < current_date]
 
                     if previous_board_dates:
@@ -782,10 +782,25 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
                         # 判断是否满足再次入选条件
                         if days_since_last_board > reentry_days_threshold:
-                            print(f"    断板后{days_since_last_board}个交易日再次达到2板，作为新记录")
-                            is_new_entry = True
-                            # 清空连续连板日期列表，开始新的连板区间记录
-                            continuous_board_dates = [current_date]
+                            # 检查是否达到入选条件
+                            is_significant_reentry = False
+                            
+                            # 与首次入选逻辑保持一致
+                            if market == 'main':
+                                if board_days >= min_board_level:
+                                    is_significant_reentry = True
+                            elif include_non_main_first_board and market in ['gem', 'star', 'bse']:
+                                if board_days >= 1:
+                                    is_significant_reentry = True
+                            else:
+                                if board_days >= min_board_level:
+                                    is_significant_reentry = True
+                                    
+                            if is_significant_reentry:
+                                print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
+                                is_new_entry = True
+                                # 清空连续连板日期列表，开始新的连板区间记录
+                                continuous_board_dates = [current_date]
 
                 # 添加到显著连板日期列表
                 significant_board_dates.append(current_date)
