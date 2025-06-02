@@ -924,7 +924,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         market_type = ""
         try:
             market = get_stock_market(pure_stock_code)
-            if market == 'gem':  # 创业板
+            if market == 'gem' or market == 'star':  # 创业板或科创板
                 market_type = "*"
             elif market == 'bse':  # 北交所
                 market_type = "**"
