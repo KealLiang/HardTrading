@@ -26,14 +26,17 @@ MAX_TRACKING_DAYS_AFTER_BREAK = 8
 # 设置为0表示不显示入选前的走势
 MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
 
-# 计算入选日与之前X个交易日的涨跌幅
-# 例如设置为20，会计算入选日与20个交易日之前的涨跌幅
-PERIOD_DAYS_CHANGE = 15
-
 # 断板后再次达到2板的交易日间隔阈值
 # 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
 # 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
 REENTRY_DAYS_THRESHOLD = 4
+
+# 是否显示周期涨跌幅列
+SHOW_PERIOD_CHANGE = False
+
+# 计算入选日与之前X个交易日的涨跌幅
+# 例如设置为20，会计算入选日与20个交易日之前的涨跌幅
+PERIOD_DAYS_CHANGE = 10
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
@@ -87,6 +90,73 @@ HIGH_BOARD_COLORS = {
     14: "0073E6",  # 14板及以上 - 最深蓝色
 }
 
+# 股票周期涨跌幅缓存
+PERIOD_CHANGE_CACHE = {}
+
+# 股票文件路径缓存
+STOCK_FILE_PATH_CACHE = {}
+
+
+def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
+    """
+    获取股票数据文件路径
+    
+    Args:
+        stock_code: 股票代码
+        stock_name: 股票名称，用于构建文件名
+        save_path: 股票数据存储路径
+        
+    Returns:
+        str: 股票数据文件路径，如果找不到则返回None
+    """
+    # 检查缓存中是否已有结果
+    if stock_code in STOCK_FILE_PATH_CACHE:
+        return STOCK_FILE_PATH_CACHE[stock_code]
+
+    # 处理股票代码格式
+    clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+
+    # 查找对应的文件
+    file_path = None
+
+    if stock_name:
+        # 如果提供了股票名称，直接尝试使用
+        safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
+        possible_file = f"{clean_code}_{safe_name}.csv"
+        if os.path.exists(os.path.join(save_path, possible_file)):
+            file_path = os.path.join(save_path, possible_file)
+
+    # 如果没有找到文件，尝试查找匹配的文件
+    if not file_path:
+        for file in os.listdir(save_path):
+            # 匹配文件名前缀为股票代码的文件
+            if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                file_path = os.path.join(save_path, file)
+                break
+
+    if not file_path:
+        # 如果还是没找到，可能需要处理前导零的情况
+        if clean_code.startswith('0'):
+            # 尝试去掉前导零
+            stripped_code = clean_code.lstrip('0')
+            if stripped_code:  # 确保不是全零
+                for file in os.listdir(save_path):
+                    if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
+                        file_path = os.path.join(save_path, file)
+                        break
+
+        # 对于上交所股票，可能需要处理6开头的代码
+        elif clean_code.startswith('6'):
+            for file in os.listdir(save_path):
+                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                    file_path = os.path.join(save_path, file)
+                    break
+
+    # 将结果存入缓存
+    STOCK_FILE_PATH_CACHE[stock_code] = file_path
+
+    return file_path
+
 
 def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
     """
@@ -105,50 +175,13 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
         if not stock_code:
             return None
 
-        # 处理股票代码格式
-        # 移除可能的市场后缀（如.SH、.SZ等）
-        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
-
         # 目标日期（YYYY-MM-DD格式）
         target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
 
-        # 查找对应的文件
-        file_path = None
+        # 获取股票数据文件路径
+        file_path = get_stock_file_path(stock_code, stock_name, save_path)
 
-        if stock_name:
-            # 如果提供了股票名称，直接尝试使用
-            safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
-            possible_file = f"{clean_code}_{safe_name}.csv"
-            if os.path.exists(os.path.join(save_path, possible_file)):
-                file_path = os.path.join(save_path, possible_file)
-
-        # 如果没有找到文件，尝试查找匹配的文件
-        if not file_path:
-            for file in os.listdir(save_path):
-                # 匹配文件名前缀为股票代码的文件
-                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                    file_path = os.path.join(save_path, file)
-                    break
-
-        if not file_path:
-            # 如果还是没找到，可能需要处理前导零的情况（如000565可能保存为565）
-            if clean_code.startswith('0'):
-                # 尝试去掉前导零
-                stripped_code = clean_code.lstrip('0')
-                if stripped_code:  # 确保不是全零
-                    for file in os.listdir(save_path):
-                        if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
-                            file_path = os.path.join(save_path, file)
-                            break
-
-            # 对于上交所股票，可能需要处理6开头的代码
-            elif clean_code.startswith('6'):
-                for file in os.listdir(save_path):
-                    if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                        file_path = os.path.join(save_path, file)
-                        break
-
-        # 如果仍然没有找到文件
+        # 如果没有找到文件
         if not file_path:
             return None
 
@@ -901,50 +934,19 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
     """
+    # 检查缓存中是否已有结果
+    cache_key = f"{stock_code}_{start_date_yyyymmdd}_{end_date_yyyymmdd}"
+    if cache_key in PERIOD_CHANGE_CACHE:
+        return PERIOD_CHANGE_CACHE[cache_key]
+
     try:
         if not stock_code:
             return None
 
-        # 处理股票代码格式
-        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+        # 获取股票数据文件路径
+        file_path = get_stock_file_path(stock_code, stock_name, save_path)
 
-        # 查找对应的文件
-        file_path = None
-
-        if stock_name:
-            # 如果提供了股票名称，直接尝试使用
-            safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
-            possible_file = f"{clean_code}_{safe_name}.csv"
-            if os.path.exists(os.path.join(save_path, possible_file)):
-                file_path = os.path.join(save_path, possible_file)
-
-        # 如果没有找到文件，尝试查找匹配的文件
-        if not file_path:
-            for file in os.listdir(save_path):
-                # 匹配文件名前缀为股票代码的文件
-                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                    file_path = os.path.join(save_path, file)
-                    break
-
-        if not file_path:
-            # 如果还是没找到，可能需要处理前导零的情况
-            if clean_code.startswith('0'):
-                # 尝试去掉前导零
-                stripped_code = clean_code.lstrip('0')
-                if stripped_code:  # 确保不是全零
-                    for file in os.listdir(save_path):
-                        if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
-                            file_path = os.path.join(save_path, file)
-                            break
-
-            # 对于上交所股票，可能需要处理6开头的代码
-            elif clean_code.startswith('6'):
-                for file in os.listdir(save_path):
-                    if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                        file_path = os.path.join(save_path, file)
-                        break
-
-        # 如果仍然没有找到文件
+        # 如果没有找到文件
         if not file_path:
             return None
 
@@ -989,6 +991,9 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         # 计算涨跌幅
         period_change = ((end_price / start_price) - 1) * 100
 
+        # 将结果存入缓存
+        PERIOD_CHANGE_CACHE[cache_key] = period_change
+
         return period_change
 
     except Exception as e:
@@ -1000,7 +1005,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
-                       period_days=PERIOD_DAYS_CHANGE):
+                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE):
     """
     构建梯队形态的涨停复盘图
     
@@ -1014,6 +1019,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板，默认为False
         max_tracking_days_before: 入选前跟踪的最大天数，默认取全局配置
         period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
+        show_period_change: 是否显示周期涨跌幅列，默认取全局配置
     """
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
@@ -1114,17 +1120,21 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 添加周期涨跌幅列（第3列）
     period_column = 3
-    period_header = f"{period_days}日"
-    ws.cell(row=1, column=period_column, value=period_header)
-    ws.cell(row=1, column=period_column).alignment = Alignment(horizontal='center')
-    ws.cell(row=1, column=period_column).border = BORDER_STYLE
-    ws.cell(row=1, column=period_column).font = Font(bold=True)
+    date_column_start = 3  # 日期列开始位置，默认为第3列
+
+    if show_period_change:
+        period_header = f"{period_days}日"
+        ws.cell(row=1, column=period_column, value=period_header)
+        ws.cell(row=1, column=period_column).alignment = Alignment(horizontal='center')
+        ws.cell(row=1, column=period_column).border = BORDER_STYLE
+        ws.cell(row=1, column=period_column).font = Font(bold=True, size=9)  # 设置小一号字体
+        date_column_start = 4  # 如果显示周期涨跌幅，日期列从第4列开始
 
     # 设置日期列标题
     date_columns = {}  # 用于保存日期到列索引的映射
     for i, formatted_day in enumerate(formatted_trading_days):
         date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
-        col = i + 4  # 前三列是概念、股票名称和周期涨跌幅
+        col = i + date_column_start  # 日期列的起始位置根据是否显示周期涨跌幅决定
         date_columns[formatted_day] = col
 
         # 添加日期标题和星期几
@@ -1226,38 +1236,40 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
 
         # 填充周期涨跌幅列
-        try:
-            # 获取入选日期
-            entry_date = stock['first_significant_date']
-            entry_date_str = entry_date.strftime('%Y%m%d')
+        if show_period_change:
+            try:
+                # 获取入选日期
+                entry_date = stock['first_significant_date']
+                entry_date_str = entry_date.strftime('%Y%m%d')
 
-            # 获取入选前X个交易日的日期
-            prev_date = get_n_trading_days_before(entry_date_str, period_days)
-            if '-' in prev_date:
-                prev_date = prev_date.replace('-', '')
+                # 获取入选前X个交易日的日期
+                prev_date = get_n_trading_days_before(entry_date_str, period_days)
+                if '-' in prev_date:
+                    prev_date = prev_date.replace('-', '')
 
-            # 计算从入选前X日到入选日的涨跌幅
-            period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
+                # 计算从入选前X日到入选日的涨跌幅
+                period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
 
-            if period_change is not None:
-                period_cell = ws.cell(row=row_idx, column=period_column, value=f"{period_change:.2f}%")
-                # 设置背景色 - 根据涨跌幅
-                color = get_color_for_period_change(period_change)
-                if color:
-                    period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-            else:
+                if period_change is not None:
+                    period_cell = ws.cell(row=row_idx, column=period_column, value=f"{period_change:.2f}%")
+                    # 设置背景色 - 根据涨跌幅
+                    color = get_color_for_period_change(period_change)
+                    if color:
+                        period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+                else:
+                    period_cell = ws.cell(row=row_idx, column=period_column, value="--")
+            except Exception as e:
+                print(f"计算周期涨跌幅时出错: {e}, 股票: {stock_name}")
                 period_cell = ws.cell(row=row_idx, column=period_column, value="--")
-        except Exception as e:
-            print(f"计算周期涨跌幅时出错: {e}, 股票: {stock_name}")
-            period_cell = ws.cell(row=row_idx, column=period_column, value="--")
 
-        # 设置周期涨跌幅单元格格式
-        period_cell.alignment = Alignment(horizontal='center')
-        period_cell.border = BORDER_STYLE
+            # 设置周期涨跌幅单元格格式
+            period_cell.alignment = Alignment(horizontal='center')
+            period_cell.border = BORDER_STYLE
+            period_cell.font = Font(size=9)  # 设置小一号字体
 
         # 填充每个交易日的数据
         for j, formatted_day in enumerate(formatted_trading_days):
-            col_idx = j + 4  # 列索引，从第4列开始
+            col_idx = j + date_column_start  # 列索引，从第4列开始
 
             # 获取当日的连板信息
             board_days = all_board_data.get(formatted_day)
@@ -1388,16 +1400,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 调整列宽
     ws.column_dimensions['A'].width = 20
     ws.column_dimensions['B'].width = 15
-    ws.column_dimensions['C'].width = 10  # 周期涨跌幅列宽度
+
+    if show_period_change:
+        ws.column_dimensions['C'].width = 8  # 周期涨跌幅列宽度减小
+
     for i in range(len(formatted_trading_days)):
-        col_letter = get_column_letter(i + 4)
+        col_letter = get_column_letter(i + date_column_start)
         ws.column_dimensions[col_letter].width = 12
 
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
 
     # 冻结前两列和前三行
-    ws.freeze_panes = ws.cell(row=4, column=4)
+    ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
     # 创建统计原因的计数器
     reason_counter = Counter(all_concepts)
@@ -1499,6 +1514,8 @@ if __name__ == "__main__":
                         help=f'入选前跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_BEFORE_ENTRY}，设为0表示不显示入选前走势)')
     parser.add_argument('--period_days', type=int, default=PERIOD_DAYS_CHANGE,
                         help=f'计算入选日与之前X个交易日的涨跌幅 (默认: {PERIOD_DAYS_CHANGE})')
+    parser.add_argument('--show_period_change', action='store_true',
+                        help='是否显示周期涨跌幅列 (默认: 不显示)')
 
     args = parser.parse_args()
 
@@ -1517,4 +1534,4 @@ if __name__ == "__main__":
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.include_non_main_first_board,
-                       args.max_tracking_before, args.period_days)
+                       args.max_tracking_before, args.period_days, args.show_period_change)
