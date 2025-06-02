@@ -47,6 +47,37 @@ MULTI_COLOR = "E0FFFF"
 # 表头颜色
 HEADER_COLOR = "E0E0E0"  # 浅灰色
 
+# 涨停板颜色映射（根据连板数）
+BOARD_COLORS = {
+    1: "FFB3B3",  # 首板 (淡红色)
+    2: "FF9999",  # 2板 (红色)
+    3: "FF8080",  # 3板 (深红色)
+    4: "FF6666",  # 4板 (大红色)
+    5: "FF4D4D",  # 5板 (深红色)
+    6: "FF3333",  # 6板 (暗红色)
+    7: "FF1A1A",  # 7板 (更暗红色)
+    8: "FF0000",  # 8板 (非常暗红色)
+    9: "E60000",  # 9板 (极暗红色)
+    10: "CC0000",  # 10板及以上 (近黑红色)
+}
+
+# 定义蓝色系梯度颜色映射（4板及以上，每2板一个档次）
+HIGH_BOARD_COLORS = {
+    4: "E6F3FF",  # 4板 - 最浅蓝色
+    6: "CCE8FF",  # 6板 - 浅蓝色
+    8: "99D1FF",  # 8板 - 中蓝色
+    10: "66BAFF",  # 10板 - 深蓝色
+    12: "3394FF",  # 12板 - 更深蓝色
+    14: "0073E6",  # 14板及以上 - 最深蓝色
+}
+
+# 重复入选梯度颜色映射
+REENTRY_COLORS = {
+    2: "D3D3D3",  # 2次入选 - 浅灰色
+    3: "A9A9A9",  # 3次入选 - 中灰色
+    4: "696969",  # 4次及以上 - 深灰色
+}
+
 # 红绿色系定义，用于涨跌幅颜色表示
 RED_COLORS = [
     "FFCCCC",  # 浅红色 (0-1%)
@@ -274,7 +305,7 @@ def get_color_for_pct_change(pct_change):
         return "E6E6E6"
 
 
-def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None):
+def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None, reentry_colors=None):
     """
     创建颜色图例工作表
     
@@ -284,6 +315,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
         reason_colors: 原因到颜色的映射字典
         top_reasons: 热门原因列表
         high_board_colors: 高板数颜色映射字典，默认为None
+        reentry_colors: 重复入选颜色映射字典，默认为None
     
     Returns:
         openpyxl.worksheet.worksheet.Worksheet: 创建的图例工作表对象
@@ -386,6 +418,47 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
             # 对于深色背景，使用白色字体
             if board_level >= 12:
                 name_cell.font = Font(color="FFFFFF")
+
+            current_row += 1
+
+    # 添加重复入选颜色图例（如果提供）
+    if reentry_colors:
+        # 添加分隔行
+        separator_cell = legend_ws.cell(row=current_row, column=1, value="重复入选颜色")
+        separator_cell.border = Border(top=Side(style='thin', color='000000'))
+        separator_cell.font = Font(bold=True)
+        current_row += 1
+
+        # 添加重复入选颜色图例
+        for entry_count, color in sorted(reentry_colors.items()):
+            # 如果是最后一个，显示为"X次及以上"
+            if entry_count == max(reentry_colors.keys()):
+                label = f"{entry_count}次及以上入选"
+            else:
+                label = f"{entry_count}次入选"
+
+            name_cell = legend_ws.cell(row=current_row, column=1, value=label)
+            name_cell.fill = PatternFill(start_color=color, fill_type="solid")
+
+            # 对于深色背景，使用白色字体
+            if entry_count >= 4:
+                name_cell.font = Font(color="FFFFFF")
+
+            # 添加边框
+            name_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # 添加第二列的边框
+            legend_ws.cell(row=current_row, column=2).border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
 
             current_row += 1
 

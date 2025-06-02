@@ -13,7 +13,8 @@ from utils.date_util import get_trading_days, count_trading_days_between, get_n_
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
-    create_legend_sheet, get_color_for_pct_change, add_market_indicators
+    create_legend_sheet, get_color_for_pct_change, add_market_indicators,
+    HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS
 )
 
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
@@ -53,20 +54,6 @@ BORDER_STYLE = Border(
     bottom=Side(style='thin')
 )
 
-# 涨停板颜色映射（根据连板数）
-BOARD_COLORS = {
-    1: "FFB3B3",  # 首板 (淡红色)
-    2: "FF9999",  # 2板 (红色)
-    3: "FF8080",  # 3板 (深红色)
-    4: "FF6666",  # 4板 (大红色)
-    5: "FF4D4D",  # 5板 (深红色)
-    6: "FF3333",  # 6板 (暗红色)
-    7: "FF1A1A",  # 7板 (更暗红色)
-    8: "FF0000",  # 8板 (非常暗红色)
-    9: "E60000",  # 9板 (极暗红色)
-    10: "CC0000",  # 10板及以上 (近黑红色)
-}
-
 # 周期涨跌幅颜色映射
 PERIOD_CHANGE_COLORS = {
     "EXTREME_POSITIVE": "9933FF",  # 深紫色 - 极强势 (≥100%)
@@ -78,16 +65,6 @@ PERIOD_CHANGE_COLORS = {
     "MILD_NEGATIVE": "C9D58C",  # 浅橄榄绿 - 偏弱势 (≥-40%)
     "MODERATE_NEGATIVE": "A3B86C",  # 中橄榄绿 - 较弱势 (≥-60%)
     "STRONG_NEGATIVE": "7D994D",  # 深橄榄绿 - 弱势 (<-60%)
-}
-
-# 定义蓝色系颜色映射（4板及以上，每2板一个档次）
-HIGH_BOARD_COLORS = {
-    4: "E6F3FF",  # 4板 - 最浅蓝色
-    6: "CCE8FF",  # 6板 - 浅蓝色
-    8: "99D1FF",  # 8板 - 中蓝色
-    10: "66BAFF",  # 10板 - 深蓝色
-    12: "3394FF",  # 12板 - 更深蓝色
-    14: "0073E6",  # 14板及以上 - 最深蓝色
 }
 
 # 股票周期涨跌幅缓存
@@ -784,7 +761,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                         if days_since_last_board > reentry_days_threshold:
                             # 检查是否达到入选条件
                             is_significant_reentry = False
-                            
+
                             # 与首次入选逻辑保持一致
                             if market == 'main':
                                 if board_days >= min_board_level:
@@ -795,7 +772,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                             else:
                                 if board_days >= min_board_level:
                                     is_significant_reentry = True
-                                    
+
                             if is_significant_reentry:
                                 print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
                                 is_new_entry = True
@@ -1178,10 +1155,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 收集所有已入选连板梯队的股票代码
     lianban_stock_codes = set()
+    # 统计每只股票入选次数
+    stock_entry_count = {}
+
     for _, row in result_df.iterrows():
         # 纯代码作为标识
         pure_code = row['stock_code'].split('_')[0] if '_' in row['stock_code'] else row['stock_code']
         lianban_stock_codes.add(pure_code)
+
+        # 统计入选次数
+        if pure_code in stock_entry_count:
+            stock_entry_count[pure_code] += 1
+        else:
+            stock_entry_count[pure_code] = 1
 
     print(f"共有{len(lianban_stock_codes)}只股票已入选连板梯队")
 
@@ -1235,6 +1221,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         name_cell.border = BORDER_STYLE
 
         # 为曾经到过4板及以上的个股，设置蓝色背景
+        apply_high_board_color = False
         if max_board_level >= 4:
             # 找出最接近的颜色档位
             color_level = 4
@@ -1245,10 +1232,24 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             # 设置背景色
             bg_color = HIGH_BOARD_COLORS[color_level]
             name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
+            apply_high_board_color = True
 
             # 对于深色背景，使用白色字体
             if color_level >= 12:
                 name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
+
+        # 如果没有应用高板数颜色，且该股票是重复入选，则应用灰色背景
+        elif pure_stock_code in stock_entry_count and stock_entry_count[pure_stock_code] > 1:
+            # 获取入选次数
+            entry_count = stock_entry_count[pure_stock_code]
+            # 确定颜色深度，超过4次使用最深的灰色
+            color_level = min(entry_count, 4)
+            bg_color = REENTRY_COLORS.get(color_level, REENTRY_COLORS[4])
+            name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
+
+            # 对于深色灰色背景，使用白色字体
+            if color_level >= 4:
+                name_cell.font = Font(color="FFFFFF")
 
         # 填充周期涨跌幅列
         if show_period_change:
@@ -1432,66 +1433,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 创建统计原因的计数器
     reason_counter = Counter(all_concepts)
 
-    # 使用公共函数创建图例工作表
-    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS)
-
-    # 在图例中添加首板颜色说明
-    legend_ws = wb["题材颜色图例"]
-    current_row = len(legend_ws['A']) + 1
-
-    # 添加分隔行
-    separator_cell = legend_ws.cell(row=current_row, column=1, value="特殊标记")
-    separator_cell.border = Border(top=Side(style='thin', color='000000'))
-    separator_cell.font = Font(bold=True)
-    current_row += 1
-
-    # 添加首板说明
-    shouban_cell = legend_ws.cell(row=current_row, column=1, value="首板涨停")
-    shouban_cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
-    shouban_cell.border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    # 添加说明文字
-    legend_ws.cell(row=current_row, column=2, value="梯队股再次首板").border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    current_row += 2  # 多空一行作为分隔
-
-    # 添加周期涨跌幅颜色说明
-    separator_cell = legend_ws.cell(row=current_row, column=1, value="周期涨跌幅颜色")
-    separator_cell.border = Border(top=Side(style='thin', color='000000'))
-    separator_cell.font = Font(bold=True)
-    current_row += 1
-
-    # 添加周期涨跌幅颜色说明
-    period_colors = [
-        ("≥100%", PERIOD_CHANGE_COLORS["EXTREME_POSITIVE"]),
-        ("≥70%", PERIOD_CHANGE_COLORS["STRONG_POSITIVE"]),
-        ("≥40%", PERIOD_CHANGE_COLORS["MODERATE_POSITIVE"]),
-        ("≥20%", PERIOD_CHANGE_COLORS["MILD_POSITIVE"]),
-        ("≥0%", PERIOD_CHANGE_COLORS["SLIGHT_POSITIVE"]),
-        ("≥-20%", PERIOD_CHANGE_COLORS["SLIGHT_NEGATIVE"]),
-        ("≥-40%", PERIOD_CHANGE_COLORS["MILD_NEGATIVE"]),
-        ("≥-60%", PERIOD_CHANGE_COLORS["MODERATE_NEGATIVE"]),
-        ("<-60%", PERIOD_CHANGE_COLORS["STRONG_NEGATIVE"])
-    ]
-
-    for label, color in period_colors:
-        color_cell = legend_ws.cell(row=current_row, column=1, value=label)
-        color_cell.fill = PatternFill(start_color=color, fill_type="solid")
-        color_cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        current_row += 1
+    # 创建图例工作表
+    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS, REENTRY_COLORS)
 
     # 保存Excel文件
     try:
