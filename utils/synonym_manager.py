@@ -20,24 +20,16 @@ PRINT_TOP_N = 5
 class SynonymManager:
     """同义词分组管理器，用于生成和更新synonym_groups"""
 
-    def __init__(self, threshold=0.7, min_group_size=3, disable_progress_bar=True):
+    def __init__(self, threshold=0.7, min_group_size=3):
         """
         初始化同义词分组管理器
         
         Args:
             threshold: 相似度阈值，默认为0.7
             min_group_size: 最小分组大小，默认为2
-            disable_progress_bar: 是否禁用进度条，默认为True
         """
         self.threshold = threshold
         self.min_group_size = min_group_size
-        self.disable_progress_bar = disable_progress_bar
-
-        # 设置环境变量以禁用tqdm进度条
-        if self.disable_progress_bar:
-            import os
-            os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            os.environ["TQDM_DISABLE"] = "true"
 
         # 抑制jieba的警告
         import warnings
@@ -377,7 +369,7 @@ class SynonymManager:
             # 从输入文件名提取日期范围
             file_name = os.path.basename(input_file)
             file_base = os.path.splitext(file_name)[0]
-            output_file = f"./data/reasons/updated_synonym_groups_{file_base}.py"
+            output_file = "./data/reasons/updated_synonym_groups.py"
 
         # 保存代码
         print(f"正在保存代码到 {output_file}...")

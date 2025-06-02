@@ -1,3 +1,8 @@
+import warnings
+
+# 忽略jieba库中的pkg_resources警告
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
+
 from datetime import datetime
 
 from analysis.calculate_limit_up_success_rate import analyze_rate
@@ -23,7 +28,6 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
-
 
 # 回溯交易
 def backtrade_simulate():
@@ -233,7 +237,7 @@ def update_synonym_groups():
     可用于自动更新theme_color_util.py中的synonym_groups
     """
     # 创建同义词分组管理器
-    manager = SynonymManager(threshold=0.6, min_group_size=5, disable_progress_bar=True)
+    manager = SynonymManager(threshold=0.6, min_group_size=5)
     
     # 自动处理同义词分组更新
     manager.update_from_latest_file(debug_phrases=["机器视觉", "智能无人车"])
@@ -252,8 +256,8 @@ if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
-    # whimsical_fupan_analyze()
-    update_synonym_groups()
+    whimsical_fupan_analyze()
+    # update_synonym_groups()
     # generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
