@@ -9,12 +9,31 @@ from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
-from utils.date_util import get_trading_days, count_trading_days_between
+from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
     create_legend_sheet, get_color_for_pct_change, add_market_indicators
 )
+
+# 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
+# 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
+# 设置为None表示一直跟踪到分析周期结束
+MAX_TRACKING_DAYS_AFTER_BREAK = 8
+
+# 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
+# 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
+# 设置为0表示不显示入选前的走势
+MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
+
+# 计算入选日与之前X个交易日的涨跌幅
+# 例如设置为20，会计算入选日与20个交易日之前的涨跌幅
+PERIOD_DAYS_CHANGE = 15
+
+# 断板后再次达到2板的交易日间隔阈值
+# 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
+# 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
+REENTRY_DAYS_THRESHOLD = 4
 
 # 输入和输出文件路径
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
@@ -45,20 +64,28 @@ BOARD_COLORS = {
     10: "CC0000",  # 10板及以上 (近黑红色)
 }
 
-# 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
-# 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
-# 设置为None表示一直跟踪到分析周期结束
-MAX_TRACKING_DAYS_AFTER_BREAK = 8
+# 周期涨跌幅颜色映射
+PERIOD_CHANGE_COLORS = {
+    "EXTREME_POSITIVE": "9933FF",  # 深紫色 - 极强势 (≥100%)
+    "STRONG_POSITIVE": "AA66FF",  # 中深紫色 - 强势 (≥70%)
+    "MODERATE_POSITIVE": "BB99FF",  # 中紫色 - 较强势 (≥40%)
+    "MILD_POSITIVE": "CCCCFF",  # 浅紫色 - 偏强势 (≥20%)
+    "SLIGHT_POSITIVE": "E6E6FF",  # 极浅紫色 - 微强势 (≥0%)
+    "SLIGHT_NEGATIVE": "E6EBC9",  # 极浅橄榄绿 - 微弱势 (≥-20%)
+    "MILD_NEGATIVE": "C9D58C",  # 浅橄榄绿 - 偏弱势 (≥-40%)
+    "MODERATE_NEGATIVE": "A3B86C",  # 中橄榄绿 - 较弱势 (≥-60%)
+    "STRONG_NEGATIVE": "7D994D",  # 深橄榄绿 - 弱势 (<-60%)
+}
 
-# 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
-# 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
-# 设置为0表示不显示入选前的走势
-MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
-
-# 断板后再次达到2板的交易日间隔阈值
-# 例如设置为4，当股票断板后第5个交易日或之后再次达到2板时，会作为新的一行记录
-# 如果一只股票断板后超过这个交易日天数又再次达到2板，则视为新的一行记录
-REENTRY_DAYS_THRESHOLD = 4
+# 定义蓝色系颜色映射（4板及以上，每2板一个档次）
+HIGH_BOARD_COLORS = {
+    4: "E6F3FF",  # 4板 - 最浅蓝色
+    6: "CCE8FF",  # 6板 - 浅蓝色
+    8: "99D1FF",  # 8板 - 中蓝色
+    10: "66BAFF",  # 10板 - 深蓝色
+    12: "3394FF",  # 12板 - 更深蓝色
+    14: "0073E6",  # 14板及以上 - 最深蓝色
+}
 
 
 def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
@@ -552,7 +579,8 @@ def load_shouban_data(start_date, end_date):
         return pd.DataFrame()
 
 
-def identify_first_significant_board(df, shouban_df=None, min_board_level=2, reentry_days_threshold=REENTRY_DAYS_THRESHOLD, include_non_main_first_board=False):
+def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
+                                     reentry_days_threshold=REENTRY_DAYS_THRESHOLD, include_non_main_first_board=False):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
@@ -577,20 +605,20 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
 
     # 将日期列按时间排序
     date_columns.sort()
-    
+
     # 首先合并所有股票数据，创建一个完整的股票池
     all_stocks = {}
-    
+
     # 1. 处理连板数据
     print(f"处理连板数据，共有{len(df)}只股票")
     for idx, row in df.iterrows():
         stock_code = row['纯代码']
         stock_name = row['股票名称']
-        
+
         # 跳过代码或名称为空的行
         if not stock_code or not stock_name:
             continue
-            
+
         # 创建股票数据字典
         stock_data = {
             'stock_code': stock_code,
@@ -599,28 +627,29 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
             'board_data': {},
             'market': None  # 将在后面填充
         }
-        
+
         # 填充连板数据
         for col in date_columns:
             if pd.notna(row[col]):
                 stock_data['board_data'][col] = row[col]
-                
+
         all_stocks[stock_code] = stock_data
-    
+
     # 2. 处理首板数据，合并到股票池中
     if shouban_df is not None and not shouban_df.empty:
         print(f"处理首板数据，共有{len(shouban_df)}只股票")
-        shouban_date_columns = [col for col in shouban_df.columns if col not in ['纯代码', '股票名称', '股票代码', '概念']]
+        shouban_date_columns = [col for col in shouban_df.columns if
+                                col not in ['纯代码', '股票名称', '股票代码', '概念']]
         shouban_date_columns.sort()
-        
+
         for idx, row in shouban_df.iterrows():
             stock_code = row['纯代码']
             stock_name = row['股票名称']
-            
+
             # 跳过代码或名称为空的行
             if not stock_code or not stock_name:
                 continue
-                
+
             # 如果股票已在连板数据中，则合并首板数据
             if stock_code in all_stocks:
                 for col in shouban_date_columns:
@@ -635,14 +664,14 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
                     'board_data': {},
                     'market': None  # 将在后面填充
                 }
-                
+
                 # 填充首板数据
                 for col in shouban_date_columns:
                     if pd.notna(row[col]):
                         stock_data['board_data'][col] = row[col]
-                        
+
                 all_stocks[stock_code] = stock_data
-    
+
     # 3. 确定每只股票的市场类型
     for stock_code, stock_data in all_stocks.items():
         try:
@@ -651,31 +680,31 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
         except Exception as e:
             print(f"判断股票 {stock_code} 市场类型时出错: {e}")
             stock_data['market'] = 'unknown'
-    
+
     # 4. 分析每只股票，确定是否入选显著连板
     print(f"分析股票池中的所有股票，共有{len(all_stocks)}只股票")
     for stock_code, stock_data in all_stocks.items():
         stock_name = stock_data['stock_name']
         market = stock_data['market']
         board_data = stock_data['board_data']
-        
+
         print(f"\n分析股票: {stock_code}_{stock_name} (市场: {market})")
-        
+
         # 按日期排序的板块数据
         sorted_dates = sorted(board_data.keys())
-        
+
         # 存储所有板块出现的时间点
         significant_board_dates = []  # 存储显著连板日期
         continuous_board_dates = []  # 存储连续的连板日期，用于判断断板
-        
+
         # 检查每一个日期
         for col in sorted_dates:
             board_days = board_data[col]
             print(f"  日期 {col}: {board_days}")
-            
+
             # 判断是否为显著连板
             is_significant = False
-            
+
             # 主板股票需要达到min_board_level才算显著连板
             if market == 'main':
                 if board_days and board_days >= min_board_level:
@@ -688,51 +717,52 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
             else:
                 if board_days and board_days >= min_board_level:
                     is_significant = True
-            
+
             if is_significant:
                 print(f"    找到显著连板: {board_days}板")
-                
+
                 # 记录为显著连板日期
                 current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
-                
+
                 # 记录连续连板日期，用于确定最后一次连板的日期
                 continuous_board_dates.append(current_date)
-                
+
                 # 判断是否为新的入选记录
                 is_new_entry = False
-                
+
                 if not significant_board_dates:
                     # 第一次显著连板
                     is_new_entry = True
                 elif board_days == 2 and continuous_board_dates:
                     # 检查是否是断板后间隔足够长再次达到2板
                     previous_board_dates = [d for d in continuous_board_dates if d < current_date]
-                    
+
                     if previous_board_dates:
                         # 获取上一个连板区间的最后日期
                         last_board_date = max(previous_board_dates)
-                        
+
                         # 计算间隔交易日天数
                         days_since_last_board = count_trading_days_between(last_board_date, current_date)
-                        
-                        print(f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, 当前日期: {current_date.strftime('%Y-%m-%d')}, 交易日间隔: {days_since_last_board}天")
-                        
+
+                        print(
+                            f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, 当前日期: {current_date.strftime('%Y-%m-%d')}, 交易日间隔: {days_since_last_board}天")
+
                         # 判断是否满足再次入选条件
                         if days_since_last_board > reentry_days_threshold:
                             print(f"    断板后{days_since_last_board}个交易日再次达到2板，作为新记录")
                             is_new_entry = True
                             # 清空连续连板日期列表，开始新的连板区间记录
                             continuous_board_dates = [current_date]
-                
+
                 # 添加到显著连板日期列表
                 significant_board_dates.append(current_date)
-                
+
                 if is_new_entry:
                     # 构建完整的板块数据字典
                     all_board_data = {}
                     for date_col in date_columns:
                         all_board_data[date_col] = board_data.get(date_col)
-                    
+
                     # 添加到结果列表
                     entry = {
                         'stock_code': stock_code,
@@ -745,7 +775,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2, ree
                             'non_main_first_board' if market in ['gem', 'star', 'bse'] and board_days == 1 else 'first'
                         )
                     }
-                    
+
                     result.append(entry)
                     print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
 
@@ -821,9 +851,156 @@ def get_market_marker(stock_code):
         return ""
 
 
+def get_color_for_period_change(pct_change):
+    """
+    根据周期涨跌幅获取背景色（紫色系为正，橄榄绿系为负）
+    
+    Args:
+        pct_change: 涨跌幅百分比
+        
+    Returns:
+        str: 颜色代码
+    """
+    if pct_change is None:
+        return None
+
+    # 正值使用紫色系配色
+    if pct_change >= 100:
+        return PERIOD_CHANGE_COLORS["EXTREME_POSITIVE"]
+    elif pct_change >= 70:
+        return PERIOD_CHANGE_COLORS["STRONG_POSITIVE"]
+    elif pct_change >= 40:
+        return PERIOD_CHANGE_COLORS["MODERATE_POSITIVE"]
+    elif pct_change >= 20:
+        return PERIOD_CHANGE_COLORS["MILD_POSITIVE"]
+    elif pct_change >= 0:
+        return PERIOD_CHANGE_COLORS["SLIGHT_POSITIVE"]
+    # 负值使用橄榄绿系配色
+    elif pct_change >= -20:
+        return PERIOD_CHANGE_COLORS["SLIGHT_NEGATIVE"]
+    elif pct_change >= -40:
+        return PERIOD_CHANGE_COLORS["MILD_NEGATIVE"]
+    elif pct_change >= -60:
+        return PERIOD_CHANGE_COLORS["MODERATE_NEGATIVE"]
+    else:
+        return PERIOD_CHANGE_COLORS["STRONG_NEGATIVE"]
+
+
+def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyymmdd, stock_name=None,
+                                  save_path=STOCK_DATA_PATH):
+    """
+    计算股票在两个日期之间的涨跌幅
+    
+    Args:
+        stock_code: 股票代码
+        start_date_yyyymmdd: 开始日期 (YYYYMMDD)
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD)
+        stock_name: 股票名称，用于构建文件名
+        save_path: 股票数据存储路径
+    
+    Returns:
+        float: 涨跌幅百分比，如果数据不存在则返回None
+    """
+    try:
+        if not stock_code:
+            return None
+
+        # 处理股票代码格式
+        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+
+        # 查找对应的文件
+        file_path = None
+
+        if stock_name:
+            # 如果提供了股票名称，直接尝试使用
+            safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
+            possible_file = f"{clean_code}_{safe_name}.csv"
+            if os.path.exists(os.path.join(save_path, possible_file)):
+                file_path = os.path.join(save_path, possible_file)
+
+        # 如果没有找到文件，尝试查找匹配的文件
+        if not file_path:
+            for file in os.listdir(save_path):
+                # 匹配文件名前缀为股票代码的文件
+                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                    file_path = os.path.join(save_path, file)
+                    break
+
+        if not file_path:
+            # 如果还是没找到，可能需要处理前导零的情况
+            if clean_code.startswith('0'):
+                # 尝试去掉前导零
+                stripped_code = clean_code.lstrip('0')
+                if stripped_code:  # 确保不是全零
+                    for file in os.listdir(save_path):
+                        if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
+                            file_path = os.path.join(save_path, file)
+                            break
+
+            # 对于上交所股票，可能需要处理6开头的代码
+            elif clean_code.startswith('6'):
+                for file in os.listdir(save_path):
+                    if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
+                        file_path = os.path.join(save_path, file)
+                        break
+
+        # 如果仍然没有找到文件
+        if not file_path:
+            return None
+
+        # 读取CSV文件
+        df = pd.read_csv(file_path, header=None,
+                         names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+                                '振幅', '涨跌幅', '涨跌额', '换手率'])
+
+        # 格式化日期
+        start_date_fmt = f"{start_date_yyyymmdd[:4]}-{start_date_yyyymmdd[4:6]}-{start_date_yyyymmdd[6:8]}"
+        end_date_fmt = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+
+        # 查找开始日期和结束日期的收盘价
+        start_row = df[df['日期'] == start_date_fmt]
+        end_row = df[df['日期'] == end_date_fmt]
+
+        if start_row.empty or end_row.empty:
+            # 如果没有找到对应日期的数据，尝试查找最接近的日期
+            all_dates = pd.to_datetime(df['日期'])
+            start_date_dt = pd.to_datetime(start_date_fmt)
+            end_date_dt = pd.to_datetime(end_date_fmt)
+
+            # 找到不晚于开始日期的最近日期
+            valid_dates = all_dates[all_dates <= start_date_dt]
+            if not valid_dates.empty:
+                closest_start_date = valid_dates.max()
+                start_row = df[df['日期'] == closest_start_date.strftime('%Y-%m-%d')]
+
+            # 找到不早于结束日期的最近日期
+            valid_dates = all_dates[all_dates >= end_date_dt]
+            if not valid_dates.empty:
+                closest_end_date = valid_dates.min()
+                end_row = df[df['日期'] == closest_end_date.strftime('%Y-%m-%d')]
+
+        if start_row.empty or end_row.empty:
+            return None
+
+        # 获取收盘价
+        start_price = start_row['收盘'].values[0]
+        end_price = end_row['收盘'].values[0]
+
+        # 计算涨跌幅
+        period_change = ((end_price / start_price) - 1) * 100
+
+        return period_change
+
+    except Exception as e:
+        print(
+            f"计算股票 {stock_code} ({stock_name}) 在 {start_date_yyyymmdd} 至 {end_date_yyyymmdd} 的涨跌幅时出错: {e}")
+        return None
+
+
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
-                       include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY):
+                       include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
+                       period_days=PERIOD_DAYS_CHANGE):
     """
     构建梯队形态的涨停复盘图
     
@@ -836,6 +1013,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         reentry_days: 断板后再次上榜的天数阈值，默认取全局配置
         include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板，默认为False
         max_tracking_days_before: 入选前跟踪的最大天数，默认取全局配置
+        period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
     """
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
@@ -885,7 +1063,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                     print(f"  {col}: {row[col]}")
 
     # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
-    result_df = identify_first_significant_board(lianban_df, shouban_df, min_board_level, reentry_days, include_non_main_first_board)
+    result_df = identify_first_significant_board(lianban_df, shouban_df, min_board_level, reentry_days,
+                                                 include_non_main_first_board)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有连板{min_board_level}次及以上的股票")
         return
@@ -933,11 +1112,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.cell(row=1, column=1, value="题材概念")
     ws.cell(row=1, column=2, value="股票简称")
 
+    # 添加周期涨跌幅列（第3列）
+    period_column = 3
+    period_header = f"{period_days}日"
+    ws.cell(row=1, column=period_column, value=period_header)
+    ws.cell(row=1, column=period_column).alignment = Alignment(horizontal='center')
+    ws.cell(row=1, column=period_column).border = BORDER_STYLE
+    ws.cell(row=1, column=period_column).font = Font(bold=True)
+
     # 设置日期列标题
     date_columns = {}  # 用于保存日期到列索引的映射
     for i, formatted_day in enumerate(formatted_trading_days):
         date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
-        col = i + 3  # 前两列是概念和股票名称
+        col = i + 4  # 前三列是概念、股票名称和周期涨跌幅
         date_columns[formatted_day] = col
 
         # 添加日期标题和星期几
@@ -963,16 +1150,6 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 添加大盘指标行（创业指和成交量）
     add_market_indicators(ws, date_columns)
-
-    # 定义蓝色系颜色映射（4板及以上，每2板一个档次）
-    HIGH_BOARD_COLORS = {
-        4: "E6F3FF",  # 4板 - 最浅蓝色
-        6: "CCE8FF",  # 6板 - 浅蓝色
-        8: "99D1FF",  # 8板 - 中蓝色
-        10: "66BAFF",  # 10板 - 深蓝色
-        12: "3394FF",  # 12板 - 更深蓝色
-        14: "0073E6",  # 14板及以上 - 最深蓝色
-    }
 
     # 收集所有已入选连板梯队的股票代码
     lianban_stock_codes = set()
@@ -1048,9 +1225,39 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             if color_level >= 12:
                 name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
 
+        # 填充周期涨跌幅列
+        try:
+            # 获取入选日期
+            entry_date = stock['first_significant_date']
+            entry_date_str = entry_date.strftime('%Y%m%d')
+
+            # 获取入选前X个交易日的日期
+            prev_date = get_n_trading_days_before(entry_date_str, period_days)
+            if '-' in prev_date:
+                prev_date = prev_date.replace('-', '')
+
+            # 计算从入选前X日到入选日的涨跌幅
+            period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
+
+            if period_change is not None:
+                period_cell = ws.cell(row=row_idx, column=period_column, value=f"{period_change:.2f}%")
+                # 设置背景色 - 根据涨跌幅
+                color = get_color_for_period_change(period_change)
+                if color:
+                    period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+            else:
+                period_cell = ws.cell(row=row_idx, column=period_column, value="--")
+        except Exception as e:
+            print(f"计算周期涨跌幅时出错: {e}, 股票: {stock_name}")
+            period_cell = ws.cell(row=row_idx, column=period_column, value="--")
+
+        # 设置周期涨跌幅单元格格式
+        period_cell.alignment = Alignment(horizontal='center')
+        period_cell.border = BORDER_STYLE
+
         # 填充每个交易日的数据
         for j, formatted_day in enumerate(formatted_trading_days):
-            col_idx = j + 3  # 列索引，从第3列开始
+            col_idx = j + 4  # 列索引，从第4列开始
 
             # 获取当日的连板信息
             board_days = all_board_data.get(formatted_day)
@@ -1082,7 +1289,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                     board_text = f"首板{market_marker}"
                 else:
                     board_text = f"{int(board_days)}板"
-                
+
                 cell.value = board_text
                 # 设置连板颜色
                 board_level = int(board_days)
@@ -1155,8 +1362,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                     # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
                     elif max_tracking_days_before > 0:
                         # 计算当前日期与首次显著连板日期的交易日天数差
-                        days_before_entry = count_trading_days_between(current_date_obj, stock['first_significant_date'])
-                        
+                        days_before_entry = count_trading_days_between(current_date_obj,
+                                                                       stock['first_significant_date'])
+
                         # 如果在入选前跟踪天数范围内，显示涨跌幅
                         if 1 <= days_before_entry <= max_tracking_days_before:
                             day_in_yyyymmdd = date_mapping.get(formatted_day)
@@ -1180,15 +1388,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 调整列宽
     ws.column_dimensions['A'].width = 20
     ws.column_dimensions['B'].width = 15
+    ws.column_dimensions['C'].width = 10  # 周期涨跌幅列宽度
     for i in range(len(formatted_trading_days)):
-        col_letter = get_column_letter(i + 3)
+        col_letter = get_column_letter(i + 4)
         ws.column_dimensions[col_letter].width = 12
 
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
 
     # 冻结前两列和前三行
-    ws.freeze_panes = ws.cell(row=4, column=3)
+    ws.freeze_panes = ws.cell(row=4, column=4)
 
     # 创建统计原因的计数器
     reason_counter = Counter(all_concepts)
@@ -1222,6 +1431,37 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         top=Side(style='thin'),
         bottom=Side(style='thin')
     )
+    current_row += 2  # 多空一行作为分隔
+
+    # 添加周期涨跌幅颜色说明
+    separator_cell = legend_ws.cell(row=current_row, column=1, value="周期涨跌幅颜色")
+    separator_cell.border = Border(top=Side(style='thin', color='000000'))
+    separator_cell.font = Font(bold=True)
+    current_row += 1
+
+    # 添加周期涨跌幅颜色说明
+    period_colors = [
+        ("≥100%", PERIOD_CHANGE_COLORS["EXTREME_POSITIVE"]),
+        ("≥70%", PERIOD_CHANGE_COLORS["STRONG_POSITIVE"]),
+        ("≥40%", PERIOD_CHANGE_COLORS["MODERATE_POSITIVE"]),
+        ("≥20%", PERIOD_CHANGE_COLORS["MILD_POSITIVE"]),
+        ("≥0%", PERIOD_CHANGE_COLORS["SLIGHT_POSITIVE"]),
+        ("≥-20%", PERIOD_CHANGE_COLORS["SLIGHT_NEGATIVE"]),
+        ("≥-40%", PERIOD_CHANGE_COLORS["MILD_NEGATIVE"]),
+        ("≥-60%", PERIOD_CHANGE_COLORS["MODERATE_NEGATIVE"]),
+        ("<-60%", PERIOD_CHANGE_COLORS["STRONG_NEGATIVE"])
+    ]
+
+    for label, color in period_colors:
+        color_cell = legend_ws.cell(row=current_row, column=1, value=label)
+        color_cell.fill = PatternFill(start_color=color, fill_type="solid")
+        color_cell.border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        current_row += 1
 
     # 保存Excel文件
     try:
@@ -1257,6 +1497,8 @@ if __name__ == "__main__":
                         help='是否将非主板股票的首次涨停也视为显著连板')
     parser.add_argument('--max_tracking_before', type=int, default=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                         help=f'入选前跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_BEFORE_ENTRY}，设为0表示不显示入选前走势)')
+    parser.add_argument('--period_days', type=int, default=PERIOD_DAYS_CHANGE,
+                        help=f'计算入选日与之前X个交易日的涨跌幅 (默认: {PERIOD_DAYS_CHANGE})')
 
     args = parser.parse_args()
 
@@ -1273,6 +1515,6 @@ if __name__ == "__main__":
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
 
     # 构建梯队图
-    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board, 
+    build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.include_non_main_first_board,
-                       args.max_tracking_before)
+                       args.max_tracking_before, args.period_days)
