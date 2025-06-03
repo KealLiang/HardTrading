@@ -181,7 +181,7 @@ class StockDataFetcher:
                 return
             
             # 检查是否为退市股票，如果是则直接跳过
-            if '退市' in stock_name:
+            if '退' in stock_name:
                 logging.info(f"股票 {stock_code}({stock_name}) 为退市股票，跳过数据获取")
                 return
                 
