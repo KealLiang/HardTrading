@@ -519,7 +519,7 @@ def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
         return {}
 
 
-def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv"):
+def add_market_indicators(ws, date_columns, label_col=1, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv"):
     """
     在Excel表格中添加大盘指标行（创业指和成交量）
     
@@ -540,12 +540,12 @@ def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/
             return False
 
     # 在第一列添加涨跌幅和成交量的标签，并设置样式
-    label_cell_1 = ws.cell(row=2, column=1, value="创业指")
+    label_cell_1 = ws.cell(row=2, column=label_col, value="创业指")
     label_cell_1.alignment = Alignment(horizontal="center", vertical="center")
     label_cell_1.font = Font(bold=True, size=9)  # 设置小一号字体
     label_cell_1.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
 
-    label_cell_2 = ws.cell(row=3, column=1, value="成交量(亿)")
+    label_cell_2 = ws.cell(row=3, column=label_col, value="成交量(亿)")
     label_cell_2.alignment = Alignment(horizontal="center", vertical="center")
     label_cell_2.font = Font(bold=True, size=9)  # 设置小一号字体
     label_cell_2.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")

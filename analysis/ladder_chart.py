@@ -1107,12 +1107,13 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
 
     # 设置日期表头（第1行）
-    ws.cell(row=1, column=1, value="题材概念")
-    ws.cell(row=1, column=2, value="股票简称")
+    ws.cell(row=1, column=1, value="股票代码")
+    ws.cell(row=1, column=2, value="题材概念")
+    ws.cell(row=1, column=3, value="股票简称")
 
-    # 添加周期涨跌幅列（第3列）
-    period_column = 3
-    date_column_start = 3  # 日期列开始位置，默认为第3列
+    # 添加周期涨跌幅列（第4列）
+    period_column = 4
+    date_column_start = 4  # 日期列开始位置，默认为第4列
 
     if show_period_change:
         period_header = f"{period_days}日"
@@ -1120,7 +1121,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         ws.cell(row=1, column=period_column).alignment = Alignment(horizontal='center')
         ws.cell(row=1, column=period_column).border = BORDER_STYLE
         ws.cell(row=1, column=period_column).font = Font(bold=True, size=9)  # 设置小一号字体
-        date_column_start = 4  # 如果显示周期涨跌幅，日期列从第4列开始
+        date_column_start = 5  # 如果显示周期涨跌幅，日期列从第5列开始
 
     # 设置日期列标题
     date_columns = {}  # 用于保存日期到列索引的映射
@@ -1142,16 +1143,14 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         date_cell.border = BORDER_STYLE
         date_cell.font = Font(bold=True)
 
-    # 设置前两列的格式
-    ws.cell(row=1, column=1).alignment = Alignment(horizontal='center')
-    ws.cell(row=1, column=2).alignment = Alignment(horizontal='center')
-    ws.cell(row=1, column=1).border = BORDER_STYLE
-    ws.cell(row=1, column=2).border = BORDER_STYLE
-    ws.cell(row=1, column=1).font = Font(bold=True)
-    ws.cell(row=1, column=2).font = Font(bold=True)
+    # 设置前三列的格式
+    for col in range(1, 4):
+        ws.cell(row=1, column=col).alignment = Alignment(horizontal='center')
+        ws.cell(row=1, column=col).border = BORDER_STYLE
+        ws.cell(row=1, column=col).font = Font(bold=True)
 
     # 添加大盘指标行（创业指和成交量）
-    add_market_indicators(ws, date_columns)
+    add_market_indicators(ws, date_columns, label_col=2)
 
     # 收集所有已入选连板梯队的股票代码
     lianban_stock_codes = set()
@@ -1184,13 +1183,21 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         if pure_stock_code.startswith(('sh', 'sz', 'bj')):
             pure_stock_code = pure_stock_code[2:]
 
+        # 设置股票代码列（第一列）- 新增
+        # 使用Excel单元格格式设置为文本，而不是添加单引号前缀
+        code_cell = ws.cell(row=row_idx, column=1, value=f'{pure_stock_code.split(".")[0]}')
+        code_cell.alignment = Alignment(horizontal='center')
+        code_cell.border = BORDER_STYLE
+        code_cell.font = Font(size=8)  # 设置比正常小的字体
+        code_cell.number_format = '@'  # 设置单元格格式为文本，保留前导零
+
         # 获取概念
         concept = stock.get('concept', '其他')
         if pd.isna(concept) or not concept:
             concept = "其他"
 
-        # 设置概念列（第一列）
-        concept_cell = ws.cell(row=row_idx, column=1, value=f"[{concept}]")
+        # 设置概念列（第二列）
+        concept_cell = ws.cell(row=row_idx, column=2, value=f"[{concept}]")
         concept_cell.alignment = Alignment(horizontal='left')
         concept_cell.border = BORDER_STYLE
         concept_cell.font = Font(size=9)  # 设置小一号字体
@@ -1214,9 +1221,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         # 根据股票代码确定市场类型
         market_type = get_market_marker(pure_stock_code)
 
-        # 设置股票简称列（第二列），添加市场标记
+        # 设置股票简称列（第三列），添加市场标记
         stock_display_name = f"{stock_name}{market_type}"
-        name_cell = ws.cell(row=row_idx, column=2, value=stock_display_name)
+        name_cell = ws.cell(row=row_idx, column=3, value=stock_display_name)
         name_cell.alignment = Alignment(horizontal='left')
         name_cell.border = BORDER_STYLE
 
@@ -1414,11 +1421,12 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             cell.border = BORDER_STYLE
 
     # 调整列宽
-    ws.column_dimensions['A'].width = 20
-    ws.column_dimensions['B'].width = 15
+    ws.column_dimensions['A'].width = 8  # 股票代码列宽度设置窄一些
+    ws.column_dimensions['B'].width = 20
+    ws.column_dimensions['C'].width = 15
 
     if show_period_change:
-        ws.column_dimensions['C'].width = 8  # 周期涨跌幅列宽度减小
+        ws.column_dimensions['D'].width = 8  # 周期涨跌幅列宽度减小
 
     for i in range(len(formatted_trading_days)):
         col_letter = get_column_letter(i + date_column_start)
@@ -1427,7 +1435,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
 
-    # 冻结前两列和前三行
+    # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
     # 创建统计原因的计数器
