@@ -8,7 +8,6 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
 # 选择一个同义词分组规则
 from data.reasons.origin_synonym_groups import synonym_groups
-
 # from data.reasons.updated_synonym_groups import synonym_groups
 
 # 排除列表 - 这些原因不会被选为热门原因
