@@ -18,6 +18,12 @@ EXCLUDED_REASONS = [
     "国企",
 ]
 
+# 优先列表 - 这些原因必定会被选为热门原因，并且按照列表顺序排序
+PRIORITY_REASONS = [
+    # "旅游",
+    # "房地产",
+]
+
 # 选取top n的原因着色
 TOP_N = 9
 
@@ -185,12 +191,21 @@ def get_reason_colors(all_reasons, top_n=TOP_N):
         if not reason.startswith('未分类_'):
             all_reason_counts[reason] = count
 
-    # 选择热门原因 (排除指定的原因)
-    # 按出现次数倒序选择TOP_N个原因
-    top_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
-                                                      key=lambda x: x[1],
-                                                      reverse=True)
-                   if count > 0 and reason not in EXCLUDED_REASONS][:top_n]
+    # 首先添加优先列表中的原因（如果它们在数据中出现过）
+    top_reasons = []
+    for reason in PRIORITY_REASONS:
+        if reason in all_reason_counts and all_reason_counts[reason] > 0 and reason not in EXCLUDED_REASONS:
+            top_reasons.append(reason)
+    
+    # 然后按出现次数倒序添加其他热门原因，直到达到TOP_N个
+    remaining_slots = top_n - len(top_reasons)
+    if remaining_slots > 0:
+        # 排除已经在优先列表中的原因
+        other_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
+                                                        key=lambda x: x[1],
+                                                        reverse=True)
+                     if count > 0 and reason not in EXCLUDED_REASONS and reason not in top_reasons][:remaining_slots]
+        top_reasons.extend(other_reasons)
 
     # 为每个原因分配颜色
     reason_colors = {reason: COLORS[i % len(COLORS)] for i, reason in enumerate(top_reasons)}
@@ -519,7 +534,7 @@ def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
         return {}
 
 
-def add_market_indicators(ws, date_columns, label_col=1, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv"):
+def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv", label_col=1):
     """
     在Excel表格中添加大盘指标行（创业指和成交量）
     
@@ -528,6 +543,7 @@ def add_market_indicators(ws, date_columns, label_col=1, index_data=None, index_
         date_columns: 日期列映射字典，键为日期字符串，值为列索引
         index_data: 已加载的指数数据，如果为None则会尝试加载
         index_file: 指数数据文件路径，默认为创业板指数
+        label_col: 标签列索引，默认为1
         
     Returns:
         bool: 是否成功添加指标
