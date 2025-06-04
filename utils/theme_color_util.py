@@ -163,17 +163,21 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
-def get_reason_colors(all_reasons, top_n=TOP_N):
+def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
     """
     根据原因出现频率，为热门原因分配颜色
     
     Args:
         all_reasons: 所有原因的列表
         top_n: 选取的热门原因数量
+        priority_reasons: 优先选择的原因列表，默认为None时使用全局PRIORITY_REASONS
         
     Returns:
         tuple: (reason_colors, top_reasons) - 原因到颜色的映射字典和热门原因列表
     """
+    # 使用传入的优先原因列表或全局定义的列表
+    priority_list = priority_reasons if priority_reasons is not None else PRIORITY_REASONS
+    
     # 统计所有原因出现次数
     reason_counter = Counter(all_reasons)
 
@@ -192,7 +196,7 @@ def get_reason_colors(all_reasons, top_n=TOP_N):
 
     # 首先添加优先列表中的原因（如果它们在数据中出现过）
     top_reasons = []
-    for reason in PRIORITY_REASONS:
+    for reason in priority_list:
         if reason in all_reason_counts and all_reason_counts[reason] > 0 and reason not in EXCLUDED_REASONS:
             top_reasons.append(reason)
     

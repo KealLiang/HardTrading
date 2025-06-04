@@ -997,7 +997,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
-                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE):
+                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE, priority_reasons=None):
     """
     构建梯队形态的涨停复盘图
     
@@ -1012,6 +1012,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         max_tracking_days_before: 入选前跟踪的最大天数，默认取全局配置
         period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
+        priority_reasons: 优先选择的原因列表，默认为None
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -1095,7 +1096,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
 
     # 获取热门概念的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_concepts)
+    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
 
     # 为每只股票确定主要概念组
     all_stocks = {}
@@ -1485,6 +1486,8 @@ if __name__ == "__main__":
                         help=f'计算入选日与之前X个交易日的涨跌幅 (默认: {PERIOD_DAYS_CHANGE})')
     parser.add_argument('--show_period_change', action='store_true',
                         help='是否显示周期涨跌幅列 (默认: 不显示)')
+    parser.add_argument('--priority_reasons', type=str, default="",
+                        help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
 
     args = parser.parse_args()
 
@@ -1499,8 +1502,12 @@ if __name__ == "__main__":
 
     # 处理max_tracking参数
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
+    
+    # 处理优先原因列表
+    priority_reasons = [reason.strip() for reason in args.priority_reasons.split(',')] if args.priority_reasons else None
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.include_non_main_first_board,
-                       args.max_tracking_before, args.period_days, args.show_period_change)
+                       args.max_tracking_before, args.period_days, args.show_period_change,
+                       priority_reasons=priority_reasons)

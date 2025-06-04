@@ -38,7 +38,7 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
 
 
-def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True):
+def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True, priority_reasons=None):
     """
     处理涨停数据，转换为更易于分析的格式
 
@@ -46,6 +46,7 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True)
     :param end_date: 结束日期，格式为'YYYYMMDD'
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
     :param save_reasons: 是否保存去重后的涨停原因，默认为True
+    :param priority_reasons: 优先选择的原因列表，默认为None
     """
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
@@ -232,7 +233,7 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True)
         print(f"未分类的涨停原因已保存到工作簿的 '未分类原因' 页")
 
     # 获取热门原因的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_reasons, TOP_N)
+    reason_colors, top_reasons = get_reason_colors(all_reasons, TOP_N, priority_reasons=priority_reasons)
 
     # 计算每个股票在分析时间范围内的出现次数和主要原因
     all_stocks = {}
