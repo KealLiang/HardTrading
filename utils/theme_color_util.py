@@ -285,21 +285,22 @@ def get_color_by_pct_change(pct_change):
 def get_color_for_pct_change(pct_change):
     """
     根据涨跌幅返回颜色代码，区别连板的红
+    小于7%的涨跌幅不着色，7%以上才进行梯度着色
 
     Args:
         pct_change: 涨跌幅百分比
 
     Returns:
-        str: 16进制颜色代码
+        str: 16进制颜色代码，或None表示不着色
     """
     if pct_change is None:
-        return "CCCCCC"  # 浅灰色，表示数据缺失
+        return None  # 数据缺失不着色
 
     # 将涨跌幅转换为浮点数
     try:
         pct = float(pct_change)
     except:
-        return "CCCCCC"  # 无法转换时返回浅灰色
+        return None  # 无法转换时不着色
 
     # 涨跌停板情况
     if pct >= 9.5:
@@ -307,20 +308,26 @@ def get_color_for_pct_change(pct_change):
     if pct <= -9.5:
         return "00CC00"  # 跌停 - 深绿色
 
-    # 普通涨跌幅
-    if pct > 0:
+    # 绝对值小于7%不着色
+    if abs(pct) < 7:
+        return None
+
+    # 普通涨跌幅，仅对7%以上的进行着色
+    if pct >= 7:
         # 上涨 - 黄色系
-        intensity = min(255, int(200 * pct / 10) + 55)  # 根据涨幅计算黄色强度
+        # 将7%-10%映射到颜色梯度
+        intensity = min(255, int(200 * (pct - 7) / 3) + 55)  # 根据涨幅计算黄色强度
         return f"FFFF{hex(255 - intensity)[2:].zfill(2).upper()}"  # 黄色系，涨幅越大越深
-    elif pct < 0:
+    elif pct <= -7:
         # 下跌 - 绿色系
-        intensity = min(255, int(200 * abs(pct) / 10) + 55)  # 根据跌幅计算绿色强度
+        # 将-7%至-10%映射到颜色梯度
+        intensity = min(255, int(200 * (abs(pct) - 7) / 3) + 55)  # 根据跌幅计算绿色强度
         green_value = 255 - intensity + 55  # 保证最小值
         green = hex(max(0, min(255, green_value)))[2:].zfill(2).upper()
         return f"{green}FF{green}"
     else:
-        # 平盘 - 浅灰色
-        return "E6E6E6"
+        # 平盘或小幅波动 - 不着色
+        return None
 
 
 def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None, reentry_colors=None):
