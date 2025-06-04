@@ -25,7 +25,7 @@ MAX_TRACKING_DAYS_AFTER_BREAK = 8
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
 # 设置为0表示不显示入选前的走势
-MAX_TRACKING_DAYS_BEFORE_ENTRY = 3
+MAX_TRACKING_DAYS_BEFORE_ENTRY = 5
 
 # 断板后再次达到入选的交易日间隔阈值
 # 例如设置为4，当股票断板后第5个交易日或之后再次达到入选时，会作为新的一行记录
@@ -590,16 +590,16 @@ def load_shouban_data(start_date, end_date):
 
 
 def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
-                                     reentry_days_threshold=REENTRY_DAYS_THRESHOLD, include_non_main_first_board=False):
+                                     reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
     Args:
         df: 连板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         shouban_df: 首板数据DataFrame，已透视处理，每行一只股票，每列一个日期
-        min_board_level: 最小显著连板天数，默认为2
+        min_board_level: 主板股票最小显著连板天数，默认为2
         reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到入选条件会作为新记录
-        include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板
+        non_main_board_level: 非主板股票最小显著连板天数，默认为1
         
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
@@ -715,16 +715,17 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
             # 判断是否为显著连板
             is_significant = False
 
-            # 主板股票需要达到min_board_level才算显著连板
+            # 根据市场类型和对应的最小显著连板天数判断
             if market == 'main':
+                # 主板股票需要达到min_board_level才算显著连板
                 if board_days and board_days >= min_board_level:
                     is_significant = True
-            # 非主板股票，如果开启选项，首板即算显著连板
-            elif include_non_main_first_board and market in ['gem', 'star', 'bse']:
-                if board_days and board_days >= 1:
+            elif market in ['gem', 'star', 'bse']:
+                # 非主板股票需要达到non_main_board_level才算显著连板
+                if board_days and board_days >= non_main_board_level:
                     is_significant = True
-            # 其他情况，也需要达到min_board_level才算显著连板
             else:
+                # 其他情况，使用主板标准
                 if board_days and board_days >= min_board_level:
                     is_significant = True
 
@@ -766,8 +767,8 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                             if market == 'main':
                                 if board_days >= min_board_level:
                                     is_significant_reentry = True
-                            elif include_non_main_first_board and market in ['gem', 'star', 'bse']:
-                                if board_days >= 1:
+                            elif market in ['gem', 'star', 'bse']:
+                                if board_days >= non_main_board_level:
                                     is_significant_reentry = True
                             else:
                                 if board_days >= min_board_level:
@@ -996,7 +997,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
 
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
-                       include_non_main_first_board=False, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
+                       non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE, priority_reasons=None):
     """
     构建梯队形态的涨停复盘图
@@ -1005,10 +1006,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         start_date: 开始日期 (YYYYMMDD)
         end_date: 结束日期 (YYYYMMDD)
         output_file: 输出文件路径
-        min_board_level: 最小显著连板天数，默认为2
+        min_board_level: 主板股票最小显著连板天数，默认为2
         max_tracking_days: 断板后跟踪的最大天数，默认取全局配置
         reentry_days: 断板后再次上榜的天数阈值，默认取全局配置
-        include_non_main_first_board: 是否将非主板股票的首次涨停也视为显著连板，默认为False
+        non_main_board_level: 非主板股票最小显著连板天数，默认为1
         max_tracking_days_before: 入选前跟踪的最大天数，默认取全局配置
         period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
@@ -1066,9 +1067,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
     result_df = identify_first_significant_board(lianban_df, shouban_df, min_board_level, reentry_days,
-                                                 include_non_main_first_board)
+                                                 non_main_board_level)
     if result_df.empty:
-        print(f"未找到在{start_date}至{end_date}期间有连板{min_board_level}次及以上的股票")
+        print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
 
     # 加载股票代码映射（用于获取涨跌幅数据）
@@ -1473,13 +1474,13 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str, default=OUTPUT_FILE,
                         help=f'输出文件路径 (默认: {OUTPUT_FILE})')
     parser.add_argument('--min_board', type=int, default=2,
-                        help='最小显著连板天数 (默认: 2)')
+                        help='主板股票最小显著连板天数 (默认: 2)')
     parser.add_argument('--max_tracking', type=int, default=MAX_TRACKING_DAYS_AFTER_BREAK,
                         help=f'断板后跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_AFTER_BREAK}，设为-1表示一直跟踪)')
     parser.add_argument('--reentry_days', type=int, default=REENTRY_DAYS_THRESHOLD,
                         help=f'断板后再次达到2板作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
-    parser.add_argument('--include_non_main_first_board', action='store_true',
-                        help='是否将非主板股票的首次涨停也视为显著连板')
+    parser.add_argument('--non_main_board', type=int, default=1,
+                        help='非主板股票最小显著连板天数 (默认: 1)')
     parser.add_argument('--max_tracking_before', type=int, default=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                         help=f'入选前跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_BEFORE_ENTRY}，设为0表示不显示入选前走势)')
     parser.add_argument('--period_days', type=int, default=PERIOD_DAYS_CHANGE,
@@ -1508,6 +1509,6 @@ if __name__ == "__main__":
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
-                       max_tracking, args.reentry_days, args.include_non_main_first_board,
+                       max_tracking, args.reentry_days, args.non_main_board,
                        args.max_tracking_before, args.period_days, args.show_period_change,
                        priority_reasons=priority_reasons)

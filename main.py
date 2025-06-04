@@ -247,18 +247,18 @@ def whimsical_fupan_analyze():
 def generate_ladder_chart():
     start_date = "20250401"  # 调整为Excel中有数据的日期范围
     end_date = None
-    min_board_level = 2
+    min_board_level = 3
+    non_main_board_level = 2
     
     # 定义优先原因列表
     priority_reasons = [
         "新消费",
-        "稳定币",
         "创新药"
     ]
     
     # 构建梯队图
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level, 
-                      include_non_main_first_board=True, priority_reasons=priority_reasons)
+                      non_main_board_level=non_main_board_level, priority_reasons=priority_reasons)
 
 
 if __name__ == '__main__':
