@@ -47,6 +47,9 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True)
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
     :param save_reasons: 是否保存去重后的涨停原因，默认为True
     """
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
+
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
 

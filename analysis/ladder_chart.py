@@ -1013,6 +1013,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
     """
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y%m%d')
+
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
     # 获取交易日列表

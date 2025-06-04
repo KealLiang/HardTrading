@@ -155,7 +155,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250509'  # 开始日期
+    start_date = '20250512'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -226,7 +226,7 @@ def update_synonym_groups():
     可用于自动更新theme_color_util.py中的synonym_groups
     """
     # 创建同义词分组管理器
-    manager = SynonymManager(threshold=0.7, min_group_size=3)
+    manager = SynonymManager(threshold=0.8, min_group_size=3)
 
     # 自动处理同义词分组更新
     manager.update_from_latest_file(debug_phrases=["化学药"])
@@ -235,7 +235,7 @@ def update_synonym_groups():
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250515"
-    end_date = "20250603"
+    end_date = None
     process_zt_data(start_date, end_date, clean_output=True)
     # add_vba_for_excel()
 
@@ -245,7 +245,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = "20250401"  # 调整为Excel中有数据的日期范围
-    end_date = "20250603"
+    end_date = None
     min_board_level = 2
     
     # 构建梯队图
@@ -253,12 +253,12 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    get_stock_datas()
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # update_synonym_groups()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
