@@ -182,32 +182,6 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
         return None
 
 
-def load_stock_mapping():
-    """
-    加载股票代码和名称的映射
-    
-    Returns:
-        dict: 股票名称到代码的映射字典
-    """
-    try:
-        mapping_file = "./data/stock_mapping.csv"
-        if not os.path.exists(mapping_file):
-            print(f"股票代码映射文件不存在: {mapping_file}")
-            return {}
-
-        mapping_df = pd.read_csv(mapping_file)
-        mapping = {}
-        for _, row in mapping_df.iterrows():
-            # 股票名称去除所有空格
-            name = row['name'].replace(' ', '')
-            code = row['code']
-            mapping[name] = code
-        return mapping
-    except Exception as e:
-        print(f"加载股票代码映射失败: {e}")
-        return {}
-
-
 def extract_board_info(board_text):
     """
     从连板文本中提取连板天数和状态
@@ -323,7 +297,6 @@ def load_lianban_data(start_date, end_date):
 
         if not date_columns:
             print("连板数据中未找到有效的日期列")
-            print("当前列名: ", list(df.columns))
             return pd.DataFrame()
 
         # 过滤日期范围
@@ -486,7 +459,6 @@ def load_shouban_data(start_date, end_date):
 
         if not date_columns:
             print("首板数据中未找到有效的日期列")
-            print("当前列名: ", list(df.columns))
             return pd.DataFrame()
 
         # 过滤日期范围
@@ -589,9 +561,318 @@ def load_shouban_data(start_date, end_date):
         return pd.DataFrame()
 
 
+def load_attention_data(start_date, end_date, is_main_board=True):
+    """
+    从Excel中加载关注度榜数据
+
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+        is_main_board: 是否为主板数据，默认为True
+
+    Returns:
+        pandas.DataFrame: 处理后的关注度榜数据
+    """
+    try:
+        # 读取关注度榜sheet
+        sheet_name = '关注度榜' if is_main_board else '非主关注度榜'
+        try:
+            df = pd.read_excel(FUPAN_FILE, sheet_name=sheet_name)
+            print(f"成功读取{sheet_name}sheet，共有{len(df)}行，{len(df.columns)}")
+        except Exception as e:
+            print(f"读取{sheet_name}sheet失败: {e}")
+            return pd.DataFrame()
+
+        # 将日期列转换为datetime格式
+        date_columns = []
+
+        # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
+        for col in df.columns:
+            if isinstance(col, str):
+                if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
+                    date_columns.append(col)
+                elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
+                    date_columns.append(col)
+
+        if not date_columns:
+            print(f"{sheet_name}中未找到有效的日期列")
+            return pd.DataFrame()
+
+        # 过滤日期范围
+        filtered_date_columns = []
+        for col in date_columns:
+            # 将两种格式的日期都转换为datetime
+            if '年' in col:
+                # 中文格式: YYYY年MM月DD日
+                date_parts = re.findall(r'\d+', col)
+                if len(date_parts) == 3:
+                    date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
+                else:
+                    continue
+            else:
+                # 标准格式: YYYY/MM/DD
+                date_obj = pd.to_datetime(col)
+
+            date_str = date_obj.strftime('%Y%m%d')
+            if date_str >= start_date and (end_date is None or date_str <= end_date):
+                filtered_date_columns.append(col)
+
+        if not filtered_date_columns:
+            print(f"{sheet_name}中未找到{start_date}到{end_date}范围内的数据")
+            return pd.DataFrame()
+
+        # 打印第一个日期列的前几条数据，帮助了解数据格式
+        if filtered_date_columns:
+            first_date_col = filtered_date_columns[0]
+            print(f"\n{sheet_name}中{first_date_col}列的前5条数据:")
+            for i, (idx, value) in enumerate(df[first_date_col].items()):
+                if i >= 5:
+                    break
+                if pd.notna(value):
+                    print(f"  {idx}: {value}")
+                    # 打印分割后的每个部分
+                    parts = str(value).split(';')
+                    print(f"    分割后的部分({len(parts)}个): {parts}")
+
+        # 创建一个新的DataFrame来存储处理后的数据
+        processed_data = []
+
+        # 遍历每个日期列，提取股票信息
+        for date_col in filtered_date_columns:
+            date_obj = datetime.strptime(date_col, '%Y年%m月%d日') if '年' in date_col else pd.to_datetime(date_col)
+            date_str = date_obj.strftime('%Y%m%d')
+
+            # 遍历该日期列中的每个单元格
+            for idx, cell_value in df[date_col].items():
+                if pd.isna(cell_value):
+                    continue
+
+                # 解析单元格内容，格式是通过分号连接的字符串
+                cell_text = str(cell_value)
+                parts = cell_text.split(';')
+
+                # 确保至少有6个元素（股票代码、股票名称、最新价、最新涨跌幅、个股热度、个股热度排名）
+                if len(parts) >= 6:
+                    stock_code = parts[0].strip()
+                    stock_name = parts[1].strip()
+
+                    # 尝试提取热度排名（第6个元素）
+                    try:
+                        # 热度排名可能包含数字和其他字符，需要提取数字部分
+                        rank_str = parts[5].strip()
+                        # 提取数字部分
+                        rank_match = re.search(r'\d+', rank_str)
+                        if rank_match:
+                            rank = int(rank_match.group())
+                        else:
+                            continue  # 如果无法提取数字，跳过此条记录
+                    except (IndexError, ValueError):
+                        continue  # 如果提取失败，跳过此条记录
+
+                    processed_data.append({
+                        '股票代码': stock_code,
+                        '股票名称': stock_name,
+                        '日期': date_col,
+                        '热度排名': rank
+                    })
+
+        # 转换为DataFrame
+        result_df = pd.DataFrame(processed_data)
+
+        if result_df.empty:
+            print(f"未能从{sheet_name}中提取有效的数据")
+            return pd.DataFrame()
+
+        print(f"处理后的{sheet_name}数据: {len(result_df)}行")
+        return result_df
+
+    except Exception as e:
+        print(f"加载{sheet_name}数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
+
+def get_loose_board_level(board_level):
+    """
+    获取宽松的连板数
+    """
+    return 1 if board_level == 1 else board_level - 1
+
+
+def check_attention_criteria(stock_code, board_days, market, min_board_level, non_main_board_level,
+                             current_date_col, attention_data_main, attention_data_non_main):
+    """
+    检查股票是否满足关注度榜入选条件
+    
+    Args:
+        stock_code: 股票代码
+        board_days: 连板天数
+        market: 市场类型
+        min_board_level: 主板股票最小显著连板天数
+        non_main_board_level: 非主板股票最小显著连板天数
+        current_date_col: 当前日期列名
+        attention_data_main: 主板关注度榜数据
+        attention_data_non_main: 非主板关注度榜数据
+        
+    Returns:
+        tuple: (是否满足条件, 入选类型)
+    """
+    # 默认不满足条件，入选类型为normal
+    is_significant = False
+    entry_type = 'normal'
+
+    # 清理股票代码，去除可能的市场前缀
+    clean_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+
+    # 解析当前日期
+    current_date = datetime.strptime(current_date_col, '%Y年%m月%d日') if '年' in current_date_col else pd.to_datetime(
+        current_date_col)
+
+    # 根据市场类型选择不同的检查逻辑
+    if market == 'main' and board_days == get_loose_board_level(min_board_level):
+        # 检查主板股票
+        if attention_data_main is not None and not attention_data_main.empty:
+            is_significant, entry_type = check_stock_attention(
+                clean_stock_code, current_date, attention_data_main,
+                f"主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(min_board_level)}板"
+            )
+    elif market in ['gem', 'star', 'bse'] and board_days == get_loose_board_level(non_main_board_level):
+        # 检查非主板股票
+        if attention_data_non_main is not None and not attention_data_non_main.empty:
+            is_significant, entry_type = check_stock_attention(
+                clean_stock_code, current_date, attention_data_non_main,
+                f"非主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(non_main_board_level)}板"
+            )
+
+    return is_significant, entry_type
+
+
+def check_stock_attention(stock_code, current_date, attention_data, log_prefix):
+    """
+    检查股票在关注度榜中的出现情况
+    
+    Args:
+        stock_code: 股票代码
+        current_date: 当前日期
+        attention_data: 关注度榜数据
+        log_prefix: 日志前缀
+        
+    Returns:
+        tuple: (是否满足条件, 入选类型)
+    """
+    # 过滤出当前股票的关注度数据
+    stock_attention = attention_data[attention_data['股票代码'].str.contains(stock_code)]
+
+    if stock_attention.empty:
+        return False, 'normal'
+
+    # 计算每个关注度日期与当前日期的交易日差
+    attention_dates = []
+    for _, att_row in stock_attention.iterrows():
+        att_date_str = att_row['日期']
+        att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(
+            att_date_str)
+        days_diff = count_trading_days_between(current_date, att_date)
+        if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
+            attention_dates.append(att_date)
+
+    # 如果在5个交易日内出现了至少两次，则认为符合条件
+    if len(attention_dates) >= 2:
+        print(f"    {log_prefix}后5天内两次入选关注度榜前20，符合额外入选条件")
+        return True, 'attention'
+
+    return False, 'normal'
+
+
+def is_stock_significant(board_days, market, min_board_level, non_main_board_level):
+    """
+    判断股票是否达到显著连板条件
+    
+    Args:
+        board_days: 连板天数
+        market: 市场类型
+        min_board_level: 主板股票最小显著连板天数
+        non_main_board_level: 非主板股票最小显著连板天数
+        
+    Returns:
+        bool: 是否达到显著连板条件
+    """
+    if not board_days:
+        return False
+
+    if market == 'main':
+        return board_days >= min_board_level
+    elif market in ['gem', 'star', 'bse']:
+        return board_days >= non_main_board_level
+    else:
+        # 其他情况，使用主板标准
+        return board_days >= min_board_level
+
+
+def check_reentry_condition(current_date, continuous_board_dates, reentry_days_threshold,
+                            board_days, market, min_board_level, non_main_board_level,
+                            enable_attention_criteria=False, attention_data_main=None,
+                            attention_data_non_main=None, stock_code=None):
+    """
+    检查是否满足断板后再次入选条件
+    
+    Args:
+        current_date: 当前日期
+        continuous_board_dates: 连续连板日期列表
+        reentry_days_threshold: 断板后再次上榜的天数阈值
+        board_days: 连板天数
+        market: 市场类型
+        min_board_level: 主板股票最小显著连板天数
+        non_main_board_level: 非主板股票最小显著连板天数
+        enable_attention_criteria: 是否启用关注度榜入选条件
+        attention_data_main: 主板关注度榜数据
+        attention_data_non_main: 非主板关注度榜数据
+        stock_code: 股票代码
+        
+    Returns:
+        tuple: (是否满足再次入选条件, 是否需要清空连续连板日期)
+    """
+    # 获取之前的连板日期
+    previous_board_dates = [d for d in continuous_board_dates if d < current_date]
+
+    if not previous_board_dates:
+        return False, False
+
+    # 获取上一个连板区间的最后日期
+    last_board_date = max(previous_board_dates)
+
+    # 计算间隔交易日天数
+    days_since_last_board = count_trading_days_between(last_board_date, current_date)
+
+    print(f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, "
+          f"当前日期: {current_date.strftime('%Y-%m-%d')}, "
+          f"交易日间隔: {days_since_last_board}天")
+
+    # 判断是否满足再次入选条件
+    if days_since_last_board > reentry_days_threshold:
+        # 首先检查是否达到基本的显著连板条件
+        is_significant_reentry = is_stock_significant(board_days, market, min_board_level, non_main_board_level)
+
+        # 如果不满足基本条件，但启用了关注度榜入选条件，则检查是否满足关注度榜条件
+        if not is_significant_reentry and enable_attention_criteria and stock_code:
+            current_date_str = current_date.strftime('%Y年%m月%d日')
+            is_significant_reentry, _ = check_attention_criteria(
+                stock_code, board_days, market, min_board_level, non_main_board_level,
+                current_date_str, attention_data_main, attention_data_non_main
+            )
+
+        if is_significant_reentry:
+            print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
+            return True, True
+
+    return False, False
+
+
 def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                                      reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1,
-                                     enable_attention_criteria=False, attention_data_main=None, attention_data_non_main=None):
+                                     enable_attention_criteria=False, attention_data_main=None,
+                                     attention_data_non_main=None):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
@@ -608,7 +889,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
     """
-    # 创建结果DataFrame，包含股票代码、名称、首次显著连板日期和当日连板天数
+    # 创建结果列表
     result = []
 
     # 找出日期列
@@ -620,7 +901,50 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
     # 将日期列按时间排序
     date_columns.sort()
 
-    # 首先合并所有股票数据，创建一个完整的股票池
+    # 获取所有股票数据
+    all_stocks = get_all_stocks(df, date_columns, shouban_df)
+
+    # 确定每只股票的市场类型
+    determine_stock_markets(all_stocks)
+
+    # 分析每只股票，确定是否入选显著连板
+    analyze_stocks_for_significant_boards(
+        all_stocks, date_columns, result, min_board_level,
+        reentry_days_threshold, non_main_board_level,
+        enable_attention_criteria, attention_data_main, attention_data_non_main
+    )
+
+    # 转换为DataFrame
+    result_df = pd.DataFrame(result)
+
+    # 如果没有符合条件的数据，返回空DataFrame
+    if result_df.empty:
+        print("未找到符合条件的连板数据")
+        return result_df
+
+    print(f"找到{len(result_df)}只达到显著连板的股票")
+
+    # 按首次显著连板日期和连板天数排序
+    result_df = result_df.sort_values(
+        by=['first_significant_date', 'board_level_at_first'],
+        ascending=[True, False]
+    )
+
+    return result_df
+
+
+def get_all_stocks(df, date_columns, shouban_df=None):
+    """
+    合并连板数据和首板数据，创建完整的股票池
+    
+    Args:
+        df: 连板数据DataFrame
+        date_columns: 日期列列表
+        shouban_df: 首板数据DataFrame
+        
+    Returns:
+        dict: 股票池字典，键为股票代码，值为股票数据
+    """
     all_stocks = {}
 
     # 1. 处理连板数据
@@ -686,7 +1010,16 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
                 all_stocks[stock_code] = stock_data
 
-    # 3. 确定每只股票的市场类型
+    return all_stocks
+
+
+def determine_stock_markets(all_stocks):
+    """
+    确定每只股票的市场类型
+    
+    Args:
+        all_stocks: 股票池字典
+    """
     for stock_code, stock_data in all_stocks.items():
         try:
             market = get_stock_market(stock_code)
@@ -695,7 +1028,24 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
             print(f"判断股票 {stock_code} 市场类型时出错: {e}")
             stock_data['market'] = 'unknown'
 
-    # 4. 分析每只股票，确定是否入选显著连板
+
+def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_board_level,
+                                          reentry_days_threshold, non_main_board_level,
+                                          enable_attention_criteria, attention_data_main, attention_data_non_main):
+    """
+    分析每只股票，确定是否入选显著连板
+    
+    Args:
+        all_stocks: 股票池字典
+        date_columns: 日期列列表
+        result: 结果列表，用于存储入选的股票记录
+        min_board_level: 主板股票最小显著连板天数
+        reentry_days_threshold: 断板后再次上榜的天数阈值
+        non_main_board_level: 非主板股票最小显著连板天数
+        enable_attention_criteria: 是否启用关注度榜入选条件
+        attention_data_main: 主板关注度榜数据
+        attention_data_non_main: 非主板关注度榜数据
+    """
     print(f"分析股票池中的所有股票，共有{len(all_stocks)}只股票")
     for stock_code, stock_data in all_stocks.items():
         stock_name = stock_data['stock_name']
@@ -720,74 +1070,15 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
             is_significant = False
             entry_type = 'normal'  # 默认入选类型
 
-            # 根据市场类型和对应的最小显著连板天数判断
-            if market == 'main':
-                # 主板股票需要达到min_board_level才算显著连板
-                if board_days and board_days >= min_board_level:
-                    is_significant = True
-                # 检查关注度榜入选条件
-                elif enable_attention_criteria and board_days and board_days == get_loose_board_level(min_board_level):
-                    # 检查该股票是否在主板关注度榜中出现两次
-                    if attention_data_main is not None and not attention_data_main.empty:
-                        # 获取当前日期
-                        current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
-                        
-                        # 过滤出当前股票的关注度数据
-                        # 注意：stock_code可能包含市场前缀，需要处理
-                        clean_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
-                        stock_attention = attention_data_main[attention_data_main['股票代码'].str.contains(clean_stock_code)]
-                        
-                        if not stock_attention.empty:
-                            # 计算每个关注度日期与当前日期的交易日差
-                            attention_dates = []
-                            for _, att_row in stock_attention.iterrows():
-                                att_date_str = att_row['日期']
-                                att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(att_date_str)
-                                days_diff = count_trading_days_between(current_date, att_date)
-                                if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
-                                    attention_dates.append(att_date)
-                            
-                            # 如果在5个交易日内出现了至少两次，则认为符合条件
-                            if len(attention_dates) >= 2:
-                                print(f"    主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(min_board_level)}板后5天内两次入选关注度榜前20，符合额外入选条件")
-                                is_significant = True
-                                entry_type = 'attention'
-            elif market in ['gem', 'star', 'bse']:
-                # 非主板股票需要达到non_main_board_level才算显著连板
-                if board_days and board_days >= non_main_board_level:
-                    is_significant = True
-                # 检查关注度榜入选条件
-                elif enable_attention_criteria and board_days and board_days == get_loose_board_level(
-                        non_main_board_level):
-                    # 检查该股票是否在非主板关注度榜中出现两次
-                    if attention_data_non_main is not None and not attention_data_non_main.empty:
-                        # 获取当前日期
-                        current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
-                        
-                        # 过滤出当前股票的关注度数据
-                        # 注意：stock_code可能包含市场前缀，需要处理
-                        clean_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
-                        stock_attention = attention_data_non_main[attention_data_non_main['股票代码'].str.contains(clean_stock_code)]
-                        
-                        if not stock_attention.empty:
-                            # 计算每个关注度日期与当前日期的交易日差
-                            attention_dates = []
-                            for _, att_row in stock_attention.iterrows():
-                                att_date_str = att_row['日期']
-                                att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(att_date_str)
-                                days_diff = count_trading_days_between(current_date, att_date)
-                                if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
-                                    attention_dates.append(att_date)
-                            
-                            # 如果在5个交易日内出现了至少两次，则认为符合条件
-                            if len(attention_dates) >= 2:
-                                print(f"    非主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(non_main_board_level)}板后5天内两次入选关注度榜前20，符合额外入选条件")
-                                is_significant = True
-                                entry_type = 'attention'
-            else:
-                # 其他情况，使用主板标准
-                if board_days and board_days >= min_board_level:
-                    is_significant = True
+            # 首先检查是否满足基本的显著连板条件
+            is_significant = is_stock_significant(board_days, market, min_board_level, non_main_board_level)
+
+            # 如果不满足基本条件，但启用了关注度榜入选条件，则检查是否满足关注度榜条件
+            if not is_significant and enable_attention_criteria:
+                is_significant, entry_type = check_attention_criteria(
+                    stock_code, board_days, market, min_board_level, non_main_board_level,
+                    col, attention_data_main, attention_data_non_main
+                )
 
             if is_significant:
                 print(f"    找到显著连板: {board_days}板")
@@ -806,39 +1097,17 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                     is_new_entry = True
                 elif continuous_board_dates:
                     # 检查是否是断板后间隔足够长再次达到入选条件
-                    previous_board_dates = [d for d in continuous_board_dates if d < current_date]
+                    is_reentry, clear_dates = check_reentry_condition(
+                        current_date, continuous_board_dates, reentry_days_threshold,
+                        board_days, market, min_board_level, non_main_board_level,
+                        enable_attention_criteria, attention_data_main, attention_data_non_main, stock_code
+                    )
 
-                    if previous_board_dates:
-                        # 获取上一个连板区间的最后日期
-                        last_board_date = max(previous_board_dates)
-
-                        # 计算间隔交易日天数
-                        days_since_last_board = count_trading_days_between(last_board_date, current_date)
-
-                        print(
-                            f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, 当前日期: {current_date.strftime('%Y-%m-%d')}, 交易日间隔: {days_since_last_board}天")
-
-                        # 判断是否满足再次入选条件
-                        if days_since_last_board > reentry_days_threshold:
-                            # 检查是否达到入选条件
-                            is_significant_reentry = False
-
-                            # 与首次入选逻辑保持一致
-                            if market == 'main':
-                                if board_days >= min_board_level:
-                                    is_significant_reentry = True
-                            elif market in ['gem', 'star', 'bse']:
-                                if board_days >= non_main_board_level:
-                                    is_significant_reentry = True
-                            else:
-                                if board_days >= min_board_level:
-                                    is_significant_reentry = True
-
-                            if is_significant_reentry:
-                                print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
-                                is_new_entry = True
-                                # 清空连续连板日期列表，开始新的连板区间记录
-                                continuous_board_dates = [current_date]
+                    if is_reentry:
+                        is_new_entry = True
+                        # 清空连续连板日期列表，开始新的连板区间记录
+                        if clear_dates:
+                            continuous_board_dates = [current_date]
 
                 # 添加到显著连板日期列表
                 significant_board_dates.append(current_date)
@@ -849,6 +1118,16 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                     for date_col in date_columns:
                         all_board_data[date_col] = board_data.get(date_col)
 
+                    # 确定入选类型
+                    if entry_type == 'attention':
+                        final_entry_type = 'attention'
+                    elif len(significant_board_dates) > 1:
+                        final_entry_type = 'reentry'
+                    elif market in ['gem', 'star', 'bse'] and board_days == 1:
+                        final_entry_type = 'non_main_first_board'
+                    else:
+                        final_entry_type = 'first'
+
                     # 添加到结果列表
                     entry = {
                         'stock_code': stock_code,
@@ -857,40 +1136,11 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                         'board_level_at_first': board_days,
                         'all_board_data': all_board_data,
                         'concept': stock_data['concept'],
-                        'entry_type': entry_type if entry_type == 'attention' else (
-                            'reentry' if len(significant_board_dates) > 1 else (
-                                'non_main_first_board' if market in ['gem', 'star', 'bse'] and board_days == 1 else 'first'
-                            )
-                        )
+                        'entry_type': final_entry_type
                     }
 
                     result.append(entry)
                     print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
-
-    # 转换为DataFrame
-    result_df = pd.DataFrame(result)
-
-    # 如果没有符合条件的数据，返回空DataFrame
-    if result_df.empty:
-        print("未找到符合条件的连板数据")
-        return result_df
-
-    print(f"找到{len(result_df)}只达到显著连板的股票")
-
-    # 按首次显著连板日期和连板天数排序
-    result_df = result_df.sort_values(
-        by=['first_significant_date', 'board_level_at_first'],
-        ascending=[True, False]
-    )
-
-    return result_df
-
-
-def get_loose_board_level(board_level):
-    """
-    获取宽松的连板数
-    """
-    return 1 if board_level == 1 else board_level - 1
 
 
 def get_concept_from_board_text(board_text):
@@ -1064,6 +1314,511 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         return None
 
 
+def build_comment_text(details):
+    """
+    构建备注文本
+
+    Args:
+        details: 详细信息字典
+
+    Returns:
+        str: 备注文本
+    """
+    comment_text = ""
+
+    if '连板信息' in details:
+        comment_text += f"{details['连板信息']} "
+    if '首次涨停时间' in details:
+        comment_text += f"\n首次涨停: {details['首次涨停时间']} "
+    if '最终涨停时间' in details:
+        comment_text += f"\n最终涨停: {details['最终涨停时间']} "
+    if '涨停开板次数' in details:
+        comment_text += f"\n开板次数: {details['涨停开板次数']}"
+
+    return comment_text
+
+
+def format_header_cell(ws, row, col, value, is_center=True, is_bold=True, font_size=None):
+    """
+    格式化表头单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        value: 单元格值
+        is_center: 是否居中对齐
+        is_bold: 是否加粗
+        font_size: 字体大小，None表示使用默认大小
+    """
+    cell = ws.cell(row=row, column=col, value=value)
+    cell.border = BORDER_STYLE
+
+    # 设置对齐方式
+    if is_center:
+        cell.alignment = Alignment(horizontal='center')
+
+    # 设置字体
+    font_args = {'bold': is_bold}
+    if font_size:
+        font_args['size'] = font_size
+    cell.font = Font(**font_args)
+
+    return cell
+
+
+def format_stock_code_cell(ws, row, col, stock_code):
+    """
+    格式化股票代码单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        stock_code: 股票代码
+    """
+    # 使用Excel单元格格式设置为文本，而不是添加单引号前缀
+    code_cell = ws.cell(row=row, column=col, value=f'{stock_code.split(".")[0]}')
+    code_cell.alignment = Alignment(horizontal='center')
+    code_cell.border = BORDER_STYLE
+    code_cell.font = Font(size=8)  # 设置比正常小的字体
+    code_cell.number_format = '@'  # 设置单元格格式为文本，保留前导零
+
+    return code_cell
+
+
+def format_concept_cell(ws, row, col, concept, stock_key, stock_reason_group, reason_colors):
+    """
+    格式化概念单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        concept: 概念文本
+        stock_key: 股票键名
+        stock_reason_group: 股票概念组映射
+        reason_colors: 概念颜色映射
+    """
+    # 设置概念列
+    concept_cell = ws.cell(row=row, column=col, value=f"[{concept}]")
+    concept_cell.alignment = Alignment(horizontal='left')
+    concept_cell.border = BORDER_STYLE
+    concept_cell.font = Font(size=9)  # 设置小一号字体
+
+    # 根据股票所属概念组设置颜色
+    if stock_key in stock_reason_group:
+        reason = stock_reason_group[stock_key]
+        if reason in reason_colors:
+            concept_cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
+            # 如果背景色较深，使用白色字体
+            if reason_colors[reason] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
+                concept_cell.font = Font(color="FFFFFF", size=9)  # 保持小一号字体
+
+    return concept_cell
+
+
+def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_level, apply_high_board_color,
+                           stock_code, stock_entry_count):
+    """
+    格式化股票名称单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        stock_name: 股票名称
+        market_type: 市场类型标记
+        max_board_level: 最高板数
+        apply_high_board_color: 是否应用高板颜色
+        stock_code: 股票代码
+        stock_entry_count: 股票入选次数映射
+    """
+    # 设置股票简称列，添加市场标记
+    stock_display_name = f"{stock_name}{market_type}"
+    name_cell = ws.cell(row=row, column=col, value=stock_display_name)
+    name_cell.alignment = Alignment(horizontal='left')
+    name_cell.border = BORDER_STYLE
+
+    # 为曾经到过4板及以上的个股，设置蓝色背景
+    if max_board_level >= 4:
+        # 找出最接近的颜色档位
+        color_level = 4
+        for level in sorted(HIGH_BOARD_COLORS.keys()):
+            if max_board_level >= level:
+                color_level = level
+
+        # 设置背景色
+        bg_color = HIGH_BOARD_COLORS[color_level]
+        name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
+        apply_high_board_color = True
+
+        # 对于深色背景，使用白色字体
+        if color_level >= 12:
+            name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
+    # 如果没有应用高板数颜色，且该股票是重复入选，则应用灰色背景
+    elif stock_code in stock_entry_count and stock_entry_count[stock_code] > 1:
+        # 获取入选次数
+        entry_count = stock_entry_count[stock_code]
+        # 确定颜色深度，超过4次使用最深的灰色
+        color_level = min(entry_count, 4)
+        bg_color = REENTRY_COLORS.get(color_level, REENTRY_COLORS[4])
+        name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
+
+        # 对于深色灰色背景，使用白色字体
+        if color_level >= 4:
+            name_cell.font = Font(color="FFFFFF")
+
+    return name_cell, apply_high_board_color
+
+
+def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, period_days):
+    """
+    格式化周期涨跌幅单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        stock_code: 股票代码
+        stock_name: 股票名称
+        entry_date: 入选日期
+        period_days: 周期天数
+    """
+    try:
+        # 获取入选日期字符串
+        entry_date_str = entry_date.strftime('%Y%m%d')
+
+        # 获取入选前X个交易日的日期
+        prev_date = get_n_trading_days_before(entry_date_str, period_days)
+        if '-' in prev_date:
+            prev_date = prev_date.replace('-', '')
+
+        # 计算从入选前X日到入选日的涨跌幅
+        period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
+
+        if period_change is not None:
+            period_cell = ws.cell(row=row, column=col, value=f"{period_change:.2f}%")
+            # 设置背景色 - 根据涨跌幅
+            color = get_color_for_period_change(period_change)
+            if color:
+                period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        else:
+            period_cell = ws.cell(row=row, column=col, value="--")
+    except Exception as e:
+        print(f"计算周期涨跌幅时出错: {e}, 股票: {stock_name}")
+        period_cell = ws.cell(row=row, column=col, value="--")
+
+    # 设置周期涨跌幅单元格格式
+    period_cell.alignment = Alignment(horizontal='center')
+    period_cell.border = BORDER_STYLE
+    period_cell.font = Font(size=9)  # 设置小一号字体
+
+    return period_cell
+
+
+def format_board_cell(ws, row, col, board_days, pure_stock_code, stock_detail_key, stock_details, current_date_obj):
+    """
+    格式化连板单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        board_days: 连板天数
+        pure_stock_code: 纯股票代码
+        stock_detail_key: 股票详细信息键名
+        stock_details: 股票详细信息映射
+        current_date_obj: 当前日期对象
+        
+    Returns:
+        tuple: (单元格对象, 最后连板日期)
+    """
+    cell = ws.cell(row=row, column=col)
+
+    # 对于首板（board_days=1），显示为"首板"，否则显示为"N板"
+    if board_days == 1:
+        # 获取市场标记
+        market_marker = get_market_marker(pure_stock_code)
+        board_text = f"首板{market_marker}"
+    else:
+        board_text = f"{int(board_days)}板"
+
+    cell.value = board_text
+    # 设置连板颜色
+    board_level = int(board_days)
+    color = BOARD_COLORS.get(board_level, BOARD_COLORS[10] if board_level > 10 else BOARD_COLORS[1])
+    cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+    # 文字颜色设为白色以增强可读性
+    cell.font = Font(color="FFFFFF", bold=True)
+    # 添加边框样式
+    cell.border = BORDER_STYLE
+
+    # 添加备注信息（仅对连板股票）
+    if stock_detail_key in stock_details:
+        details = stock_details[stock_detail_key]
+        comment_text = build_comment_text(details)
+        if comment_text:
+            cell.comment = Comment(comment_text.strip(), "涨停信息")
+
+    # 记录当前日期为最后一次连板的日期
+    last_board_date = current_date_obj
+
+    return cell, last_board_date
+
+
+def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
+    """
+    格式化首板单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        pure_stock_code: 纯股票代码
+        current_date_obj: 当前日期对象
+        
+    Returns:
+        tuple: (单元格对象, 最后连板日期)
+    """
+    cell = ws.cell(row=row, column=col)
+
+    # 获取市场标记
+    market_marker = get_market_marker(pure_stock_code)
+    # 显示为"首板"并使用特殊颜色
+    cell.value = f"首板{market_marker}"
+    cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
+    # 文字颜色设为白色以增强可读性
+    cell.font = Font(color="FFFFFF", bold=True)
+    # 添加边框样式
+    cell.border = BORDER_STYLE
+
+    # 更新最后连板日期以便可以继续跟踪
+    last_board_date = current_date_obj
+
+    return cell, last_board_date
+
+
+def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, stock_name, formatted_day, date_mapping):
+    """
+    格式化日涨跌幅单元格
+    
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        current_date_obj: 当前日期对象
+        stock_code: 股票代码
+        stock_name: 股票名称
+        formatted_day: 格式化的日期
+        date_mapping: 日期映射
+        
+    Returns:
+        单元格对象
+    """
+    cell = ws.cell(row=row, column=col)
+
+    # 获取当日涨跌幅
+    day_in_yyyymmdd = date_mapping.get(formatted_day)
+    if day_in_yyyymmdd:
+        pct_change = get_stock_daily_pct_change(stock_code, day_in_yyyymmdd, stock_name)
+        if pct_change is not None:
+            cell.value = f"{pct_change:.2f}%"
+            # 设置背景色 - 根据涨跌幅
+            color = get_color_for_pct_change(pct_change)
+            if color:
+                cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        else:
+            cell.value = "停牌"
+
+    # 设置单元格格式
+    cell.alignment = Alignment(horizontal='center')
+    cell.border = BORDER_STYLE
+
+    return cell
+
+
+def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
+                       pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
+                       max_tracking_days_before):
+    """
+    处理每日单元格
+    
+    Args:
+        ws: Excel工作表
+        row_idx: 行索引
+        col_idx: 列索引
+        formatted_day: 格式化的日期
+        board_days: 连板天数
+        found_in_shouban: 是否在首板数据中找到
+        pure_stock_code: 纯股票代码
+        stock_details: 股票详细信息映射
+        stock: 股票数据
+        date_mapping: 日期映射
+        max_tracking_days: 断板后跟踪的最大天数
+        max_tracking_days_before: 入选前跟踪的最大天数
+        
+    Returns:
+        更新后的股票数据
+    """
+    cell = ws.cell(row=row_idx, column=col_idx)
+
+    # 解析当前日期对象
+    current_date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日') if '年' in formatted_day else datetime.strptime(
+        formatted_day, '%Y/%m/%d')
+
+    # 处理连板数据
+    if pd.notna(board_days) and board_days:
+        stock_detail_key = f"{pure_stock_code}_{formatted_day}"
+        _, last_board_date = format_board_cell(ws, row_idx, col_idx, board_days, pure_stock_code,
+                                               stock_detail_key, stock_details, current_date_obj)
+        stock['last_board_date'] = last_board_date
+    # 处理首板数据
+    elif found_in_shouban:
+        _, last_board_date = format_shouban_cell(ws, row_idx, col_idx, pure_stock_code, current_date_obj)
+        stock['last_board_date'] = last_board_date
+    # 处理其他情况
+    else:
+        try:
+            # 检查当日日期是否在首次显著连板日期之后
+            if current_date_obj >= stock['first_significant_date']:
+                # 处理断板后的跟踪
+                if should_track_after_break(stock, current_date_obj, max_tracking_days):
+                    format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
+                                                 stock['stock_code'], stock['stock_name'],
+                                                 formatted_day, date_mapping)
+            # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
+            elif should_track_before_entry(current_date_obj, stock['first_significant_date'], max_tracking_days_before):
+                format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
+                                             stock['stock_code'], stock['stock_name'],
+                                             formatted_day, date_mapping)
+        except Exception as e:
+            print(f"处理日期时出错: {e}, 日期: {formatted_day}")
+
+    return stock
+
+
+def should_track_after_break(stock, current_date_obj, max_tracking_days):
+    """
+    判断是否应该跟踪断板后的股票
+    
+    Args:
+        stock: 股票数据
+        current_date_obj: 当前日期对象
+        max_tracking_days: 断板后跟踪的最大天数
+        
+    Returns:
+        bool: 是否应该跟踪
+    """
+    # 如果没有设置最大跟踪天数，始终跟踪
+    if max_tracking_days is None:
+        return True
+
+    # 如果有最后连板日期记录，判断是否超过跟踪期限
+    last_board_date = stock.get('last_board_date')
+    if last_board_date:
+        # 计算当前日期与最后连板日期的交易日天数差
+        days_after_break = count_trading_days_between(last_board_date, current_date_obj)
+        # 如果断板后的交易日天数超过跟踪天数，不显示涨跌幅
+        if days_after_break > max_tracking_days:
+            return False
+
+    return True
+
+
+def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_before):
+    """
+    判断是否应该跟踪入选前的股票
+    
+    Args:
+        current_date_obj: 当前日期对象
+        entry_date: 入选日期对象
+        max_tracking_days_before: 入选前跟踪的最大天数
+        
+    Returns:
+        bool: 是否应该跟踪
+    """
+    # 如果不跟踪入选前的走势
+    if max_tracking_days_before <= 0:
+        return False
+
+    # 计算当前日期与首次显著连板日期的交易日天数差
+    days_before_entry = count_trading_days_between(current_date_obj, entry_date)
+
+    # 如果在入选前跟踪天数范围内，显示涨跌幅
+    return 1 <= days_before_entry <= max_tracking_days_before
+
+
+def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
+    """
+    检查股票在首板数据中是否有记录
+    
+    Args:
+        shouban_df: 首板数据DataFrame
+        pure_stock_code: 纯股票代码
+        formatted_day: 格式化的日期
+        
+    Returns:
+        bool: 是否在首板数据中有记录
+    """
+    if shouban_df is None or shouban_df.empty:
+        return False
+
+    # 查找在首板数据中是否有该股票在该日期的记录
+    shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
+    if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(
+            shouban_row[formatted_day].values[0]):
+        # 该股票在该日期有首板记录
+        return True
+
+    return False
+
+
+def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start):
+    """
+    设置Excel表头
+    
+    Args:
+        ws: Excel工作表
+        formatted_trading_days: 格式化的交易日列表
+        show_period_change: 是否显示周期涨跌幅
+        period_days: 周期天数
+        date_column_start: 日期列开始位置
+        
+    Returns:
+        dict: 日期到列索引的映射
+    """
+    # 设置日期表头（第1行）
+    format_header_cell(ws, 1, 1, "股票代码")
+    format_header_cell(ws, 1, 2, "题材概念")
+    format_header_cell(ws, 1, 3, "股票简称")
+
+    # 添加周期涨跌幅列（第4列）
+    if show_period_change:
+        period_header = f"{period_days}日"
+        format_header_cell(ws, 1, 4, period_header, font_size=9)
+
+    # 设置日期列标题
+    date_columns = {}  # 用于保存日期到列索引的映射
+    for i, formatted_day in enumerate(formatted_trading_days):
+        date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
+        col = i + date_column_start  # 日期列的起始位置根据是否显示周期涨跌幅决定
+        date_columns[formatted_day] = col
+
+        # 添加日期标题和星期几
+        weekday = date_obj.weekday()
+        weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
+        date_with_weekday = f"{date_obj.strftime('%Y-%m-%d')}\n{weekday_map[weekday]}"
+
+        # 设置日期单元格样式：居中、自动换行、边框、字体加粗
+        date_cell = ws.cell(row=1, column=col, value=date_with_weekday)
+        date_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        date_cell.border = BORDER_STYLE
+        date_cell.font = Font(bold=True)
+
+    return date_columns
+
+
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
@@ -1086,19 +1841,89 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         priority_reasons: 优先选择的原因列表，默认为None
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
     """
+    # 设置结束日期，如果未指定则使用当前日期
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
         print(f"未指定结束日期，使用当前日期: {end_date}")
 
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
-    # 获取交易日列表
+    # 获取并处理交易日数据
     trading_days = get_trading_days(start_date, end_date)
     if not trading_days:
         print("未获取到交易日列表")
         return
 
-    # 格式化交易日列表（保存两种格式，便于与Excel中的日期匹配）
+    # 格式化交易日列表和映射
+    formatted_trading_days, date_mapping = format_trading_days(trading_days)
+
+    # 加载股票数据
+    lianban_df, shouban_df, attention_data = load_stock_data(start_date, end_date, enable_attention_criteria)
+    if lianban_df.empty:
+        print("未获取到有效的连板数据")
+        return
+
+    # 获取股票详细信息映射
+    stock_details = lianban_df.attrs.get('stock_details', {})
+
+    # 识别显著连板股票
+    result_df = identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
+                                            non_main_board_level, enable_attention_criteria, attention_data)
+    if result_df.empty:
+        print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
+        return
+
+    # 创建Excel工作簿和准备数据
+    wb, ws, stock_data = prepare_excel_workbook(result_df, start_date, priority_reasons)
+
+    # 设置Excel表头和日期列
+    period_column = 4
+    date_column_start = 4 if not show_period_change else 5
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
+
+    # 设置前三列的格式（已由setup_excel_header处理）
+
+    # 添加大盘指标行
+    add_market_indicators(ws, date_columns, label_col=2)
+
+    # 统计股票入选情况
+    stock_entry_count = count_stock_entries(result_df)
+
+    # 填充数据行
+    fill_data_rows(ws, result_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
+                   stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
+                   period_column, period_days, stock_details, date_mapping, max_tracking_days,
+                   max_tracking_days_before)
+
+    # 调整列宽
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
+
+    # 冻结前三列和前三行
+    ws.freeze_panes = ws.cell(row=4, column=date_column_start)
+
+    # 创建图例工作表
+    create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
+                        stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS)
+
+    # 保存Excel文件
+    try:
+        save_excel_file(wb, output_file)
+        return True
+    except Exception as e:
+        print(f"保存Excel文件时出错: {e}")
+        return False
+
+
+def format_trading_days(trading_days):
+    """
+    格式化交易日列表
+    
+    Args:
+        trading_days: 交易日列表
+        
+    Returns:
+        tuple: (格式化的交易日列表, 日期映射)
+    """
     formatted_trading_days = []
     date_mapping = {}  # 用于将格式化日期映射回YYYYMMDD格式
 
@@ -1115,33 +1940,54 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         date_mapping[formatted_day_cn] = day
         date_mapping[formatted_day_slash] = day  # 同时保存标准格式的映射
 
+    return formatted_trading_days, date_mapping
+
+
+def load_stock_data(start_date, end_date, enable_attention_criteria):
+    """
+    加载股票数据
+    
+    Args:
+        start_date: 开始日期
+        end_date: 结束日期
+        enable_attention_criteria: 是否启用关注度榜入选条件
+        
+    Returns:
+        tuple: (连板数据, 首板数据, 关注度数据)
+    """
     # 加载连板数据
     lianban_df = load_lianban_data(start_date, end_date)
-    if lianban_df.empty:
-        print("未获取到有效的连板数据")
-        return
-
-    # 获取股票详细信息映射
-    stock_details = lianban_df.attrs.get('stock_details', {})
 
     # 加载首板数据
     shouban_df = load_shouban_data(start_date, end_date)
     print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
-    
+
     # 如果启用关注度榜入选条件，加载关注度榜数据
-    attention_data_main = None
-    attention_data_non_main = None
+    attention_data = {'main': None, 'non_main': None}
     if enable_attention_criteria:
         print("启用关注度榜入选条件，加载关注度榜数据...")
-        attention_data_main = load_attention_data(start_date, end_date, is_main_board=True)
-        attention_data_non_main = load_attention_data(start_date, end_date, is_main_board=False)
-        
-        if attention_data_main.empty and attention_data_non_main.empty:
+        attention_data['main'] = load_attention_data(start_date, end_date, is_main_board=True)
+        attention_data['non_main'] = load_attention_data(start_date, end_date, is_main_board=False)
+
+        if attention_data['main'].empty and attention_data['non_main'].empty:
             print("警告：未能加载任何关注度榜数据，关注度榜入选条件将不生效")
         else:
-            print(f"成功加载关注度榜数据：主板 {len(attention_data_main)}条，非主板 {len(attention_data_non_main)}条")
+            print(
+                f"成功加载关注度榜数据：主板 {len(attention_data['main'])}条，非主板 {len(attention_data['non_main'])}条")
 
     # 调试输出连板数据
+    debug_print_lianban_data(lianban_df)
+
+    return lianban_df, shouban_df, attention_data
+
+
+def debug_print_lianban_data(lianban_df):
+    """
+    调试输出连板数据
+    
+    Args:
+        lianban_df: 连板数据DataFrame
+    """
     print("\n检查连板数据：")
     for i, row in lianban_df.iterrows():
         if i < 10:  # 只打印前10行作为示例
@@ -1150,24 +1996,83 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 if col not in ['纯代码', '股票名称', '股票代码', '概念'] and pd.notna(row[col]):
                     print(f"  {col}: {row[col]}")
 
-    # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
-    result_df = identify_first_significant_board(
+
+def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
+                                non_main_board_level, enable_attention_criteria, attention_data):
+    """
+    识别显著连板股票
+    
+    Args:
+        lianban_df: 连板数据DataFrame
+        shouban_df: 首板数据DataFrame
+        min_board_level: 主板股票最小显著连板天数
+        reentry_days: 断板后再次上榜的天数阈值
+        non_main_board_level: 非主板股票最小显著连板天数
+        enable_attention_criteria: 是否启用关注度榜入选条件
+        attention_data: 关注度榜数据
+        
+    Returns:
+        pandas.DataFrame: 显著连板股票DataFrame
+    """
+    return identify_first_significant_board(
         lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
-        enable_attention_criteria, attention_data_main, attention_data_non_main
+        enable_attention_criteria, attention_data['main'], attention_data['non_main']
     )
-    if result_df.empty:
-        print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
-        return
 
-    # 加载股票代码映射（用于获取涨跌幅数据）
-    stock_mapping = load_stock_mapping()
 
+def prepare_excel_workbook(result_df, start_date, priority_reasons):
+    """
+    准备Excel工作簿和相关数据
+    
+    Args:
+        result_df: 显著连板股票DataFrame
+        start_date: 开始日期
+        priority_reasons: 优先选择的原因列表
+        
+    Returns:
+        tuple: (工作簿, 工作表, 股票数据)
+    """
     # 创建Excel工作簿
     wb = Workbook()
     ws = wb.active
     ws.title = f"涨停梯队{start_date[:6]}"
 
     # 收集所有概念信息，用于生成颜色映射
+    all_concepts, stock_concepts = collect_stock_concepts(result_df)
+
+    # 获取热门概念的颜色映射
+    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+
+    # 为每只股票确定主要概念组
+    all_stocks = prepare_stock_concept_data(stock_concepts)
+
+    # 获取每只股票的主要概念组
+    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
+
+    # 创建理由计数器
+    reason_counter = Counter(all_concepts)
+
+    # 返回工作簿、工作表和股票数据
+    stock_data = {
+        'reason_colors': reason_colors,
+        'top_reasons': top_reasons,
+        'stock_reason_group': stock_reason_group,
+        'reason_counter': reason_counter
+    }
+
+    return wb, ws, stock_data
+
+
+def collect_stock_concepts(result_df):
+    """
+    收集股票概念信息
+    
+    Args:
+        result_df: 显著连板股票DataFrame
+        
+    Returns:
+        tuple: (所有概念列表, 股票概念映射)
+    """
     all_concepts = []
     stock_concepts = {}
 
@@ -1183,10 +2088,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             all_concepts.extend(reasons)
             stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
 
-    # 获取热门概念的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+    return all_concepts, stock_concepts
 
-    # 为每只股票确定主要概念组
+
+def prepare_stock_concept_data(stock_concepts):
+    """
+    准备股票概念数据
+    
+    Args:
+        stock_concepts: 股票概念映射
+        
+    Returns:
+        dict: 股票概念数据
+    """
     all_stocks = {}
     for stock_key, reasons in stock_concepts.items():
         all_stocks[stock_key] = {
@@ -1195,55 +2109,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             'appearances': [1]  # 简化处理，只需要一个非空列表
         }
 
-    # 获取每只股票的主要概念组
-    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
+    return all_stocks
 
-    # 设置日期表头（第1行）
-    ws.cell(row=1, column=1, value="股票代码")
-    ws.cell(row=1, column=2, value="题材概念")
-    ws.cell(row=1, column=3, value="股票简称")
 
-    # 添加周期涨跌幅列（第4列）
-    period_column = 4
-    date_column_start = 4  # 日期列开始位置，默认为第4列
-
-    if show_period_change:
-        period_header = f"{period_days}日"
-        ws.cell(row=1, column=period_column, value=period_header)
-        ws.cell(row=1, column=period_column).alignment = Alignment(horizontal='center')
-        ws.cell(row=1, column=period_column).border = BORDER_STYLE
-        ws.cell(row=1, column=period_column).font = Font(bold=True, size=9)  # 设置小一号字体
-        date_column_start = 5  # 如果显示周期涨跌幅，日期列从第5列开始
-
-    # 设置日期列标题
-    date_columns = {}  # 用于保存日期到列索引的映射
-    for i, formatted_day in enumerate(formatted_trading_days):
-        date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
-        col = i + date_column_start  # 日期列的起始位置根据是否显示周期涨跌幅决定
-        date_columns[formatted_day] = col
-
-        # 添加日期标题和星期几
-        weekday = date_obj.weekday()
-        weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
-        date_with_weekday = f"{date_obj.strftime('%Y-%m-%d')}\n{weekday_map[weekday]}"
-
-        ws.cell(row=1, column=col, value=date_with_weekday)
-
-        # 设置日期单元格样式：居中、自动换行、边框、字体加粗
-        date_cell = ws.cell(row=1, column=col)
-        date_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        date_cell.border = BORDER_STYLE
-        date_cell.font = Font(bold=True)
-
-    # 设置前三列的格式
-    for col in range(1, 4):
-        ws.cell(row=1, column=col).alignment = Alignment(horizontal='center')
-        ws.cell(row=1, column=col).border = BORDER_STYLE
-        ws.cell(row=1, column=col).font = Font(bold=True)
-
-    # 添加大盘指标行（创业指和成交量）
-    add_market_indicators(ws, date_columns, label_col=2)
-
+def count_stock_entries(result_df):
+    """
+    统计股票入选次数
+    
+    Args:
+        result_df: 显著连板股票DataFrame
+        
+    Returns:
+        dict: 股票入选次数映射
+    """
     # 收集所有已入选连板梯队的股票代码
     lianban_stock_codes = set()
     # 统计每只股票入选次数
@@ -1260,256 +2138,173 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         else:
             stock_entry_count[pure_code] = 1
 
-    # 填充数据行
+    return stock_entry_count
+
+
+def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
+                   formatted_trading_days, date_column_start, show_period_change, period_column,
+                   period_days, stock_details, date_mapping, max_tracking_days, max_tracking_days_before):
+    """
+    填充数据行
+    
+    Args:
+        ws: Excel工作表
+        result_df: 显著连板股票DataFrame
+        shouban_df: 首板数据DataFrame
+        stock_reason_group: 股票概念组映射
+        reason_colors: 概念颜色映射
+        stock_entry_count: 股票入选次数映射
+        formatted_trading_days: 格式化的交易日列表
+        date_column_start: 日期列开始位置
+        show_period_change: 是否显示周期涨跌幅
+        period_column: 周期涨跌幅列索引
+        period_days: 周期天数
+        stock_details: 股票详细信息映射
+        date_mapping: 日期映射
+        max_tracking_days: 断板后跟踪的最大天数
+        max_tracking_days_before: 入选前跟踪的最大天数
+    """
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
+        # 提取基本股票信息
         stock_code = stock['stock_code']
         stock_name = stock['stock_name']
         all_board_data = stock['all_board_data']
 
         # 提取纯代码
-        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
-            pure_stock_code = pure_stock_code[2:]
+        pure_stock_code = extract_pure_stock_code(stock_code)
 
-        # 设置股票代码列（第一列）- 新增
-        # 使用Excel单元格格式设置为文本，而不是添加单引号前缀
-        code_cell = ws.cell(row=row_idx, column=1, value=f'{pure_stock_code.split(".")[0]}')
-        code_cell.alignment = Alignment(horizontal='center')
-        code_cell.border = BORDER_STYLE
-        code_cell.font = Font(size=8)  # 设置比正常小的字体
-        code_cell.number_format = '@'  # 设置单元格格式为文本，保留前导零
+        # 设置股票代码列（第一列）
+        format_stock_code_cell(ws, row_idx, 1, pure_stock_code)
 
         # 获取概念
-        concept = stock.get('concept', '其他')
-        if pd.isna(concept) or not concept:
-            concept = "其他"
+        concept = get_stock_concept(stock)
 
         # 设置概念列（第二列）
-        concept_cell = ws.cell(row=row_idx, column=2, value=f"[{concept}]")
-        concept_cell.alignment = Alignment(horizontal='left')
-        concept_cell.border = BORDER_STYLE
-        concept_cell.font = Font(size=9)  # 设置小一号字体
-
-        # 根据股票所属概念组设置颜色
         stock_key = f"{stock_code}_{stock_name}"
-        if stock_key in stock_reason_group:
-            reason = stock_reason_group[stock_key]
-            if reason in reason_colors:
-                concept_cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
-                # 如果背景色较深，使用白色字体
-                if reason_colors[reason] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
-                    concept_cell.font = Font(color="FFFFFF", size=9)  # 保持小一号字体
+        format_concept_cell(ws, row_idx, 2, concept, stock_key, stock_reason_group, reason_colors)
 
         # 计算股票的最高板数
-        max_board_level = 0
-        for day_data in all_board_data.values():
-            if pd.notna(day_data) and day_data and day_data > max_board_level:
-                max_board_level = int(day_data)
+        max_board_level = calculate_max_board_level(all_board_data)
 
         # 根据股票代码确定市场类型
         market_type = get_market_marker(pure_stock_code)
 
-        # 设置股票简称列（第三列），添加市场标记
-        stock_display_name = f"{stock_name}{market_type}"
-        name_cell = ws.cell(row=row_idx, column=3, value=stock_display_name)
-        name_cell.alignment = Alignment(horizontal='left')
-        name_cell.border = BORDER_STYLE
-
-        # 为曾经到过4板及以上的个股，设置蓝色背景
+        # 设置股票简称列（第三列）
         apply_high_board_color = False
-        if max_board_level >= 4:
-            # 找出最接近的颜色档位
-            color_level = 4
-            for level in sorted(HIGH_BOARD_COLORS.keys()):
-                if max_board_level >= level:
-                    color_level = level
-
-            # 设置背景色
-            bg_color = HIGH_BOARD_COLORS[color_level]
-            name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
-            apply_high_board_color = True
-
-            # 对于深色背景，使用白色字体
-            if color_level >= 12:
-                name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
-
-        # 如果没有应用高板数颜色，且该股票是重复入选，则应用灰色背景
-        elif pure_stock_code in stock_entry_count and stock_entry_count[pure_stock_code] > 1:
-            # 获取入选次数
-            entry_count = stock_entry_count[pure_stock_code]
-            # 确定颜色深度，超过4次使用最深的灰色
-            color_level = min(entry_count, 4)
-            bg_color = REENTRY_COLORS.get(color_level, REENTRY_COLORS[4])
-            name_cell.fill = PatternFill(start_color=bg_color, fill_type="solid")
-
-            # 对于深色灰色背景，使用白色字体
-            if color_level >= 4:
-                name_cell.font = Font(color="FFFFFF")
+        _, apply_high_board_color = format_stock_name_cell(ws, row_idx, 3, stock_name, market_type,
+                                                           max_board_level, apply_high_board_color,
+                                                           pure_stock_code, stock_entry_count)
 
         # 填充周期涨跌幅列
         if show_period_change:
-            try:
-                # 获取入选日期
-                entry_date = stock['first_significant_date']
-                entry_date_str = entry_date.strftime('%Y%m%d')
-
-                # 获取入选前X个交易日的日期
-                prev_date = get_n_trading_days_before(entry_date_str, period_days)
-                if '-' in prev_date:
-                    prev_date = prev_date.replace('-', '')
-
-                # 计算从入选前X日到入选日的涨跌幅
-                period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
-
-                if period_change is not None:
-                    period_cell = ws.cell(row=row_idx, column=period_column, value=f"{period_change:.2f}%")
-                    # 设置背景色 - 根据涨跌幅
-                    color = get_color_for_period_change(period_change)
-                    if color:
-                        period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-                else:
-                    period_cell = ws.cell(row=row_idx, column=period_column, value="--")
-            except Exception as e:
-                print(f"计算周期涨跌幅时出错: {e}, 股票: {stock_name}")
-                period_cell = ws.cell(row=row_idx, column=period_column, value="--")
-
-            # 设置周期涨跌幅单元格格式
-            period_cell.alignment = Alignment(horizontal='center')
-            period_cell.border = BORDER_STYLE
-            period_cell.font = Font(size=9)  # 设置小一号字体
+            format_period_change_cell(ws, row_idx, period_column, stock_code, stock_name,
+                                      stock['first_significant_date'], period_days)
 
         # 填充每个交易日的数据
-        for j, formatted_day in enumerate(formatted_trading_days):
-            col_idx = j + date_column_start  # 列索引，从第4列开始
+        fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
+                        shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                        max_tracking_days, max_tracking_days_before)
 
-            # 获取当日的连板信息
-            board_days = all_board_data.get(formatted_day)
 
-            # 标记是否在首板数据中找到该股票
-            found_in_shouban = False
+def extract_pure_stock_code(stock_code):
+    """
+    提取纯股票代码
+    
+    Args:
+        stock_code: 股票代码
+        
+    Returns:
+        str: 纯股票代码
+    """
+    pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+    if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+        pure_stock_code = pure_stock_code[2:]
 
-            # 如果该日期没有连板数据，检查首板数据
-            if not pd.notna(board_days) and shouban_df is not None and not shouban_df.empty:
-                # 查找在首板数据中是否有该股票在该日期的记录
-                shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
-                if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(
-                        shouban_row[formatted_day].values[0]):
-                    # 该股票在该日期有首板记录
-                    found_in_shouban = True
+    return pure_stock_code
 
-            cell = ws.cell(row=row_idx, column=col_idx)
 
-            # 解析当前日期对象
-            current_date_obj = datetime.strptime(formatted_day,
-                                                 '%Y年%m月%d日') if '年' in formatted_day else datetime.strptime(
-                formatted_day, '%Y/%m/%d')
+def get_stock_concept(stock):
+    """
+    获取股票概念
+    
+    Args:
+        stock: 股票数据
+        
+    Returns:
+        str: 概念文本
+    """
+    concept = stock.get('concept', '其他')
+    if pd.isna(concept) or not concept:
+        concept = "其他"
 
-            if pd.notna(board_days) and board_days:
-                # 对于首板（board_days=1），显示为"首板"，否则显示为"N板"
-                if board_days == 1:
-                    # 获取市场标记
-                    market_marker = get_market_marker(pure_stock_code)
-                    board_text = f"首板{market_marker}"
-                else:
-                    board_text = f"{int(board_days)}板"
+    return concept
 
-                cell.value = board_text
-                # 设置连板颜色
-                board_level = int(board_days)
-                color = BOARD_COLORS.get(board_level, BOARD_COLORS[10] if board_level > 10 else BOARD_COLORS[1])
-                cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-                # 文字颜色设为白色以增强可读性
-                cell.font = Font(color="FFFFFF", bold=True)
 
-                # 添加备注信息（仅对连板股票）
-                stock_detail_key = f"{pure_stock_code}_{formatted_day}"
-                if stock_detail_key in stock_details:
-                    details = stock_details[stock_detail_key]
-                    comment_text = ""
+def calculate_max_board_level(all_board_data):
+    """
+    计算股票的最高板数
+    
+    Args:
+        all_board_data: 所有板块数据
+        
+    Returns:
+        int: 最高板数
+    """
+    max_board_level = 0
+    for day_data in all_board_data.values():
+        if pd.notna(day_data) and day_data and day_data > max_board_level:
+            max_board_level = int(day_data)
 
-                    # 构建备注文本
-                    if '连板信息' in details:
-                        comment_text += f"{details['连板信息']} "
-                    if '首次涨停时间' in details:
-                        comment_text += f"\n首次涨停: {details['首次涨停时间']} "
-                    if '最终涨停时间' in details:
-                        comment_text += f"\n最终涨停: {details['最终涨停时间']} "
-                    if '涨停开板次数' in details:
-                        comment_text += f"\n开板次数: {details['涨停开板次数']}"
+    return max_board_level
 
-                    if comment_text:
-                        cell.comment = Comment(comment_text.strip(), "涨停信息")
 
-                # 记录当前日期为最后一次连板的日期
-                stock['last_board_date'] = current_date_obj
-            elif found_in_shouban:
-                # 获取市场标记
-                market_marker = get_market_marker(pure_stock_code)
-                # 显示为"首板"并使用特殊颜色
-                cell.value = f"首板{market_marker}"
-                cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
-                # 文字颜色设为白色以增强可读性
-                cell.font = Font(color="FFFFFF", bold=True)
+def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
+                    shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                    max_tracking_days, max_tracking_days_before):
+    """
+    填充每日数据
+    
+    Args:
+        ws: Excel工作表
+        row_idx: 行索引
+        formatted_trading_days: 格式化的交易日列表
+        date_column_start: 日期列开始位置
+        all_board_data: 所有板块数据
+        shouban_df: 首板数据DataFrame
+        pure_stock_code: 纯股票代码
+        stock_details: 股票详细信息映射
+        stock: 股票数据
+        date_mapping: 日期映射
+        max_tracking_days: 断板后跟踪的最大天数
+        max_tracking_days_before: 入选前跟踪的最大天数
+    """
+    for j, formatted_day in enumerate(formatted_trading_days):
+        col_idx = j + date_column_start  # 列索引，从date_column_start开始
 
-                # 更新最后连板日期以便可以继续跟踪
-                stock['last_board_date'] = current_date_obj
-            else:
-                # 检查当日日期是否在首次显著连板日期之后
-                try:
-                    if current_date_obj >= stock['first_significant_date']:
-                        # 如果有最后连板日期记录，判断是否超过跟踪期限
-                        last_board_date = stock.get('last_board_date')
+        # 获取当日的连板信息
+        board_days = all_board_data.get(formatted_day)
 
-                        if last_board_date and max_tracking_days is not None:
-                            # 计算当前日期与最后连板日期的交易日天数差
-                            # 使用交易日计算替代日历日计算
-                            days_after_break = count_trading_days_between(last_board_date, current_date_obj)
+        # 标记是否在首板数据中找到该股票
+        found_in_shouban = check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day)
 
-                            # 如果断板后的交易日天数超过跟踪天数，不显示涨跌幅
-                            if days_after_break > max_tracking_days:
-                                # 单元格留空
-                                continue
+        # 处理单元格
+        stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
+                                   pure_stock_code, stock_details, stock, date_mapping,
+                                   max_tracking_days, max_tracking_days_before)
 
-                        # 获取当日涨跌幅
-                        day_in_yyyymmdd = date_mapping.get(formatted_day)
-                        if day_in_yyyymmdd:
-                            pct_change = get_stock_daily_pct_change(stock_code, day_in_yyyymmdd, stock_name)
-                            if pct_change is not None:
-                                cell.value = f"{pct_change:.2f}%"
-                                # 设置背景色 - 根据涨跌幅
-                                color = get_color_for_pct_change(pct_change)
-                                if color:
-                                    cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-                            else:
-                                cell.value = "停牌"
-                    # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
-                    elif max_tracking_days_before > 0:
-                        # 计算当前日期与首次显著连板日期的交易日天数差
-                        days_before_entry = count_trading_days_between(current_date_obj,
-                                                                       stock['first_significant_date'])
 
-                        # 如果在入选前跟踪天数范围内，显示涨跌幅
-                        if 1 <= days_before_entry <= max_tracking_days_before:
-                            day_in_yyyymmdd = date_mapping.get(formatted_day)
-                            if day_in_yyyymmdd:
-                                pct_change = get_stock_daily_pct_change(stock_code, day_in_yyyymmdd, stock_name)
-                                if pct_change is not None:
-                                    cell.value = f"{pct_change:.2f}%"
-                                    # 设置背景色 - 根据涨跌幅
-                                    color = get_color_for_pct_change(pct_change)
-                                    if color:
-                                        cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-                                else:
-                                    cell.value = "停牌"
-                except Exception as e:
-                    print(f"处理日期时出错: {e}, 日期: {formatted_day}")
-
-            # 设置单元格格式
-            cell.alignment = Alignment(horizontal='center')
-            cell.border = BORDER_STYLE
-
+def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change):
+    """
+    调整列宽
+    
+    Args:
+        ws: Excel工作表
+        formatted_trading_days: 格式化的交易日列表
+        date_column_start: 日期列开始位置
+        show_period_change: 是否显示周期涨跌幅
+    """
     # 调整列宽
     ws.column_dimensions['A'].width = 8  # 股票代码列宽度设置窄一些
     ws.column_dimensions['B'].width = 20
@@ -1525,163 +2320,20 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
 
-    # 冻结前三列和前三行
-    ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
-    # 创建统计原因的计数器
-    reason_counter = Counter(all_concepts)
-
-    # 创建图例工作表
-    create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, HIGH_BOARD_COLORS, REENTRY_COLORS)
-
-    # 保存Excel文件
-    try:
-        output_dir = os.path.dirname(output_file)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        wb.save(output_file)
-        print(f"梯队形态涨停复盘图已生成: {output_file}")
-        return True
-    except Exception as e:
-        print(f"保存Excel文件时出错: {e}")
-        return False
-
-
-def load_attention_data(start_date, end_date, is_main_board=True):
+def save_excel_file(wb, output_file):
     """
-    从Excel中加载关注度榜数据
+    保存Excel文件
     
     Args:
-        start_date: 开始日期 (YYYYMMDD)
-        end_date: 结束日期 (YYYYMMDD)
-        is_main_board: 是否为主板数据，默认为True
-        
-    Returns:
-        pandas.DataFrame: 处理后的关注度榜数据
+        wb: Excel工作簿
+        output_file: 输出文件路径
     """
-    try:
-        # 读取关注度榜sheet
-        sheet_name = '关注度榜' if is_main_board else '非主关注度榜'
-        try:
-            df = pd.read_excel(FUPAN_FILE, sheet_name=sheet_name)
-            print(f"成功读取{sheet_name}sheet，共有{len(df)}行，{len(df.columns)}")
-        except Exception as e:
-            print(f"读取{sheet_name}sheet失败: {e}")
-            return pd.DataFrame()
-
-        # 将日期列转换为datetime格式
-        date_columns = []
-
-        # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
-        for col in df.columns:
-            if isinstance(col, str):
-                if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
-                    date_columns.append(col)
-                elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
-                    date_columns.append(col)
-
-        if not date_columns:
-            print(f"{sheet_name}中未找到有效的日期列")
-            print("当前列名: ", list(df.columns))
-            return pd.DataFrame()
-
-        # 打印列名和索引信息，帮助调试
-        print(f"{sheet_name}的列名: {list(df.columns)}")
-        print(f"{sheet_name}的索引: {list(df.index)[:10]}...")
-
-        # 过滤日期范围
-        filtered_date_columns = []
-        for col in date_columns:
-            # 将两种格式的日期都转换为datetime
-            if '年' in col:
-                # 中文格式: YYYY年MM月DD日
-                date_parts = re.findall(r'\d+', col)
-                if len(date_parts) == 3:
-                    date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
-                else:
-                    continue
-            else:
-                # 标准格式: YYYY/MM/DD
-                date_obj = pd.to_datetime(col)
-
-            date_str = date_obj.strftime('%Y%m%d')
-            if date_str >= start_date and (end_date is None or date_str <= end_date):
-                filtered_date_columns.append(col)
-
-        if not filtered_date_columns:
-            print(f"{sheet_name}中未找到{start_date}到{end_date}范围内的数据")
-            return pd.DataFrame()
-
-        # 打印第一个日期列的前几条数据，帮助了解数据格式
-        if filtered_date_columns:
-            first_date_col = filtered_date_columns[0]
-            print(f"\n{sheet_name}中{first_date_col}列的前5条数据:")
-            for i, (idx, value) in enumerate(df[first_date_col].items()):
-                if i >= 5:
-                    break
-                if pd.notna(value):
-                    print(f"  {idx}: {value}")
-                    # 打印分割后的每个部分
-                    parts = str(value).split(';')
-                    print(f"    分割后的部分({len(parts)}个): {parts}")
-
-        # 创建一个新的DataFrame来存储处理后的数据
-        processed_data = []
-
-        # 遍历每个日期列，提取股票信息
-        for date_col in filtered_date_columns:
-            date_obj = datetime.strptime(date_col, '%Y年%m月%d日') if '年' in date_col else pd.to_datetime(date_col)
-            date_str = date_obj.strftime('%Y%m%d')
-
-            # 遍历该日期列中的每个单元格
-            for idx, cell_value in df[date_col].items():
-                if pd.isna(cell_value):
-                    continue
-
-                # 解析单元格内容，格式是通过分号连接的字符串
-                cell_text = str(cell_value)
-                parts = cell_text.split(';')
-
-                # 确保至少有6个元素（股票代码、股票名称、最新价、最新涨跌幅、个股热度、个股热度排名）
-                if len(parts) >= 6:
-                    stock_code = parts[0].strip()
-                    stock_name = parts[1].strip()
-                    
-                    # 尝试提取热度排名（第6个元素）
-                    try:
-                        # 热度排名可能包含数字和其他字符，需要提取数字部分
-                        rank_str = parts[5].strip()
-                        # 提取数字部分
-                        rank_match = re.search(r'\d+', rank_str)
-                        if rank_match:
-                            rank = int(rank_match.group())
-                        else:
-                            continue  # 如果无法提取数字，跳过此条记录
-                    except (IndexError, ValueError):
-                        continue  # 如果提取失败，跳过此条记录
-                    
-                    processed_data.append({
-                        '股票代码': stock_code,
-                        '股票名称': stock_name,
-                        '日期': date_col,
-                        '热度排名': rank
-                    })
-
-        # 转换为DataFrame
-        result_df = pd.DataFrame(processed_data)
-
-        if result_df.empty:
-            print(f"未能从{sheet_name}中提取有效的数据")
-            return pd.DataFrame()
-
-        print(f"处理后的{sheet_name}数据: {len(result_df)}行")
-        return result_df
-
-    except Exception as e:
-        print(f"加载{sheet_name}数据时出错: {e}")
-        import traceback
-        traceback.print_exc()
-        return pd.DataFrame()
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    wb.save(output_file)
+    print(f"梯队形态涨停复盘图已生成: {output_file}")
 
 
 if __name__ == "__main__":
@@ -1716,20 +2368,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # 验证日期格式
-    if not (args.start_date.isdigit() and len(args.start_date) == 8):
-        print("错误: 开始日期格式应为YYYYMMDD")
-        exit(1)
-
-    if not (args.end_date.isdigit() and len(args.end_date) == 8):
-        print("错误: 结束日期格式应为YYYYMMDD")
-        exit(1)
-
     # 处理max_tracking参数
     max_tracking = None if args.max_tracking == -1 else args.max_tracking
-    
+
     # 处理优先原因列表
-    priority_reasons = [reason.strip() for reason in args.priority_reasons.split(',')] if args.priority_reasons else None
+    priority_reasons = [reason.strip() for reason in
+                        args.priority_reasons.split(',')] if args.priority_reasons else None
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
