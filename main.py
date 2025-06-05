@@ -53,7 +53,7 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250509', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250512', save_path='./data/astocks',
                                     max_workers=2)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -147,7 +147,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250509"
+    start_date = "20250512"
     # end_date = '20250512'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -252,7 +252,6 @@ def generate_ladder_chart():
     
     # 定义优先原因列表
     priority_reasons = [
-        "新消费",
         "创新药"
     ]
     
