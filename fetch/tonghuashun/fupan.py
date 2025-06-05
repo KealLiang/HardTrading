@@ -295,7 +295,8 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         '炸板数据': get_zaban_stocks,
         '首板数据': get_shouban_stocks,
         '反包数据': get_fanbao_stocks,
-        '关注度榜': get_top_attention_stocks
+        '关注度榜': get_top_attention_stocks,
+        '非主关注度榜': get_top_attention_stocks  # 添加对非主关注度榜的支持
     }
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
@@ -344,6 +345,11 @@ def all_fupan(start_date=None, end_date=None, types='all'):
         for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
             print(f"--- Starting fupan type: {fupan_type} ---")
             daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file)
+    
+    # 特殊处理：将非主板关注度榜数据也保存到fupan_stocks.xlsx中
+    if 'all' in types and 'else' in types:
+        print("\n--- 特殊处理：将非主板关注度榜数据保存到fupan_stocks.xlsx ---")
+        daily_fupan('非主关注度榜', start_date, end_date, "，非主板", "./excel/fupan_stocks.xlsx")
 
 
 if __name__ == "__main__":

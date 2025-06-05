@@ -262,11 +262,11 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # get_stock_datas()
-    # fetch_ths_fupan()
+    fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # update_synonym_groups()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
