@@ -590,7 +590,8 @@ def load_shouban_data(start_date, end_date):
 
 
 def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
-                                     reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1):
+                                     reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1,
+                                     enable_attention_criteria=False, attention_data_main=None, attention_data_non_main=None):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
     
@@ -600,6 +601,9 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         min_board_level: 主板股票最小显著连板天数，默认为2
         reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到入选条件会作为新记录
         non_main_board_level: 非主板股票最小显著连板天数，默认为1
+        enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
+        attention_data_main: 主板关注度榜数据，当enable_attention_criteria=True时需要提供
+        attention_data_non_main: 非主板关注度榜数据，当enable_attention_criteria=True时需要提供
         
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
@@ -714,16 +718,72 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
             # 判断是否为显著连板
             is_significant = False
+            entry_type = 'normal'  # 默认入选类型
 
             # 根据市场类型和对应的最小显著连板天数判断
             if market == 'main':
                 # 主板股票需要达到min_board_level才算显著连板
                 if board_days and board_days >= min_board_level:
                     is_significant = True
+                # 检查关注度榜入选条件
+                elif enable_attention_criteria and board_days and board_days == get_loose_board_level(min_board_level):
+                    # 检查该股票是否在主板关注度榜中出现两次
+                    if attention_data_main is not None and not attention_data_main.empty:
+                        # 获取当前日期
+                        current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
+                        
+                        # 过滤出当前股票的关注度数据
+                        # 注意：stock_code可能包含市场前缀，需要处理
+                        clean_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+                        stock_attention = attention_data_main[attention_data_main['股票代码'].str.contains(clean_stock_code)]
+                        
+                        if not stock_attention.empty:
+                            # 计算每个关注度日期与当前日期的交易日差
+                            attention_dates = []
+                            for _, att_row in stock_attention.iterrows():
+                                att_date_str = att_row['日期']
+                                att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(att_date_str)
+                                days_diff = count_trading_days_between(current_date, att_date)
+                                if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
+                                    attention_dates.append(att_date)
+                            
+                            # 如果在5个交易日内出现了至少两次，则认为符合条件
+                            if len(attention_dates) >= 2:
+                                print(f"    主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(min_board_level)}板后5天内两次入选关注度榜前20，符合额外入选条件")
+                                is_significant = True
+                                entry_type = 'attention'
             elif market in ['gem', 'star', 'bse']:
                 # 非主板股票需要达到non_main_board_level才算显著连板
                 if board_days and board_days >= non_main_board_level:
                     is_significant = True
+                # 检查关注度榜入选条件
+                elif enable_attention_criteria and board_days and board_days == get_loose_board_level(
+                        non_main_board_level):
+                    # 检查该股票是否在非主板关注度榜中出现两次
+                    if attention_data_non_main is not None and not attention_data_non_main.empty:
+                        # 获取当前日期
+                        current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
+                        
+                        # 过滤出当前股票的关注度数据
+                        # 注意：stock_code可能包含市场前缀，需要处理
+                        clean_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+                        stock_attention = attention_data_non_main[attention_data_non_main['股票代码'].str.contains(clean_stock_code)]
+                        
+                        if not stock_attention.empty:
+                            # 计算每个关注度日期与当前日期的交易日差
+                            attention_dates = []
+                            for _, att_row in stock_attention.iterrows():
+                                att_date_str = att_row['日期']
+                                att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(att_date_str)
+                                days_diff = count_trading_days_between(current_date, att_date)
+                                if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
+                                    attention_dates.append(att_date)
+                            
+                            # 如果在5个交易日内出现了至少两次，则认为符合条件
+                            if len(attention_dates) >= 2:
+                                print(f"    非主板股票 {stock_code} 在(board_level-1)={get_loose_board_level(non_main_board_level)}板后5天内两次入选关注度榜前20，符合额外入选条件")
+                                is_significant = True
+                                entry_type = 'attention'
             else:
                 # 其他情况，使用主板标准
                 if board_days and board_days >= min_board_level:
@@ -797,8 +857,10 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                         'board_level_at_first': board_days,
                         'all_board_data': all_board_data,
                         'concept': stock_data['concept'],
-                        'entry_type': 'reentry' if len(significant_board_dates) > 1 else (
-                            'non_main_first_board' if market in ['gem', 'star', 'bse'] and board_days == 1 else 'first'
+                        'entry_type': entry_type if entry_type == 'attention' else (
+                            'reentry' if len(significant_board_dates) > 1 else (
+                                'non_main_first_board' if market in ['gem', 'star', 'bse'] and board_days == 1 else 'first'
+                            )
                         )
                     }
 
@@ -822,6 +884,13 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
     )
 
     return result_df
+
+
+def get_loose_board_level(board_level):
+    """
+    获取宽松的连板数
+    """
+    return 1 if board_level == 1 else board_level - 1
 
 
 def get_concept_from_board_text(board_text):
@@ -998,13 +1067,14 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
-                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE, priority_reasons=None):
+                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE, priority_reasons=None,
+                       enable_attention_criteria=False):
     """
     构建梯队形态的涨停复盘图
     
     Args:
         start_date: 开始日期 (YYYYMMDD)
-        end_date: 结束日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)，如果为None则使用当前日期
         output_file: 输出文件路径
         min_board_level: 主板股票最小显著连板天数，默认为2
         max_tracking_days: 断板后跟踪的最大天数，默认取全局配置
@@ -1014,9 +1084,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         period_days: 计算入选日与之前X个交易日的涨跌幅，默认取全局配置
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
         priority_reasons: 优先选择的原因列表，默认为None
+        enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
+        print(f"未指定结束日期，使用当前日期: {end_date}")
 
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
@@ -1055,6 +1127,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 加载首板数据
     shouban_df = load_shouban_data(start_date, end_date)
     print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
+    
+    # 如果启用关注度榜入选条件，加载关注度榜数据
+    attention_data_main = None
+    attention_data_non_main = None
+    if enable_attention_criteria:
+        print("启用关注度榜入选条件，加载关注度榜数据...")
+        attention_data_main = load_attention_data(start_date, end_date, is_main_board=True)
+        attention_data_non_main = load_attention_data(start_date, end_date, is_main_board=False)
+        
+        if attention_data_main.empty and attention_data_non_main.empty:
+            print("警告：未能加载任何关注度榜数据，关注度榜入选条件将不生效")
+        else:
+            print(f"成功加载关注度榜数据：主板 {len(attention_data_main)}条，非主板 {len(attention_data_non_main)}条")
 
     # 调试输出连板数据
     print("\n检查连板数据：")
@@ -1066,8 +1151,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                     print(f"  {col}: {row[col]}")
 
     # 识别每只股票首次达到显著连板的日期，以及断板后再次达到的情况
-    result_df = identify_first_significant_board(lianban_df, shouban_df, min_board_level, reentry_days,
-                                                 non_main_board_level)
+    result_df = identify_first_significant_board(
+        lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
+        enable_attention_criteria, attention_data_main, attention_data_non_main
+    )
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
@@ -1172,8 +1259,6 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             stock_entry_count[pure_code] += 1
         else:
             stock_entry_count[pure_code] = 1
-
-    print(f"共有{len(lianban_stock_codes)}只股票已入选连板梯队")
 
     # 填充数据行
     for i, (_, stock) in enumerate(result_df.iterrows()):
@@ -1462,6 +1547,143 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         return False
 
 
+def load_attention_data(start_date, end_date, is_main_board=True):
+    """
+    从Excel中加载关注度榜数据
+    
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+        is_main_board: 是否为主板数据，默认为True
+        
+    Returns:
+        pandas.DataFrame: 处理后的关注度榜数据
+    """
+    try:
+        # 读取关注度榜sheet
+        sheet_name = '关注度榜' if is_main_board else '非主关注度榜'
+        try:
+            df = pd.read_excel(FUPAN_FILE, sheet_name=sheet_name)
+            print(f"成功读取{sheet_name}sheet，共有{len(df)}行，{len(df.columns)}")
+        except Exception as e:
+            print(f"读取{sheet_name}sheet失败: {e}")
+            return pd.DataFrame()
+
+        # 将日期列转换为datetime格式
+        date_columns = []
+
+        # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
+        for col in df.columns:
+            if isinstance(col, str):
+                if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
+                    date_columns.append(col)
+                elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
+                    date_columns.append(col)
+
+        if not date_columns:
+            print(f"{sheet_name}中未找到有效的日期列")
+            print("当前列名: ", list(df.columns))
+            return pd.DataFrame()
+
+        # 打印列名和索引信息，帮助调试
+        print(f"{sheet_name}的列名: {list(df.columns)}")
+        print(f"{sheet_name}的索引: {list(df.index)[:10]}...")
+
+        # 过滤日期范围
+        filtered_date_columns = []
+        for col in date_columns:
+            # 将两种格式的日期都转换为datetime
+            if '年' in col:
+                # 中文格式: YYYY年MM月DD日
+                date_parts = re.findall(r'\d+', col)
+                if len(date_parts) == 3:
+                    date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
+                else:
+                    continue
+            else:
+                # 标准格式: YYYY/MM/DD
+                date_obj = pd.to_datetime(col)
+
+            date_str = date_obj.strftime('%Y%m%d')
+            if date_str >= start_date and (end_date is None or date_str <= end_date):
+                filtered_date_columns.append(col)
+
+        if not filtered_date_columns:
+            print(f"{sheet_name}中未找到{start_date}到{end_date}范围内的数据")
+            return pd.DataFrame()
+
+        # 打印第一个日期列的前几条数据，帮助了解数据格式
+        if filtered_date_columns:
+            first_date_col = filtered_date_columns[0]
+            print(f"\n{sheet_name}中{first_date_col}列的前5条数据:")
+            for i, (idx, value) in enumerate(df[first_date_col].items()):
+                if i >= 5:
+                    break
+                if pd.notna(value):
+                    print(f"  {idx}: {value}")
+                    # 打印分割后的每个部分
+                    parts = str(value).split(';')
+                    print(f"    分割后的部分({len(parts)}个): {parts}")
+
+        # 创建一个新的DataFrame来存储处理后的数据
+        processed_data = []
+
+        # 遍历每个日期列，提取股票信息
+        for date_col in filtered_date_columns:
+            date_obj = datetime.strptime(date_col, '%Y年%m月%d日') if '年' in date_col else pd.to_datetime(date_col)
+            date_str = date_obj.strftime('%Y%m%d')
+
+            # 遍历该日期列中的每个单元格
+            for idx, cell_value in df[date_col].items():
+                if pd.isna(cell_value):
+                    continue
+
+                # 解析单元格内容，格式是通过分号连接的字符串
+                cell_text = str(cell_value)
+                parts = cell_text.split(';')
+
+                # 确保至少有6个元素（股票代码、股票名称、最新价、最新涨跌幅、个股热度、个股热度排名）
+                if len(parts) >= 6:
+                    stock_code = parts[0].strip()
+                    stock_name = parts[1].strip()
+                    
+                    # 尝试提取热度排名（第6个元素）
+                    try:
+                        # 热度排名可能包含数字和其他字符，需要提取数字部分
+                        rank_str = parts[5].strip()
+                        # 提取数字部分
+                        rank_match = re.search(r'\d+', rank_str)
+                        if rank_match:
+                            rank = int(rank_match.group())
+                        else:
+                            continue  # 如果无法提取数字，跳过此条记录
+                    except (IndexError, ValueError):
+                        continue  # 如果提取失败，跳过此条记录
+                    
+                    processed_data.append({
+                        '股票代码': stock_code,
+                        '股票名称': stock_name,
+                        '日期': date_col,
+                        '热度排名': rank
+                    })
+
+        # 转换为DataFrame
+        result_df = pd.DataFrame(processed_data)
+
+        if result_df.empty:
+            print(f"未能从{sheet_name}中提取有效的数据")
+            return pd.DataFrame()
+
+        print(f"处理后的{sheet_name}数据: {len(result_df)}行")
+        return result_df
+
+    except Exception as e:
+        print(f"加载{sheet_name}数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -1489,6 +1711,8 @@ if __name__ == "__main__":
                         help='是否显示周期涨跌幅列 (默认: 不显示)')
     parser.add_argument('--priority_reasons', type=str, default="",
                         help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
+    parser.add_argument('--enable_attention_criteria', action='store_true',
+                        help='是否启用关注度榜入选条件：(board_level-1)连板后5天内两次入选关注度榜前20 (默认: 不启用)')
 
     args = parser.parse_args()
 
@@ -1511,4 +1735,4 @@ if __name__ == "__main__":
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.non_main_board,
                        args.max_tracking_before, args.period_days, args.show_period_change,
-                       priority_reasons=priority_reasons)
+                       priority_reasons=priority_reasons, enable_attention_criteria=args.enable_attention_criteria)
