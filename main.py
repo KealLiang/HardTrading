@@ -245,8 +245,8 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = "20250401"  # 调整为Excel中有数据的日期范围
-    end_date = None
+    start_date = '20250401'  # 调整为Excel中有数据的日期范围
+    end_date = '20250605'
     min_board_level = 3
     non_main_board_level = 2
     
