@@ -8,5 +8,7 @@
 /data/indexes/
 /data/long/
 __pycache__/
+.idea/
+env/
 images/
 local.ini
