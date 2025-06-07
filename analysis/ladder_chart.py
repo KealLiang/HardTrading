@@ -2,6 +2,7 @@ import os
 import re
 from collections import Counter
 from datetime import datetime
+from functools import lru_cache
 
 import pandas as pd
 from openpyxl import Workbook
@@ -43,6 +44,12 @@ SHOW_PERIOD_CHANGE = False
 # 例如设置为20，会计算入选日与20个交易日之前的涨跌幅
 PERIOD_DAYS_CHANGE = 10
 
+# 成交量分析相关参数
+# 计算成交量比的天数，当天成交量与前X天平均成交量的比值
+VOLUME_DAYS = 4
+# 成交量比阈值，超过该值则在单元格中显示成交量比
+VOLUME_RATIO_THRESHOLD = 2.5
+
 # 股票数据保存路径
 STOCK_DATA_PATH = "./data/astocks/"
 
@@ -72,6 +79,10 @@ PERIOD_CHANGE_CACHE = {}
 
 # 股票文件路径缓存
 STOCK_FILE_PATH_CACHE = {}
+
+# 股票数据缓存，避免重复读取文件
+# 格式: {stock_code_date: DataFrame}
+STOCK_DATA_CACHE = {}
 
 
 def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
@@ -135,6 +146,56 @@ def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
     return file_path
 
 
+@lru_cache(maxsize=1000)
+def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
+    """
+    获取指定股票在特定日期的数据，使用缓存避免重复读取文件
+    
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
+        stock_name: 股票名称，用于构建文件名
+        save_path: 股票数据存储路径
+    
+    Returns:
+        tuple: (DataFrame, 目标行, 目标索引) 如果数据不存在则返回(None, None, None)
+    """
+    try:
+        if not stock_code:
+            return None, None, None
+
+        # 目标日期（YYYY-MM-DD格式）
+        target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
+
+        # 获取股票数据文件路径
+        file_path = get_stock_file_path(stock_code, stock_name, save_path)
+
+        # 如果没有找到文件
+        if not file_path:
+            return None, None, None
+
+        # 读取CSV文件
+        df = pd.read_csv(file_path, header=None,
+                         names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+                                '振幅', '涨跌幅', '涨跌额', '换手率'])
+
+        # 查找目标日期的数据
+        target_row = df[df['日期'] == target_date]
+
+        # 如果找到数据
+        if not target_row.empty:
+            # 获取目标日期的索引
+            target_idx = df[df['日期'] == target_date].index[0]
+            return df, target_row, target_idx
+
+        # 如果没有找到对应日期的数据
+        return df, None, None
+
+    except Exception as e:
+        print(f"获取股票 {stock_code} ({stock_name}) 在 {date_str_yyyymmdd} 的数据时出错: {e}")
+        return None, None, None
+
+
 def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
     """
     获取指定股票在特定日期的涨跌幅
@@ -148,38 +209,78 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
     """
+    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd, stock_name, save_path)
+
+    if target_row is not None and not target_row.empty:
+        return target_row['涨跌幅'].values[0]
+
+    return None
+
+
+def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
+    """
+    获取指定股票在特定日期的成交量比(当天成交量/前N天平均成交量)
+
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
+        stock_name: 股票名称，用于构建文件名
+        save_path: 股票数据存储路径
+
+    Returns:
+        tuple: (成交量比, 是否超过阈值) 如果数据不存在则返回(None, False)
+    """
+    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd, stock_name, save_path)
+
+    if df is None or target_row is None or target_row.empty:
+        return None, False
+
     try:
-        if not stock_code:
-            return None
+        # 获取当天成交量
+        current_volume = target_row['成交量'].values[0]
 
-        # 目标日期（YYYY-MM-DD格式）
-        target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
+        # 确保有足够的历史数据来计算平均成交量
+        if target_idx >= VOLUME_DAYS:
+            # 获取前VOLUME_DAYS天的数据
+            prev_volumes = df.iloc[target_idx - VOLUME_DAYS:target_idx]['成交量'].values
 
-        # 获取股票数据文件路径
-        file_path = get_stock_file_path(stock_code, stock_name, save_path)
+            # 计算平均成交量
+            avg_volume = prev_volumes.mean()
 
-        # 如果没有找到文件
-        if not file_path:
-            return None
+            # 计算成交量比
+            if avg_volume > 0:
+                volume_ratio = current_volume / avg_volume
 
-        # 读取CSV文件
-        df = pd.read_csv(file_path, header=None,
-                         names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
-                                '振幅', '涨跌幅', '涨跌额', '换手率'])
+                # 判断是否超过阈值
+                is_high_volume = volume_ratio >= VOLUME_RATIO_THRESHOLD
 
-        # 查找目标日期的数据
-        target_row = df[df['日期'] == target_date]
-
-        # 如果找到数据，返回涨跌幅
-        if not target_row.empty:
-            return target_row['涨跌幅'].values[0]
-
-        # 如果没有找到对应日期的数据，可能是停牌或者数据不完整
-        return None
+                return volume_ratio, is_high_volume
 
     except Exception as e:
-        print(f"获取股票 {stock_code} ({stock_name}) 在 {date_str_yyyymmdd} 的涨跌幅时出错: {e}")
-        return None
+        print(f"计算股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量比时出错: {e}")
+
+    return None, False
+
+
+def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=None):
+    """
+    根据成交量比向文本添加成交量信息
+
+    Args:
+        text: 原始文本
+        stock_code: 股票代码
+        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
+        stock_name: 股票名称
+
+    Returns:
+        str: 添加成交量信息后的文本
+    """
+    volume_ratio, is_high_volume = get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name)
+
+    if is_high_volume and volume_ratio is not None:
+        return f"{text}[{volume_ratio:.1f}]"
+
+    return text
 
 
 def get_loose_board_level(board_level):
@@ -1033,6 +1134,12 @@ def format_board_cell(ws, row, col, board_days, pure_stock_code, stock_detail_ke
     else:
         board_text = f"{int(board_days)}板"
 
+    # 获取当前日期的YYYYMMDD格式
+    date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
+
+    # 添加成交量比信息
+    board_text = add_volume_ratio_to_text(board_text, pure_stock_code, date_yyyymmdd)
+
     cell.value = board_text
     # 设置连板颜色
     board_level = int(board_days)
@@ -1075,7 +1182,15 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
     # 获取市场标记
     market_marker = get_market_marker(pure_stock_code)
     # 显示为"首板"并使用特殊颜色
-    cell.value = f"首板{market_marker}"
+    board_text = f"首板{market_marker}"
+
+    # 获取当前日期的YYYYMMDD格式
+    date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
+
+    # 添加成交量比信息
+    board_text = add_volume_ratio_to_text(board_text, pure_stock_code, date_yyyymmdd)
+
+    cell.value = board_text
     cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
     # 文字颜色设为白色以增强可读性
     cell.font = Font(color="FFFFFF", bold=True)
@@ -1088,7 +1203,7 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
     return cell, last_board_date
 
 
-def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, stock_name, formatted_day, date_mapping):
+def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, stock_name):
     """
     格式化日涨跌幅单元格
     
@@ -1099,26 +1214,30 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, sto
         current_date_obj: 当前日期对象
         stock_code: 股票代码
         stock_name: 股票名称
-        formatted_day: 格式化的日期
-        date_mapping: 日期映射
-        
+
     Returns:
         单元格对象
     """
     cell = ws.cell(row=row, column=col)
 
     # 获取当日涨跌幅
-    day_in_yyyymmdd = date_mapping.get(formatted_day)
-    if day_in_yyyymmdd:
-        pct_change = get_stock_daily_pct_change(stock_code, day_in_yyyymmdd, stock_name)
-        if pct_change is not None:
-            cell.value = f"{pct_change:.2f}%"
-            # 设置背景色 - 根据涨跌幅
-            color = get_color_for_pct_change(pct_change)
-            if color:
-                cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-        else:
-            cell.value = "停牌"
+    date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
+    pct_change = get_stock_daily_pct_change(stock_code, date_yyyymmdd, stock_name)
+    if pct_change is not None:
+        # 基本涨跌幅显示
+        cell_value = f"{pct_change:.2f}%"
+
+        # 添加成交量比信息
+        cell_value = add_volume_ratio_to_text(cell_value, stock_code, date_yyyymmdd, stock_name)
+
+        cell.value = cell_value
+
+        # 设置背景色 - 根据涨跌幅
+        color = get_color_for_pct_change(pct_change)
+        if color:
+            cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+    else:
+        cell.value = "停牌"
 
     # 设置单元格格式
     cell.alignment = Alignment(horizontal='center')
@@ -1174,13 +1293,11 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
                 # 处理断板后的跟踪
                 if should_track_after_break(stock, current_date_obj, max_tracking_days):
                     format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
-                                                 stock['stock_code'], stock['stock_name'],
-                                                 formatted_day, date_mapping)
+                                                 stock['stock_code'], stock['stock_name'])
             # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
             elif should_track_before_entry(current_date_obj, stock['first_significant_date'], max_tracking_days_before):
                 format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
-                                             stock['stock_code'], stock['stock_name'],
-                                             formatted_day, date_mapping)
+                                             stock['stock_code'], stock['stock_name'])
         except Exception as e:
             print(f"处理日期时出错: {e}, 日期: {formatted_day}")
 
@@ -1331,6 +1448,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         priority_reasons: 优先选择的原因列表，默认为None
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
     """
+    # 清除缓存
+    get_stock_data.cache_clear()
+
     # 设置结束日期，如果未指定则使用当前日期
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -1801,6 +1921,10 @@ if __name__ == "__main__":
                         help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
     parser.add_argument('--enable_attention_criteria', action='store_true',
                         help='是否启用关注度榜入选条件：(board_level-1)连板后5天内两次入选关注度榜前20 (默认: 不启用)')
+    parser.add_argument('--volume_days', type=int, default=VOLUME_DAYS,
+                        help=f'计算成交量比的天数，当天成交量与前X天平均成交量的比值 (默认: {VOLUME_DAYS})')
+    parser.add_argument('--volume_ratio', type=float, default=VOLUME_RATIO_THRESHOLD,
+                        help=f'成交量比阈值，超过该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_THRESHOLD})')
 
     args = parser.parse_args()
 
@@ -1810,6 +1934,10 @@ if __name__ == "__main__":
     # 处理优先原因列表
     priority_reasons = [reason.strip() for reason in
                         args.priority_reasons.split(',')] if args.priority_reasons else None
+
+    # 更新全局成交量参数
+    VOLUME_DAYS = args.volume_days
+    VOLUME_RATIO_THRESHOLD = args.volume_ratio
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
