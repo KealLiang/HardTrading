@@ -14,6 +14,7 @@ import winsound
 from decorators.practical import timer
 from utils.date_util import get_trading_days, format_date
 from utils.stock_util import convert_stock_code
+from utils.captcha_solver import solve_captcha  # 导入验证码解决函数
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -153,7 +154,7 @@ class StockDataFetcher:
 
     def _handle_verification_needed(self, message):
         """
-        处理需要验证的情况：暂停所有线程，发出声音提醒，等待用户处理
+        处理需要验证的情况：暂停所有线程，尝试自动完成验证，如果失败则等待用户处理
         """
         # 设置暂停标志，所有线程将在检查点等待
         self.pause_flag.clear()
@@ -176,9 +177,23 @@ class StockDataFetcher:
                 pass  # 如果提取失败，使用默认代码
 
         verification_url = f"https://quote.eastmoney.com/concept/{verification_code}.html?from=classic"
-        logging.warning(f"请打开浏览器访问东方财富网: {verification_url} 完成验证操作")
-
-        self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
+        logging.info(f"正在尝试自动解决验证码: {verification_url}")
+        
+        # 尝试自动解决验证码
+        auto_success = False
+        try:
+            auto_success = solve_captcha(verification_url, max_retry=3, headless=False)
+            if auto_success:
+                logging.info("自动验证成功!")
+            else:
+                logging.warning("自动验证失败，需要手动验证")
+        except Exception as e:
+            logging.error(f"自动验证过程中出错: {str(e)}")
+        
+        # 如果自动验证失败，回退到手动验证
+        if not auto_success:
+            logging.warning(f"请打开浏览器访问东方财富网: {verification_url} 完成验证操作")
+            self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
 
         # 恢复运行
         self.pause_flag.set()
