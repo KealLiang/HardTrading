@@ -255,6 +255,30 @@ class SimpleCaptchaSolver:
             # 等待验证码加载
             time.sleep(2)
             
+            # 使用确切的CSS选择器查找滑块元素
+            try:
+                # 查找滑块 - 使用提供的确切CSS选择器
+                slider = self.driver.find_element(By.CSS_SELECTOR, ".em_slider_knob.em_show")
+                if slider and slider.is_displayed():
+                    logging.info("找到滑块元素: .em_slider_knob.em_show")
+                    
+                    # 先点击滑块激活验证码
+                    logging.info("点击滑块激活验证码...")
+                    ActionChains(self.driver).move_to_element(slider).click().perform()
+                    time.sleep(2)  # 等待验证码图片加载
+            except Exception as e:
+                logging.warning(f"尝试点击滑块时出错: {str(e)}")
+                
+                # 尝试查找刷新按钮并点击，可能会重新加载验证码
+                try:
+                    refresh_btn = self.driver.find_element(By.CSS_SELECTOR, ".em_refresh_button")
+                    if refresh_btn and refresh_btn.is_displayed():
+                        logging.info("找到刷新按钮并点击")
+                        refresh_btn.click()
+                        time.sleep(2)  # 等待验证码重新加载
+                except Exception as e2:
+                    logging.warning(f"查找刷新按钮时出错: {str(e2)}")
+            
             # 截取整个页面
             screenshot = self.driver.get_screenshot_as_png()
             img = Image.open(io.BytesIO(screenshot))
@@ -282,87 +306,58 @@ class SimpleCaptchaSolver:
                 logging.warning(f"ddddocr检测失败: {str(e)}，使用估算距离")
                 distance = img.width * 0.3
             
-            # 查找滑块元素并执行滑动
-            return self._find_and_slide(distance)
+            # 再次查找滑块并执行滑动
+            return self._perform_slide_with_exact_selectors(distance)
             
         except Exception as e:
             logging.error(f"在当前框架中解决验证码时出错: {str(e)}")
             return False
     
-    def _find_and_slide(self, distance):
+    def _perform_slide_with_exact_selectors(self, distance):
         """
-        查找滑块并执行滑动
+        使用确切的CSS选择器查找滑块并执行滑动
         """
         try:
-            # 简化的滑块选择器
-            slider_selectors = [
-                "[class*='slider']",
-                "[class*='slide']", 
-                "[class*='btn']",
-                "[class*='button']",
-                "[draggable='true']",
-                "div[style*='cursor']"
-            ]
-            
+            # 查找滑块元素，使用确切的CSS选择器
             slider = None
-            for selector in slider_selectors:
-                try:
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for element in elements:
-                        # 检查元素是否可见且可交互
-                        if element.is_displayed() and element.is_enabled():
-                            # 检查元素大小，滑块通常有一定的尺寸
-                            size = element.size
-                            if size['width'] > 10 and size['height'] > 10:
+            
+            try:
+                # 首先尝试使用东方财富网特定的CSS选择器
+                slider = self.driver.find_element(By.CSS_SELECTOR, ".em_slider_knob.em_show")
+                if slider and slider.is_displayed():
+                    logging.info("找到滑块元素: .em_slider_knob.em_show")
+            except:
+                # 如果无法找到，尝试其他选择器
+                logging.warning("无法找到准确的滑块元素，尝试其他选择器")
+                slider_selectors = [
+                    ".em_slider_knob",
+                    "[class*='slider_knob']",
+                    "[class*='slider']",
+                    "[class*='slide']"
+                ]
+                
+                for selector in slider_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                        for element in elements:
+                            if element.is_displayed() and element.is_enabled():
                                 slider = element
                                 logging.info(f"找到滑块元素: {selector}")
                                 break
-                    if slider:
-                        break
-                except:
-                    continue
+                        if slider:
+                            break
+                    except:
+                        continue
             
             if not slider:
-                logging.warning("未找到滑块元素，尝试在页面中心执行滑动")
-                # 如果找不到滑块，尝试在页面中心执行滑动
-                return self._slide_at_center(distance)
+                logging.warning("未找到滑块元素，无法执行滑动")
+                return False
             
             # 执行滑动
             return self._perform_slide(slider, distance)
             
         except Exception as e:
-            logging.error(f"查找和滑动时出错: {str(e)}")
-            return False
-    
-    def _slide_at_center(self, distance):
-        """
-        在页面中心执行滑动（当找不到滑块元素时的备选方案）
-        """
-        try:
-            # 获取页面尺寸
-            window_size = self.driver.get_window_size()
-            center_x = window_size['width'] // 2
-            center_y = window_size['height'] // 2
-            
-            # 在中心位置执行滑动
-            action = ActionChains(self.driver)
-            action.move_by_offset(center_x, center_y)
-            action.click_and_hold()
-            
-            # 生成滑动轨迹
-            tracks = self._generate_tracks(distance)
-            for track in tracks:
-                action.move_by_offset(track, 0)
-                time.sleep(random.uniform(0.01, 0.03))
-            
-            action.release()
-            action.perform()
-            
-            time.sleep(2)
-            return self._check_success()
-            
-        except Exception as e:
-            logging.error(f"在中心位置滑动时出错: {str(e)}")
+            logging.error(f"执行滑动时出错: {str(e)}")
             return False
     
     def _perform_slide(self, slider, distance):
@@ -375,18 +370,20 @@ class SimpleCaptchaSolver:
             
             # 移动到滑块位置
             ActionChains(self.driver).move_to_element(slider).perform()
-            time.sleep(random.uniform(0.1, 0.3))
+            time.sleep(random.uniform(0.2, 0.4))
             
             # 按下并开始滑动
             action = ActionChains(self.driver)
             action.click_and_hold(slider)
+            time.sleep(random.uniform(0.2, 0.3))  # 按下后稍等片刻
             
             # 执行滑动轨迹
             for track in tracks:
                 action.move_by_offset(track, 0)
                 time.sleep(random.uniform(0.01, 0.03))
             
-            # 释放
+            # 停顿后释放
+            time.sleep(random.uniform(0.1, 0.3))
             action.release()
             action.perform()
             
@@ -403,6 +400,9 @@ class SimpleCaptchaSolver:
         """
         生成人类般的滑动轨迹
         """
+        # 添加微小的距离调整，避免完全精确的距离
+        distance = distance * random.uniform(0.96, 1.03)
+        
         tracks = []
         current = 0
         mid = distance * 0.8  # 80%处开始减速
@@ -425,9 +425,12 @@ class SimpleCaptchaSolver:
             if move > 0:
                 tracks.append(round(move))
         
-        # 添加一些回退，模拟人类操作
-        for _ in range(2):
-            tracks.append(-random.randint(1, 2))
+        # 添加一些回退和微调，模拟人类操作
+        for _ in range(random.randint(2, 3)):
+            tracks.append(-random.randint(1, 3))
+        
+        for _ in range(random.randint(1, 2)):
+            tracks.append(random.randint(1, 2))
         
         return tracks
     
