@@ -13,11 +13,6 @@ from utils.date_util import get_next_trading_day, get_trading_days, format_date
 from utils.stock_util import stock_limit_ratio
 
 # 配置logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 logger = logging.getLogger('limit_up_analysis')
 
 # 配置

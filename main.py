@@ -28,6 +28,11 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
+
 
 # 回溯交易
 def backtrade_simulate():
@@ -53,8 +58,8 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250512', save_path='./data/astocks',
-                                    max_workers=2)
+    data_fetcher = StockDataFetcher(start_date='20250512', end_date='20250606', save_path='./data/astocks',
+                                    max_workers=4)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
     # 获取指数数据
@@ -262,12 +267,12 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # get_stock_datas()
+    get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # update_synonym_groups()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()

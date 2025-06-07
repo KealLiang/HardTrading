@@ -16,9 +16,6 @@ from utils.stock_util import get_stock_market
 font_path = 'fonts/微软雅黑.ttf'
 font_prop = font_manager.FontProperties(fname=font_path)
 
-# 设置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # 定义列名对应的英文名称
 col_mapping = {
     '日期': 'date',

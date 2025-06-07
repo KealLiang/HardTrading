@@ -2,9 +2,6 @@ import akshare as ak
 import pandas as pd
 import logging
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
 
 def fetch_and_save_stock_concept(concept_list=None, industry_list=None, output_path="A股股票概念与行业.xlsx"):
     """

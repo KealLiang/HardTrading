@@ -5,9 +5,6 @@ from datetime import datetime
 import akshare as ak
 import pandas as pd
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
 
 def sanitize_filename(name):
     """清理文件名中的非法字符，如替换 * 为 x"""

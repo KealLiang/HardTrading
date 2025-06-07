@@ -5,8 +5,6 @@ import time
 
 import pandas as pd
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 class StockDateChecker:
     """股票数据日期排序检查器"""
