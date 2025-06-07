@@ -12,6 +12,7 @@ from openpyxl.utils import get_column_letter
 from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
+from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
@@ -1307,6 +1308,7 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
     return date_columns
 
 
+@timer
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,

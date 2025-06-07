@@ -12,15 +12,36 @@ import pandas as pd
 import winsound
 
 from decorators.practical import timer
+from utils.captcha_solver import solve_captcha  # 导入验证码解决函数
 from utils.date_util import get_trading_days, format_date
 from utils.stock_util import convert_stock_code
-from utils.captcha_solver import solve_captcha  # 导入验证码解决函数
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+def auto_captcha_solve(verification_url):
+    """
+    自动处理验证码
+
+    :param verification_url: 验证页面URL
+    :return: 是否成功解决验证码
+    """
+    logging.info(f"正在尝试自动解决验证码: {verification_url}")
+    auto_success = False
+    try:
+        auto_success = solve_captcha(verification_url, max_retry=3, headless=False)
+        if auto_success:
+            logging.info("自动验证成功!")
+        else:
+            logging.warning("自动验证失败，需要手动验证")
+    except Exception as e:
+        logging.error(f"自动验证过程中出错: {str(e)}")
+    return auto_success
+
+
 class StockDataFetcher:
-    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False, max_sleep_time=2):
+    def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False, max_sleep_time=2,
+                 enable_auto_captcha=False):
         """
         初始化A股数据获取类。
         表头-> 日期,股票代码,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
@@ -32,6 +53,7 @@ class StockDataFetcher:
         :param max_workers: 最大线程数，默认为10。
         :param force_update: 是否强制更新已有日期的数据，默认为False。
         :param max_sleep_time: 随机休眠的最大毫秒数，用于避免请求过于频繁。
+        :param enable_auto_captcha: 是否启用自动验证码解决功能，默认为False（使用人工解决）。
         """
         self.start_date = start_date
         self.end_date = end_date or datetime.now().strftime('%Y%m%d')
@@ -39,6 +61,7 @@ class StockDataFetcher:
         self.max_workers = max_workers
         self.force_update = force_update
         self.max_sleep_time = max_sleep_time
+        self.enable_auto_captcha = enable_auto_captcha
         # 确保保存路径存在
         os.makedirs(self.save_path, exist_ok=True)
 
@@ -62,6 +85,9 @@ class StockDataFetcher:
 
         if self.force_update:
             logging.info("强制更新模式已启用，将覆盖指定日期范围内的所有数据")
+
+        if self.enable_auto_captcha:
+            logging.info("自动验证码解决功能已启用")
 
     @timer
     def fetch_and_save_data(self):
@@ -173,24 +199,17 @@ class StockDataFetcher:
             try:
                 raw_code = code_match.group(1)
                 verification_code = convert_stock_code(raw_code)
-            except Exception:
-                pass  # 如果提取失败，使用默认代码
+            except:
+                pass
 
         verification_url = f"https://quote.eastmoney.com/concept/{verification_code}.html?from=classic"
-        logging.info(f"正在尝试自动解决验证码: {verification_url}")
-        
-        # 尝试自动解决验证码
+
+        # 判断是否启用自动验证码解决
         auto_success = False
-        try:
-            auto_success = solve_captcha(verification_url, max_retry=3, headless=False)
-            if auto_success:
-                logging.info("自动验证成功!")
-            else:
-                logging.warning("自动验证失败，需要手动验证")
-        except Exception as e:
-            logging.error(f"自动验证过程中出错: {str(e)}")
-        
-        # 如果自动验证失败，回退到手动验证
+        if self.enable_auto_captcha:
+            auto_success = auto_captcha_solve(verification_url)
+
+        # 如果自动验证功能未启用或自动验证失败，回退到手动验证
         if not auto_success:
             logging.warning(f"请打开浏览器访问东方财富网: {verification_url} 完成验证操作")
             self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
@@ -454,6 +473,7 @@ if __name__ == "__main__":
         save_path='./stock_data',
         max_workers=2,  # 可根据网络环境和硬件配置调整
         force_update=False,  # 是否强制更新已有日期的数据
-        max_sleep_time=2  # 随机休眠的最大毫秒数
+        max_sleep_time=2,  # 随机休眠的最大毫秒数
+        enable_auto_captcha=False  # 是否启用自动验证码解决功能
     )
     data_fetcher.fetch_and_save_data()
