@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta
+import matplotlib
+
+matplotlib.use('TkAgg')  # 使用 TkAgg 后端而非 PyCharm 的交互式后端
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.dates as mdates
