@@ -57,8 +57,10 @@ def get_index_data():
 
 # 拉a股历史数据
 def get_stock_datas():
+    # end_date = '20250606'
+    end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250512', end_date='20250606', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250512', end_date=end_date, save_path='./data/astocks',
                                     max_workers=4)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
@@ -251,13 +253,13 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20250401'  # 调整为Excel中有数据的日期范围
-    end_date = '20250605'
+    end_date = None
     min_board_level = 3
     non_main_board_level = 2
     
     # 定义优先原因列表
     priority_reasons = [
-        "创新药"
+        # "创新药"
     ]
     
     # 构建梯队图
@@ -267,12 +269,12 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    get_stock_datas()
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
+    generate_ladder_chart()
     # update_synonym_groups()
-    # generate_ladder_chart()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
