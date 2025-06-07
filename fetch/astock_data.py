@@ -75,7 +75,6 @@ class StockDataFetcher:
 
         # 标记是否正在处理验证，使用类变量确保全局可见
         self._verification_in_progress = False
-        self._verification_is_done = False
 
         # 添加一个计数器，跟踪已完成的任务数量
         self.completed_tasks = 0
@@ -132,12 +131,10 @@ class StockDataFetcher:
                             logging.info(f"已完成 {self.completed_tasks}/{self.total_tasks} 只股票数据处理")
                 except Exception as e:
                     error_msg = str(e)
-                    print(f"Error processing {stock_code}: {error_msg}")
-                    self._verification_is_done = False
+                    logging.warning(f"Error processing {stock_code}: {error_msg}")
 
                     # 检查是否是连接中断错误，这可能是由于需要验证码
                     if "Connection aborted" in error_msg or "RemoteDisconnected" in error_msg:
-                        logging.info("1确认连接中断")
                         self._trigger_verification(f"处理股票 {stock_code}({stock_name}) 时连接中断")
 
         logging.info(f"所有股票数据处理完成，共 {self.completed_tasks}/{self.total_tasks} 只")
@@ -148,10 +145,8 @@ class StockDataFetcher:
         """
         # 获取锁后再检查和设置标志，确保原子性操作
         with self.verification_lock:
-            logging.info("2获取到锁")
             # 锁内检查验证状态
-            if not self._verification_in_progress and not self._verification_is_done:
-                logging.info("3暂停并等待用户确认")
+            if not self._verification_in_progress:
                 # 设置标志，阻止其他线程进入验证处理
                 self._verification_in_progress = True
                 self._handle_verification_needed(message)
@@ -218,8 +213,6 @@ class StockDataFetcher:
             logging.warning(f"请打开浏览器访问东方财富网: {verification_url} 完成验证操作")
             self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
 
-        # 标记为已处理
-        self._verification_is_done = True
         # 恢复运行
         self.pause_flag.set()
 
