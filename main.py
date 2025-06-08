@@ -200,7 +200,7 @@ def plot_stock_daily_prices():
     stock_codes = ["603399", "600036", "601318", "000001", "600000"]
     start_date = "20250430"
     end_date = "20250523"
-    
+
     # 画出日对比图
     plot_multiple_stocks(stock_codes, start_date, end_date, equal_spacing=True)
 
@@ -243,7 +243,7 @@ def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250515"
     end_date = None
-    
+
     process_zt_data(start_date, end_date, clean_output=True)
     # add_vba_for_excel()
 
@@ -256,16 +256,17 @@ def generate_ladder_chart():
     end_date = None
     min_board_level = 3
     non_main_board_level = 2
-    
+    show_period_change = True  # 是否计算周期涨跌幅
+
     # 定义优先原因列表
     priority_reasons = [
         # "创新药"
     ]
-    
+
     # 构建梯队图
-    build_ladder_chart(start_date, end_date, min_board_level=min_board_level, 
-                      non_main_board_level=non_main_board_level, priority_reasons=priority_reasons,
-                      enable_attention_criteria=True)
+    build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
+                       non_main_board_level=non_main_board_level, show_period_change=show_period_change,
+                       priority_reasons=priority_reasons, enable_attention_criteria=True)
 
 
 if __name__ == '__main__':
@@ -290,6 +291,6 @@ if __name__ == '__main__':
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_stock_minute_datas()
-    # backtrade_simulate()
     # get_index_data()
     # check_stock_datas()
+    # backtrade_simulate()

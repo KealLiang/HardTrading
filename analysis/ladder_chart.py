@@ -1,7 +1,7 @@
 import os
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 import pandas as pd
@@ -70,6 +70,9 @@ PERIOD_CHANGE_COLORS = {
 
 # 股票数据保存路径
 STOCK_DATA_PATH = "./data/astocks/"
+
+# 全局缓存存储交易日映射，show_period_change为True时才使用
+TRADING_DAYS_LOOKUP = {}
 
 
 @lru_cache(maxsize=1000)
@@ -857,7 +860,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         if start_row.empty or end_row.empty:
             return None
 
-        # 获取收盘价
+        # 获取区间首尾价
         start_price = start_row['开盘'].values[0]
         end_price = end_row['收盘'].values[0]
 
@@ -1030,6 +1033,70 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
     return name_cell, apply_high_board_color
 
 
+def precompute_trading_days_lookup(start_date, end_date, period_days):
+    """
+    预计算交易日映射表缓存，用于快速查找前N个交易日
+
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+        period_days: 需要往前查找的交易日数量
+
+    Returns:
+        dict: 交易日映射表，键为YYYYMMDD格式日期，值为前N个交易日的YYYYMMDD格式
+    """
+    global TRADING_DAYS_LOOKUP
+    # 清空旧的映射
+    TRADING_DAYS_LOOKUP.clear()
+
+    try:
+        # 获取更大范围的交易日列表，确保能够覆盖到period_days天之前
+        extended_start = datetime.strptime(start_date, '%Y%m%d') - timedelta(days=period_days + 10)
+        extended_start_str = extended_start.strftime('%Y%m%d')
+        extended_trading_days = get_trading_days(extended_start_str, end_date)
+
+        print(f"预计算交易日映射表，共{len(extended_trading_days)}个交易日...")
+
+        # 为每个交易日预计算前N个交易日
+        for i, day in enumerate(extended_trading_days):
+            if i >= period_days:  # 确保有足够的历史数据
+                # 当前日期的YYYYMMDD格式
+                current_day = day
+                # 前N个交易日的索引
+                prev_day_idx = i - period_days
+                # 前N个交易日的YYYYMMDD格式
+                prev_day = extended_trading_days[prev_day_idx]
+                # 直接存储YYYYMMDD格式
+                TRADING_DAYS_LOOKUP[current_day] = prev_day
+
+        print(f"交易日映射表计算完成，共{len(TRADING_DAYS_LOOKUP)}个映射关系")
+        return TRADING_DAYS_LOOKUP
+    except Exception as e:
+        print(f"预计算交易日映射表时出错: {e}")
+        return {}
+
+
+def get_prev_trading_day_fast(date_str, period_days):
+    """
+    快速获取指定日期往前第n个交易日
+
+    Args:
+        date_str: 日期字符串，格式为 'YYYYMMDD'
+        period_days: 向前推的交易日数量
+
+    Returns:
+        str: 前N个交易日，格式为 'YYYYMMDD'
+    """
+    # 如果有预计算的映射表，直接查找
+    if TRADING_DAYS_LOOKUP and date_str in TRADING_DAYS_LOOKUP:
+        return TRADING_DAYS_LOOKUP[date_str]
+
+    # 否则使用原始方法
+    date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    prev_date = get_n_trading_days_before(date_fmt, period_days)
+    return prev_date.replace('-', '')
+
+
 def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, period_days):
     """
     格式化周期涨跌幅单元格
@@ -1047,10 +1114,8 @@ def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, 
         # 获取入选日期字符串
         entry_date_str = entry_date.strftime('%Y%m%d')
 
-        # 获取入选前X个交易日的日期
-        prev_date = get_n_trading_days_before(entry_date_str, period_days)
-        if '-' in prev_date:
-            prev_date = prev_date.replace('-', '')
+        # 使用快速函数获取前N个交易日
+        prev_date = get_prev_trading_day_fast(entry_date_str, period_days)
 
         # 计算从入选前X日到入选日的涨跌幅
         period_change = calculate_stock_period_change(stock_code, prev_date, entry_date_str, stock_name)
@@ -1453,6 +1518,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 创建Excel工作簿和准备数据
     wb, ws, stock_data = prepare_excel_workbook(result_df, start_date, priority_reasons)
+
+    # 如果需要显示周期涨跌幅，预计算交易日映射缓存用于提速
+    if show_period_change:
+        precompute_trading_days_lookup(start_date, end_date, period_days)
 
     # 设置Excel表头和日期列
     period_column = 4
