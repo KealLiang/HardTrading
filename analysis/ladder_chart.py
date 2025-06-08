@@ -341,12 +341,13 @@ def check_stock_attention(stock_code, current_date, attention_data, log_prefix):
         att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(
             att_date_str)
         days_diff = count_trading_days_between(current_date, att_date)
-        if 0 <= days_diff <= 5:  # 在当天或之后的5个交易日内
+        # 当天之前2个或之后的3个交易日
+        if -2 <= days_diff <= 3:  # 负值表示之前的交易日，正值表示之后的交易日
             attention_dates.append(att_date)
 
-    # 如果在5个交易日内出现了至少两次，则认为符合条件
+    # 如果在指定交易日范围内出现了至少两次，则认为符合条件
     if len(attention_dates) >= 2:
-        print(f"    {log_prefix}后5天内两次入选关注度榜前20，符合额外入选条件")
+        print(f"    {log_prefix}指定交易日范围内两次入选关注度榜前20，符合额外入选条件")
         return True, 'attention'
 
     return False, 'normal'
