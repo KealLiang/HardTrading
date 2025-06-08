@@ -857,7 +857,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         if start_row.empty or end_row.empty:
             return None
 
-        # 获取收盘价
+        # 获取区间首尾价
         start_price = start_row['开盘'].values[0]
         end_price = end_row['收盘'].values[0]
 

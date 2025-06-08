@@ -5,13 +5,14 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pandas_market_calendars as mcal
 
-# 配置logging
-logger = logging.getLogger('date_util')
+# 预先初始化A股交易所日历对象
+SSE_CALENDAR = mcal.get_calendar('SSE')
 
 # 交易日缓存
 _TRADING_DAYS_CACHE = None
 _CACHE_START_DATE = None
 _CACHE_END_DATE = None
+
 
 def _init_trading_days_cache(start_date, end_date):
     """
@@ -22,16 +23,15 @@ def _init_trading_days_cache(start_date, end_date):
         end_date: 结束日期 (datetime对象)
     """
     global _TRADING_DAYS_CACHE, _CACHE_START_DATE, _CACHE_END_DATE
-    
+
     # 扩大缓存范围，确保有足够的日期可用
     cache_start = start_date - timedelta(days=30)
     cache_end = end_date + timedelta(days=30)
-    
+
     # 获取A股市场日历
-    sse = mcal.get_calendar('SSE')
-    trading_days = sse.valid_days(start_date=cache_start, end_date=cache_end)
+    trading_days = SSE_CALENDAR.valid_days(start_date=cache_start, end_date=cache_end)
     trading_days = remove_holidays(trading_days)
-    
+
     # 转换为不带时区的日期列表
     _TRADING_DAYS_CACHE = [pd.Timestamp(day).replace(tzinfo=None).date() for day in trading_days]
     _CACHE_START_DATE = cache_start.date()
@@ -115,15 +115,12 @@ def get_trading_days(start_date: str, end_date: str):
     :param end_date: 查询结束日期，格式为'YYYYMMDD'。
     :return: A股交易日列表。
     """
-    # 获取A股市场日历，这里以上海证券交易所为例
-    sse = mcal.get_calendar('SSE')
-
     # 将日期字符串转换为datetime对象
     start_date_dt = datetime.strptime(start_date, '%Y%m%d')
     end_date_dt = datetime.strptime(end_date, '%Y%m%d')
 
     # 获取交易日历
-    trading_days = sse.valid_days(start_date=start_date_dt, end_date=end_date_dt)
+    trading_days = SSE_CALENDAR.valid_days(start_date=start_date_dt, end_date=end_date_dt)
     trading_days = remove_holidays(trading_days)
 
     # 将交易日转换为字符串列表
@@ -144,11 +141,8 @@ def get_next_trading_day(date: str) -> str:
         # 将输入日期转换为datetime对象
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-        # 获取A股市场日历
-        sse = mcal.get_calendar('SSE')
-
         # 获取从输入日期开始的15个交易日（足够找到下一个交易日）
-        next_days = sse.valid_days(start_date=date_dt, end_date=date_dt + timedelta(days=15))
+        next_days = SSE_CALENDAR.valid_days(start_date=date_dt, end_date=date_dt + timedelta(days=15))
         next_days = remove_holidays(next_days)
 
         # 如果没有找到交易日，返回None
@@ -175,11 +169,8 @@ def get_prev_trading_day(date: str) -> str:
         # 将输入日期转换为datetime对象
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-        # 获取A股市场日历
-        sse = mcal.get_calendar('SSE')
-
         # 获取从输入日期前15天到输入日期的交易日
-        prev_days = sse.valid_days(start_date=date_dt - timedelta(days=15), end_date=date_dt)
+        prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=15), end_date=date_dt)
 
         # 手动排除特定的节假日日期
         prev_days = remove_holidays(prev_days)
@@ -211,8 +202,7 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     else:
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-    sse = mcal.get_calendar('SSE')
-    prev_days = sse.valid_days(start_date=date_dt - timedelta(days=35), end_date=date_dt)
+    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=35), end_date=date_dt)
     # 统一为带时区的Timestamp
     date_dt_tz = pd.Timestamp(date_dt, tz='UTC')
     prev_days = [d for d in prev_days if d <= date_dt_tz]
@@ -249,7 +239,7 @@ def get_current_or_prev_trading_day(date: str) -> str:
         return get_prev_trading_day(date)
 
     except Exception as e:
-        logger.error(f"获取当前或前一个交易日时出错: {str(e)}")
+        logging.error(f"获取当前或前一个交易日时出错: {str(e)}")
         return None
 
 
@@ -265,7 +255,7 @@ def count_trading_days_between(start_date, end_date):
         int: 交易日数量
     """
     global _TRADING_DAYS_CACHE, _CACHE_START_DATE, _CACHE_END_DATE
-    
+
     try:
         # 确保日期是datetime格式
         if isinstance(start_date, str):
@@ -275,7 +265,7 @@ def count_trading_days_between(start_date, end_date):
                 start_dt = datetime.strptime(start_date, '%Y%m%d')
         else:
             start_dt = start_date
-            
+
         if isinstance(end_date, str):
             if '-' in end_date:
                 end_dt = datetime.strptime(end_date, '%Y-%m-%d')
@@ -283,27 +273,27 @@ def count_trading_days_between(start_date, end_date):
                 end_dt = datetime.strptime(end_date, '%Y%m%d')
         else:
             end_dt = end_date
-        
+
         # 如果开始日期晚于结束日期，返回0
         if start_dt >= end_dt:
             return 0
-        
+
         # 转换为date对象
         start_date = start_dt.date()
         end_date = end_dt.date()
-        
+
         # 检查是否需要初始化或更新缓存
-        if (_TRADING_DAYS_CACHE is None or 
-            start_date < _CACHE_START_DATE or 
-            end_date > _CACHE_END_DATE):
+        if (_TRADING_DAYS_CACHE is None or
+                start_date < _CACHE_START_DATE or
+                end_date > _CACHE_END_DATE):
             _init_trading_days_cache(start_dt, end_dt)
-        
+
         # 使用缓存计算交易日数量
-        trading_days_between = [day for day in _TRADING_DAYS_CACHE 
-                              if start_date < day <= end_date]
-        
+        trading_days_between = [day for day in _TRADING_DAYS_CACHE
+                                if start_date < day <= end_date]
+
         return len(trading_days_between)
-        
+
     except Exception as e:
         print(f"计算交易日数量时出错: {str(e)}")
         return 0
