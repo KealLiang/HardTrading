@@ -37,9 +37,6 @@ MAX_TRACKING_DAYS_BEFORE_ENTRY = 5
 # 如果一只股票断板后超过这个交易日天数又再次达到入选，则视为新的一行记录
 REENTRY_DAYS_THRESHOLD = 4
 
-# 是否显示周期涨跌幅列
-SHOW_PERIOD_CHANGE = False
-
 # 计算入选日与之前X个交易日的涨跌幅
 # 例如设置为20，会计算入选日与20个交易日之前的涨跌幅
 PERIOD_DAYS_CHANGE = 10
@@ -49,9 +46,6 @@ PERIOD_DAYS_CHANGE = 10
 VOLUME_DAYS = 4
 # 成交量比阈值，超过该值则在单元格中显示成交量比
 VOLUME_RATIO_THRESHOLD = 2.5
-
-# 股票数据保存路径
-STOCK_DATA_PATH = "./data/astocks/"
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -74,33 +68,22 @@ PERIOD_CHANGE_COLORS = {
     "STRONG_NEGATIVE": "7D994D",  # 深橄榄绿 - 弱势 (<-60%)
 }
 
-# 股票周期涨跌幅缓存
-PERIOD_CHANGE_CACHE = {}
-
-# 股票文件路径缓存
-STOCK_FILE_PATH_CACHE = {}
-
-# 股票数据缓存，避免重复读取文件
-# 格式: {stock_code_date: DataFrame}
-STOCK_DATA_CACHE = {}
+# 股票数据保存路径
+STOCK_DATA_PATH = "./data/astocks/"
 
 
-def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
+@lru_cache(maxsize=1000)
+def get_stock_file_path(stock_code, stock_name=None):
     """
     获取股票数据文件路径
 
     Args:
         stock_code: 股票代码
         stock_name: 股票名称，用于构建文件名
-        save_path: 股票数据存储路径
 
     Returns:
         str: 股票数据文件路径，如果找不到则返回None
     """
-    # 检查缓存中是否已有结果
-    if stock_code in STOCK_FILE_PATH_CACHE:
-        return STOCK_FILE_PATH_CACHE[stock_code]
-
     # 处理股票代码格式
     clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
 
@@ -111,15 +94,15 @@ def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
         # 如果提供了股票名称，直接尝试使用
         safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
         possible_file = f"{clean_code}_{safe_name}.csv"
-        if os.path.exists(os.path.join(save_path, possible_file)):
-            file_path = os.path.join(save_path, possible_file)
+        if os.path.exists(os.path.join(STOCK_DATA_PATH, possible_file)):
+            file_path = os.path.join(STOCK_DATA_PATH, possible_file)
 
     # 如果没有找到文件，尝试查找匹配的文件
     if not file_path:
-        for file in os.listdir(save_path):
+        for file in os.listdir(STOCK_DATA_PATH):
             # 匹配文件名前缀为股票代码的文件
             if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                file_path = os.path.join(save_path, file)
+                file_path = os.path.join(STOCK_DATA_PATH, file)
                 break
 
     if not file_path:
@@ -128,26 +111,23 @@ def get_stock_file_path(stock_code, stock_name=None, save_path=STOCK_DATA_PATH):
             # 尝试去掉前导零
             stripped_code = clean_code.lstrip('0')
             if stripped_code:  # 确保不是全零
-                for file in os.listdir(save_path):
+                for file in os.listdir(STOCK_DATA_PATH):
                     if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
-                        file_path = os.path.join(save_path, file)
+                        file_path = os.path.join(STOCK_DATA_PATH, file)
                         break
 
         # 对于上交所股票，可能需要处理6开头的代码
         elif clean_code.startswith('6'):
-            for file in os.listdir(save_path):
+            for file in os.listdir(STOCK_DATA_PATH):
                 if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                    file_path = os.path.join(save_path, file)
+                    file_path = os.path.join(STOCK_DATA_PATH, file)
                     break
-
-    # 将结果存入缓存
-    STOCK_FILE_PATH_CACHE[stock_code] = file_path
 
     return file_path
 
 
 @lru_cache(maxsize=1000)
-def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
+def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None):
     """
     获取指定股票在特定日期的数据，使用缓存避免重复读取文件
     
@@ -155,7 +135,6 @@ def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STO
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
         stock_name: 股票名称，用于构建文件名
-        save_path: 股票数据存储路径
     
     Returns:
         tuple: (DataFrame, 目标行, 目标索引) 如果数据不存在则返回(None, None, None)
@@ -168,7 +147,7 @@ def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STO
         target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
 
         # 获取股票数据文件路径
-        file_path = get_stock_file_path(stock_code, stock_name, save_path)
+        file_path = get_stock_file_path(stock_code, stock_name)
 
         # 如果没有找到文件
         if not file_path:
@@ -196,7 +175,7 @@ def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STO
         return None, None, None
 
 
-def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
+def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None):
     """
     获取指定股票在特定日期的涨跌幅
     
@@ -204,12 +183,11 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
         stock_name: 股票名称，用于构建文件名
-        save_path: 股票数据存储路径
     
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
     """
-    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd, stock_name, save_path)
+    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd, stock_name)
 
     if target_row is not None and not target_row.empty:
         return target_row['涨跌幅'].values[0]
@@ -217,20 +195,19 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None, s
     return None
 
 
-def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None, save_path=STOCK_DATA_PATH):
+def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None):
     """
     获取指定股票在特定日期的成交量比(当天成交量/前N天平均成交量)
-
+    
     Args:
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
         stock_name: 股票名称，用于构建文件名
-        save_path: 股票数据存储路径
-
+    
     Returns:
         tuple: (成交量比, 是否超过阈值) 如果数据不存在则返回(None, False)
     """
-    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd, stock_name, save_path)
+    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd, stock_name)
 
     if df is None or target_row is None or target_row.empty:
         return None, False
@@ -265,13 +242,13 @@ def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None, save_path=S
 def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=None):
     """
     根据成交量比向文本添加成交量信息
-
+    
     Args:
         text: 原始文本
         stock_code: 股票代码
         date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
         stock_name: 股票名称
-
+        
     Returns:
         str: 添加成交量信息后的文本
     """
@@ -821,8 +798,8 @@ def get_color_for_period_change(pct_change):
         return PERIOD_CHANGE_COLORS["STRONG_NEGATIVE"]
 
 
-def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyymmdd, stock_name=None,
-                                  save_path=STOCK_DATA_PATH):
+@lru_cache(maxsize=1000)
+def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyymmdd, stock_name=None):
     """
     计算股票在两个日期之间的涨跌幅
     
@@ -831,22 +808,16 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         start_date_yyyymmdd: 开始日期 (YYYYMMDD)
         end_date_yyyymmdd: 结束日期 (YYYYMMDD)
         stock_name: 股票名称，用于构建文件名
-        save_path: 股票数据存储路径
     
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
     """
-    # 检查缓存中是否已有结果
-    cache_key = f"{stock_code}_{start_date_yyyymmdd}_{end_date_yyyymmdd}"
-    if cache_key in PERIOD_CHANGE_CACHE:
-        return PERIOD_CHANGE_CACHE[cache_key]
-
     try:
         if not stock_code:
             return None
 
         # 获取股票数据文件路径
-        file_path = get_stock_file_path(stock_code, stock_name, save_path)
+        file_path = get_stock_file_path(stock_code, stock_name)
 
         # 如果没有找到文件
         if not file_path:
@@ -887,14 +858,11 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
             return None
 
         # 获取收盘价
-        start_price = start_row['收盘'].values[0]
+        start_price = start_row['开盘'].values[0]
         end_price = end_row['收盘'].values[0]
 
         # 计算涨跌幅
         period_change = ((end_price / start_price) - 1) * 100
-
-        # 将结果存入缓存
-        PERIOD_CHANGE_CACHE[cache_key] = period_change
 
         return period_change
 
@@ -1429,7 +1397,7 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
-                       period_days=PERIOD_DAYS_CHANGE, show_period_change=SHOW_PERIOD_CHANGE, priority_reasons=None,
+                       period_days=PERIOD_DAYS_CHANGE, show_period_change=False, priority_reasons=None,
                        enable_attention_criteria=False):
     """
     构建梯队形态的涨停复盘图
