@@ -70,12 +70,6 @@ class StockDataFetcher:
         self.pause_flag = threading.Event()
         self.pause_flag.set()  # 初始状态为不暂停
 
-        # 添加锁，确保只有一个线程会触发验证处理
-        self.verification_lock = threading.Lock()
-
-        # 标记是否正在处理验证，使用类变量确保全局可见
-        self._verification_in_progress = False
-
         # 添加一个计数器，跟踪已完成的任务数量
         self.completed_tasks = 0
         self.total_tasks = 0
@@ -141,16 +135,17 @@ class StockDataFetcher:
 
     def _trigger_verification(self, message):
         """
-        触发验证处理，使用全局锁确保只有一个线程能触发
+        触发验证处理，无需加锁，此处为主线程串行处理
         """
-        # 获取锁后再检查和设置标志，确保原子性操作
-        with self.verification_lock:
-            # 锁内检查验证状态
-            if not self._verification_in_progress:
-                # 设置标志，阻止其他线程进入验证处理
-                self._verification_in_progress = True
-                self._handle_verification_needed(message)
-                self._verification_in_progress = False
+        current_time = time.time()
+        # 检查是否最近已经触发过验证
+        if hasattr(self, '_last_verification_time') and (current_time - self._last_verification_time) < 30:
+            logging.info(f"最近已经处理过验证，跳过重复验证: {message}")
+            return
+        # 处理验证
+        self._handle_verification_needed(message)
+        # 更新最后验证时间
+        self._last_verification_time = current_time
 
     def _pause_for_confirmation(self, message):
         """
