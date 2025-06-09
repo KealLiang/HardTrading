@@ -108,7 +108,7 @@ class StockDataFetcher:
         logging.info(f"开始处理 {self.total_tasks} 只股票数据")
 
         # 在开始处理前暂停，等待用户确认
-        self._pause_for_confirmation("按回车键开始处理...", use_beep=False)
+        self._pause_for_confirmation("按回车键开始处理...")
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
@@ -152,16 +152,12 @@ class StockDataFetcher:
                 self._handle_verification_needed(message)
                 self._verification_in_progress = False
 
-    def _pause_for_confirmation(self, message, use_beep=True):
+    def _pause_for_confirmation(self, message):
         """
         暂停并等待用户确认
         
         :param message: 显示给用户的消息
-        :param use_beep: 是否发出声音提醒
         """
-        if use_beep:
-            self._play_beep()
-
         logging.info(message)
         input(message)
         logging.info("继续执行...")
@@ -211,7 +207,7 @@ class StockDataFetcher:
         # 如果自动验证功能未启用或自动验证失败，回退到手动验证
         if not auto_success:
             logging.warning(f"请打开浏览器访问东方财富网: {verification_url} 完成验证操作")
-            self._pause_for_confirmation("完成验证后请按回车键继续...", use_beep=False)
+            self._pause_for_confirmation("完成验证后请按回车键继续...")
 
         # 恢复运行
         self.pause_flag.set()
