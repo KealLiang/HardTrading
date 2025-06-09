@@ -45,7 +45,9 @@ PERIOD_DAYS_CHANGE = 10
 # 计算成交量比的天数，当天成交量与前X天平均成交量的比值
 VOLUME_DAYS = 4
 # 成交量比阈值，超过该值则在单元格中显示成交量比
-VOLUME_RATIO_THRESHOLD = 2.5
+VOLUME_RATIO_THRESHOLD = 2.2
+# 成交量比低阈值，低于该值则在单元格中显示成交量比
+VOLUME_RATIO_LOW_THRESHOLD = 0.4
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -205,12 +207,12 @@ def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None):
         stock_name: 股票名称，用于构建文件名
     
     Returns:
-        tuple: (成交量比, 是否超过阈值) 如果数据不存在则返回(None, False)
+        tuple: (成交量比, 是否超过高阈值, 是否低于低阈值) 如果数据不存在则返回(None, False, False)
     """
     df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd, stock_name)
 
     if df is None or target_row is None or target_row.empty:
-        return None, False
+        return None, False, False
 
     try:
         # 获取当天成交量
@@ -228,15 +230,16 @@ def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None):
             if avg_volume > 0:
                 volume_ratio = current_volume / avg_volume
 
-                # 判断是否超过阈值
+                # 判断是否超过高阈值或低于低阈值
                 is_high_volume = volume_ratio >= VOLUME_RATIO_THRESHOLD
+                is_low_volume = volume_ratio <= VOLUME_RATIO_LOW_THRESHOLD
 
-                return volume_ratio, is_high_volume
+                return volume_ratio, is_high_volume, is_low_volume
 
     except Exception as e:
         print(f"计算股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量比时出错: {e}")
 
-    return None, False
+    return None, False, False
 
 
 def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=None):
@@ -252,9 +255,9 @@ def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=Non
     Returns:
         str: 添加成交量信息后的文本
     """
-    volume_ratio, is_high_volume = get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name)
+    volume_ratio, is_high_volume, is_low_volume = get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name)
 
-    if is_high_volume and volume_ratio is not None:
+    if volume_ratio is not None and (is_high_volume or is_low_volume):
         return f"{text}[{volume_ratio:.1f}]"
 
     return text
@@ -1890,10 +1893,6 @@ if __name__ == "__main__":
                         help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
     parser.add_argument('--enable_attention_criteria', action='store_true',
                         help='是否启用关注度榜入选条件：(board_level-1)连板后5天内两次入选关注度榜前20 (默认: 不启用)')
-    parser.add_argument('--volume_days', type=int, default=VOLUME_DAYS,
-                        help=f'计算成交量比的天数，当天成交量与前X天平均成交量的比值 (默认: {VOLUME_DAYS})')
-    parser.add_argument('--volume_ratio', type=float, default=VOLUME_RATIO_THRESHOLD,
-                        help=f'成交量比阈值，超过该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_THRESHOLD})')
 
     args = parser.parse_args()
 
@@ -1903,10 +1902,6 @@ if __name__ == "__main__":
     # 处理优先原因列表
     priority_reasons = [reason.strip() for reason in
                         args.priority_reasons.split(',')] if args.priority_reasons else None
-
-    # 更新全局成交量参数
-    VOLUME_DAYS = args.volume_days
-    VOLUME_RATIO_THRESHOLD = args.volume_ratio
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
