@@ -241,7 +241,7 @@ def update_synonym_groups():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250515"
+    start_date = "20250520"
     end_date = None
     
     process_zt_data(start_date, end_date, clean_output=True)
