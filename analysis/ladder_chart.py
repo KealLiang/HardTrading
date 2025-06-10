@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import lru_cache
 
 import pandas as pd
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
@@ -1397,12 +1397,152 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
     return date_columns
 
 
+def prepare_workbook(output_file, sheet_name, start_date):
+    """
+    准备Excel工作簿，根据参数决定是创建新工作簿还是使用现有工作簿
+    
+    Args:
+        output_file: 输出文件路径
+        sheet_name: 工作表名称，如果为None则使用默认名称
+        start_date: 开始日期，用于生成默认工作表名称
+        
+    Returns:
+        tuple: (工作簿, 工作表, 工作表名称)
+    """
+    # 确定工作表名称
+    if sheet_name is None:
+        default_sheet_name = f"涨停梯队{start_date[:6]}"
+    else:
+        default_sheet_name = sheet_name
+
+    # 检查文件是否存在，决定是创建新工作簿还是加载现有工作簿
+    if os.path.exists(output_file) and sheet_name is not None:
+        try:
+            # 尝试加载现有工作簿
+            wb = load_workbook(output_file)
+
+            # 检查是否已存在同名工作表，如果存在则删除
+            if default_sheet_name in wb.sheetnames:
+                # 获取要删除的工作表
+                ws_to_remove = wb[default_sheet_name]
+                # 删除工作表
+                wb.remove(ws_to_remove)
+                print(f"已删除现有的工作表: {default_sheet_name}")
+
+            # 创建新的工作表
+            ws = wb.create_sheet(title=default_sheet_name)
+            print(f"在现有工作簿中创建新工作表: {default_sheet_name}")
+
+            # 删除旧的图例工作表（如果存在）
+            legend_sheet_name = "题材颜色图例"
+            if legend_sheet_name in wb.sheetnames:
+                wb.remove(wb[legend_sheet_name])
+                print(f"已删除现有的题材颜色图例sheet")
+        except Exception as e:
+            print(f"加载现有工作簿时出错: {e}")
+            print("创建新的工作簿...")
+            wb = Workbook()
+            ws = wb.active
+            ws.title = default_sheet_name
+    else:
+        # 创建新的工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = default_sheet_name
+
+    return wb, ws, default_sheet_name
+
+
+def prepare_stock_data(result_df, priority_reasons):
+    """
+    准备股票数据，包括概念收集、颜色映射等
+    
+    Args:
+        result_df: 显著连板股票DataFrame
+        priority_reasons: 优先选择的原因列表
+        
+    Returns:
+        dict: 股票数据字典
+    """
+    # 收集所有概念信息，用于生成颜色映射
+    all_concepts, stock_concepts = collect_stock_concepts(result_df)
+
+    # 获取热门概念的颜色映射
+    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+
+    # 为每只股票确定主要概念组
+    all_stocks = prepare_stock_concept_data(stock_concepts)
+
+    # 获取每只股票的主要概念组
+    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
+
+    # 创建理由计数器
+    reason_counter = Counter(all_concepts)
+
+    # 返回股票数据
+    return {
+        'reason_colors': reason_colors,
+        'top_reasons': top_reasons,
+        'stock_reason_group': stock_reason_group,
+        'reason_counter': reason_counter
+    }
+
+
+def collect_stock_concepts(result_df):
+    """
+    收集股票概念信息
+    
+    Args:
+        result_df: 显著连板股票DataFrame
+        
+    Returns:
+        tuple: (所有概念列表, 股票概念映射)
+    """
+    all_concepts = []
+    stock_concepts = {}
+
+    # 从result_df中收集所有概念
+    for _, row in result_df.iterrows():
+        concept = row.get('concept', '其他')
+        if pd.isna(concept) or not concept:
+            concept = "其他"
+
+        # 提取概念中的原因
+        reasons = extract_reasons(concept)
+        if reasons:
+            all_concepts.extend(reasons)
+            stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
+
+    return all_concepts, stock_concepts
+
+
+def prepare_stock_concept_data(stock_concepts):
+    """
+    准备股票概念数据
+    
+    Args:
+        stock_concepts: 股票概念映射
+        
+    Returns:
+        dict: 股票概念数据
+    """
+    all_stocks = {}
+    for stock_key, reasons in stock_concepts.items():
+        all_stocks[stock_key] = {
+            'name': stock_key.split('_')[1],
+            'reasons': reasons,
+            'appearances': [1]  # 简化处理，只需要一个非空列表
+        }
+
+    return all_stocks
+
+
 @timer
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, show_period_change=False, priority_reasons=None,
-                       enable_attention_criteria=False):
+                       enable_attention_criteria=False, sheet_name=None):
     """
     构建梯队形态的涨停复盘图
     
@@ -1419,6 +1559,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
         priority_reasons: 优先选择的原因列表，默认为None
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
+        sheet_name: 工作表名称，默认为None，表示使用"涨停梯队{start_date[:6]}"；如果指定，则使用指定的名称
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -1455,15 +1596,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
 
-    # 创建Excel工作簿和准备数据
-    wb, ws, stock_data = prepare_excel_workbook(result_df, start_date, priority_reasons)
+    # 准备股票数据
+    stock_data = prepare_stock_data(result_df, priority_reasons)
+
+    # 准备工作簿和工作表
+    wb, ws, _ = prepare_workbook(output_file, sheet_name, start_date)
 
     # 设置Excel表头和日期列
     period_column = 4
     date_column_start = 4 if not show_period_change else 5
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
-
-    # 设置前三列的格式（已由setup_excel_header处理）
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -1546,98 +1688,6 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
         lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
         enable_attention_criteria, attention_data['main'], attention_data['non_main']
     )
-
-
-def prepare_excel_workbook(result_df, start_date, priority_reasons):
-    """
-    准备Excel工作簿和相关数据
-    
-    Args:
-        result_df: 显著连板股票DataFrame
-        start_date: 开始日期
-        priority_reasons: 优先选择的原因列表
-        
-    Returns:
-        tuple: (工作簿, 工作表, 股票数据)
-    """
-    # 创建Excel工作簿
-    wb = Workbook()
-    ws = wb.active
-    ws.title = f"涨停梯队{start_date[:6]}"
-
-    # 收集所有概念信息，用于生成颜色映射
-    all_concepts, stock_concepts = collect_stock_concepts(result_df)
-
-    # 获取热门概念的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
-
-    # 为每只股票确定主要概念组
-    all_stocks = prepare_stock_concept_data(stock_concepts)
-
-    # 获取每只股票的主要概念组
-    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
-
-    # 创建理由计数器
-    reason_counter = Counter(all_concepts)
-
-    # 返回工作簿、工作表和股票数据
-    stock_data = {
-        'reason_colors': reason_colors,
-        'top_reasons': top_reasons,
-        'stock_reason_group': stock_reason_group,
-        'reason_counter': reason_counter
-    }
-
-    return wb, ws, stock_data
-
-
-def collect_stock_concepts(result_df):
-    """
-    收集股票概念信息
-    
-    Args:
-        result_df: 显著连板股票DataFrame
-        
-    Returns:
-        tuple: (所有概念列表, 股票概念映射)
-    """
-    all_concepts = []
-    stock_concepts = {}
-
-    # 从result_df中收集所有概念
-    for _, row in result_df.iterrows():
-        concept = row.get('concept', '其他')
-        if pd.isna(concept) or not concept:
-            concept = "其他"
-
-        # 提取概念中的原因
-        reasons = extract_reasons(concept)
-        if reasons:
-            all_concepts.extend(reasons)
-            stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
-
-    return all_concepts, stock_concepts
-
-
-def prepare_stock_concept_data(stock_concepts):
-    """
-    准备股票概念数据
-    
-    Args:
-        stock_concepts: 股票概念映射
-        
-    Returns:
-        dict: 股票概念数据
-    """
-    all_stocks = {}
-    for stock_key, reasons in stock_concepts.items():
-        all_stocks[stock_key] = {
-            'name': stock_key.split('_')[1],
-            'reasons': reasons,
-            'appearances': [1]  # 简化处理，只需要一个非空列表
-        }
-
-    return all_stocks
 
 
 def count_stock_entries(result_df):
@@ -1893,6 +1943,14 @@ if __name__ == "__main__":
                         help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
     parser.add_argument('--enable_attention_criteria', action='store_true',
                         help='是否启用关注度榜入选条件：(board_level-1)连板后5天内两次入选关注度榜前20 (默认: 不启用)')
+    parser.add_argument('--sheet_name', type=str, default=None,
+                        help='工作表名称，如果不指定则使用默认名称；如果指定，则保留现有Excel文件内容，并在指定名称的工作表中添加数据')
+    parser.add_argument('--volume_days', type=int, default=VOLUME_DAYS,
+                        help=f'计算成交量比的天数，当天成交量与前X天平均成交量的比值 (默认: {VOLUME_DAYS})')
+    parser.add_argument('--volume_ratio', type=float, default=VOLUME_RATIO_THRESHOLD,
+                        help=f'成交量比高阈值，超过该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_THRESHOLD})')
+    parser.add_argument('--volume_ratio_low', type=float, default=VOLUME_RATIO_LOW_THRESHOLD,
+                        help=f'成交量比低阈值，低于该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_LOW_THRESHOLD})')
 
     args = parser.parse_args()
 
@@ -1903,8 +1961,14 @@ if __name__ == "__main__":
     priority_reasons = [reason.strip() for reason in
                         args.priority_reasons.split(',')] if args.priority_reasons else None
 
+    # 更新全局成交量参数
+    VOLUME_DAYS = args.volume_days
+    VOLUME_RATIO_THRESHOLD = args.volume_ratio
+    VOLUME_RATIO_LOW_THRESHOLD = args.volume_ratio_low
+
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.non_main_board,
                        args.max_tracking_before, args.period_days, args.show_period_change,
-                       priority_reasons=priority_reasons, enable_attention_criteria=args.enable_attention_criteria)
+                       priority_reasons=priority_reasons, enable_attention_criteria=args.enable_attention_criteria,
+                       sheet_name=args.sheet_name)
