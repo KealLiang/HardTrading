@@ -162,7 +162,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250512'  # 开始日期
+    start_date = '20250515'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -170,14 +170,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250506'
+    start_date = '20250512'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250506'
+    start_date = '20250512'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -257,6 +257,7 @@ def generate_ladder_chart():
     min_board_level = 3
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
+    sheet_name = None
     
     # 定义优先原因列表
     priority_reasons = [
@@ -266,7 +267,8 @@ def generate_ladder_chart():
     # 构建梯队图
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
-                       priority_reasons=priority_reasons, enable_attention_criteria=True)
+                       priority_reasons=priority_reasons, enable_attention_criteria=True,
+                       sheet_name=sheet_name)
 
 
 if __name__ == '__main__':
@@ -274,13 +276,13 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
+    # fupan_statistics_to_excel()
+    fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
-    # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
     # get_hot_clouds()
