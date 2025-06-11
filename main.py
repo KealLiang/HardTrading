@@ -61,7 +61,7 @@ def get_stock_datas():
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250512', end_date=end_date, save_path='./data/astocks',
-                                    max_workers=4)
+                                    max_workers=2)
     # 执行数据获取和保存操作
     data_fetcher.fetch_and_save_data()
     # 获取指数数据
@@ -276,10 +276,10 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
