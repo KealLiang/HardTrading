@@ -9,6 +9,7 @@
 /data/long/
 __pycache__/
 .idea/
+.cursor/
 env/
 images/
 local.ini
