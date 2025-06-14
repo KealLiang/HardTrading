@@ -60,7 +60,7 @@ def print_chromedriver_help():
 3. 解压下载的文件，得到chromedriver.exe (Windows)或chromedriver (Mac/Linux)
 4. 将chromedriver放置在以下任一位置:
    - {os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromedriver.exe")}
-   - {os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver\\chromedriver.exe")}
+   - {os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver/chromedriver.exe")}
    - {os.path.join(os.environ.get("USERPROFILE", ""), "Downloads")} (Windows)
    - /usr/local/bin/ (Mac/Linux)
 
