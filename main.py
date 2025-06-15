@@ -28,7 +28,7 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
-from strategy.talib_pattern import TALibPatternStrategy
+from strategy.kline_pattern import TALibPatternStrategy
 import logging
 
 # 配置日志
@@ -44,8 +44,8 @@ def backtrade_simulate():
     
     # 使用TA-Lib K线形态策略
     simulator.go_trade(code, 
-                      startdate=datetime(2024, 1, 1), 
-                      enddate=datetime(2025, 6, 13),
+                      startdate=datetime(2020, 1, 1),
+                      enddate=datetime(2025, 6, 12),
                       strategy=TALibPatternStrategy,
                       strategy_params={
                           'order_percentage': 0.2,
