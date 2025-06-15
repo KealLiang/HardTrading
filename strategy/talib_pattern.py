@@ -54,7 +54,8 @@ class TALibPatternStrategy(bt.Strategy):
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
-        self.log(f'交易盈亏: 毛收益 {trade.pnl:.2f}, 净收益 {trade.pnlcomm:.2f}')
+        arrow = ('-' * 10) + '>'
+        self.log(f'交易盈亏 {arrow} 毛收益 {trade.pnl:.2f}, 净收益 {trade.pnlcomm:.2f}')
 
     def next(self):
         # 如果有未完成的订单，不操作
@@ -72,57 +73,46 @@ class TALibPatternStrategy(bt.Strategy):
         close_arr = np.array(self.dataclose.get(size=self.min_history))
 
         # 计算K线形态信号
-        # 看涨信号
-        bullish_patterns = []
         try:
-            hammer = talib.CDLHAMMER(open_arr, high_arr, low_arr, close_arr)
-            engulfing = talib.CDLENGULFING(open_arr, high_arr, low_arr, close_arr)
-            morning_star = talib.CDLMORNINGSTAR(open_arr, high_arr, low_arr, close_arr)
-            three_soldiers = talib.CDL3WHITESOLDIERS(open_arr, high_arr, low_arr, close_arr)
-
-            bullish_patterns = [
-                hammer[-1],
-                engulfing[-1],
-                morning_star[-1],
-                three_soldiers[-1]
-            ]
-
-            # 看跌信号
-            hanging_man = talib.CDLHANGINGMAN(open_arr, high_arr, low_arr, close_arr)
-            evening_star = talib.CDLEVENINGSTAR(open_arr, high_arr, low_arr, close_arr)
-            three_crows = talib.CDL3BLACKCROWS(open_arr, high_arr, low_arr, close_arr)
-
-            bearish_patterns = [
-                hanging_man[-1],
-                engulfing[-1],  # 吞没形态可以是看涨或看跌
-                evening_star[-1],
-                three_crows[-1]
-            ]
-
-            # 计算看涨和看跌信号的数量
-            bullish_count = sum(1 for pattern in bullish_patterns if pattern > 0)
-            bearish_count = sum(1 for pattern in bearish_patterns if pattern < 0)
-
+            # 存储形态及其信号值的字典
+            pattern_results = {
+                '锤子线': talib.CDLHAMMER(open_arr, high_arr, low_arr, close_arr)[-1],
+                '吞没形态': talib.CDLENGULFING(open_arr, high_arr, low_arr, close_arr)[-1],
+                '启明星': talib.CDLMORNINGSTAR(open_arr, high_arr, low_arr, close_arr)[-1],
+                '三白兵': talib.CDL3WHITESOLDIERS(open_arr, high_arr, low_arr, close_arr)[-1],
+                '上吊线': talib.CDLHANGINGMAN(open_arr, high_arr, low_arr, close_arr)[-1],
+                '黄昏星': talib.CDLEVENINGSTAR(open_arr, high_arr, low_arr, close_arr)[-1],
+                '三黑鸦': talib.CDL3BLACKCROWS(open_arr, high_arr, low_arr, close_arr)[-1]
+            }
+            
+            # 提取看涨和看跌信号
+            bullish_patterns = {k: v for k, v in pattern_results.items() if v > 0}
+            bearish_patterns = {k: v for k, v in pattern_results.items() if v < 0}
+            
             # 风险管理 - 止损
             if self.position and self.dataclose[0] < self.stop_loss:
                 self.log(f'触发止损: 当前价格 {self.dataclose[0]:.2f}, 止损价 {self.stop_loss:.2f}')
                 self.order = self.sell(size=self.position.size)
                 return
-
+            
             # 交易信号执行
-            if bullish_count > 0 and not self.position:
+            if bullish_patterns and not self.position:
                 # 买入
                 cash = self.broker.get_cash()
                 size = int(cash * self.p.order_percentage / self.dataclose[0])
                 if size > 0:
-                    self.log(f'买入信号: 价格 {self.dataclose[0]:.2f}, 数量 {size}')
+                    # 输出所有触发的看涨形态
+                    signal_names = ', '.join(bullish_patterns.keys())
+                    self.log(f'买入信号({signal_names}): 价格 {self.dataclose[0]:.2f}, 数量 {size}')
                     self.order = self.buy(size=size)
-
-            elif bearish_count > 0 and self.position:
+            
+            elif bearish_patterns and self.position:
                 # 卖出
-                self.log(f'卖出信号: 价格 {self.dataclose[0]:.2f}')
+                # 输出所有触发的看跌形态
+                signal_names = ', '.join(bearish_patterns.keys())
+                self.log(f'卖出信号({signal_names}): 价格 {self.dataclose[0]:.2f}')
                 self.order = self.sell(size=self.position.size)
-
+            
         except Exception as e:
             self.log(f'形态识别错误: {str(e)}')
 
