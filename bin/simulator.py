@@ -62,14 +62,18 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
     )
 
 
-def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks'):
+def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks', 
+             strategy=KDJ_MACD_Strategy, strategy_params=None):
     data = read_and_convert_data(code, filepath, startdate, enddate)
 
     # 创建Cerebro引擎
     cerebro = bt.Cerebro()
 
-    # 添加策略
-    cerebro.addstrategy(KDJ_MACD_Strategy)
+    # 添加策略，支持自定义参数
+    if strategy_params:
+        cerebro.addstrategy(strategy, **strategy_params)
+    else:
+        cerebro.addstrategy(strategy)
 
     # 添加数据
     cerebro.adddata(data)

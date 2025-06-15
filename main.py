@@ -28,6 +28,7 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
+from strategy.talib_pattern import TALibPatternStrategy
 import logging
 
 # 配置日志
@@ -37,11 +38,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     code = '601933'
+    # 默认使用KDJ_MACD策略
     # simulator.go_trade(code)
-    simulator.go_trade(code
-                       , startdate=datetime(2024, 1, 1)
-                       , enddate=datetime(2025, 3, 9)
-                       )
+    # simulator.go_trade(code, startdate=datetime(2024, 1, 1), enddate=datetime(2025, 3, 9))
+    
+    # 使用TA-Lib K线形态策略
+    simulator.go_trade(code, 
+                      startdate=datetime(2024, 1, 1), 
+                      enddate=datetime(2025, 6, 13),
+                      strategy=TALibPatternStrategy,
+                      strategy_params={
+                          'order_percentage': 0.2,
+                          'stop_loss_pct': 0.05,
+                      })
 
 
 # 获取热点概念词云
@@ -274,7 +283,7 @@ def generate_ladder_chart():
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
@@ -293,6 +302,6 @@ if __name__ == '__main__':
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_stock_minute_datas()
-    # backtrade_simulate()
     # get_index_data()
     # check_stock_datas()
+    backtrade_simulate()
