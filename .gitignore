@@ -10,6 +10,8 @@
 __pycache__/
 .idea/
 .cursor/
+.venv*/
+.vscode/
 env/
 images/
 local.ini
