@@ -1409,48 +1409,43 @@ def prepare_workbook(output_file, sheet_name, start_date):
     Returns:
         tuple: (工作簿, 工作表, 工作表名称)
     """
-    # 确定工作表名称
+    # 确定工作表名称和类型
     if sheet_name is None:
-        default_sheet_name = f"涨停梯队{start_date[:6]}"
+        sheet_name = f"涨停梯队{start_date[:6]}"
+        is_default_pattern = True
     else:
-        default_sheet_name = sheet_name
+        is_default_pattern = "涨停梯队" in sheet_name
 
-    # 检查文件是否存在，决定是创建新工作簿还是加载现有工作簿
-    if os.path.exists(output_file) and sheet_name is not None:
-        try:
-            # 尝试加载现有工作簿
-            wb = load_workbook(output_file)
-
-            # 检查是否已存在同名工作表，如果存在则删除
-            if default_sheet_name in wb.sheetnames:
-                # 获取要删除的工作表
-                ws_to_remove = wb[default_sheet_name]
-                # 删除工作表
-                wb.remove(ws_to_remove)
-                print(f"已删除现有的工作表: {default_sheet_name}")
-
-            # 创建新的工作表
-            ws = wb.create_sheet(title=default_sheet_name)
-            print(f"在现有工作簿中创建新工作表: {default_sheet_name}")
-
-            # 删除旧的图例工作表（如果存在）
-            legend_sheet_name = "题材颜色图例"
-            if legend_sheet_name in wb.sheetnames:
-                wb.remove(wb[legend_sheet_name])
-                print(f"已删除现有的题材颜色图例sheet")
-        except Exception as e:
-            print(f"加载现有工作簿时出错: {e}")
-            print("创建新的工作簿...")
-            wb = Workbook()
-            ws = wb.active
-            ws.title = default_sheet_name
-    else:
-        # 创建新的工作簿
+    # 创建新的工作簿（如果不存在）或加载现有工作簿
+    if not os.path.exists(output_file):
         wb = Workbook()
         ws = wb.active
-        ws.title = default_sheet_name
+        ws.title = sheet_name
+        print(f"创建新的工作簿和工作表: {sheet_name}")
+        return wb, ws, sheet_name
 
-    return wb, ws, default_sheet_name
+    # 尝试加载现有工作簿
+    wb = load_workbook(output_file)
+
+    # 处理已存在的工作表
+    sheet_exists = sheet_name in wb.sheetnames
+
+    # 情况1: 用户自定义工作表已存在 - 保留原样
+    if sheet_exists and not is_default_pattern:
+        print(f"保留用户自定义工作表: {sheet_name}")
+        return wb, None, sheet_name
+
+    # 情况2: 默认模式工作表已存在 - 更新它
+    if sheet_exists and is_default_pattern:
+        wb.remove(wb[sheet_name])
+        ws = wb.create_sheet(title=sheet_name)
+        print(f"已更新默认模式工作表: {sheet_name}")
+        return wb, ws, sheet_name
+
+    # 情况3: 工作表不存在 - 创建新的
+    ws = wb.create_sheet(title=sheet_name)
+    print(f"在现有工作簿中创建新工作表: {sheet_name}")
+    return wb, ws, sheet_name
 
 
 def prepare_stock_data(result_df, priority_reasons):
@@ -1596,11 +1591,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
 
-    # 准备股票数据
-    stock_data = prepare_stock_data(result_df, priority_reasons)
-
     # 准备工作簿和工作表
-    wb, ws, _ = prepare_workbook(output_file, sheet_name, start_date)
+    wb, ws, sheet_name_used = prepare_workbook(output_file, sheet_name, start_date)
+
+    # 如果ws为None，表示用户自定义工作表已存在且应保留
+    if ws is None:
+        print(f"工作表 {sheet_name_used} 已存在且为用户自定义工作表，保留现有内容且不更新图例")
+        return True
+
+    # 准备股票数据（仅在需要更新工作表时）
+    stock_data = prepare_stock_data(result_df, priority_reasons)
 
     # 设置Excel表头和日期列
     period_column = 4
@@ -1625,9 +1625,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
-    # 创建图例工作表
+    # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
-                        stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS)
+                        stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
+                        source_sheet_name=sheet_name_used)
 
     # 保存Excel文件
     try:

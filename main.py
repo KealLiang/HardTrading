@@ -37,7 +37,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    code = '601933'
+    # code = '601933'
+    code = '300059'
     # 默认使用KDJ_MACD策略
     # simulator.go_trade(code)
     # simulator.go_trade(code, startdate=datetime(2024, 1, 1), enddate=datetime(2025, 3, 9))
@@ -285,7 +286,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
@@ -304,4 +305,4 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
-    backtrade_simulate()
+    # backtrade_simulate()
