@@ -6,6 +6,10 @@ from backtrader import feeds
 
 from strategy.kdj_macd import KDJ_MACD_Strategy
 
+# 定义要排除的前缀列表
+exclude_prefixes = ['_XD', '_C']
+
+
 # 定义列名
 columns = ['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额',
            '换手率']
@@ -18,12 +22,18 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
 
     if not files:
         raise FileNotFoundError(f"未找到匹配的文件 {file_name_pattern}")
+    
+    # 筛选掉不需要的文件
+    filtered_files = [f for f in files if not any(prefix in f for prefix in exclude_prefixes)]
 
-    if len(files) > 1:
-        raise ValueError(f"找到多个匹配的文件，请检查路径 {path} 下的文件：\n" + "\n".join(files))
+    # 如果筛选后没有文件，则使用原始文件列表
+    if not filtered_files:
+        filtered_files = files
+        print(f"警告: 所有匹配文件都含有排除前缀，使用原始文件列表。")
 
     # 取第一个匹配的文件
-    file_path = os.path.join(path, files[0])
+    file_path = os.path.join(path, filtered_files[0])
+    print(f"使用文件: {file_path}")
 
     df = pd.read_csv(file_path, header=None, names=columns)
 
@@ -96,8 +106,11 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     # 提取分析结果
     strat = result[0]
     print(f"最大回撤: {strat.analyzers.drawdown.get_analysis()['max']['drawdown']:.2f}%")
-    print(f"夏普比率: {strat.analyzers.sharpe.get_analysis()['sharperatio']:.2f}")
     print(f"年化收益率: {strat.analyzers.returns.get_analysis()['rnorm100']:.2f}%")
+    try:
+        print(f"夏普比率: {strat.analyzers.sharpe.get_analysis()['sharperatio']:.2f}")
+    except (KeyError, TypeError):
+        print("夏普比率: 数据不足，无法计算")
 
     # 绘制回测结果
     cerebro.plot()

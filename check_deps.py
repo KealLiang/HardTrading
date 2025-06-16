@@ -1,15 +1,33 @@
 # save as check_missing.py
 import subprocess
 import sys
+import importlib
 
 
 def check_package(package_name):
     """检查包是否可以导入"""
-    cmd = [sys.executable, "-c", f"import {package_name.lower().replace('-', '_').replace('.', '_')}"]
+    # 特殊包名映射
+    name_mappings = {
+        "scikit_learn": "sklearn",
+        "Pillow": "PIL",
+        "python-dateutil": "dateutil",
+        # 添加更多映射关系
+    }
+    
+    # 特殊情况处理
+    if package_name == "pywin32":
+        try:
+            import win32api  # pywin32的一个模块
+            return True
+        except ImportError:
+            return False
+    
+    import_name = name_mappings.get(package_name, package_name.lower().replace('-', '_').replace('.', '_'))
+    
     try:
-        subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        importlib.import_module(import_name)
         return True
-    except subprocess.CalledProcessError:
+    except ImportError:
         return False
 
 
@@ -26,8 +44,7 @@ all_packages = requirements + indirect_deps
 # 检查每个包
 missing = []
 for pkg in all_packages:
-    pkg_import_name = pkg.lower().replace('-', '_').replace('.', '_')
-    if check_package(pkg_import_name):
+    if check_package(pkg):
         print(f"✓ {pkg}")
     else:
         missing.append(pkg)
