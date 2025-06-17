@@ -39,7 +39,7 @@ def auto_captcha_solve(verification_url):
 
 class StockDataFetcher:
     def __init__(self, start_date, end_date=None, save_path='./', max_workers=10, force_update=False, max_sleep_time=2,
-                 enable_auto_captcha=False):
+                 enable_auto_captcha=False, stock_list=None):
         """
         初始化A股数据获取类。
         表头-> 日期,股票代码,开盘,收盘,最高,最低,成交量,成交额,振幅,涨跌幅,涨跌额,换手率
@@ -52,6 +52,7 @@ class StockDataFetcher:
         :param force_update: 是否强制更新已有日期的数据，默认为False。
         :param max_sleep_time: 随机休眠的最大毫秒数，用于避免请求过于频繁。
         :param enable_auto_captcha: 是否启用自动验证码解决功能，默认为False（使用人工解决）。
+        :param stock_list: 指定要获取的股票列表，默认为None表示获取所有股票。
         """
         self.start_date = start_date
         self.end_date = end_date or datetime.now().strftime('%Y%m%d')
@@ -60,6 +61,7 @@ class StockDataFetcher:
         self.force_update = force_update
         self.max_sleep_time = max_sleep_time
         self.enable_auto_captcha = enable_auto_captcha
+        self.stock_list = stock_list
         # 确保保存路径存在
         os.makedirs(self.save_path, exist_ok=True)
 
@@ -82,20 +84,38 @@ class StockDataFetcher:
             logging.info("自动验证码解决功能已启用")
 
     @timer
-    def fetch_and_save_data(self):
+    def fetch_and_save_data(self, stock_list=None):
         """
-        获取所有A股股票的每日数据，并保存到CSV文件。
+        获取A股股票的每日数据，并保存到CSV文件。
+        
+        :param stock_list: 指定要获取的股票列表，默认为None表示使用初始化时设置的列表
         """
-        # 获取所有A股股票代码和名称
+        # 使用传入的stock_list或初始化时设置的列表
+        target_stocks = stock_list or self.stock_list
+        
+        # 获取股票代码和名称
         try:
             stock_real_time = ak.stock_zh_a_spot_em()
-            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
+            
+            # 如果有指定股票列表，筛选出目标股票
+            if target_stocks:
+                stock_list = [stock for stock in all_stocks if stock[0] in target_stocks]
+                if len(stock_list) < len(target_stocks):
+                    missing = set(target_stocks) - set([s[0] for s in stock_list])
+                    logging.warning(f"未找到以下股票: {missing}")
+            else:
+                stock_list = all_stocks
         except Exception as e:
             logging.error(f"获取股票列表失败: {str(e)}")
             self._handle_verification_needed("获取股票列表时可能需要验证")
             # 重新尝试获取股票列表
             stock_real_time = ak.stock_zh_a_spot_em()
-            stock_list = stock_real_time[['代码', '名称']].values.tolist()
+            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
+            if target_stocks:
+                stock_list = [stock for stock in all_stocks if stock[0] in target_stocks]
+            else:
+                stock_list = all_stocks
 
         # 设置总任务数
         self.total_tasks = len(stock_list)
@@ -463,6 +483,7 @@ if __name__ == "__main__":
         max_workers=2,  # 可根据网络环境和硬件配置调整
         force_update=False,  # 是否强制更新已有日期的数据
         max_sleep_time=2,  # 随机休眠的最大毫秒数
-        enable_auto_captcha=False  # 是否启用自动验证码解决功能
+        enable_auto_captcha=False,  # 是否启用自动验证码解决功能
+        stock_list=None  # 不指定特定股票
     )
     data_fetcher.fetch_and_save_data()

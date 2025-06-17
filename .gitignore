@@ -12,6 +12,8 @@ __pycache__/
 .cursor/
 .venv*/
 .vscode/
+.deps/
 env/
 images/
 local.ini
+run_main.py
