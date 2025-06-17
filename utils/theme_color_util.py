@@ -8,6 +8,7 @@ from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
 # 选择一个同义词分组规则
 from data.reasons.origin_synonym_groups import synonym_groups
+
 # from data.reasons.updated_synonym_groups import synonym_groups
 
 # 排除列表 - 这些原因不会被选为热门原因
@@ -177,7 +178,7 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
     """
     # 使用传入的优先原因列表或全局定义的列表
     priority_list = priority_reasons if priority_reasons is not None else PRIORITY_REASONS
-    
+
     # 统计所有原因出现次数
     reason_counter = Counter(all_reasons)
 
@@ -199,15 +200,16 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
     for reason in priority_list:
         if reason in all_reason_counts and all_reason_counts[reason] > 0 and reason not in EXCLUDED_REASONS:
             top_reasons.append(reason)
-    
+
     # 然后按出现次数倒序添加其他热门原因，直到达到TOP_N个
     remaining_slots = top_n - len(top_reasons)
     if remaining_slots > 0:
         # 排除已经在优先列表中的原因
         other_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
-                                                        key=lambda x: x[1],
-                                                        reverse=True)
-                     if count > 0 and reason not in EXCLUDED_REASONS and reason not in top_reasons][:remaining_slots]
+                                                            key=lambda x: x[1],
+                                                            reverse=True)
+                         if count > 0 and reason not in EXCLUDED_REASONS and reason not in top_reasons][
+                        :remaining_slots]
         top_reasons.extend(other_reasons)
 
     # 为每个原因分配颜色
@@ -330,7 +332,8 @@ def get_color_for_pct_change(pct_change):
         return None
 
 
-def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None, reentry_colors=None):
+def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None,
+                        reentry_colors=None, source_sheet_name=None):
     """
     创建颜色图例工作表
     
@@ -341,12 +344,23 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
         top_reasons: 热门原因列表
         high_board_colors: 高板数颜色映射字典，默认为None
         reentry_colors: 重复入选颜色映射字典，默认为None
+        source_sheet_name: 源数据工作表名称，用于生成图例工作表名称，默认为None
     
     Returns:
         openpyxl.worksheet.worksheet.Worksheet: 创建的图例工作表对象
     """
+    # 确定图例工作表名称
+    if source_sheet_name:
+        legend_sheet_name = f"图例_{source_sheet_name}"
+    else:
+        legend_sheet_name = "题材颜色图例"
+
+    # 检查图例工作表是否已存在，如果存在则删除
+    if legend_sheet_name in wb.sheetnames:
+        wb.remove(wb[legend_sheet_name])
+
     # 创建图例工作表
-    legend_ws = wb.create_sheet(title="题材颜色图例")
+    legend_ws = wb.create_sheet(title=legend_sheet_name)
 
     # 设置标题
     title_cell = legend_ws.cell(row=1, column=1, value="热门概念图例")
@@ -544,7 +558,8 @@ def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
         return {}
 
 
-def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv", label_col=1):
+def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv",
+                          label_col=1):
     """
     在Excel表格中添加大盘指标行（创业指和成交量）
     
