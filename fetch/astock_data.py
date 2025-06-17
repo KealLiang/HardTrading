@@ -4,9 +4,9 @@ import random
 import re
 import threading
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-import traceback
 
 import akshare as ak
 import pandas as pd
@@ -93,12 +93,12 @@ class StockDataFetcher:
         """
         # 使用传入的stock_list或初始化时设置的列表
         target_stocks = stock_list or self.stock_list
-        
+
         # 获取股票代码和名称
         try:
             stock_real_time = ak.stock_zh_a_spot_em()
             all_stocks = stock_real_time[['代码', '名称']].values.tolist()
-            
+
             # 如果有指定股票列表，筛选出目标股票
             if target_stocks:
                 stock_list = [stock for stock in all_stocks if stock[0] in target_stocks]
@@ -416,31 +416,35 @@ class StockDataFetcher:
         data.to_csv(file_path, index=False, header=False)
         logging.info(f"Created new file: {os.path.basename(file_path)}")
 
-    def fetch_and_save_data_from_realtime(self, use_realtime=True):
+    @timer
+    def fetch_and_save_data_from_realtime(self, today=None):
         """
         从实时行情数据获取今日股票数据并保存
         
-        :param use_realtime: 是否使用实时数据接口，默认为True
+        :param today: 今天的日期
         :return: None
         """
-        # 检查当前时间，如果早于15:30，返回提示信息
+        # 检查当前时间，如果早于15:30或晚于23:55，返回提示信息
         now = datetime.now()
-        if now.hour < 15 or (now.hour == 15 and now.minute < 30):
-            logging.warning(f"当前时间 {now.strftime('%H:%M')} 未到收盘时间(15:30)，不建议更新数据")
+        min_bound = now.hour < 15 or (now.hour == 15 and now.minute < 30)
+        max_bound = now.hour > 23 or (now.hour == 23 and now.minute > 55)
+        if min_bound or max_bound:
+            logging.warning(f"当前时间 {now.strftime('%H:%M')} 不合适，不建议用实时接口更新数据")
             return False
-        
+
         # 获取今天的日期
-        today = now.strftime("%Y-%m-%d")
-        
+        if today is None:
+            today = now.strftime("%Y-%m-%d")
+
         try:
             # 使用实时数据接口获取所有股票数据
             logging.info("开始从实时数据接口获取当日股票数据...")
             stock_real_time = ak.stock_zh_a_spot_em()
-            
+
             if stock_real_time.empty:
                 logging.error("获取实时数据失败，返回空数据")
                 return False
-            
+
             # 实时数据列和历史数据列的映射关系
             column_mapping = {
                 '代码': '股票代码',
@@ -455,30 +459,33 @@ class StockDataFetcher:
                 '涨跌额': '涨跌额',
                 '换手率': '换手率'
             }
-            
+
+            # 构建股票代码到文件的映射
+            code_to_files = self.map_code_to_file()
+
             # 为每只股票创建单独的DataFrame并保存
             processed_count = 0
             total_stocks = len(stock_real_time)
             logging.info(f"共有 {total_stocks} 只股票需要处理")
-            
+
             for _, row in stock_real_time.iterrows():
                 try:
                     # 获取股票代码和名称
                     stock_code = row['代码']
                     stock_name = row['名称']
-                    
+
                     # 跳过退市股票
                     if '退' in stock_name:
                         continue
-                    
+
                     # 创建单只股票的DataFrame
                     stock_data = pd.DataFrame([row])
-                    
+
                     # 转换为与历史数据相同的格式
                     new_data = pd.DataFrame()
                     new_data['日期'] = [today]
                     new_data['股票代码'] = [stock_code]
-                    
+
                     # 复制相应的列
                     for real_col, hist_col in column_mapping.items():
                         if real_col in stock_data.columns:
@@ -486,25 +493,58 @@ class StockDataFetcher:
                         else:
                             # 如果缺少某些列，设置为0
                             new_data[hist_col] = 0
-                    
-                    # 保存数据
+
+                    # 保存当前股票名称的数据
                     self._save_stock_data(stock_code, stock_name, new_data)
-                    
+
+                    # 检查是否存在同代码不同名称的文件，如有则更新
+                    self.update_same_code_files(code_to_files, new_data, stock_code, stock_name)
+
                     processed_count += 1
                     # 每处理100只股票输出一次进度信息
                     if processed_count % 100 == 0:
                         logging.info(f"已处理 {processed_count}/{total_stocks} 只股票")
-                    
+
                 except Exception as e:
                     logging.error(f"处理股票 {stock_code}({stock_name}) 实时数据时出错: {str(e)}")
-            
+
             logging.info(f"成功从实时数据更新了 {processed_count} 只股票的数据")
             return True
-        
+
         except Exception as e:
             logging.error(f"从实时数据接口获取数据时出错: {str(e)}")
             traceback.print_exc()
             return False
+
+    def update_same_code_files(self, code_to_files, new_data, stock_code, stock_name):
+        if stock_code in code_to_files:
+            for filename in code_to_files[stock_code]:
+                # 从文件名提取名称部分
+                name_match = re.match(r'^\d{6}_(.*)\.csv$', filename)
+                if name_match:
+                    other_name = name_match.group(1)
+                    # 如果是不同的名称（可能带有XD等标记），也更新该文件
+                    if other_name != self._get_safe_file_name(stock_name):
+                        file_path = os.path.join(self.save_path, filename)
+                        logging.info(f"更新同代码不同名称的文件: {filename}")
+                        if os.path.exists(file_path):
+                            self._append_new_data(file_path, new_data)
+
+    def map_code_to_file(self):
+        # 获取保存目录中的所有文件
+        all_files = os.listdir(self.save_path) if os.path.exists(self.save_path) else []
+        # 创建股票代码到文件名的映射，处理同一代码可能有多个文件的情况
+        code_to_files = {}
+        for filename in all_files:
+            if filename.endswith('.csv'):
+                # 提取文件名中的股票代码（假设格式为"code_name.csv"）
+                code_match = re.match(r'^(\d{6})_.*\.csv$', filename)
+                if code_match:
+                    code = code_match.group(1)
+                    if code not in code_to_files:
+                        code_to_files[code] = []
+                    code_to_files[code].append(filename)
+        return code_to_files
 
 
 class StockDataBroker:

@@ -41,16 +41,16 @@ def backtrade_simulate():
     # 默认使用KDJ_MACD策略
     # simulator.go_trade(code)
     # simulator.go_trade(code, startdate=datetime(2024, 1, 1), enddate=datetime(2025, 3, 9))
-    
+
     # 使用TA-Lib K线形态策略
-    simulator.go_trade(code, 
-                      startdate=datetime(2020, 1, 1),
-                      enddate=datetime(2025, 6, 12),
-                      strategy=TALibPatternStrategy,
-                      strategy_params={
-                          'order_percentage': 0.2,
-                          'stop_loss_pct': 0.05,
-                      })
+    simulator.go_trade(code,
+                       startdate=datetime(2020, 1, 1),
+                       enddate=datetime(2025, 6, 12),
+                       strategy=TALibPatternStrategy,
+                       strategy_params={
+                           'order_percentage': 0.2,
+                           'stop_loss_pct': 0.05,
+                       })
 
 
 # 获取热点概念词云
@@ -66,26 +66,22 @@ def get_index_data():
 
 # 拉a股历史数据
 def get_stock_datas():
-    use_realtime=False
+    use_realtime = True
 
     # end_date = '20250606'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250512', end_date=end_date, save_path='./data/astocks',
                                     max_workers=4)
-    
+
     # 根据参数选择不同的数据获取方式
     if use_realtime:
         # 使用实时数据接口更新当天数据
-        success = data_fetcher.fetch_and_save_data_from_realtime()
-        if not success:
-            logging.warning("从实时数据接口更新数据失败，将尝试使用历史数据接口")
-            # 如果实时数据更新失败，回退到使用历史数据接口
-            data_fetcher.fetch_and_save_data()
+        data_fetcher.fetch_and_save_data_from_realtime()
     else:
         # 使用历史数据接口获取数据（原有逻辑）
         data_fetcher.fetch_and_save_data()
-    
+
     # 获取指数数据
     get_index_data()
 
@@ -222,7 +218,7 @@ def plot_stock_daily_prices():
     stock_codes = ["603399", "600036", "601318", "000001", "600000"]
     start_date = "20250430"
     end_date = "20250523"
-    
+
     # 画出日对比图
     plot_multiple_stocks(stock_codes, start_date, end_date, equal_spacing=True)
 
@@ -265,7 +261,7 @@ def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250520"
     end_date = None
-    
+
     process_zt_data(start_date, end_date, clean_output=True)
     # add_vba_for_excel()
 
@@ -280,12 +276,12 @@ def generate_ladder_chart():
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
     sheet_name = None
-    
+
     # 定义优先原因列表
     priority_reasons = [
         # "创新药"
     ]
-    
+
     # 构建梯队图
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
@@ -293,12 +289,12 @@ def generate_ladder_chart():
                        sheet_name=sheet_name)
 
 
-if __name__ == '__main__':   
-    get_stock_datas()
+if __name__ == '__main__':
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
