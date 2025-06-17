@@ -17,3 +17,4 @@ env/
 images/
 local.ini
 run_main.py
+.specstory/**

@@ -6,6 +6,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from tqdm import tqdm
+import traceback
 
 import akshare as ak
 import pandas as pd
@@ -408,6 +410,97 @@ class StockDataFetcher:
         """
         data.to_csv(file_path, index=False, header=False)
         logging.info(f"Created new file: {os.path.basename(file_path)}")
+
+    def fetch_and_save_data_from_realtime(self, use_realtime=True):
+        """
+        从实时行情数据获取今日股票数据并保存
+        
+        :param use_realtime: 是否使用实时数据接口，默认为True
+        :return: None
+        """
+        # 检查当前时间，如果早于15:30，返回提示信息
+        now = datetime.datetime.now()
+        if now.hour < 15 or (now.hour == 15 and now.minute < 30):
+            logging.warning(f"当前时间 {now.strftime('%H:%M')} 未到收盘时间(15:30)，不建议更新数据")
+            return False
+        
+        # 获取今天的日期
+        today = now.strftime("%Y-%m-%d")
+        
+        try:
+            # 使用实时数据接口获取所有股票数据
+            logging.info("开始从实时数据接口获取当日股票数据...")
+            stock_real_time = ak.stock_zh_a_spot_em()
+            
+            if stock_real_time.empty:
+                logging.error("获取实时数据失败，返回空数据")
+                return False
+            
+            # 实时数据列和历史数据列的映射关系
+            column_mapping = {
+                '代码': '股票代码',
+                '今开': '开盘',
+                '最新价': '收盘',
+                '最高': '最高',
+                '最低': '最低',
+                '成交量': '成交量',
+                '成交额': '成交额',
+                '振幅': '振幅',
+                '涨跌幅': '涨跌幅',
+                '涨跌额': '涨跌额',
+                '换手率': '换手率'
+            }
+            
+            # 为每只股票创建单独的DataFrame并保存
+            processed_count = 0
+            total_stocks = len(stock_real_time)
+            
+            # 使用进度条显示处理进度
+            with tqdm(total=total_stocks, desc="处理实时数据") as pbar:
+                for _, row in stock_real_time.iterrows():
+                    try:
+                        # 获取股票代码和名称
+                        stock_code = row['代码']
+                        stock_name = row['名称']
+                        
+                        # 跳过退市股票
+                        if '退' in stock_name:
+                            pbar.update(1)
+                            continue
+                        
+                        # 创建单只股票的DataFrame
+                        stock_data = pd.DataFrame([row])
+                        
+                        # 转换为与历史数据相同的格式
+                        new_data = pd.DataFrame()
+                        new_data['日期'] = [today]
+                        new_data['股票代码'] = [stock_code]
+                        
+                        # 复制相应的列
+                        for real_col, hist_col in column_mapping.items():
+                            if real_col in stock_data.columns:
+                                new_data[hist_col] = stock_data[real_col].values
+                            else:
+                                # 如果缺少某些列，设置为0
+                                new_data[hist_col] = 0
+                        
+                        # 保存数据
+                        self._save_stock_data(stock_code, stock_name, new_data)
+                        
+                        processed_count += 1
+                        pbar.update(1)
+                        
+                    except Exception as e:
+                        logging.error(f"处理股票 {stock_code}({stock_name}) 实时数据时出错: {str(e)}")
+                        pbar.update(1)
+            
+            logging.info(f"成功从实时数据更新了 {processed_count} 只股票的数据")
+            return True
+        
+        except Exception as e:
+            logging.error(f"从实时数据接口获取数据时出错: {str(e)}")
+            traceback.print_exc()
+            return False
 
 
 class StockDataBroker:

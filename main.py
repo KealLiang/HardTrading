@@ -1,10 +1,10 @@
+import logging
 import warnings
 
 # 忽略jieba库中的pkg_resources警告
-warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from datetime import datetime
-
 from analysis.calculate_limit_up_success_rate import analyze_rate
 from analysis.daily_group import find_stocks_by_hot_themes
 from analysis.dejavu import process_dejavu_data
@@ -17,7 +17,7 @@ from analysis.whimsical import process_zt_data, add_vba_for_excel
 from analysis.ladder_chart import build_ladder_chart
 from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
-from fetch.astock_data import StockDataFetcher
+from fetch.astock_data import StockDataFetcher, StockDataBroker
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
@@ -29,7 +29,6 @@ from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
 from strategy.kline_pattern import TALibPatternStrategy
-import logging
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -67,13 +66,26 @@ def get_index_data():
 
 # 拉a股历史数据
 def get_stock_datas():
+    use_realtime=False
+
     # end_date = '20250606'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250512', end_date=end_date, save_path='./data/astocks',
                                     max_workers=4)
-    # 执行数据获取和保存操作
-    data_fetcher.fetch_and_save_data()
+    
+    # 根据参数选择不同的数据获取方式
+    if use_realtime:
+        # 使用实时数据接口更新当天数据
+        success = data_fetcher.fetch_and_save_data_from_realtime()
+        if not success:
+            logging.warning("从实时数据接口更新数据失败，将尝试使用历史数据接口")
+            # 如果实时数据更新失败，回退到使用历史数据接口
+            data_fetcher.fetch_and_save_data()
+    else:
+        # 使用历史数据接口获取数据（原有逻辑）
+        data_fetcher.fetch_and_save_data()
+    
     # 获取指数数据
     get_index_data()
 
@@ -281,12 +293,12 @@ def generate_ladder_chart():
                        sheet_name=sheet_name)
 
 
-if __name__ == '__main__':
-    # get_stock_datas()
+if __name__ == '__main__':   
+    get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
