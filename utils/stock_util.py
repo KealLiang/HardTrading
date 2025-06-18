@@ -5,8 +5,8 @@ def stock_limit_ratio(stock_code: str) -> float:
     :param stock_code: 6位数字的股票代码字符串。
     :return: 涨跌停比例 (例如 0.1 表示 ±10%)。
     """
-    if not isinstance(stock_code, str) or not stock_code.isdigit() or len(stock_code) != 6:
-        raise ValueError(f"无效的股票代码格式: {stock_code}")
+    if not isinstance(stock_code, str):
+        stock_code = str(stock_code)
 
     market = get_stock_market(stock_code)
 
@@ -32,8 +32,8 @@ def convert_stock_code(code: str) -> str:
     :param code: 6位数字的股票代码字符串, 如 '600000'。
     :return: 带交易所前缀的股票代码, 如 'sh600000'。
     """
-    if not isinstance(code, str) or not code.isdigit():
-        raise ValueError("股票代码必须是纯数字字符串！")
+    if not isinstance(code, str):
+        code = str(code)
 
     # 沪市
     if code.startswith(('60', '68')) or \
@@ -66,9 +66,6 @@ def get_stock_market(code: str) -> str:
     """
     if not isinstance(code, str):
         code = str(code)
-
-    if not code.isdigit() or len(code) != 6:
-        raise ValueError(f"无效的股票代码格式: {code}")
 
     # 优先判断特殊板块
     if code.startswith('68'):  # 科创板
