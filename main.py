@@ -188,14 +188,14 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250512'
+    start_date = '20250530'
     # end_date = '20250228'
     end_date = None
     fupan_all_statistics(start_date, end_date, max_workers=4)
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250512'
+    start_date = '20250525'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -294,10 +294,10 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()

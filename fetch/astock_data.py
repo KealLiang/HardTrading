@@ -15,6 +15,7 @@ import winsound
 from decorators.practical import timer
 from utils.captcha_solver import solve_captcha  # 导入验证码解决函数
 from utils.date_util import get_trading_days, format_date
+from utils.file_util import find_all_stock_files
 from utils.stock_util import convert_stock_code
 
 
@@ -298,38 +299,46 @@ class StockDataFetcher:
         if self.force_update:
             return True
 
-        safe_name = self._get_safe_file_name(stock_name)
-        file_name = f"{stock_code}_{safe_name}.csv"
-        file_path = os.path.join(self.save_path, file_name)
+        # 查找匹配股票代码的所有文件
+        existing_files = self._find_files_by_code(stock_code)
 
-        # 如果文件不存在，需要更新
-        if not os.path.exists(file_path):
+        # 如果没有匹配的文件，需要更新
+        if not existing_files:
             return True
 
-        try:
-            # 读取现有文件的所有数据
-            existing_data = pd.read_csv(file_path, header=None,
-                                        names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
-                                               '振幅', '涨跌幅', '涨跌额', '换手率'],
-                                        dtype={'股票代码': str})
+        # 检查所有匹配的文件，看是否有完整数据
+        for filename in existing_files:
+            file_path = os.path.join(self.save_path, filename)
 
-            # 确保日期列是日期类型
-            existing_data['日期'] = pd.to_datetime(existing_data['日期'])
+            try:
+                # 读取现有文件的所有数据
+                existing_data = pd.read_csv(file_path, header=None,
+                                            names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量',
+                                                   '成交额',
+                                                   '振幅', '涨跌幅', '涨跌额', '换手率'],
+                                            dtype={'股票代码': str})
 
-            # 获取现有数据的日期范围
-            existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
+                # 确保日期列是日期类型
+                existing_data['日期'] = pd.to_datetime(existing_data['日期'])
 
-            # 检查交易日是否都已存在
-            formatted_trading_days = [format_date(day) for day in self.trading_days]
-            missing_days = [day for day in formatted_trading_days if day not in existing_dates]
+                # 获取现有数据的日期范围
+                existing_dates = set(existing_data['日期'].dt.strftime('%Y-%m-%d'))
 
-            # 如果有缺失的交易日，需要更新
-            return len(missing_days) > 0
+                # 检查交易日是否都已存在
+                formatted_trading_days = [format_date(day) for day in self.trading_days]
+                missing_days = [day for day in formatted_trading_days if day not in existing_dates]
 
-        except Exception as e:
-            logging.warning(f"检查 {file_path} 是否需要更新时出错: {str(e)}")
-            # 出错时保守处理，返回需要更新
-            return True
+                # 如果没有缺失的交易日，不需要更新
+                if len(missing_days) == 0:
+                    return False
+
+            except Exception as e:
+                logging.warning(f"检查 {file_path} 是否需要更新时出错: {str(e)}")
+                # 单个文件检查出错，继续检查其他文件
+                continue
+
+        # 所有文件都检查完，仍需要更新
+        return True
 
     def _get_safe_file_name(self, stock_name):
         """
@@ -343,6 +352,7 @@ class StockDataFetcher:
     def _save_stock_data(self, stock_code, stock_name, stock_data):
         """
         线程安全的股票数据保存方法
+        股票代码相同的数据保存到同一文件，文件名使用最新的股票名称
         """
         # 在保存前检查是否需要暂停
         self._wait_if_paused()
@@ -351,14 +361,108 @@ class StockDataFetcher:
         if '股票代码' in stock_data.columns:
             stock_data['股票代码'] = stock_data['股票代码'].astype(str)
 
-        safe_name = self._get_safe_file_name(stock_name)
-        file_name = f"{stock_code}_{safe_name}.csv"
-        file_path = os.path.join(self.save_path, file_name)
+        # 检查是否已存在同代码的文件
+        existing_files = self._find_files_by_code(stock_code)
 
-        if os.path.exists(file_path):
-            self._append_new_data(file_path, stock_data)
+        if existing_files:
+            # 如果存在同代码文件，处理文件更新和可能的文件名更新
+            self._handle_existing_files(existing_files, stock_code, stock_name, stock_data)
         else:
+            # 不存在同代码文件，创建新文件
+            safe_name = self._get_safe_file_name(stock_name)
+            file_name = f"{stock_code}_{safe_name}.csv"
+            file_path = os.path.join(self.save_path, file_name)
             self._create_new_file(file_path, stock_data)
+
+    def _find_files_by_code(self, stock_code):
+        """
+        根据股票代码查找已存在的文件
+        
+        :param stock_code: 股票代码
+        :return: 匹配的文件列表
+        """
+        # 使用file_util中的公共方法查找所有匹配的文件
+        all_file_paths = find_all_stock_files(stock_code, self.save_path)
+
+        # 只返回文件名而非完整路径
+        return [os.path.basename(path) for path in all_file_paths]
+
+    def _handle_existing_files(self, existing_files, stock_code, stock_name, new_data):
+        """
+        处理已存在的同代码文件
+        
+        :param existing_files: 同代码的现有文件列表
+        :param stock_code: 股票代码
+        :param stock_name: 最新的股票名称
+        :param new_data: 新数据
+        """
+        # 获取安全的最新文件名
+        safe_name = self._get_safe_file_name(stock_name)
+        target_file_name = f"{stock_code}_{safe_name}.csv"
+        target_file_path = os.path.join(self.save_path, target_file_name)
+
+        # 检查目标文件名是否已存在
+        target_exists = target_file_name in existing_files
+
+        if len(existing_files) == 1:
+            existing_file = existing_files[0]
+            existing_path = os.path.join(self.save_path, existing_file)
+
+            if existing_file == target_file_name:
+                # 文件名未变化，直接追加新数据
+                self._append_new_data(existing_path, new_data)
+            else:
+                # 文件名需要更新，先追加数据，再重命名
+                self._append_new_data(existing_path, new_data)
+                try:
+                    # 确保目标文件不存在
+                    if os.path.exists(target_file_path) and existing_path != target_file_path:
+                        os.remove(target_file_path)
+                    # 重命名文件
+                    os.rename(existing_path, target_file_path)
+                    logging.info(f"已将 {existing_file} 重命名为 {target_file_name}")
+                except Exception as e:
+                    logging.error(f"重命名 {existing_file} 至 {target_file_name} 时出错: {str(e)}")
+        else:
+            # 多个同代码文件，需要合并
+            # 按文件大小排序，选择数据最多的文件作为主文件
+            file_sizes = [(f, os.path.getsize(os.path.join(self.save_path, f))) for f in existing_files]
+            main_file, _ = max(file_sizes, key=lambda x: x[1])
+            main_path = os.path.join(self.save_path, main_file)
+
+            # 先将新数据追加到主文件
+            self._append_new_data(main_path, new_data)
+
+            # 合并所有其他文件的数据到主文件
+            for other_file in existing_files:
+                if other_file != main_file:
+                    other_path = os.path.join(self.save_path, other_file)
+                    try:
+                        # 读取其他文件数据
+                        other_data = pd.read_csv(other_path, header=None,
+                                                 names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量',
+                                                        '成交额',
+                                                        '振幅', '涨跌幅', '涨跌额', '换手率'],
+                                                 dtype={'股票代码': str})
+                        # 追加到主文件
+                        self._append_new_data(main_path, other_data)
+                        # 删除其他文件
+                        os.remove(other_path)
+                        logging.info(f"已合并并删除 {other_file}")
+                    except Exception as e:
+                        logging.error(f"合并 {other_file} 时出错: {str(e)}")
+
+            # 如果主文件名与目标文件名不同，重命名
+            if main_file != target_file_name:
+                try:
+                    # 确保目标文件不存在（如果与其他文件同名）
+                    if os.path.exists(target_file_path) and main_path != target_file_path:
+                        os.remove(target_file_path)
+                    # 重命名主文件
+                    os.rename(main_path, target_file_path)
+                    logging.info(f"已将主文件 {main_file} 重命名为 {target_file_name}")
+                except Exception as e:
+                    logging.error(f"重命名主文件 {main_file} 至 {target_file_name} 时出错: {str(e)}")
 
     def _append_new_data(self, file_path, new_data):
         """
@@ -460,9 +564,6 @@ class StockDataFetcher:
                 '换手率': '换手率'
             }
 
-            # 构建股票代码到文件的映射
-            code_to_files = self.map_code_to_file()
-
             # 为每只股票创建单独的DataFrame并保存
             processed_count = 0
             total_stocks = len(stock_real_time)
@@ -494,11 +595,8 @@ class StockDataFetcher:
                             # 如果缺少某些列，设置为0
                             new_data[hist_col] = 0
 
-                    # 保存当前股票名称的数据
+                    # 保存当前股票数据，会自动处理同代码文件并使用最新名称
                     self._save_stock_data(stock_code, stock_name, new_data)
-
-                    # 检查是否存在同代码不同名称的文件，如有则更新
-                    self.update_same_code_files(code_to_files, new_data, stock_code, stock_name)
 
                     processed_count += 1
                     # 每处理100只股票输出一次进度信息
@@ -516,28 +614,19 @@ class StockDataFetcher:
             traceback.print_exc()
             return False
 
-    def update_same_code_files(self, code_to_files, new_data, stock_code, stock_name):
-        if stock_code in code_to_files:
-            for filename in code_to_files[stock_code]:
-                # 从文件名提取名称部分
-                name_match = re.match(r'^\d{6}_(.*)\.csv$', filename)
-                if name_match:
-                    other_name = name_match.group(1)
-                    # 如果是不同的名称（可能带有XD等标记），也更新该文件
-                    if other_name != self._get_safe_file_name(stock_name):
-                        file_path = os.path.join(self.save_path, filename)
-                        logging.info(f"更新同代码不同名称的文件: {filename}")
-                        if os.path.exists(file_path):
-                            self._append_new_data(file_path, new_data)
-
     def map_code_to_file(self):
+        """
+        创建股票代码到文件名的映射
+        
+        :return: 字典，键为股票代码，值为对应的文件名列表
+        """
         # 获取保存目录中的所有文件
         all_files = os.listdir(self.save_path) if os.path.exists(self.save_path) else []
-        # 创建股票代码到文件名的映射，处理同一代码可能有多个文件的情况
+        # 创建股票代码到文件名的映射
         code_to_files = {}
         for filename in all_files:
             if filename.endswith('.csv'):
-                # 提取文件名中的股票代码（假设格式为"code_name.csv"）
+                # 提取文件名中的股票代码（格式为"code_name.csv"）
                 code_match = re.match(r'^(\d{6})_.*\.csv$', filename)
                 if code_match:
                     code = code_match.group(1)
@@ -545,6 +634,21 @@ class StockDataFetcher:
                         code_to_files[code] = []
                     code_to_files[code].append(filename)
         return code_to_files
+
+    def update_same_code_files(self, code_to_files, new_data, stock_code, stock_name):
+        """
+        处理同代码不同名称的文件
+        现在调用新的_handle_existing_files方法实现功能
+        
+        :param code_to_files: 股票代码到文件名的映射
+        :param new_data: 新数据
+        :param stock_code: 股票代码
+        :param stock_name: 股票名称
+        """
+        if stock_code in code_to_files:
+            existing_files = code_to_files[stock_code]
+            if existing_files:
+                self._handle_existing_files(existing_files, stock_code, stock_name, new_data)
 
 
 class StockDataBroker:
