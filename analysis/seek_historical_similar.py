@@ -11,6 +11,7 @@ from dtaidistance import dtw
 from matplotlib import font_manager
 from tqdm import tqdm
 
+from utils.file_util import read_stock_data
 from utils.stock_util import get_stock_market
 
 font_path = 'fonts/微软雅黑.ttf'
@@ -236,13 +237,11 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
     similarity_results = []
 
     for stock_code in tqdm(stock_codes, "寻找相似走势v1"):
-        file_path = next((os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{stock_code}_")),
-                         None)
-        if not file_path:
+        stock_data = read_stock_data(stock_code, data_dir)
+
+        if stock_data is None:
             logging.warning(f"未找到股票 {stock_code} 的数据文件，跳过。")
             continue
-
-        stock_data = load_stock_data(file_path)
         if stock_data is None:
             continue
 

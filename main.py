@@ -150,10 +150,10 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     formatter = "%Y%m%d"
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "601086"  # 目标股票代码
+    target_stock_code = "601068"  # 目标股票代码
     start_date = datetime.strptime('20250407', formatter)
     end_date = datetime.strptime('20250416', formatter)
-    trend_end_date = datetime.strptime('20250428', formatter)  # 被查找个股的趋势结束日期
+    trend_end_date = datetime.strptime('20250618', formatter)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -292,9 +292,9 @@ def generate_ladder_chart():
 if __name__ == '__main__':
     # get_stock_datas()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()

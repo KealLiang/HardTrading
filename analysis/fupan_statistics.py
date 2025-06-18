@@ -2,18 +2,18 @@ import concurrent.futures  # 添加多线程支持
 import logging
 import os
 from datetime import datetime
+from threading import Lock
 
 import akshare as ak
 import pandas as pd
 import tushare as ts
-
-from threading import Lock
 
 from config.holder import config
 from decorators.practical import timer
 from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
     get_dieting_stocks
 from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
+from utils.file_util import read_stock_data
 
 os.environ['NODE_OPTIONS'] = '--no-deprecation'
 default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板', '曾涨停']
@@ -130,7 +130,7 @@ def get_stock_next_day_performance(pre_df, base_date):
             try:
                 stock_code = row['股票代码'].split('.')[0]
                 stock_name = row.get('股票简称', '')
-                
+
                 logging.debug(f"开始处理股票: {stock_code} ({stock_name})")
 
                 # 尝试从本地文件读取数据
@@ -210,61 +210,32 @@ def get_stock_data(base_date, next_date, stock_code, local_data):
 def get_local_data(base_date, next_date, stock_code, stock_name, data_path='data/astocks'):
     local_data = None
     try:
-        # 确保使用绝对路径
-        abs_data_path = os.path.abspath(data_path)
-        if not os.path.exists(abs_data_path):
-            logging.warning(f"数据路径不存在: {abs_data_path}")
-            return None
-            
-        # 查找所有匹配股票代码的文件
-        try:
-            matching_files = [f for f in os.listdir(abs_data_path) if f.startswith(f"{stock_code}_")]
-        except Exception as e:
-            logging.error(f"列出目录内容失败: {str(e)}")
-            return None
+        # 读取股票数据
+        local_df = read_stock_data(stock_code, data_path)
 
-        if len(matching_files) == 1:
-            # 只找到一个文件，直接使用
-            file_path = os.path.join(abs_data_path, matching_files[0])
-        elif len(matching_files) > 1 and stock_name:
-            # 找到多个文件，使用股票名称进一步筛选
-            processed_stock_name = ''.join(stock_name.split())
-            name_matched_files = [f for f in matching_files
-                                  if processed_stock_name in ''.join(f.split('_')[1].split('.')[0].split())]
-            if name_matched_files:
-                file_path = os.path.join(abs_data_path, name_matched_files[0])
-            else:
-                # 如果没有匹配的，使用第一个文件
-                file_path = os.path.join(abs_data_path, matching_files[0])
-                logging.warning(f"股票{stock_code}({stock_name})存在多个数据文件，使用: {matching_files[0]}")
-        else:
+        if local_df is None:
             logging.warning(f"未找到股票{stock_code}的数据文件")
             return None
 
-        # 使用文件锁确保线程安全的文件读取
-        with open(file_path, 'r') as f:
-            # 读取本地数据
-            local_df = pd.read_csv(file_path, header=None,
-                                names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅',
-                                        '涨跌幅', '涨跌额', '换手率'],
-                                dtype={'日期': str})
+        # 由于read_stock_data返回的日期列是datetime类型，需要转为字符串类型以匹配后续处理
+        local_df['日期'] = local_df['日期'].dt.strftime('%Y-%m-%d')
 
-            # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
-            base_date_formatted = f"{base_date[:4]}-{base_date[4:6]}-{base_date[6:]}"
-            next_date_formatted = f"{next_date[:4]}-{next_date[4:6]}-{next_date[6:]}"
+        # 转换日期格式 YYYYMMDD -> YYYY-MM-DD
+        base_date_formatted = f"{base_date[:4]}-{base_date[4:6]}-{base_date[6:]}"
+        next_date_formatted = f"{next_date[:4]}-{next_date[4:6]}-{next_date[6:]}"
 
-            # 筛选出基准日和次日的数据
-            filtered_df = local_df[local_df['日期'].isin([base_date_formatted, next_date_formatted])]
+        # 筛选出基准日和次日的数据
+        filtered_df = local_df[local_df['日期'].isin([base_date_formatted, next_date_formatted])]
 
-            if len(filtered_df) >= 2:
-                # 创建数据副本，避免多线程共享同一个DataFrame
-                local_data = filtered_df.sort_values(by='日期').reset_index(drop=True).copy()
-                logging.debug(f"成功从本地读取股票 {stock_code} 的数据")
-            else:
-                logging.warning(f"本地文件中未找到股票 {stock_code} 的完整数据 base[{base_date}]-next[{next_date}]")
+        if len(filtered_df) >= 2:
+            # 创建数据副本，避免多线程共享同一个DataFrame
+            local_data = filtered_df.sort_values(by='日期').reset_index(drop=True).copy()
+            logging.debug(f"成功从本地读取股票 {stock_code} 的数据")
+        else:
+            logging.warning(f"本地文件中未找到股票 {stock_code} 的完整数据 base[{base_date}]-next[{next_date}]")
     except Exception as e:
         logging.error(f"从本地读取股票 {stock_code} 数据失败: {str(e)}")
-    
+
     return local_data
 
 

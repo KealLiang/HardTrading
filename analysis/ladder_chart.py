@@ -15,6 +15,7 @@ from analysis.loader.fupan_data_loader import (
 )
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before
+from utils.file_util import read_stock_data
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
@@ -70,74 +71,22 @@ PERIOD_CHANGE_COLORS = {
     "STRONG_NEGATIVE": "7D994D",  # 深橄榄绿 - 弱势 (<-60%)
 }
 
-# 股票数据保存路径
-STOCK_DATA_PATH = "./data/astocks/"
+
+@lru_cache(maxsize=1000)
+def get_stock_data_df(stock_code):
+    """缓存股票文件读取结果"""
+    return read_stock_data(stock_code)
 
 
 @lru_cache(maxsize=1000)
-def get_stock_file_path(stock_code, stock_name=None):
-    """
-    获取股票数据文件路径
-
-    Args:
-        stock_code: 股票代码
-        stock_name: 股票名称，用于构建文件名
-
-    Returns:
-        str: 股票数据文件路径，如果找不到则返回None
-    """
-    # 处理股票代码格式
-    clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
-
-    # 查找对应的文件
-    file_path = None
-
-    if stock_name:
-        # 如果提供了股票名称，直接尝试使用
-        safe_name = stock_name.replace('*ST', 'xST').replace('/', '_')
-        possible_file = f"{clean_code}_{safe_name}.csv"
-        if os.path.exists(os.path.join(STOCK_DATA_PATH, possible_file)):
-            file_path = os.path.join(STOCK_DATA_PATH, possible_file)
-
-    # 如果没有找到文件，尝试查找匹配的文件
-    if not file_path:
-        for file in os.listdir(STOCK_DATA_PATH):
-            # 匹配文件名前缀为股票代码的文件
-            if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                file_path = os.path.join(STOCK_DATA_PATH, file)
-                break
-
-    if not file_path:
-        # 如果还是没找到，可能需要处理前导零的情况
-        if clean_code.startswith('0'):
-            # 尝试去掉前导零
-            stripped_code = clean_code.lstrip('0')
-            if stripped_code:  # 确保不是全零
-                for file in os.listdir(STOCK_DATA_PATH):
-                    if file.startswith(f"{stripped_code}_") and file.endswith(".csv"):
-                        file_path = os.path.join(STOCK_DATA_PATH, file)
-                        break
-
-        # 对于上交所股票，可能需要处理6开头的代码
-        elif clean_code.startswith('6'):
-            for file in os.listdir(STOCK_DATA_PATH):
-                if file.startswith(f"{clean_code}_") and file.endswith(".csv"):
-                    file_path = os.path.join(STOCK_DATA_PATH, file)
-                    break
-
-    return file_path
-
-
-@lru_cache(maxsize=1000)
-def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None):
+def get_stock_data(stock_code, date_str_yyyymmdd):
     """
     获取指定股票在特定日期的数据，使用缓存避免重复读取文件
     
     Args:
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-        stock_name: 股票名称，用于构建文件名
-    
+
     Returns:
         tuple: (DataFrame, 目标行, 目标索引) 如果数据不存在则返回(None, None, None)
     """
@@ -148,17 +97,11 @@ def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None):
         # 目标日期（YYYY-MM-DD格式）
         target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
 
-        # 获取股票数据文件路径
-        file_path = get_stock_file_path(stock_code, stock_name)
+        df = get_stock_data_df(stock_code)
 
         # 如果没有找到文件
-        if not file_path:
+        if df is None:
             return None, None, None
-
-        # 读取CSV文件
-        df = pd.read_csv(file_path, header=None,
-                         names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
-                                '振幅', '涨跌幅', '涨跌额', '换手率'])
 
         # 查找目标日期的数据
         target_row = df[df['日期'] == target_date]
@@ -173,23 +116,22 @@ def get_stock_data(stock_code, date_str_yyyymmdd, stock_name=None):
         return df, None, None
 
     except Exception as e:
-        print(f"获取股票 {stock_code} ({stock_name}) 在 {date_str_yyyymmdd} 的数据时出错: {e}")
+        print(f"获取股票 {stock_code} 在 {date_str_yyyymmdd} 的数据时出错: {e}")
         return None, None, None
 
 
-def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None):
+def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd):
     """
     获取指定股票在特定日期的涨跌幅
     
     Args:
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-        stock_name: 股票名称，用于构建文件名
-    
+
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
     """
-    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd, stock_name)
+    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd)
 
     if target_row is not None and not target_row.empty:
         return target_row['涨跌幅'].values[0]
@@ -197,19 +139,18 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd, stock_name=None):
     return None
 
 
-def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None):
+def get_volume_ratio(stock_code, date_str_yyyymmdd):
     """
     获取指定股票在特定日期的成交量比(当天成交量/前N天平均成交量)
     
     Args:
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-        stock_name: 股票名称，用于构建文件名
-    
+
     Returns:
         tuple: (成交量比, 是否超过高阈值, 是否低于低阈值) 如果数据不存在则返回(None, False, False)
     """
-    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd, stock_name)
+    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd)
 
     if df is None or target_row is None or target_row.empty:
         return None, False, False
@@ -242,7 +183,7 @@ def get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name=None):
     return None, False, False
 
 
-def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=None):
+def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd):
     """
     根据成交量比向文本添加成交量信息
     
@@ -250,12 +191,11 @@ def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd, stock_name=Non
         text: 原始文本
         stock_code: 股票代码
         date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
-        stock_name: 股票名称
-        
+
     Returns:
         str: 添加成交量信息后的文本
     """
-    volume_ratio, is_high_volume, is_low_volume = get_volume_ratio(stock_code, date_str_yyyymmdd, stock_name)
+    volume_ratio, is_high_volume, is_low_volume = get_volume_ratio(stock_code, date_str_yyyymmdd)
 
     if volume_ratio is not None and (is_high_volume or is_low_volume):
         return f"{text}[{volume_ratio:.1f}]"
@@ -811,7 +751,7 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         stock_code: 股票代码
         start_date_yyyymmdd: 开始日期 (YYYYMMDD)
         end_date_yyyymmdd: 结束日期 (YYYYMMDD)
-        stock_name: 股票名称，用于构建文件名
+        stock_name: 股票名称 (不再使用)
     
     Returns:
         float: 涨跌幅百分比，如果数据不存在则返回None
@@ -820,17 +760,8 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         if not stock_code:
             return None
 
-        # 获取股票数据文件路径
-        file_path = get_stock_file_path(stock_code, stock_name)
-
-        # 如果没有找到文件
-        if not file_path:
-            return None
-
-        # 读取CSV文件
-        df = pd.read_csv(file_path, header=None,
-                         names=['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
-                                '振幅', '涨跌幅', '涨跌额', '换手率'])
+        # 获取股票数据
+        df = get_stock_data_df(stock_code)
 
         # 格式化日期
         start_date_fmt = f"{start_date_yyyymmdd[:4]}-{start_date_yyyymmdd[4:6]}-{start_date_yyyymmdd[6:8]}"
@@ -1175,7 +1106,7 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
     return cell, last_board_date
 
 
-def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, stock_name):
+def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
     """
     格式化日涨跌幅单元格
     
@@ -1185,7 +1116,6 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, sto
         col: 列索引
         current_date_obj: 当前日期对象
         stock_code: 股票代码
-        stock_name: 股票名称
 
     Returns:
         单元格对象
@@ -1194,13 +1124,13 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code, sto
 
     # 获取当日涨跌幅
     date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
-    pct_change = get_stock_daily_pct_change(stock_code, date_yyyymmdd, stock_name)
+    pct_change = get_stock_daily_pct_change(stock_code, date_yyyymmdd)
     if pct_change is not None:
         # 基本涨跌幅显示
         cell_value = f"{pct_change:.2f}%"
 
         # 添加成交量比信息
-        cell_value = add_volume_ratio_to_text(cell_value, stock_code, date_yyyymmdd, stock_name)
+        cell_value = add_volume_ratio_to_text(cell_value, stock_code, date_yyyymmdd)
 
         cell.value = cell_value
 
@@ -1264,12 +1194,10 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
             if current_date_obj >= stock['first_significant_date']:
                 # 处理断板后的跟踪
                 if should_track_after_break(stock, current_date_obj, max_tracking_days):
-                    format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
-                                                 stock['stock_code'], stock['stock_name'])
+                    format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
             # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
             elif should_track_before_entry(current_date_obj, stock['first_significant_date'], max_tracking_days_before):
-                format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj,
-                                             stock['stock_code'], stock['stock_name'])
+                format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
         except Exception as e:
             print(f"处理日期时出错: {e}, 日期: {formatted_day}")
 

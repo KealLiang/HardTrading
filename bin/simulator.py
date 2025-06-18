@@ -1,14 +1,9 @@
-import os
-
 import backtrader as bt
 import pandas as pd
 from backtrader import feeds
 
 from strategy.kdj_macd import KDJ_MACD_Strategy
-
-# 定义要排除的前缀列表
-exclude_prefixes = ['_XD', '_C']
-
+from utils.file_util import read_stock_data
 
 # 定义列名
 columns = ['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额',
@@ -16,26 +11,12 @@ columns = ['日期', '股票代码', '开盘', '收盘', '最高', '最低', '�
 
 
 def read_and_convert_data(code, path, startdate=None, enddate=None):
-    # 构造文件名和路径
-    file_name_pattern = f'{code}_*.csv'  # 匹配以代码开头的文件
-    files = [f for f in os.listdir(path) if f.startswith(code) and f.endswith('.csv')]
+    df = read_stock_data(code, path)
 
-    if not files:
-        raise FileNotFoundError(f"未找到匹配的文件 {file_name_pattern}")
-    
-    # 筛选掉不需要的文件
-    filtered_files = [f for f in files if not any(prefix in f for prefix in exclude_prefixes)]
+    if df is None:
+        raise FileNotFoundError(f"未找到匹配的文件 {code}_*.csv")
 
-    # 如果筛选后没有文件，则使用原始文件列表
-    if not filtered_files:
-        filtered_files = files
-        print(f"警告: 所有匹配文件都含有排除前缀，使用原始文件列表。")
-
-    # 取第一个匹配的文件
-    file_path = os.path.join(path, filtered_files[0])
-    print(f"使用文件: {file_path}")
-
-    df = pd.read_csv(file_path, header=None, names=columns)
+    print(f"使用股票代码: {code}")
 
     # 转换日期格式为datetime
     df['日期'] = pd.to_datetime(df['日期'], errors='coerce')  # 强制转换，无效日期会变成NaT
@@ -72,7 +53,7 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
     )
 
 
-def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks', 
+def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None):
     data = read_and_convert_data(code, filepath, startdate, enddate)
 
