@@ -248,7 +248,7 @@ def update_synonym_groups():
     manager = SynonymManager(threshold=0.8, min_group_size=3)
 
     # 自动处理同义词分组更新
-    manager.update_from_latest_file(debug_phrases=["化学药"])
+    manager.update_from_latest_file(debug_phrases=["一体化压铸"])
 
 
 def whimsical_fupan_analyze():
@@ -291,7 +291,7 @@ if __name__ == '__main__':
     # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
@@ -307,4 +307,4 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
-    backtrade_simulate()
+    # backtrade_simulate()
