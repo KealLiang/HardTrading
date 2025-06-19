@@ -1,6 +1,8 @@
 import logging
 import warnings
 
+from strategy.market_regime import MarketRegimeStrategy
+
 # 忽略jieba库中的pkg_resources警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -36,21 +38,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    # code = '601933'
     code = '300059'
-    # 默认使用KDJ_MACD策略
-    # simulator.go_trade(code)
-    # simulator.go_trade(code, startdate=datetime(2024, 1, 1), enddate=datetime(2025, 3, 9))
 
-    # 使用TA-Lib K线形态策略
+    # 使用修复后的策略
     simulator.go_trade(code,
                        startdate=datetime(2020, 1, 1),
                        enddate=datetime(2025, 6, 12),
-                       strategy=TALibPatternStrategy,
-                       strategy_params={
-                           'order_percentage': 0.2,
-                           'stop_loss_pct': 0.05,
-                       })
+                       strategy=MarketRegimeStrategy)
 
 
 # 获取热点概念词云
@@ -68,7 +62,7 @@ def get_index_data():
 def get_stock_datas():
     use_realtime = True
 
-    # end_date = '20250606'
+    # end_date = '20250618'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250530', end_date=end_date, save_path='./data/astocks',
@@ -297,7 +291,7 @@ if __name__ == '__main__':
     # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
@@ -313,4 +307,4 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
-    # backtrade_simulate()
+    backtrade_simulate()

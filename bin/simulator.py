@@ -1,13 +1,26 @@
 import backtrader as bt
 import pandas as pd
 from backtrader import feeds
+from utils.file_util import read_stock_data
 
 from strategy.kdj_macd import KDJ_MACD_Strategy
-from utils.file_util import read_stock_data
 
 # 定义列名
 columns = ['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额',
            '换手率']
+
+
+# 创建一个扩展的PandasData类，添加涨跌幅、换手率和振幅
+class ExtendedPandasData(feeds.PandasData):
+    # 添加新的数据行
+    lines = ('pct_chg', 'amplitude', 'turnover',)  # 涨跌幅、振幅、换手率
+    
+    # 添加参数，-1表示自动检测
+    params = (
+        ('pct_chg', -1),  # 涨跌幅
+        ('amplitude', -1),  # 振幅
+        ('turnover', -1),  # 换手率
+    )
 
 
 def read_and_convert_data(code, path, startdate=None, enddate=None):
@@ -31,11 +44,14 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
         '收盘': 'close',
         '最高': 'high',
         '最低': 'low',
-        '成交量': 'volume'
+        '成交量': 'volume',
+        '涨跌幅': 'pct_chg',  # 新增涨跌幅
+        '振幅': 'amplitude',  # 新增振幅
+        '换手率': 'turnover'  # 新增换手率
     }, inplace=True)
 
-    # 选择backtrader需要的列
-    df = df[['datetime', 'open', 'high', 'low', 'close', 'volume']]
+    # 选择backtrader需要的列以及新增的3列
+    df = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'pct_chg', 'amplitude', 'turnover']]
 
     # 按日期排序
     df.sort_values('datetime', inplace=True)
@@ -44,10 +60,18 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
     if startdate and enddate:
         df = df[(df['datetime'] >= startdate) & (df['datetime'] <= enddate)]
 
-    # 转换为backtrader的PandasData格式
-    return feeds.PandasData(
+    # 转换为自定义的ExtendedPandasData格式
+    return ExtendedPandasData(
         dataname=df,
         datetime='datetime',  # 明确指定datetime列
+        open='open',
+        high='high',
+        low='low',
+        close='close',
+        volume='volume',
+        pct_chg='pct_chg',  # 涨跌幅
+        amplitude='amplitude',  # 振幅
+        turnover='turnover',  # 换手率
         compression=1,  # 不压缩，即按天回测
         openinterest=-1  # 如果没有持仓量数据，设为-1
     )
