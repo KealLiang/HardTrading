@@ -111,14 +111,19 @@ class MarketRegimeStrategy(bt.Strategy):
     def notify_order(self, order):
         if order.status in [order.Submitted, order.Accepted]: return
         if order.status in [order.Completed]:
+            # Calculate position percentage
+            pos_value = self.position.size * self.data.close[0]
+            total_value = self.broker.getvalue()
+            pos_pct = (pos_value / total_value) * 100 if total_value > 0 else 0
+
             if order.isbuy():
-                self.log(f'买入/加仓成交: {order.executed.size}股 @ {order.executed.price:.2f}, 当前均价: {self.position.price:.2f}, 当前持仓: {self.position.size}股')
+                self.log(f'买入/加仓成交: {order.executed.size}股 @ {order.executed.price:.2f}, 当前均价: {self.position.price:.2f}, 当前持仓: {self.position.size}股 ({pos_pct:.2f}%)')
                 if not self.buy_regime: # 首次建仓
                     self.buy_tick = len(self)
                     self.buy_regime = self._get_macro_regime()
                     self.highest_high_since_buy = self.data.high[0]
             elif order.issell():
-                self.log(f'卖出成交: {abs(order.executed.size)}股 @ {order.executed.price:.2f}')
+                self.log(f'卖出成交: {abs(order.executed.size)}股 @ {order.executed.price:.2f}, 剩余持仓: {self.position.size}股 ({pos_pct:.2f}%)')
         elif order.status in [order.Canceled, order.Margin, order.Rejected]: self.log('订单未能成交')
         self.order = None
 
@@ -146,9 +151,10 @@ class MarketRegimeStrategy(bt.Strategy):
             can_add_position = current_pos_value + initial_tranche_value <= max_pos_value
 
             if is_profitable and add_signal and can_add_position:
+                profit_pct = (self.data.close[0] - self.position.price) / self.position.price * 100
                 size = int(initial_tranche_value / self.data.close[0])
                 if size > 0:
-                    self.log(f'加仓信号: ({current_macro_regime}) - {add_signal}, 浮盈中, 继续加仓.')
+                    self.log(f'加仓信号: ({current_macro_regime}) - {add_signal}, 浮盈中({profit_pct:.2f}%), 继续加仓.')
                     self.order = self.buy(size=size)
                     return
 
