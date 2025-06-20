@@ -156,7 +156,7 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     benchmark_results = calculate_benchmark(data, amount, final_value)
     
     # 打印基准比较结果
-    print(f"===== 基准测试 =====")
+    print(f"===== 基准测试（周期内买入后不做操作） =====")
     print(f"基准结束资金: {benchmark_results['benchmark_final_value']:.2f}")
     print(f"基准收益率: {benchmark_results['benchmark_return']:.2f}%")
     print(f"基准年化收益率: {benchmark_results['benchmark_annual_return']:.2f}%")

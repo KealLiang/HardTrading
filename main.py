@@ -43,7 +43,7 @@ def backtrade_simulate():
     # 使用修复后的策略
     simulator.go_trade(code,
                        startdate=datetime(2020, 1, 1),
-                       enddate=datetime(2024, 9, 20),
+                       enddate=datetime(2024, 9, 22),
                        strategy=MarketRegimeStrategy)
 
 
