@@ -60,13 +60,14 @@ def get_index_data():
 
 # 拉a股历史数据
 def get_stock_datas():
+    stock_list = ["300059"]
     use_realtime = True
 
     # end_date = '20250618'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
     data_fetcher = StockDataFetcher(start_date='20250530', end_date=end_date, save_path='./data/astocks',
-                                    max_workers=4)
+                                    max_workers=4, stock_list=None)
 
     # 根据参数选择不同的数据获取方式
     if use_realtime:
