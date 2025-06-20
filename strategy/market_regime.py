@@ -16,7 +16,8 @@ class MarketRegimeStrategy(bt.Strategy):
         # -- 微观择时定义 --
         ('ma_short_period', 20),
         ('breakout_period', 10),
-        ('rsi_oversold', 25),
+        ('rsi_oversold', 25),            # 用于熊市/震荡市的极端超卖阈值
+        ('uptrend_rsi_panic', 40),        # 新增：牛市中"恐慌买点"的RSI阈值，更灵敏
 
         # -- 仓位与风险管理 --
         ('max_portfolio_allocation', 0.90), # 允许投入的总资金比例上限
@@ -84,6 +85,17 @@ class MarketRegimeStrategy(bt.Strategy):
         return None
         
     def _get_buy_signal(self, regime):
+        # --- 1. 机会雷达：捕捉恐慌性买点 (最高优先级) ---
+        # 核心逻辑：价格跌破布林带下轨，且RSI进入超卖区
+        # 智能调整：牛市中，RSI不必极度超卖就可认为是机会
+        rsi_panic_threshold = self.p.rsi_oversold  # 默认使用审慎阈值
+        if regime == 'MACRO_UP':
+            rsi_panic_threshold = self.p.uptrend_rsi_panic  # 牛市中使用更灵敏的阈值
+        
+        if self.data.close[0] < self.bbands.bot[0] and self.rsi[0] < rsi_panic_threshold:
+            return '恐慌性买点'
+
+        # --- 2. 常规买点 (若无恐慌信号) ---
         kline_signal = self._get_kline_signal()
         if regime == 'MACRO_UP':
             if self.data.close[0] < self.ma_short[0]:
@@ -93,9 +105,7 @@ class MarketRegimeStrategy(bt.Strategy):
         elif regime == 'MACRO_RANGE':
             if self.data.close[0] < self.bbands.bot[0] and kline_signal == 'BULLISH_REVERSAL':
                 return '下轨看涨'
-        elif regime == 'MACRO_DOWN':
-            if self.rsi[0] < self.p.rsi_oversold and self.data.close[0] < self.bbands.bot[0] and kline_signal == 'BULLISH_REVERSAL':
-                return '极端超卖'
+        # 熊市的买点已完全被上面的"恐慌性买点"逻辑所覆盖，此处不再重复判断
         return None
 
     def notify_order(self, order):
