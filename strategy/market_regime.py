@@ -15,11 +15,11 @@ class MarketRegimeStrategy(bt.Strategy):
         # -- 资金与持仓管理 --
         ('order_percentage', 0.20),
         ('max_hold_period', 10),
-        ('initial_stop_loss_pct', 0.07),
+        ('initial_stop_loss_pct', 0.05),
 
         # -- 上升行情参数 --
         ('uptrend_rsi_buy', 50),
-        ('uptrend_sell_pct_chg', 0.05),  # 降低了卖出阈值
+        ('uptrend_sell_pct_chg', 0.10),
 
         # -- 震荡行情参数 --
         ('ranging_buy_pct_chg', -0.03),

@@ -77,6 +77,39 @@ def read_and_convert_data(code, path, startdate=None, enddate=None):
     )
 
 
+def calculate_benchmark(data, initial_amount, final_amount):
+    """计算基准表现和超额收益，使用与backtrader Returns分析器一致的逻辑"""
+    # 获取起始和结束价格
+    start_price = data.close[-len(data)+1]  # 第一个交易日的收盘价 
+    end_price = data.close[0]  # 最后一个交易日的收盘价
+    
+    # 计算基准假设持仓数量和最终资金
+    shares = initial_amount / start_price
+    benchmark_final_value = shares * end_price
+    
+    # 计算基准收益率
+    benchmark_return = (end_price / start_price - 1) * 100
+    
+    # 计算基准年化收益率
+    # 获取交易天数
+    trading_days = len(data)
+    # 使用252个交易日作为一年，与backtrader的Returns分析器一致
+    years = trading_days / 252
+    benchmark_annual_return = ((end_price / start_price) ** (1/years) - 1) * 100 if years > 0 else 0
+    
+    # 计算策略相对于基准的超额收益
+    strategy_return = (final_amount / initial_amount - 1) * 100
+    excess_return = strategy_return - benchmark_return
+    
+    return {
+        'benchmark_final_value': benchmark_final_value,
+        'benchmark_return': benchmark_return,
+        'benchmark_annual_return': benchmark_annual_return,
+        'strategy_return': strategy_return,
+        'excess_return': excess_return
+    }
+
+
 def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None):
     data = read_and_convert_data(code, filepath, startdate, enddate)
@@ -104,9 +137,11 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     cerebro.addanalyzer(bt.analyzers.PyFolio, _name='pyfolio')  # 兼容PyFolio（可选）
 
     # 运行回测
-    print('初始资金: %.2f' % cerebro.broker.getvalue())
+    start_value = cerebro.broker.getvalue()
     result = cerebro.run()
-    print('回测结束后资金: %.2f' % cerebro.broker.getvalue())
+    final_value = cerebro.broker.getvalue()
+    print('初始资金: %.2f' % start_value)
+    print('回测结束后资金: %.2f' % final_value)
 
     # 提取分析结果
     strat = result[0]
@@ -116,6 +151,17 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         print(f"夏普比率: {strat.analyzers.sharpe.get_analysis()['sharperatio']:.2f}")
     except (KeyError, TypeError):
         print("夏普比率: 数据不足，无法计算")
+    
+    # 计算基准表现
+    benchmark_results = calculate_benchmark(data, amount, final_value)
+    
+    # 打印基准比较结果
+    print(f"===== 基准测试 =====")
+    print(f"基准结束资金: {benchmark_results['benchmark_final_value']:.2f}")
+    print(f"基准收益率: {benchmark_results['benchmark_return']:.2f}%")
+    print(f"基准年化收益率: {benchmark_results['benchmark_annual_return']:.2f}%")
+    print(f"策略总收益率: {benchmark_results['strategy_return']:.2f}%")
+    print(f"超额收益: {benchmark_results['excess_return']:.2f}%")
 
     # 绘制回测结果
     cerebro.plot()

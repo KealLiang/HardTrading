@@ -43,7 +43,7 @@ def backtrade_simulate():
     # 使用修复后的策略
     simulator.go_trade(code,
                        startdate=datetime(2020, 1, 1),
-                       enddate=datetime(2025, 6, 12),
+                       enddate=datetime(2024, 9, 20),
                        strategy=MarketRegimeStrategy)
 
 
@@ -291,7 +291,7 @@ if __name__ == '__main__':
     # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
@@ -307,4 +307,4 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
-    # backtrade_simulate()
+    backtrade_simulate()
