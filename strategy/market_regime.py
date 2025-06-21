@@ -16,8 +16,9 @@ class MarketRegimeStrategy(bt.Strategy):
         # -- 微观择时定义 --
         ('ma_short_period', 20),
         ('breakout_period', 10),
-        ('rsi_oversold', 25),            # 用于熊市/震荡市的极端超卖阈值
+        ('rsi_oversold', 25),             # 用于熊市/震荡市的极端超卖阈值
         ('uptrend_rsi_panic', 40),        # 新增：牛市中"恐慌买点"的RSI阈值，更灵敏
+        ('bb_proximity_pct', 0),          # 新增：判断价格"接近"布林带下轨的容忍度百分比
 
         # -- 仓位与风险管理 --
         ('max_portfolio_allocation', 0.90), # 允许投入的总资金比例上限
@@ -45,7 +46,7 @@ class MarketRegimeStrategy(bt.Strategy):
         # -- 恐慌反弹模式专属参数 --
         ('panic_secondary_stop_pct', 0.03), # 二次恐慌的灵活止损百分比
         ('panic_rebound_hold_days', 14),   # 恐慌反弹模式最大持有天数
-        ('panic_rebound_partial_sell_pct', 0.5), # 恐慌反弹模式高抛减仓比例
+        ('panic_rebound_partial_sell_pct', 0.33), # 恐慌反弹模式高抛减仓比例
     )
 
     def __init__(self):
@@ -107,7 +108,7 @@ class MarketRegimeStrategy(bt.Strategy):
         if regime == 'MACRO_UP':
             rsi_panic_threshold = self.p.uptrend_rsi_panic  # 牛市中使用更灵敏的阈值
         
-        if self.data.close[0] < self.bbands.bot[0] and self.rsi[0] < rsi_panic_threshold:
+        if self.rsi[0] < rsi_panic_threshold and self.data.close[0] <= self.bbands.bot[0] * (1 + self.p.bb_proximity_pct):
             return '恐慌性买点'
 
         # --- 2. 常规买点 (若无恐慌信号) ---
@@ -166,6 +167,150 @@ class MarketRegimeStrategy(bt.Strategy):
             self.panic_buy_low_price = 0.0
             # 注意：panic_buy_counter 不在这里重置，它由市场状态恢复时在next()中重置
 
+    def _handle_entry_signal(self, current_macro_regime):
+        # --- 检查是否首次建仓 ---
+        buy_signal = self._get_buy_signal(current_macro_regime)
+        if buy_signal:
+            initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
+            size = int(initial_tranche_value / self.data.close[0])
+            if size > 0:
+                self.log(f'建仓信号: ({current_macro_regime}) - {buy_signal}, 建立试探仓位.')
+                self.pending_buy_signal = buy_signal
+                self.order = self.buy(size=size)
+
+    def _handle_panic_rebound_trade(self, current_macro_regime):
+        hold_days = len(self) - self.buy_tick
+
+        # --- A. 止损逻辑 (区分首次/二次) ---
+        if self.panic_buy_counter == 1: # 首次试探，使用硬止损
+            if self.data.low[0] < self.panic_buy_low_price:
+                self.log(f'卖出信号: (首次恐慌) 创下新低 {self.data.low[0]:.2f} < {self.panic_buy_low_price:.2f}, 立即止损.')
+                self.order = self.close()
+                return
+        else: # 二次及以上，使用灵活的百分比止损
+            flexible_stop_price = self.position.price * (1 - self.p.panic_secondary_stop_pct)
+            if self.data.close[0] < flexible_stop_price:
+                self.log(f'卖出信号: (二次恐慌) 触发 {self.p.panic_secondary_stop_pct*100:.0f}% 灵活止损.')
+                self.order = self.close()
+                return
+
+        # --- B. 时间止损 ---
+        if hold_days >= self.p.panic_rebound_hold_days:
+            self.log(f'卖出信号: (恐慌模式) 持有超过 {self.p.panic_rebound_hold_days} 天, 时间止损.')
+            self.order = self.close()
+            return
+
+        # --- C. 盈利加仓逻辑 (仅在二次恐慌盈利时) ---
+        is_profitable = self.data.close[0] > self.position.price
+        if self.panic_buy_counter > 1 and is_profitable:
+            # 复用常规的仓位控制逻辑
+            sizing_map = {'MACRO_UP': self.p.sizing_macro_up, 'MACRO_RANGE': self.p.sizing_macro_range, 'MACRO_DOWN': self.p.sizing_macro_down}
+            max_pos_value = self.broker.getvalue() * self.p.max_portfolio_allocation * sizing_map.get(current_macro_regime, 0.25)
+            current_pos_value = self.position.size * self.data.close[0]
+            initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
+            can_add_position = current_pos_value + initial_tranche_value <= max_pos_value
+
+            add_signal = self._get_buy_signal(current_macro_regime)
+            if add_signal == '恐慌性买点' and can_add_position:
+                size = int(initial_tranche_value / self.data.close[0])
+                if size > 0:
+                    self.log(f'加仓信号: (二次恐慌盈利中) 出现加仓机会 {add_signal}.')
+                    self.order = self.buy(size=size)
+                    return
+        
+        # --- D. 高抛止盈逻辑 ---
+        if self.data.close[0] > self.bbands.mid[0]:
+            sell_pct = self.p.panic_rebound_partial_sell_pct
+            sell_size = int(self.position.size * sell_pct)
+            if sell_size > 0:
+                self.log(f'卖出信号: (恐慌模式) 触及布林带中轨, 高抛减仓 {sell_pct*100:.0f}%.')
+                self.order = self.sell(size=sell_size)
+                # 减仓后，退出恐慌模式，将剩余仓位交由常规逻辑管理
+                self.is_panic_rebound_trade = False
+                return
+
+    def _handle_regular_trade(self, current_macro_regime):
+        # --- 1. 检查是否加仓 (金字塔) ---
+        is_profitable = self.data.close[0] > self.position.price
+        add_signal = self._get_buy_signal(current_macro_regime)
+        
+        sizing_map = {'MACRO_UP': self.p.sizing_macro_up, 'MACRO_RANGE': self.p.sizing_macro_range, 'MACRO_DOWN': self.p.sizing_macro_down}
+        max_pos_value = self.broker.getvalue() * self.p.max_portfolio_allocation * sizing_map.get(current_macro_regime, 0)
+        
+        current_pos_value = self.position.size * self.data.close[0]
+        initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
+        can_add_position = current_pos_value + initial_tranche_value <= max_pos_value
+
+        if is_profitable and add_signal and can_add_position:
+            profit_pct = (self.data.close[0] - self.position.price) / self.position.price * 100
+            size = int(initial_tranche_value / self.data.close[0])
+            if size > 0:
+                self.log(f'加仓信号: ({current_macro_regime}) - {add_signal}, 浮盈中({profit_pct:.2f}%), 继续加仓.')
+                self.order = self.buy(size=size)
+                return
+
+        # --- 2. 检查是否卖出 ---
+        hold_days = len(self) - self.buy_tick
+        is_regime_degraded = (self.buy_regime == 'MACRO_UP' and current_macro_regime != 'MACRO_UP') or \
+                             (self.buy_regime == 'MACRO_RANGE' and current_macro_regime == 'MACRO_DOWN')
+        if is_regime_degraded:
+            self.log(f'卖出信号: 宏观状态从 {self.buy_regime} 恶化为 {current_macro_regime}, 清仓')
+            self.order = self.close()
+            return
+
+        if self.buy_regime == 'MACRO_UP':
+            self.highest_high_since_buy = max(self.highest_high_since_buy, self.data.high[0])
+            trailing_stop_price = self.highest_high_since_buy * (1 - self.p.trailing_stop_pct)
+            if self.data.close[0] < trailing_stop_price:
+                self.log(f'卖出信号: (牛市) 触发跟踪止损')
+                self.order = self.close()
+                return
+        
+        elif self.buy_regime == 'MACRO_RANGE':
+            profit_pct = (self.data.close[0] - self.position.price) / self.position.price
+            if profit_pct > self.p.ranging_profit_target:
+                self.log(f'卖出信号: (震荡市) 达到止盈目标')
+                self.order = self.close()
+                return
+            if self.data.close[0] < self.position.price * (1 - self.p.ranging_stop_loss_pct):
+                self.log(f'卖出信号: (震荡市) 触发止损')
+                self.order = self.close()
+                return
+
+        elif self.buy_regime == 'MACRO_DOWN':
+            profit_pct = (self.data.close[0] - self.position.price) / self.position.price
+            if profit_pct > self.p.downtrend_profit_target:
+                self.log(f'卖出信号: (熊市) 快速止盈')
+                self.order = self.close()
+                return
+            if self.data.close[0] < self.position.price * (1 - self.p.downtrend_stop_loss_pct):
+                self.log(f'卖出信号: (熊市) 快速止损')
+                self.order = self.close()
+                return
+            if hold_days >= self.p.downtrend_max_hold:
+                self.log(f'卖出信号: (熊市) 持仓到期')
+                self.order = self.close()
+                return
+
+        # --- 动态时间窗口卖出 (新逻辑) ---
+        if self.buy_regime == 'MACRO_UP' and self.position.size > 0:
+            time_window_start = self.p.hold_period_base - self.p.hold_period_window
+            if hold_days >= time_window_start:
+                is_volume_shrinking = self.volume_ma[0] < self.volume_ma_long[0]
+                if is_volume_shrinking:
+                    sell_size = int(self.position.size * self.p.partial_sell_pct)
+                    if sell_size > 0:
+                        self.log(f'卖出信号: ({self.buy_regime}) 持仓{hold_days}天, 成交量萎缩, 分批卖出 {self.p.partial_sell_pct*100:.0f}%.')
+                        self.order = self.sell(size=sell_size)
+                        return
+        
+        # 硬时间止损使用基准+窗口
+        hard_stop_days = self.p.hold_period_base + self.p.hold_period_window
+        if hold_days >= hard_stop_days:
+            self.log(f'卖出信号: ({self.buy_regime}) 持仓超过 {hard_stop_days} 天, 硬止损清仓')
+            self.order = self.close()
+            return
+
     def next(self):
         if self.order: return
 
@@ -177,132 +322,10 @@ class MarketRegimeStrategy(bt.Strategy):
             self.panic_buy_counter = 0
 
         if self.position:
-            hold_days = len(self) - self.buy_tick
-
-            # --- 0. 恐慌反弹特殊处理模式 (最高优先级) ---
+            # 优先处理恐慌反弹模式
             if self.is_panic_rebound_trade:
-                # --- A. 止损逻辑 (区分首次/二次) ---
-                if self.panic_buy_counter == 1: # 首次试探，使用硬止损
-                    if self.data.low[0] < self.panic_buy_low_price:
-                        self.log(f'卖出信号: (首次恐慌) 创下新低 {self.data.low[0]:.2f} < {self.panic_buy_low_price:.2f}, 立即止损.')
-                        self.order = self.close(); return
-                else: # 二次及以上，使用灵活的百分比止损
-                    flexible_stop_price = self.position.price * (1 - self.p.panic_secondary_stop_pct)
-                    if self.data.close[0] < flexible_stop_price:
-                        self.log(f'卖出信号: (二次恐慌) 触发 {self.p.panic_secondary_stop_pct*100:.0f}% 灵活止损.')
-                        self.order = self.close(); return
-
-                # --- B. 时间止损 ---
-                if hold_days >= self.p.panic_rebound_hold_days:
-                    self.log(f'卖出信号: (恐慌模式) 持有超过 {self.p.panic_rebound_hold_days} 天, 时间止损.')
-                    self.order = self.close(); return
-
-                # --- C. 盈利加仓逻辑 (仅在二次恐慌盈利时) ---
-                is_profitable = self.data.close[0] > self.position.price
-                if self.panic_buy_counter > 1 and is_profitable:
-                    # 复用常规的仓位控制逻辑
-                    sizing_map = {'MACRO_UP': self.p.sizing_macro_up, 'MACRO_RANGE': self.p.sizing_macro_range, 'MACRO_DOWN': self.p.sizing_macro_down}
-                    max_pos_value = self.broker.getvalue() * self.p.max_portfolio_allocation * sizing_map.get(current_macro_regime, 0.25)
-                    current_pos_value = self.position.size * self.data.close[0]
-                    initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
-                    can_add_position = current_pos_value + initial_tranche_value <= max_pos_value
-
-                    add_signal = self._get_buy_signal(current_macro_regime)
-                    if add_signal == '恐慌性买点' and can_add_position:
-                        size = int(initial_tranche_value / self.data.close[0])
-                        if size > 0:
-                            self.log(f'加仓信号: (二次恐慌盈利中) 出现加仓机会 {add_signal}.')
-                            self.order = self.buy(size=size)
-                            return
-                
-                # --- D. 高抛止盈逻辑 ---
-                if self.data.close[0] > self.bbands.mid[0]:
-                    sell_pct = self.p.panic_rebound_partial_sell_pct
-                    sell_size = int(self.position.size * sell_pct)
-                    if sell_size > 0:
-                        self.log(f'卖出信号: (恐慌模式) 触及布林带中轨, 高抛减仓 {sell_pct*100:.0f}%.')
-                        self.order = self.sell(size=sell_size)
-                        # 减仓后，退出恐慌模式，将剩余仓位交由常规逻辑管理
-                        self.is_panic_rebound_trade = False
-                        return
-
-                # 在恐慌模式激活期间，跳过所有其他买卖逻辑
-                return
-
-            # --- 1. 检查是否加仓 (金字塔) ---
-            is_profitable = self.data.close[0] > self.position.price
-            add_signal = self._get_buy_signal(current_macro_regime)
-            
-            sizing_map = {'MACRO_UP': self.p.sizing_macro_up, 'MACRO_RANGE': self.p.sizing_macro_range, 'MACRO_DOWN': self.p.sizing_macro_down}
-            max_pos_value = self.broker.getvalue() * self.p.max_portfolio_allocation * sizing_map.get(current_macro_regime, 0)
-            
-            current_pos_value = self.position.size * self.data.close[0]
-            initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
-            can_add_position = current_pos_value + initial_tranche_value <= max_pos_value
-
-            if is_profitable and add_signal and can_add_position:
-                profit_pct = (self.data.close[0] - self.position.price) / self.position.price * 100
-                size = int(initial_tranche_value / self.data.close[0])
-                if size > 0:
-                    self.log(f'加仓信号: ({current_macro_regime}) - {add_signal}, 浮盈中({profit_pct:.2f}%), 继续加仓.')
-                    self.order = self.buy(size=size)
-                    return
-
-            # --- 2. 检查是否卖出 ---
-            hold_days = len(self) - self.buy_tick
-            is_regime_degraded = (self.buy_regime == 'MACRO_UP' and current_macro_regime != 'MACRO_UP') or \
-                                 (self.buy_regime == 'MACRO_RANGE' and current_macro_regime == 'MACRO_DOWN')
-            if is_regime_degraded:
-                self.log(f'卖出信号: 宏观状态从 {self.buy_regime} 恶化为 {current_macro_regime}, 清仓')
-                self.order = self.close(); return
-
-            if self.buy_regime == 'MACRO_UP':
-                self.highest_high_since_buy = max(self.highest_high_since_buy, self.data.high[0])
-                trailing_stop_price = self.highest_high_since_buy * (1 - self.p.trailing_stop_pct)
-                if self.data.close[0] < trailing_stop_price:
-                    self.log(f'卖出信号: (牛市) 触发跟踪止损'); self.order = self.close(); return
-            
-            elif self.buy_regime == 'MACRO_RANGE':
-                profit_pct = (self.data.close[0] - self.position.price) / self.position.price
-                if profit_pct > self.p.ranging_profit_target:
-                    self.log(f'卖出信号: (震荡市) 达到止盈目标'); self.order = self.close(); return
-                if self.data.close[0] < self.position.price * (1 - self.p.ranging_stop_loss_pct):
-                    self.log(f'卖出信号: (震荡市) 触发止损'); self.order = self.close(); return
-
-            elif self.buy_regime == 'MACRO_DOWN':
-                profit_pct = (self.data.close[0] - self.position.price) / self.position.price
-                if profit_pct > self.p.downtrend_profit_target:
-                    self.log(f'卖出信号: (熊市) 快速止盈'); self.order = self.close(); return
-                if self.data.close[0] < self.position.price * (1 - self.p.downtrend_stop_loss_pct):
-                    self.log(f'卖出信号: (熊市) 快速止损'); self.order = self.close(); return
-                if hold_days >= self.p.downtrend_max_hold:
-                    self.log(f'卖出信号: (熊市) 持仓到期'); self.order = self.close(); return
-
-            # --- 动态时间窗口卖出 (新逻辑) ---
-            if self.buy_regime == 'MACRO_UP' and self.position.size > 0:
-                time_window_start = self.p.hold_period_base - self.p.hold_period_window
-                if hold_days >= time_window_start:
-                    is_volume_shrinking = self.volume_ma[0] < self.volume_ma_long[0]
-                    if is_volume_shrinking:
-                        sell_size = int(self.position.size * self.p.partial_sell_pct)
-                        if sell_size > 0:
-                            self.log(f'卖出信号: ({self.buy_regime}) 持仓{hold_days}天, 成交量萎缩, 分批卖出 {self.p.partial_sell_pct*100:.0f}%.')
-                            self.order = self.sell(size=sell_size)
-                            return
-            
-            # 硬时间止损使用基准+窗口
-            hard_stop_days = self.p.hold_period_base + self.p.hold_period_window
-            if hold_days >= hard_stop_days:
-                self.log(f'卖出信号: ({self.buy_regime}) 持仓超过 {hard_stop_days} 天, 硬止损清仓'); self.order = self.close(); return
-            return
-
+                self._handle_panic_rebound_trade(current_macro_regime)
+            else:
+                self._handle_regular_trade(current_macro_regime)
         else: # not self.position
-            # --- 3. 检查是否首次建仓 ---
-            buy_signal = self._get_buy_signal(current_macro_regime)
-            if buy_signal:
-                initial_tranche_value = self.broker.getvalue() * self.p.initial_tranche_pct
-                size = int(initial_tranche_value / self.data.close[0])
-                if size > 0:
-                    self.log(f'建仓信号: ({current_macro_regime}) - {buy_signal}, 建立试探仓位.')
-                    self.pending_buy_signal = buy_signal
-                    self.order = self.buy(size=size)
+            self._handle_entry_signal(current_macro_regime)
