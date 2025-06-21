@@ -11,7 +11,7 @@ class MarketRegimeStrategy(bt.Strategy):
     params = (
         # -- 宏观状态定义 --
         ('ma_macro_period', 60),
-        ('adx_threshold', 20),
+        ('adx_threshold', 19),
 
         # -- 微观择时定义 --
         ('ma_short_period', 20),
@@ -36,8 +36,11 @@ class MarketRegimeStrategy(bt.Strategy):
         ('downtrend_stop_loss_pct', 0.03),# 熊市止损
         
         # 时间止损
-        ('max_hold_period', 15),
+        ('hold_period_base', 15),         # 时间止损基准天数
+        ('hold_period_window', 3),        # 时间止损窗口范围
         ('downtrend_max_hold', 3),
+        ('volume_long_period', 20),       # 用于判断成交量趋势的长周期
+        ('partial_sell_pct', 0.33),       # 每次分批卖出的比例
     )
 
     def __init__(self):
@@ -49,6 +52,7 @@ class MarketRegimeStrategy(bt.Strategy):
         self.rsi = bt.indicators.RSI(self.data, period=14)
         self.highest_close = bt.indicators.Highest(self.data.close, period=self.p.breakout_period)
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=5)
+        self.volume_ma_long = bt.indicators.SMA(self.data.volume, period=self.p.volume_long_period)
         
         self.cdl_hammer = talib.CDLHAMMER(self.data.open, self.data.high, self.data.low, self.data.close)
         self.cdl_engulfing = talib.CDLENGULFING(self.data.open, self.data.high, self.data.low, self.data.close)
@@ -188,8 +192,22 @@ class MarketRegimeStrategy(bt.Strategy):
                 if hold_days >= self.p.downtrend_max_hold:
                     self.log(f'卖出信号: (熊市) 持仓到期'); self.order = self.close(); return
 
-            if hold_days >= self.p.max_hold_period:
-                self.log(f'卖出信号: ({self.buy_regime}) 持仓超过 {self.p.max_hold_period} 天'); self.order = self.close(); return
+            # --- 动态时间窗口卖出 (新逻辑) ---
+            if self.buy_regime == 'MACRO_UP' and self.position.size > 0:
+                time_window_start = self.p.hold_period_base - self.p.hold_period_window
+                if hold_days >= time_window_start:
+                    is_volume_shrinking = self.volume_ma[0] < self.volume_ma_long[0]
+                    if is_volume_shrinking:
+                        sell_size = int(self.position.size * self.p.partial_sell_pct)
+                        if sell_size > 0:
+                            self.log(f'卖出信号: ({self.buy_regime}) 持仓{hold_days}天, 成交量萎缩, 分批卖出 {self.p.partial_sell_pct*100:.0f}%.')
+                            self.order = self.sell(size=sell_size)
+                            return
+            
+            # 硬时间止损使用基准+窗口
+            hard_stop_days = self.p.hold_period_base + self.p.hold_period_window
+            if hold_days >= hard_stop_days:
+                self.log(f'卖出信号: ({self.buy_regime}) 持仓超过 {hard_stop_days} 天, 硬止损清仓'); self.order = self.close(); return
             return
 
         else: # not self.position
