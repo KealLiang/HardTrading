@@ -119,7 +119,7 @@ class MarketRegimeStrategy(bt.Strategy):
 
         # "接近"布林带下轨，我们用当日最低价触及来判断，这样更灵敏
         is_panic_B = self.rsi[0] < self.p.rsi_oversold and self.data.low[0] <= self.bbands.bot[0] * (
-                    1 + self.p.bb_proximity_pct)
+                1 + self.p.bb_proximity_pct)
 
         if is_panic_B:
             return '恐慌性买点'

@@ -1,7 +1,10 @@
 import logging
 import warnings
 
+from strategy.breakout_strategy import BreakoutStrategy
+from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
+from strategy.panic_rebound_strategy import PanicReboundStrategy
 
 # 忽略jieba库中的pkg_resources警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -43,8 +46,10 @@ def backtrade_simulate():
     # 使用修复后的策略
     simulator.go_trade(code,
                        startdate=datetime(2020, 1, 1),
+                       # startdate=datetime(2015, 6, 1),
                        enddate=datetime(2024, 9, 22),
-                       strategy=MarketRegimeStrategy)
+                       # enddate=datetime(2025, 6, 20),
+                       strategy=HybridStrategy)
 
 
 # 获取热点概念词云

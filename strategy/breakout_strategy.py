@@ -1,5 +1,6 @@
 import backtrader as bt
 
+
 class BreakoutStrategy(bt.Strategy):
     """
     一个多维度分析"波动性压缩后突破"的信号评级策略。
@@ -10,19 +11,19 @@ class BreakoutStrategy(bt.Strategy):
     """
     params = (
         # -- 核心指标 --
-        ('bband_period', 20),         # 布林带周期
-        ('bband_devfactor', 2.0),     # 布林带标准差
-        ('volume_ma_period', 20),     # 成交量移动平均周期
+        ('bband_period', 20),  # 布林带周期
+        ('bband_devfactor', 2.0),  # 布林带标准差
+        ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
-        ('ma_macro_period', 60),      # 定义宏观环境的长周期均线
-        ('squeeze_period', 60),       # 波动性压缩回顾期
-        ('observation_period', 15),   # 触发观察模式后的持续天数
-        ('confirmation_lookback', 5), # "蓄势待发"信号的回看周期
-        ('probation_period', 5),      # "蓄势待发"买入后的考察期天数
+        ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
+        ('squeeze_period', 60),  # 波动性压缩回顾期
+        ('observation_period', 15),  # 触发观察模式后的持续天数
+        ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
+        ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
-        ('atr_period', 14),           # ATR周期
-        ('atr_multiplier', 2.0),      # ATR止损乘数
+        ('atr_period', 14),  # ATR周期
+        ('atr_multiplier', 2.0),  # ATR止损乘数
     )
 
     def __init__(self):
@@ -52,7 +53,7 @@ class BreakoutStrategy(bt.Strategy):
             ('coiled_spring', self.check_coiled_spring_conditions),
             ('v_reversal', self.check_v_reversal_conditions),
         ]
-        
+
         # 状态跟踪
         self.order = None
         self.stop_price = 0
@@ -96,7 +97,7 @@ class BreakoutStrategy(bt.Strategy):
                 )
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             self.log('订单未能成交')
-        
+
         self.order = None
 
     def notify_trade(self, trade):
@@ -126,19 +127,19 @@ class BreakoutStrategy(bt.Strategy):
                     # 通过后，立即为ATR止损设置初始值
                     self.highest_high_since_buy = self.data.high[0]
                     self.stop_price = self.highest_high_since_buy - self.p.atr_multiplier * self.atr[0]
-                    return # 通过后，本轮逻辑结束，等待下一根K线
+                    return  # 通过后，本轮逻辑结束，等待下一根K线
 
                 # 检查是否考察失败(1): 跌破中轨生命线
                 elif self.data.close[0] < self.bband.lines.mid[0]:
                     self.log('卖出信号: 考察期内跌破中轨，清仓')
                     self.order = self.close()
-                
+
                 # 检查是否考察失败(2): 考察期结束仍未突破
                 elif self.probation_counter <= 0:
                     self.log('卖出信号: 考察期结束，未能突破上轨，清仓')
                     self.order = self.close()
-                
-                return # 考察期内的逻辑结束
+
+                return  # 考察期内的逻辑结束
 
             # B. 不在考察期内（即普通突破，或已通过考察的仓位），执行ATR跟踪止损
             else:
@@ -165,7 +166,7 @@ class BreakoutStrategy(bt.Strategy):
                         f'(最高点: {self.highest_high_since_buy:.2f}, ATR: {self.atr[0]:.2f})'
                     )
                     self.order = self.close()
-                return # 持仓时，完成止损检查后即可结束
+                return  # 持仓时，完成止损检查后即可结束
 
         # --- 2. 空仓时：根据模式决定买入逻辑 ---
         if self.observation_mode:
@@ -173,8 +174,8 @@ class BreakoutStrategy(bt.Strategy):
 
             # 如果没有触发任何信号，则递减观察期计数器
             if not self.order and self.observation_counter > 0:
-                 self.observation_counter -= 1
-                 if self.observation_counter <= 0:
+                self.observation_counter -= 1
+                if self.observation_counter <= 0:
                     self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
                     self.observation_mode = False
         else:
@@ -184,32 +185,42 @@ class BreakoutStrategy(bt.Strategy):
 
             if is_breakout and is_volume_up:
                 # --- 信号评级系统 ---
-                
+
                 # 1. 宏观环境评级
                 if self.data.close[0] > self.ma_macro[0]:
                     env_grade, env_score = '牛市', 3
                 else:
                     env_grade, env_score = '熊市', 1
-                
+
                 # 2. 压缩程度评级
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
-                if squeeze_pct < 0.10:   squeeze_grade, squeeze_score = 'A级', 3
-                elif squeeze_pct < 0.25: squeeze_grade, squeeze_score = 'B级', 2
-                elif squeeze_pct < 0.40: squeeze_grade, squeeze_score = 'C级', 1
-                else:                    squeeze_grade, squeeze_score = 'D级', 0
+                if squeeze_pct < 0.10:
+                    squeeze_grade, squeeze_score = 'A级', 3
+                elif squeeze_pct < 0.25:
+                    squeeze_grade, squeeze_score = 'B级', 2
+                elif squeeze_pct < 0.40:
+                    squeeze_grade, squeeze_score = 'C级', 1
+                else:
+                    squeeze_grade, squeeze_score = 'D级', 0
 
                 # 3. 成交量力度评级
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if volume_ratio > 2.0:   volume_grade, volume_score = 'A级', 3
-                elif volume_ratio > 1.5: volume_grade, volume_score = 'B级', 2
-                else:                    volume_grade, volume_score = 'C级', 1
-                
+                if volume_ratio > 2.0:
+                    volume_grade, volume_score = 'A级', 3
+                elif volume_ratio > 1.5:
+                    volume_grade, volume_score = 'B级', 2
+                else:
+                    volume_grade, volume_score = 'C级', 1
+
                 # 综合评级
                 total_score = env_score + squeeze_score + volume_score
-                if total_score >= 8:     overall_grade = '【A+级】'
-                elif total_score >= 6:   overall_grade = '【B级】'
-                else:                    overall_grade = '【C级】'
+                if total_score >= 8:
+                    overall_grade = '【A+级】'
+                elif total_score >= 6:
+                    overall_grade = '【B级】'
+                else:
+                    overall_grade = '【C级】'
 
                 log_msg = (
                     f'突破信号: {overall_grade} '
@@ -218,9 +229,9 @@ class BreakoutStrategy(bt.Strategy):
                     f'量能:{volume_grade}({volume_ratio:.1f}x))'
                 )
                 self.log(log_msg)
-                
+
                 # --- 核心改动：触发观察模式 ---
-                if total_score >= 6: # B级或更优的信号
+                if total_score >= 6:  # B级或更优的信号
                     self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
                     self.observation_mode = True
                     self.observation_counter = self.p.observation_period
@@ -254,11 +265,11 @@ class BreakoutStrategy(bt.Strategy):
                     # 只有"蓄势待发"信号需要进入考察期
                     if signal_name == 'coiled_spring':
                         self.coiled_spring_buy_pending = True
-                
+
                 self.observation_mode = False
                 log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
                 self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式 ***')
-                return # 找到一个信号后就停止检查
+                return  # 找到一个信号后就停止检查
 
     def check_coiled_spring_conditions(self):
         """
@@ -268,7 +279,7 @@ class BreakoutStrategy(bt.Strategy):
         # 条件1: 必须是阳线且放量
         if not (self.data.close[0] > self.data.open[0] and self.data.volume[0] > self.volume_ma[0]):
             return False
-            
+
         # 条件2: 收盘价创近期新高
         # self.highest_close_confirm[-1] 获取的是截止到昨天(t-1)的N日最高收盘价
         if self.data.close[0] < self.highest_close_confirm[-1]:
@@ -280,7 +291,7 @@ class BreakoutStrategy(bt.Strategy):
                 return False
             if self.data.low[-i] < self.bband.lines.bot[-i]:
                 return False
-        
+
         return True
 
     def check_v_reversal_conditions(self):
