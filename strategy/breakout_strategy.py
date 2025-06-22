@@ -47,6 +47,12 @@ class BreakoutStrategy(bt.Strategy):
         # 成交量均线
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=self.p.volume_ma_period)
 
+        # --- 信号检查的配置 ---
+        self.confirmation_signals = [
+            ('coiled_spring', self.check_coiled_spring_conditions),
+            ('v_reversal', self.check_v_reversal_conditions),
+        ]
+        
         # 状态跟踪
         self.order = None
         self.stop_price = 0
@@ -163,38 +169,14 @@ class BreakoutStrategy(bt.Strategy):
 
         # --- 2. 空仓时：根据模式决定买入逻辑 ---
         if self.observation_mode:
-            # A. 观察模式：寻找二次确认信号
-            self.observation_counter -= 1
+            self._check_confirmation_signals()
 
-            # 1. 优先检查"蓄势待发"信号
-            if self.check_coiled_spring_conditions():
-                log_msg = f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})'
-                self.log(log_msg)
-                stake = self.broker.getvalue() * self.p.initial_stake_pct
-                size = int(stake / self.data.close[0])
-                if size > 0:
-                    self.order = self.buy(size=size)
-                    self.coiled_spring_buy_pending = True # 标记这是一个待激活考察期的买单
-                self.observation_mode = False
-                self.log('*** 二次确认信号已发出，解除观察模式 ***')
-                return
-
-            # 2. 如果没有"蓄势待发"，再检查普通的"V型穿越"信号
-            if self.check_v_reversal_conditions():
-                log_msg = f'突破信号:【V型反转】(源信号: {self.sentry_source_signal})'
-                self.log(log_msg)
-                stake = self.broker.getvalue() * self.p.initial_stake_pct
-                size = int(stake / self.data.close[0])
-                if size > 0:
-                    self.order = self.buy(size=size)
-                self.observation_mode = False
-                self.log('*** 二次确认信号已执行，解除观察模式 ***')
-                return
-
-            # 3. 如果都没有，则继续观察...
-            if self.observation_counter <= 0:
-                self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
-                self.observation_mode = False
+            # 如果没有触发任何信号，则递减观察期计数器
+            if not self.order and self.observation_counter > 0:
+                 self.observation_counter -= 1
+                 if self.observation_counter <= 0:
+                    self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
+                    self.observation_mode = False
         else:
             # B. 常规模式：寻找初始突破信号
             is_breakout = self.data.close[0] > self.bband.lines.top[0]
@@ -251,6 +233,32 @@ class BreakoutStrategy(bt.Strategy):
                     size = int(stake / self.data.close[0])
                     if size > 0:
                         self.order = self.buy(size=size)
+
+    def _check_confirmation_signals(self):
+        """
+        统一检查所有二次确认信号。
+        """
+        for signal_name, check_function in self.confirmation_signals:
+            if check_function():
+                log_msg_map = {
+                    'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
+                    'v_reversal': f'突破信号:【V型反转】(源信号: {self.sentry_source_signal})'
+                }
+                log_msg = log_msg_map.get(signal_name, '未知确认信号')
+                self.log(log_msg)
+
+                stake = self.broker.getvalue() * self.p.initial_stake_pct
+                size = int(stake / self.data.close[0])
+                if size > 0:
+                    self.order = self.buy(size=size)
+                    # 只有"蓄势待发"信号需要进入考察期
+                    if signal_name == 'coiled_spring':
+                        self.coiled_spring_buy_pending = True
+                
+                self.observation_mode = False
+                log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
+                self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式 ***')
+                return # 找到一个信号后就停止检查
 
     def check_coiled_spring_conditions(self):
         """
