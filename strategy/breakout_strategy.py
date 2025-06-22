@@ -17,6 +17,8 @@ class BreakoutStrategy(bt.Strategy):
         ('ma_macro_period', 60),      # 定义宏观环境的长周期均线
         ('squeeze_period', 60),       # 波动性压缩回顾期
         ('observation_period', 15),   # 触发观察模式后的持续天数
+        ('confirmation_lookback', 5), # "蓄势待发"信号的回看周期
+        ('probation_period', 5),      # "蓄势待发"买入后的考察期天数
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),           # ATR周期
@@ -33,6 +35,8 @@ class BreakoutStrategy(bt.Strategy):
         # 计算布林带宽度在过去N期的范围，用于判断"压缩"
         self.highest_bbw = bt.indicators.Highest(self.bb_width, period=self.p.squeeze_period)
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
+        # "蓄势待发"信号需要用到的近期最高价
+        self.highest_close_confirm = bt.indicators.Highest(self.data.close, period=self.p.confirmation_lookback)
 
         # ATR指标，用于动态止损
         self.atr = bt.indicators.ATR(self.data, period=self.p.atr_period)
@@ -51,6 +55,10 @@ class BreakoutStrategy(bt.Strategy):
         self.observation_mode = False
         self.observation_counter = 0
         self.sentry_source_signal = ""
+        # 新增：蓄势待发信号的考察期状态
+        self.coiled_spring_buy_pending = False
+        self.in_coiled_spring_probation = False
+        self.probation_counter = 0
 
     def log(self, txt, dt=None):
         dt = dt or self.datas[0].datetime.date(0)
@@ -68,6 +76,12 @@ class BreakoutStrategy(bt.Strategy):
                     f'花费: {order.executed.value:.2f}, '
                     f'仓位占总资产: {position_pct:.2f}%'
                 )
+                # 如果这是一个待处理的"蓄势待发"买单，则激活考察期
+                if self.coiled_spring_buy_pending:
+                    self.in_coiled_spring_probation = True
+                    self.probation_counter = self.p.probation_period
+                    self.coiled_spring_buy_pending = False
+                    self.log(f'*** 进入【蓄势待发】考察期，为期 {self.p.probation_period} 天，使用中轨作为初始止损 ***')
             elif order.issell():
                 self.log(
                     f'卖出成交: {abs(order.executed.size)}股 @ {order.executed.price:.2f}, '
@@ -82,73 +96,107 @@ class BreakoutStrategy(bt.Strategy):
     def notify_trade(self, trade):
         if trade.isclosed:
             self.log(f'交易关闭, 净盈亏: {trade.pnlcomm:.2f}, 当前总资产: {self.broker.getvalue():.2f}')
-            # 重置交易相关的止损状态，但不影响观察模式
+            # 重置所有交易相关的状态
             self.stop_price = 0
             self.highest_high_since_buy = 0
+            self.in_coiled_spring_probation = False
+            self.probation_counter = 0
 
     def next(self):
         # 如果有挂单，不操作
         if self.order:
             return
 
-        # --- 1. 持仓时：只处理ATR跟踪止损 ---
+        # --- 1. 持仓时：根据是否在考察期，执行不同的卖出逻辑 ---
         if self.position:
-            # 如果是入场第一天，只设置初始止损，不操作
-            if self.highest_high_since_buy == 0:
-                self.highest_high_since_buy = self.data.high[0]
-                self.stop_price = self.data.close[0] - self.p.atr_multiplier * self.atr[0]
-                self.log(
-                    f'入场首日，设置初始止损 @ {self.stop_price:.2f} '
-                    f'(基于收盘价: {self.data.close[0]:.2f} 和 ATR: {self.atr[0]:.2f})'
-                )
-                return
+            # A. 如果在"蓄势待发"的考察期内
+            if self.in_coiled_spring_probation:
+                self.probation_counter -= 1
 
-            # 更新买入后的最高价
-            self.highest_high_since_buy = max(self.highest_high_since_buy, self.data.high[0])
-            # 计算新的跟踪止损位
-            new_stop_price = self.highest_high_since_buy - self.p.atr_multiplier * self.atr[0]
-            # 止损位只上不下
-            self.stop_price = max(self.stop_price, new_stop_price)
+                # 检查是否通过考察: 收盘价站上布林带上轨
+                if self.data.close[0] > self.bband.lines.top[0]:
+                    self.log('*** 考察期成功通过！切换为ATR跟踪止损 ***')
+                    self.in_coiled_spring_probation = False
+                    # 通过后，立即为ATR止损设置初始值
+                    self.highest_high_since_buy = self.data.high[0]
+                    self.stop_price = self.highest_high_since_buy - self.p.atr_multiplier * self.atr[0]
+                    return # 通过后，本轮逻辑结束，等待下一根K线
 
-            if self.data.close[0] < self.stop_price:
-                self.log(
-                    f'卖出信号: 触发ATR跟踪止损 @ {self.stop_price:.2f} '
-                    f'(最高点: {self.highest_high_since_buy:.2f}, ATR: {self.atr[0]:.2f})'
-                )
-                self.order = self.close()
-            return # 持仓时，完成止损检查后即可结束，不再寻找买点
+                # 检查是否考察失败(1): 跌破中轨生命线
+                elif self.data.close[0] < self.bband.lines.mid[0]:
+                    self.log('卖出信号: 考察期内跌破中轨，清仓')
+                    self.order = self.close()
+                
+                # 检查是否考察失败(2): 考察期结束仍未突破
+                elif self.probation_counter <= 0:
+                    self.log('卖出信号: 考察期结束，未能突破上轨，清仓')
+                    self.order = self.close()
+                
+                return # 考察期内的逻辑结束
+
+            # B. 不在考察期内（即普通突破，或已通过考察的仓位），执行ATR跟踪止损
+            else:
+                # 如果是入场第一天，只设置初始止损，不操作
+                if self.highest_high_since_buy == 0:
+                    self.highest_high_since_buy = self.data.high[0]
+                    self.stop_price = self.data.close[0] - self.p.atr_multiplier * self.atr[0]
+                    self.log(
+                        f'入场首日，设置初始ATR止损 @ {self.stop_price:.2f} '
+                        f'(基于收盘价: {self.data.close[0]:.2f} 和 ATR: {self.atr[0]:.2f})'
+                    )
+                    return
+
+                # 更新买入后的最高价
+                self.highest_high_since_buy = max(self.highest_high_since_buy, self.data.high[0])
+                # 计算新的跟踪止损位
+                new_stop_price = self.highest_high_since_buy - self.p.atr_multiplier * self.atr[0]
+                # 止损位只上不下
+                self.stop_price = max(self.stop_price, new_stop_price)
+
+                if self.data.close[0] < self.stop_price:
+                    self.log(
+                        f'卖出信号: 触发ATR跟踪止损 @ {self.stop_price:.2f} '
+                        f'(最高点: {self.highest_high_since_buy:.2f}, ATR: {self.atr[0]:.2f})'
+                    )
+                    self.order = self.close()
+                return # 持仓时，完成止损检查后即可结束
 
         # --- 2. 空仓时：根据模式决定买入逻辑 ---
-        # A. 观察模式：寻找二次确认信号
         if self.observation_mode:
+            # A. 观察模式：寻找二次确认信号
             self.observation_counter -= 1
 
-            # 二次确认信号：价格从下向上穿越布林带中轨，且成交量配合
-            is_secondary_confirmation = self.data.close[-1] < self.bband.lines.mid[-1] and \
-                                        self.data.close[0] > self.bband.lines.mid[0]
-            is_volume_ok = self.data.volume[0] > self.volume_ma[0]
-
-            if is_secondary_confirmation and is_volume_ok:
-                log_msg = f'突破信号:【二次确认】(源信号: {self.sentry_source_signal})'
+            # 1. 优先检查"蓄势待发"信号
+            if self.check_coiled_spring_conditions():
+                log_msg = f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})'
                 self.log(log_msg)
-                
                 stake = self.broker.getvalue() * self.p.initial_stake_pct
                 size = int(stake / self.data.close[0])
                 if size > 0:
                     self.order = self.buy(size=size)
-                
-                # 任务完成，解除观察模式
+                    self.coiled_spring_buy_pending = True # 标记这是一个待激活考察期的买单
+                self.observation_mode = False
+                self.log('*** 二次确认信号已发出，解除观察模式 ***')
+                return
+
+            # 2. 如果没有"蓄势待发"，再检查普通的"V型穿越"信号
+            if self.check_v_reversal_conditions():
+                log_msg = f'突破信号:【V型反转】(源信号: {self.sentry_source_signal})'
+                self.log(log_msg)
+                stake = self.broker.getvalue() * self.p.initial_stake_pct
+                size = int(stake / self.data.close[0])
+                if size > 0:
+                    self.order = self.buy(size=size)
                 self.observation_mode = False
                 self.log('*** 二次确认信号已执行，解除观察模式 ***')
-            
-            # 如果观察期结束仍无信号
-            elif self.observation_counter <= 0:
+                return
+
+            # 3. 如果都没有，则继续观察...
+            if self.observation_counter <= 0:
                 self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
                 self.observation_mode = False
-
-        # B. 常规模式：寻找初始突破信号
         else:
-            # 基础条件：放量突破布林带上轨
+            # B. 常规模式：寻找初始突破信号
             is_breakout = self.data.close[0] > self.bband.lines.top[0]
             is_volume_up = self.data.volume[0] > self.volume_ma[0]
 
@@ -203,3 +251,39 @@ class BreakoutStrategy(bt.Strategy):
                     size = int(stake / self.data.close[0])
                     if size > 0:
                         self.order = self.buy(size=size)
+
+    def check_coiled_spring_conditions(self):
+        """
+        检查"蓄势待发"（W型或平台整理后启动）信号条件。
+        这是一个高优先级的二次确认信号。
+        """
+        # 条件1: 必须是阳线且放量
+        if not (self.data.close[0] > self.data.open[0] and self.data.volume[0] > self.volume_ma[0]):
+            return False
+            
+        # 条件2: 收盘价创近期新高
+        # self.highest_close_confirm[-1] 获取的是截止到昨天(t-1)的N日最高收盘价
+        if self.data.close[0] < self.highest_close_confirm[-1]:
+            return False
+
+        # 条件3 & 4: 在回看周期内，收盘价未破中轨，最低价未破下轨 (更严格的平台整理)
+        for i in range(1, self.p.confirmation_lookback + 1):
+            if self.data.close[-i] < self.bband.lines.mid[-i]:
+                return False
+            if self.data.low[-i] < self.bband.lines.bot[-i]:
+                return False
+        
+        return True
+
+    def check_v_reversal_conditions(self):
+        """
+        检查"V型反转"信号条件。
+        这是一个普通的二次确认信号。
+        """
+        # 条件1: 从下向上穿越中轨
+        is_cross_mid = self.data.close[-1] < self.bband.lines.mid[-1] and \
+                       self.data.close[0] > self.bband.lines.mid[0]
+        # 条件2: 成交量配合
+        is_volume_ok = self.data.volume[0] > self.volume_ma[0]
+
+        return is_cross_mid and is_volume_ok
