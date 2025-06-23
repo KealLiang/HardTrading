@@ -67,13 +67,13 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     stock_list = ["600610", "300033"]
-    use_realtime = False
+    use_realtime = True
 
     # end_date = '20250620'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20100530', end_date=end_date, save_path='./data/astocks',
-                                    max_workers=4, stock_list=stock_list)
+    data_fetcher = StockDataFetcher(start_date='20250530', end_date=end_date, save_path='./data/astocks',
+                                    max_workers=4, stock_list=None)
 
     # 根据参数选择不同的数据获取方式
     if use_realtime:
@@ -272,7 +272,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20250401'  # 调整为Excel中有数据的日期范围
-    end_date = None
+    end_date = '20250623'  # 过了0点最好指定日期
     min_board_level = 3
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -292,11 +292,11 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # backtrade_simulate()
-    get_stock_datas()
+    # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
