@@ -28,7 +28,7 @@ class MarketRegimeStrategy(bt.Strategy):
 
         # -- 仓位与风险管理 --
         ('max_portfolio_allocation', 0.90),  # 允许投入的总资金比例上限
-        ('initial_tranche_pct', 0.10),  # 初始/单次加仓的仓位（占总资金）
+        ('initial_tranche_pct', 0.20),  # 初始/单次加仓的仓位（占总资金）
 
         # 不同宏观状态下的【最大】仓位系数（乘以 max_portfolio_allocation）
         ('sizing_macro_up', 1.0),  # 牛市，可将仓位加满到上限
@@ -220,8 +220,20 @@ class MarketRegimeStrategy(bt.Strategy):
             self.order = self.close()
             return
 
-        # --- C. 盈利加仓逻辑 (仅在二次恐慌盈利时) ---
+        # --- C. 盈利加仓/减仓逻辑 ---
         is_profitable = self.data.close[0] > self.position.price
+
+        # 新增逻辑：在熊市/震荡市的恐慌反弹中，一旦盈利，立即锁定一半利润
+        if is_profitable and self.buy_regime in ['MACRO_DOWN', 'MACRO_RANGE']:
+            sell_size = int(self.position.size * 0.5)
+            if sell_size > 0:
+                self.log(f'卖出信号: ({self.buy_regime}恐慌模式) 出现浮盈, 减半仓锁定利润.')
+                self.order = self.sell(size=sell_size)
+                # 减仓后，退出恐慌模式，将剩余仓位交由常规逻辑管理
+                self.is_panic_rebound_trade = False
+                return
+
+        # 原盈利加仓逻辑 (仅在二次恐慌盈利时)
         if self.panic_buy_counter > 1 and is_profitable:
             # 复用常规的仓位控制逻辑
             sizing_map = {'MACRO_UP': self.p.sizing_macro_up, 'MACRO_RANGE': self.p.sizing_macro_range,

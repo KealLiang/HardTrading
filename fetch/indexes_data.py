@@ -50,7 +50,10 @@ def fetch_indexes_data(save_dir):
     indices = {
         "sh000001": os.path.join(save_dir, "sh000001_上证指数.csv"),
         "sz399001": os.path.join(save_dir, "sz399001_深证成指.csv"),
-        "sz399006": os.path.join(save_dir, "sz399006_创业板指.csv")
+        "sz399006": os.path.join(save_dir, "sz399006_创业板指.csv"),
+        "sh000905": os.path.join(save_dir, "sh000905_中证500.csv"),
+        "sz399405": os.path.join(save_dir, "sz399405_大盘高贝.csv"),
+        "sz399409": os.path.join(save_dir, "sz399409_小盘高贝.csv")
     }
 
     # 获取并保存每个指数的数据

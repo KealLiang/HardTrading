@@ -5,6 +5,7 @@ from strategy.breakout_strategy import BreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
 from strategy.panic_rebound_strategy import PanicReboundStrategy
+from strategy.regime_classifier_strategy import RegimeClassifierStrategy
 
 # 忽略jieba库中的pkg_resources警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -41,15 +42,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    code = '300059'
+    code = '300033'
 
     # 使用修复后的策略
     simulator.go_trade(code,
-                       startdate=datetime(2020, 1, 1),
-                       # startdate=datetime(2015, 6, 1),
-                       enddate=datetime(2024, 9, 22),
-                       # enddate=datetime(2025, 6, 20),
-                       strategy=HybridStrategy)
+                    #    startdate=datetime(2020, 1, 1),
+                       startdate=datetime(2015, 6, 1),
+                    #    enddate=datetime(2024, 9, 22),
+                       enddate=datetime(2025, 6, 20),
+                       strategy=RegimeClassifierStrategy)
 
 
 # 获取热点概念词云
@@ -65,14 +66,14 @@ def get_index_data():
 
 # 拉a股历史数据
 def get_stock_datas():
-    stock_list = ["300059"]
-    use_realtime = True
+    stock_list = ["600610", "300033"]
+    use_realtime = False
 
-    # end_date = '20250618'
+    # end_date = '20250620'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250530', end_date=end_date, save_path='./data/astocks',
-                                    max_workers=4, stock_list=None)
+    data_fetcher = StockDataFetcher(start_date='20100530', end_date=end_date, save_path='./data/astocks',
+                                    max_workers=4, stock_list=stock_list)
 
     # 根据参数选择不同的数据获取方式
     if use_realtime:
@@ -290,7 +291,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # get_stock_datas()
+    # backtrade_simulate()
+    get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
@@ -313,4 +315,3 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
-    backtrade_simulate()
