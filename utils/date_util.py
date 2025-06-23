@@ -202,7 +202,7 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     else:
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=35), end_date=date_dt)
+    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=2 * n), end_date=date_dt)
     # 统一为带时区的Timestamp
     date_dt_tz = pd.Timestamp(date_dt, tz='UTC')
     prev_days = [d for d in prev_days if d <= date_dt_tz]
