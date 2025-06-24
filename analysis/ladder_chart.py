@@ -26,7 +26,7 @@ from utils.theme_color_util import (
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
 # 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
 # 设置为None表示一直跟踪到分析周期结束
-MAX_TRACKING_DAYS_AFTER_BREAK = 8
+MAX_TRACKING_DAYS_AFTER_BREAK = 9
 
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
@@ -383,10 +383,49 @@ def check_reentry_condition(current_date, continuous_board_dates, reentry_days_t
     return False, False
 
 
+@lru_cache(maxsize=1000)
+def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reasons_str=None):
+    """缓存股票的概念组信息，用于排序"""
+    # 将列表类型的priority_reasons转换为元组，使其可哈希
+    priority_reasons = None if priority_reasons_str is None else tuple(priority_reasons_str.split(','))
+
+    # 提取概念
+    if pd.isna(concept_str) or not concept_str:
+        return "其他"
+
+    # 提取所有概念
+    reasons = extract_reasons(concept_str)
+    if not reasons:
+        return "其他"
+
+    # 创建简化版的股票概念数据结构
+    stock_key = f"{stock_code}_{stock_name}"
+    stock_concepts = {stock_key: reasons}
+    all_concepts = reasons.copy()
+
+    # 获取热门概念的颜色映射
+    _, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+
+    # 创建简化版的股票数据
+    all_stocks = {
+        stock_key: {
+            'name': stock_name,
+            'reasons': reasons,
+            'appearances': [1]
+        }
+    }
+
+    # 获取股票的主要概念组
+    stock_reason_groups = get_stock_reason_group(all_stocks, top_reasons)
+
+    # 返回股票的概念组
+    return stock_reason_groups.get(stock_key, "其他")
+
+
 def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                                      reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1,
                                      enable_attention_criteria=False, attention_data_main=None,
-                                     attention_data_non_main=None):
+                                     attention_data_non_main=None, priority_reasons=None):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
 
@@ -399,6 +438,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
         attention_data_main: 主板关注度榜数据，当enable_attention_criteria=True时需要提供
         attention_data_non_main: 非主板关注度榜数据，当enable_attention_criteria=True时需要提供
+        priority_reasons: 优先选择的原因列表，默认为None
 
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
@@ -438,10 +478,21 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
     print(f"找到{len(result_df)}只达到显著连板的股票")
 
-    # 按首次显著连板日期和连板天数排序
+    # 添加概念组信息用于排序
+    result_df['concept_group'] = result_df.apply(
+        lambda row: get_cached_concept_group(
+            row['stock_code'],
+            row['stock_name'],
+            row.get('concept', '其他'),
+            ','.join(priority_reasons) if priority_reasons else None
+        ),
+        axis=1
+    )
+
+    # 按首次显著连板日期、概念组和连板天数排序
     result_df = result_df.sort_values(
-        by=['first_significant_date', 'board_level_at_first'],
-        ascending=[True, False]
+        by=['first_significant_date', 'board_level_at_first', 'concept_group'],
+        ascending=[True, False, True]
     )
 
     return result_df
@@ -1547,7 +1598,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 识别显著连板股票
     result_df = identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
-                                            non_main_board_level, enable_attention_criteria, attention_data)
+                                            non_main_board_level, enable_attention_criteria,
+                                            attention_data, priority_reasons)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
@@ -1630,7 +1682,8 @@ def format_trading_days(trading_days):
 
 
 def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
-                                non_main_board_level, enable_attention_criteria, attention_data):
+                                non_main_board_level, enable_attention_criteria, attention_data,
+                                priority_reasons):
     """
     识别显著连板股票
 
@@ -1642,13 +1695,15 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
         non_main_board_level: 非主板股票最小显著连板天数
         enable_attention_criteria: 是否启用关注度榜入选条件
         attention_data: 关注度榜数据
+        priority_reasons: 优先选择的原因列表
 
     Returns:
         pandas.DataFrame: 显著连板股票DataFrame
     """
     return identify_first_significant_board(
         lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
-        enable_attention_criteria, attention_data['main'], attention_data['non_main']
+        enable_attention_criteria, attention_data['main'], attention_data['non_main'],
+        priority_reasons
     )
 
 
