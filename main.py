@@ -284,7 +284,7 @@ def generate_ladder_chart():
     ]
 
     # 构建梯队图
-    build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
+    build_ladder_chart(start_date, None, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
                        priority_reasons=priority_reasons, enable_attention_criteria=True,
                        sheet_name=sheet_name)
@@ -296,8 +296,8 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
     # update_synonym_groups()
+    generate_ladder_chart()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()
