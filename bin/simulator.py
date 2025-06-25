@@ -1,106 +1,66 @@
+import os
+
 import backtrader as bt
 import pandas as pd
 from backtrader import feeds
-from utils.file_util import read_stock_data
 
+from strategy.breakout_strategy import BreakoutStrategy
 from strategy.kdj_macd import KDJ_MACD_Strategy
+from utils.backtrade.analyzers import OrderLogger
+from utils.backtrade.visualizer import analyze_and_visualize_trades
 
-# 定义列名
-columns = ['日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额', '振幅', '涨跌幅', '涨跌额',
-           '换手率']
+
+# 这是来自 origin_simulator.py 的原始、可工作的 read_stock_data 函数
+def read_stock_data(code, path):
+    """
+    根据股票代码智能查找并读取CSV文件。
+    文件名格式应为 "代码_名称.csv", 例如 "603986_兆易创新.csv"。
+    """
+    try:
+        for filename in os.listdir(path):
+            if filename.startswith(str(code)) and filename.endswith('.csv'):
+                file_path = os.path.join(path, filename)
+                # 无表头，需手动指定列名
+                column_names = [
+                    'date', 'code', 'open', 'close', 'high', 'low', 'volume',
+                    'amount', 'amplitude', 'pct_chg', 'turnover', 'pe_ratio'
+                ]
+                df = pd.read_csv(
+                    file_path,
+                    header=None,
+                    names=column_names,
+                    index_col='date',
+                    parse_dates=True
+                )
+                # 确保索引是tz-naive，以避免比较问题
+                df.index = df.index.tz_localize(None)
+                return df
+    except FileNotFoundError:
+        print(f"数据目录 '{path}' 未找到。")
+    except Exception as e:
+        print(f"读取股票 {code} 数据时出错: {e}")
+    return None
 
 
 # 创建一个扩展的PandasData类，添加涨跌幅、换手率和振幅
 class ExtendedPandasData(feeds.PandasData):
-    # 添加新的数据行
-    lines = ('pct_chg', 'amplitude', 'turnover',)  # 涨跌幅、振幅、换手率
-    
-    # 添加参数，-1表示自动检测
+    lines = ('pct_chg', 'amplitude', 'turnover',)
     params = (
-        ('pct_chg', -1),  # 涨跌幅
-        ('amplitude', -1),  # 振幅
-        ('turnover', -1),  # 换手率
-    )
-
-
-def read_and_convert_data(code, path, startdate=None, enddate=None):
-    df = read_stock_data(code, path)
-
-    if df is None:
-        raise FileNotFoundError(f"未找到匹配的文件 {code}_*.csv")
-
-    print(f"使用股票代码: {code}")
-
-    # 转换日期格式为datetime
-    df['日期'] = pd.to_datetime(df['日期'], errors='coerce')  # 强制转换，无效日期会变成NaT
-
-    if df['日期'].isna().any():
-        raise ValueError("日期列包含无效值，请检查数据格式")
-
-    # 重命名列以匹配backtrader的格式
-    df.rename(columns={
-        '日期': 'datetime',
-        '开盘': 'open',
-        '收盘': 'close',
-        '最高': 'high',
-        '最低': 'low',
-        '成交量': 'volume',
-        '涨跌幅': 'pct_chg',  # 新增涨跌幅
-        '振幅': 'amplitude',  # 新增振幅
-        '换手率': 'turnover'  # 新增换手率
-    }, inplace=True)
-
-    # 选择backtrader需要的列以及新增的3列
-    df = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'pct_chg', 'amplitude', 'turnover']]
-
-    # 按日期排序
-    df.sort_values('datetime', inplace=True)
-
-    # 时间过滤
-    if startdate and enddate:
-        df = df[(df['datetime'] >= startdate) & (df['datetime'] <= enddate)]
-
-    # 转换为自定义的ExtendedPandasData格式
-    return ExtendedPandasData(
-        dataname=df,
-        datetime='datetime',  # 明确指定datetime列
-        open='open',
-        high='high',
-        low='low',
-        close='close',
-        volume='volume',
-        pct_chg='pct_chg',  # 涨跌幅
-        amplitude='amplitude',  # 振幅
-        turnover='turnover',  # 换手率
-        compression=1,  # 不压缩，即按天回测
-        openinterest=-1  # 如果没有持仓量数据，设为-1
+        ('pct_chg', -1), ('amplitude', -1), ('turnover', -1),
     )
 
 
 def calculate_benchmark(data, initial_amount, final_amount):
-    """计算基准表现和超额收益，使用与backtrader Returns分析器一致的逻辑"""
-    # 获取起始和结束价格
-    start_price = data.close[-len(data)+1]  # 第一个交易日的收盘价 
-    end_price = data.close[0]  # 最后一个交易日的收盘价
-    
-    # 计算基准假设持仓数量和最终资金
+    start_price = data.close[-len(data) + 1]
+    end_price = data.close[0]
     shares = initial_amount / start_price
     benchmark_final_value = shares * end_price
-    
-    # 计算基准收益率
     benchmark_return = (end_price / start_price - 1) * 100
-    
-    # 计算基准年化收益率
-    # 获取交易天数
     trading_days = len(data)
-    # 使用252个交易日作为一年，与backtrader的Returns分析器一致
     years = trading_days / 252
-    benchmark_annual_return = ((end_price / start_price) ** (1/years) - 1) * 100 if years > 0 else 0
-    
-    # 计算策略相对于基准的超额收益
+    benchmark_annual_return = ((end_price / start_price) ** (1 / years) - 1) * 100 if years > 0 else 0
     strategy_return = (final_amount / initial_amount - 1) * 100
     excess_return = strategy_return - benchmark_return
-    
     return {
         'benchmark_final_value': benchmark_final_value,
         'benchmark_return': benchmark_return,
@@ -111,57 +71,100 @@ def calculate_benchmark(data, initial_amount, final_amount):
 
 
 def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
-             strategy=KDJ_MACD_Strategy, strategy_params=None):
-    data = read_and_convert_data(code, filepath, startdate, enddate)
+             strategy=KDJ_MACD_Strategy, strategy_params=None,
+             log_trades=False, visualize=False):
+    print(f"使用股票代码: {code}")
 
-    # 创建Cerebro引擎
+    dataframe = read_stock_data(code, filepath)
+    if dataframe is None:
+        print("数据加载失败，程序退出。")
+        return
+
+    # 日期过滤
+    if startdate:
+        dataframe = dataframe.loc[pd.to_datetime(startdate).date():]
+    if enddate:
+        dataframe = dataframe.loc[:pd.to_datetime(enddate).date()]
+
+    if dataframe.empty:
+        print("指定日期范围内无数据，程序退出。")
+        return
+
     cerebro = bt.Cerebro()
 
-    # 添加策略，支持自定义参数
     if strategy_params:
         cerebro.addstrategy(strategy, **strategy_params)
     else:
         cerebro.addstrategy(strategy)
 
-    # 添加数据
-    cerebro.adddata(data)
+    data = ExtendedPandasData(dataname=dataframe)
+    cerebro.adddata(data, name=code)
 
-    # 初始资金
+    output_dir = None
+    if log_trades or visualize:
+        start_date_str = dataframe.index[0].strftime('%Y%m%d')
+        end_date_str = dataframe.index[-1].strftime('%Y%m%d')
+        folder_name = f"{code}_{start_date_str}-{end_date_str}"
+        output_dir = os.path.join('strategy', 'post_analysis', folder_name)
+        os.makedirs(output_dir, exist_ok=True)
+
+    if log_trades:
+        log_csv_path = os.path.join(output_dir, 'trade_log.csv')
+        cerebro.addanalyzer(OrderLogger, log_path=log_csv_path, _name='orderlogger')
+
     cerebro.broker.set_cash(amount)
     cerebro.broker.setcommission(commission=0.00015)
 
-    # 添加分析器
-    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.02)  # 夏普比率
-    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')  # 最大回撤
-    cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')  # 年化收益率
-    cerebro.addanalyzer(bt.analyzers.PyFolio, _name='pyfolio')  # 兼容PyFolio（可选）
+    cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+    cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+    cerebro.addanalyzer(bt.analyzers.PyFolio, _name='pyfolio')
 
-    # 运行回测
     start_value = cerebro.broker.getvalue()
     result = cerebro.run()
     final_value = cerebro.broker.getvalue()
     print('初始资金: %.2f' % start_value)
     print('回测结束后资金: %.2f' % final_value)
 
-    # 提取分析结果
     strat = result[0]
     print(f"最大回撤: {strat.analyzers.drawdown.get_analysis()['max']['drawdown']:.2f}%")
     print(f"年化收益率: {strat.analyzers.returns.get_analysis()['rnorm100']:.2f}%")
     try:
         print(f"夏普比率: {strat.analyzers.sharpe.get_analysis()['sharperatio']:.2f}")
-    except (KeyError, TypeError):
+    except (KeyError, TypeError, AttributeError):
         print("夏普比率: 数据不足，无法计算")
-    
-    # 计算基准表现
+
     benchmark_results = calculate_benchmark(data, amount, final_value)
-    
-    # 打印基准比较结果
-    print(f"===== 基准测试（周期内买入后不做操作） =====")
+    print("===== 基准测试（周期内买入后不做操作） =====")
     print(f"基准结束资金: {benchmark_results['benchmark_final_value']:.2f}")
     print(f"基准收益率: {benchmark_results['benchmark_return']:.2f}%")
     print(f"基准年化收益率: {benchmark_results['benchmark_annual_return']:.2f}%")
     print(f"策略总收益率: {benchmark_results['strategy_return']:.2f}%")
     print(f"超额收益: {benchmark_results['excess_return']:.2f}%")
 
-    # 绘制回测结果
+    if visualize and log_trades and output_dir:
+        print("\\n" + "=" * 50)
+        print("回测完成，开始执行交易可视化分析...")
+        print("=" * 50)
+        analyze_and_visualize_trades(
+            log_csv=log_csv_path,
+            data_dir=filepath,
+            output_dir=output_dir
+        )
     cerebro.plot()
+
+
+if __name__ == '__main__':
+    stock_code = '603986'
+    initial_cash = 100000
+    data_path = './data/astocks'
+    go_trade(
+        code=stock_code,
+        amount=initial_cash,
+        startdate='2020-01-01',
+        enddate='2022-12-31',
+        filepath=data_path,
+        strategy=BreakoutStrategy,
+        log_trades=True,
+        visualize=True
+    )
