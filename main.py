@@ -47,10 +47,10 @@ def backtrade_simulate():
     # 使用修复后的策略
     simulator.go_trade(code,
                     #    startdate=datetime(2020, 1, 1),
-                       startdate=datetime(2015, 6, 1),
+                       startdate=datetime(2021, 1, 1),
                     #    enddate=datetime(2024, 9, 22),
                        enddate=datetime(2025, 6, 20),
-                       strategy=RegimeClassifierStrategy)
+                       strategy=BreakoutStrategy)
 
 
 # 获取热点概念词云
@@ -72,7 +72,7 @@ def get_stock_datas():
     # end_date = '20250620'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250530', end_date=end_date, save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250615', end_date=end_date, save_path='./data/astocks',
                                     max_workers=4, stock_list=None)
 
     # 根据参数选择不同的数据获取方式
@@ -173,7 +173,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250530"
+    start_date = "20250615"
     # end_date = '20250512'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -291,13 +291,13 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # backtrade_simulate()
+    backtrade_simulate()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # update_synonym_groups()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()
