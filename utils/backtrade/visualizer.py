@@ -1,11 +1,31 @@
 import os
 from datetime import timedelta
 
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import mplfinance as mpf
 import pandas as pd
+from matplotlib import font_manager
 
+# --- 字体设置 ---
+# 优先使用相对路径的字体文件
+try:
+    font_path = 'fonts/微软雅黑.ttf'
+    font_prop = font_manager.FontProperties(fname=font_path)
+    plt.rcParams['font.family'] = font_prop.get_name()
+    print(f"成功加载字体: {font_path}")
+except FileNotFoundError:
+    print(f"警告: 在路径 '{font_path}' 中找不到字体文件。")
+    # 如果找不到，尝试使用系统中已安装的字体
+    try:
+        # 在Windows上，'Microsoft YaHei' 是微软雅黑的英文名
+        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
+        print("尝试使用系统字体 'Microsoft YaHei' 或 'SimHei'。")
+    except Exception as e:
+        print(f"无法设置中文字体，中文可能显示为乱码: {e}")
 
-# from utils.backtrade.data_loader import read_stock_data # <- 移除依赖
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+
 
 def read_stock_data(code, data_dir):
     """
@@ -137,6 +157,16 @@ def analyze_and_visualize_trades(
             print(f"警告: 在为交易 {trade_id + 1} 标记买卖点时出错: {e}。")
             continue
 
+        # 设置A股风格的红涨绿跌颜色
+        mc = mpf.make_marketcolors(
+            up='red', down='green',
+            edge='inherit', wick='inherit', volume='inherit'
+        )
+        # 创建mplfinance样式，让其继承通过rcParams设置的字体
+        s = mpf.make_mpf_style(
+            marketcolors=mc, gridstyle='-', y_on_right=False
+        )
+
         ap = [
             mpf.make_addplot(buy_markers, type='scatter', marker='^', color='g', markersize=100),
             mpf.make_addplot(sell_markers, type='scatter', marker='v', color='r', markersize=100)
@@ -145,7 +175,7 @@ def analyze_and_visualize_trades(
         pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
         pnl_status = "盈利" if pnl > 0 else "亏损"
         title = (
-            f"股票: {stock_code} | 交易ID: {trade_id + 1} | {pnl_status}: {pnl:.2f}\\n"
+            f"股票: {stock_code} | 交易ID: {trade_id + 1} | {pnl_status}: {pnl:.2f}\n"
             f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
             f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}"
         )
@@ -153,16 +183,45 @@ def analyze_and_visualize_trades(
         output_path = os.path.join(output_dir, f"trade_{trade_id + 1}_{stock_code}.png")
 
         try:
-            mpf.plot(
-                chart_df, type='candle', style='charles', title=title,
-                ylabel='价格', volume=True, ylabel_lower='成交量',
-                addplot=ap, figsize=(16, 8), savefig=dict(fname=output_path, dpi=150)
+            # 1. 使用 mplfinance 绘制图表，并返回 Figure 和 Axes 对象
+            fig, axes = mpf.plot(
+                chart_df,
+                type='candle',
+                style=s,
+                title=title,
+                ylabel='价格',
+                volume=True,
+                ylabel_lower='成交量',
+                addplot=ap,
+                figsize=(16, 8),
+                returnfig=True,  # 关键：返回图表对象以进行自定义
+                tight_layout=True  # 尝试收紧布局
             )
+
+            # 2. 自定义坐标轴，解决日期显示问题
+            main_ax = axes[0]
+            # 根据数据量动态调整日期标签的密度
+            num_days = len(chart_df)
+            if num_days <= 45:
+                interval = max(1, num_days // 15) if num_days > 15 else 1
+            elif num_days <= 120:
+                interval = max(1, num_days // 20)
+            else:
+                interval = max(1, num_days // 25)
+
+            main_ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+            main_ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y%m%d'))
+            fig.autofmt_xdate(rotation=30)  # 自动旋转日期以防重叠
+
+            # 3. 保存图表，使用 bbox_inches='tight' 去除多余留白
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)  # 关闭图表以释放内存
+
             print(f"已生成图表: {output_path}")
         except Exception as e:
-            print(f"\\n错误: mplfinance绘图失败 (交易ID: {trade_id + 1}): {e}")
+            print(f"\n错误: mplfinance绘图失败 (交易ID: {trade_id + 1}): {e}")
 
-    print("\\n所有交易可视化完成。")
+    print("\n所有交易可视化完成。")
 
 
 if __name__ == '__main__':

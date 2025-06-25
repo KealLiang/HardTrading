@@ -143,7 +143,7 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     print(f"超额收益: {benchmark_results['excess_return']:.2f}%")
 
     if visualize and log_trades and output_dir:
-        print("\\n" + "=" * 50)
+        print("=" * 50)
         print("回测完成，开始执行交易可视化分析...")
         print("=" * 50)
         analyze_and_visualize_trades(
