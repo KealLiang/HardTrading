@@ -19,7 +19,7 @@ def query_wencai(param):  # Added cookie parameter
 
 
 def get_fanbao_stocks(date, board_suffix=""):
-    param = f"{date}低开，实体涨幅大于12%，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    param = f"{date}低开，实体涨幅大于12%，非ST{board_suffix}"
     df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
@@ -50,7 +50,7 @@ def get_zt_stocks(date, board_suffix=""):
         jj_df = zt_cache[cache_key]
     else:
         # 设置查询参数
-        param = f"{date}涨停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+        param = f"{date}涨停，非ST{board_suffix}"
         df = query_wencai(param)
         if df is None or df.empty:
             return pd.DataFrame()
@@ -119,7 +119,7 @@ def get_dieting_stocks(date, board_suffix=""):
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}跌停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    param = f"{date}跌停，非ST{board_suffix}"
     df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
@@ -147,7 +147,7 @@ def get_open_dieting_stocks(date, board_suffix=""):
     :return: 跌停个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}开盘跌停，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    param = f"{date}开盘跌停，非ST{board_suffix}"
     df = query_wencai(param)
     if df is None:
         return pd.DataFrame()
@@ -172,7 +172,7 @@ def get_zaban_stocks(date, board_suffix=""):
     :return: 炸板个股的DataFrame。
     """
     # 设置查询参数
-    param = f"{date}炸板，非涉嫌信息披露违规且非立案调查且非ST{board_suffix}"
+    param = f"{date}炸板，非ST{board_suffix}"
     df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
@@ -345,7 +345,7 @@ def all_fupan(start_date=None, end_date=None, types='all'):
         for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
             print(f"--- Starting fupan type: {fupan_type} ---")
             daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file)
-    
+
     # 特殊处理：将非主板关注度榜数据也保存到fupan_stocks.xlsx中
     if 'all' in types and 'else' in types:
         print("\n--- 特殊处理：将非主板关注度榜数据保存到fupan_stocks.xlsx ---")
