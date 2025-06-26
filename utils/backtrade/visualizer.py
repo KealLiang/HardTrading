@@ -51,10 +51,10 @@ def read_stock_data(code, data_dir):
             'amount', 'amplitude', 'pct_chg', 'turnover', 'pe_ratio'
         ]
         df = pd.read_csv(
-            file_path, 
-            header=None, 
+            file_path,
+            header=None,
             names=column_names,
-            index_col='date', 
+            index_col='date',
             parse_dates=True
         )
         # 确保索引是tz-naive，以避免比较问题
@@ -175,8 +175,8 @@ def analyze_and_visualize_trades(
         )
 
         ap = [
-            mpf.make_addplot(buy_markers, type='scatter', marker='^', color='g', markersize=100),
-            mpf.make_addplot(sell_markers, type='scatter', marker='v', color='r', markersize=100)
+            mpf.make_addplot(buy_markers, type='scatter', marker='^', color='lime', markersize=150),
+            mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
         ]
 
         pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
@@ -221,7 +221,8 @@ def analyze_and_visualize_trades(
                     interval = max(1, num_days // 25)
 
                 main_ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
-                main_ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y%m%d'))
+                # 不指定特定的日期格式，使用默认格式
+                # main_ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y%m%d'))
                 fig.autofmt_xdate(rotation=30)  # 自动旋转日期以防重叠
 
             # 3. 保存图表，使用 bbox_inches='tight' 去除多余留白
