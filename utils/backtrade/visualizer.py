@@ -45,22 +45,28 @@ def read_stock_data(code, data_dir):
 
     file_path = os.path.join(data_dir, target_file)
     try:
-        # 修正列名顺序以匹配源文件: open, close, high, low
+        # 修改列名以与simulator.py保持一致
         column_names = [
-            'datetime', 'code', 'open', 'close', 'high', 'low', 'volume',
+            'date', 'code', 'open', 'close', 'high', 'low', 'volume',
             'amount', 'amplitude', 'pct_chg', 'turnover', 'pe_ratio'
         ]
         df = pd.read_csv(
-            file_path, header=None, names=column_names,
-            index_col='datetime', parse_dates=True
+            file_path, 
+            header=None, 
+            names=column_names,
+            index_col='date', 
+            parse_dates=True
         )
+        # 确保索引是tz-naive，以避免比较问题
+        df.index = df.index.tz_localize(None)
         # mplfinance 需要大写的列名，这里直接重命名
         df.rename(columns={
             'open': 'Open', 'close': 'Close', 'high': 'High',
             'low': 'Low', 'volume': 'Volume'
         }, inplace=True)
         return df
-    except Exception:
+    except Exception as e:
+        print(f"读取股票 {code} 数据时出错: {e}")
         return None
 
 
@@ -164,7 +170,8 @@ def analyze_and_visualize_trades(
         )
         # 创建mplfinance样式，让其继承通过rcParams设置的字体
         s = mpf.make_mpf_style(
-            marketcolors=mc, gridstyle='-', y_on_right=False
+            marketcolors=mc, gridstyle='-', y_on_right=False,
+            rc={'font.sans-serif': font_prop.get_name() if font_prop else 'SimHei'}
         )
 
         ap = [
@@ -200,18 +207,22 @@ def analyze_and_visualize_trades(
 
             # 2. 自定义坐标轴，解决日期显示问题
             main_ax = axes[0]
-            # 根据数据量动态调整日期标签的密度
-            num_days = len(chart_df)
-            if num_days <= 45:
-                interval = max(1, num_days // 15) if num_days > 15 else 1
-            elif num_days <= 120:
-                interval = max(1, num_days // 20)
+            # 确保索引是日期时间类型
+            if not isinstance(chart_df.index, pd.DatetimeIndex):
+                print(f"警告: 图表索引不是DatetimeIndex类型，无法显示正确日期。")
             else:
-                interval = max(1, num_days // 25)
+                # 根据数据量动态调整日期标签的密度
+                num_days = len(chart_df)
+                if num_days <= 45:
+                    interval = max(1, num_days // 15) if num_days > 15 else 1
+                elif num_days <= 120:
+                    interval = max(1, num_days // 20)
+                else:
+                    interval = max(1, num_days // 25)
 
-            main_ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
-            main_ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y%m%d'))
-            fig.autofmt_xdate(rotation=30)  # 自动旋转日期以防重叠
+                main_ax.xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+                main_ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y%m%d'))
+                fig.autofmt_xdate(rotation=30)  # 自动旋转日期以防重叠
 
             # 3. 保存图表，使用 bbox_inches='tight' 去除多余留白
             plt.savefig(output_path, dpi=150, bbox_inches='tight')
