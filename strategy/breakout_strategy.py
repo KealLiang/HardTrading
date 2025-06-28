@@ -16,6 +16,7 @@ class BreakoutStrategy(bt.Strategy):
         ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
+        ('macro_ranging_pct', 0.05),  # 定义震荡市的均线上下浮动范围
         ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
@@ -187,11 +188,15 @@ class BreakoutStrategy(bt.Strategy):
             if is_breakout and is_volume_up:
                 # --- 信号评级系统 ---
 
-                # 1. 宏观环境评级
-                if self.data.close[0] > self.ma_macro[0]:
+                # 1. 宏观环境评级 (重构)
+                upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
+                lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
+                if self.data.close[0] > upper_band_macro:
                     env_grade, env_score = '牛市', 3
-                else:
+                elif self.data.close[0] < lower_band_macro:
                     env_grade, env_score = '熊市', 1
+                else:
+                    env_grade, env_score = '震荡市', 2
 
                 # 2. 压缩程度评级
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
@@ -205,14 +210,20 @@ class BreakoutStrategy(bt.Strategy):
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
 
-                # 3. 成交量力度评级
+                # 3. 成交量力度评级 (重构)
+                # 结合量价分析经验：成交量需要显著放大，但过高的成交量可能是衰竭信号。
+                # 因此，我们定义一个理想区间。
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if volume_ratio > 2.0:
-                    volume_grade, volume_score = 'A级', 3
-                elif volume_ratio > 1.5:
-                    volume_grade, volume_score = 'B级', 2
+                if 2.0 < volume_ratio <= 5.0:
+                    volume_grade, volume_score = 'A级(理想)', 3
+                elif 1.5 < volume_ratio <= 2.0:
+                    volume_grade, volume_score = 'B级(优秀)', 2
+                elif 1.1 < volume_ratio <= 1.5:
+                    volume_grade, volume_score = 'C级(合格)', 1
                 else:
-                    volume_grade, volume_score = 'C级', 1
+                    # D级：成交量过高（可能衰竭）或过低（无力）
+                    grade_reason = "过高" if volume_ratio > 4.0 else "过低"
+                    volume_grade, volume_score = f'D级({grade_reason})', 0
 
                 # 综合评级
                 total_score = env_score + squeeze_score + volume_score
@@ -238,13 +249,6 @@ class BreakoutStrategy(bt.Strategy):
                     self.observation_counter = self.p.observation_period
                     # 记录源信号的关键部分用于后续日志
                     self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
-
-                # 为了分析，我们仍然执行所有压缩评级不为D的信号
-                # if squeeze_score > 0:
-                #     stake = self.broker.getvalue() * self.p.initial_stake_pct
-                #     size = int(stake / self.data.close[0])
-                #     if size > 0:
-                #         self.order = self.buy(size=size)
 
     def _check_confirmation_signals(self):
         """
@@ -308,14 +312,14 @@ class BreakoutStrategy(bt.Strategy):
         # 条件2: 必须是上涨日 (收盘价高于前一日收盘价)
         if self.data.close[0] <= self.data.close[-1]:
             return False
-        
+
         # 条件3: 当日成交量必须大于过去N日内所有下跌日的成交量最大值
         lookback = self.p.pocket_pivot_lookback
         highest_down_volume = 0
         # The loop goes from bar t-1 to t-lookback
         for i in range(1, lookback + 1):
             # If it was a down day (close < previous close)
-            if self.data.close[-i] < self.data.close[-i-1]:
+            if self.data.close[-i] < self.data.close[-i - 1]:
                 highest_down_volume = max(highest_down_volume, self.data.volume[-i])
-                
+
         return self.data.volume[0] > highest_down_volume
