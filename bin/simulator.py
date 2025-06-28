@@ -1,4 +1,5 @@
 import os
+from contextlib import redirect_stdout
 
 import backtrader as bt
 import pandas as pd
@@ -107,6 +108,8 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         folder_name = f"{code}_{start_date_str}-{end_date_str}"
         output_dir = os.path.join('strategy', 'post_analysis', folder_name)
         os.makedirs(output_dir, exist_ok=True)
+        # 完整运行日志的路径
+        full_log_path = os.path.join(output_dir, 'run_log.txt')
 
     if log_trades:
         log_csv_path = os.path.join(output_dir, 'trade_log.csv')
@@ -121,7 +124,17 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     cerebro.addanalyzer(bt.analyzers.PyFolio, _name='pyfolio')
 
     start_value = cerebro.broker.getvalue()
-    result = cerebro.run()
+
+    # --- 运行Cerebro并捕获日志 ---
+    print("开始执行策略回测...")
+    if log_trades or visualize:
+        print(f"策略执行日志将保存到: {full_log_path}")
+        with open(full_log_path, 'w', encoding='utf-8') as f:
+            with redirect_stdout(f):
+                result = cerebro.run()
+    else:
+        result = cerebro.run()
+
     final_value = cerebro.broker.getvalue()
     print('初始资金: %.2f' % start_value)
     print('回测结束后资金: %.2f' % final_value)
@@ -148,6 +161,7 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         print("=" * 50)
         analyze_and_visualize_trades(
             log_csv=log_csv_path,
+            full_log_path=full_log_path,  # 传入完整日志文件路径
             data_dir=filepath,
             output_dir=output_dir
         )

@@ -91,13 +91,24 @@ def _setup_mpf_style():
     return style
 
 
-def pair_trades(log_csv_path):
-    """将买入和卖出日志配对成完整的交易DataFrame。"""
+def pair_trades(log_csv_path, full_log_path=None):
+    """
+    将买入和卖出日志配对成完整的交易DataFrame。
+    新增功能: 如果提供了完整日志路径，会尝试解析并添加额外标记的日期。
+    """
     try:
         log_df = pd.read_csv(log_csv_path, parse_dates=['datetime'])
     except FileNotFoundError:
         print(f"错误: 交易日志 {log_csv_path} 未找到。")
         return pd.DataFrame()
+
+    full_log_lines = []
+    if full_log_path and os.path.exists(full_log_path):
+        try:
+            with open(full_log_path, 'r', encoding='utf-8') as f:
+                full_log_lines = f.readlines()
+        except Exception as e:
+            print(f"警告: 读取完整交易日志 {full_log_path} 出错: {e}")
 
     buys = log_df[log_df['type'] == 'BUY'].copy()
     sells = log_df[log_df['type'] == 'SELL'].copy()
@@ -116,6 +127,33 @@ def pair_trades(log_csv_path):
 
         if not potential_sells.empty:
             sell_op = potential_sells.iloc[0]
+
+            # --- 解析额外标记日期 ---
+            extra_marker_date = None
+            if full_log_lines:
+                buy_date_str = buy_op['datetime'].strftime('%Y-%m-%d')
+                buy_size_str = f"{int(buy_op['size'])}股"
+
+                buy_log_line_idx = -1
+                for i, line in enumerate(full_log_lines):
+                    if (buy_date_str in line and '买入成交' in line and
+                            buy_size_str in line):
+                        buy_log_line_idx = i
+                        break
+
+                if buy_log_line_idx != -1:
+                    # 从买入日志行向上查找源信号
+                    for i in range(buy_log_line_idx - 1, -1, -1):
+                        line = full_log_lines[i]
+                        if '(源信号:' in line:
+                            try:
+                                # 解析出源信号的日期
+                                date_str = line.split('@')[-1].strip().split(')')[0]
+                                extra_marker_date = pd.to_datetime(date_str)
+                            except Exception:
+                                pass  # 解析失败则忽略
+                            break  # 找到后即停止
+
             trades.append({
                 'symbol': symbol_str,
                 'datetime_buy': buy_op['datetime'],
@@ -124,6 +162,7 @@ def pair_trades(log_csv_path):
                 'datetime_sell': sell_op['datetime'],
                 'price_sell': sell_op['price'],
                 'size_sell': sell_op['size'],
+                'datetime_marker': extra_marker_date,  # 使用通用字段名
             })
             used_sell_indices.add(sell_op.name)
 
@@ -168,6 +207,19 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
     ]
 
+    # 新增：如果存在，绘制额外的标记点
+    if 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
+        extra_markers = [float('nan')] * len(chart_df)
+        try:
+            marker_idx = chart_df.index.searchsorted(trade['datetime_marker'], side='right') - 1
+            if marker_idx >= 0:
+                extra_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.95
+                addplots.append(
+                    mpf.make_addplot(extra_markers, type='scatter', marker='o', color='cyan', markersize=100)
+                )
+        except (KeyError, IndexError):
+            pass  # 如果日期不存在，忽略标记
+
     pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
     title = (
         f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f}\n"
@@ -199,6 +251,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
 
 def analyze_and_visualize_trades(
         log_csv='trade_log.csv',
+        full_log_path=None,
         data_dir='data/astocks',
         output_dir='strategy/post_analysis',
         post_exit_period=60
@@ -206,7 +259,7 @@ def analyze_and_visualize_trades(
     """
     读取交易日志，配对买卖操作，并对每笔完整交易进行可视化。
     """
-    trades_df = pair_trades(log_csv)
+    trades_df = pair_trades(log_csv, full_log_path)
     if trades_df.empty:
         print("未能配对任何完整的买卖交易。请检查日志文件。")
         return
