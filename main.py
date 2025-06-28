@@ -42,7 +42,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    code = '300033'
+    # code = '300033'
+    code = '000062'
 
     # 使用修复后的策略
     simulator.go_trade(code,
@@ -292,13 +293,13 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # backtrade_simulate()
+    backtrade_simulate()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # update_synonym_groups()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()
