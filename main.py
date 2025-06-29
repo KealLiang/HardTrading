@@ -43,7 +43,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     # code = '300033'
-    code = '000062'
+    # code = '000062'
+    code = '600610'
 
     # 使用修复后的策略
     simulator.go_trade(code,

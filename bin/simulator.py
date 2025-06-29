@@ -169,14 +169,14 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
 
 
 if __name__ == '__main__':
-    stock_code = '603986'
+    stock_code = '600610'
     initial_cash = 100000
     data_path = './data/astocks'
     go_trade(
         code=stock_code,
         amount=initial_cash,
         startdate='2020-01-01',
-        enddate='2022-12-31',
+        enddate='2025-06-20',
         filepath=data_path,
         strategy=BreakoutStrategy,
         log_trades=True,

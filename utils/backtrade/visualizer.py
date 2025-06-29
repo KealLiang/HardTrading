@@ -221,8 +221,12 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
             pass  # 如果日期不存在，忽略标记
 
     pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
+    pnl_percent = 0
+    if trade['price_buy'] > 0:
+        pnl_percent = ((trade['price_sell'] - trade['price_buy']) / trade['price_buy']) * 100
+
     title = (
-        f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f}\n"
+        f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
         f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
         f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}"
     )
@@ -230,11 +234,12 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     output_path = os.path.join(output_dir, f"trade_{trade_id}_{stock_code}.png")
 
     fig, axes = mpf.plot(
-        chart_df, type='candle', style=style, title=title,
+        chart_df, type='candle', style=style,
         ylabel='价格', volume=True, ylabel_lower='成交量',
         addplot=addplots, figsize=(16, 8), returnfig=True,
         tight_layout=True
     )
+    axes[0].set_title(title, loc='left', fontweight='bold')
 
     # 自定义坐标轴，解决日期显示问题
     num_days = len(chart_df)
