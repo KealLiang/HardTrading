@@ -68,35 +68,37 @@ def _scan_single_stock(code, strategy_class, strategy_params, data_path,
         cerebro = bt.Cerebro(stdstats=False)
         cerebro.adddata(data_feed, name=code)
 
-        if strategy_params:
-            strategy_instance = cerebro.addstrategy(strategy_class, **strategy_params)
-        else:
-            strategy_instance = cerebro.addstrategy(strategy_class)
+        # --- 使用回调函数机制 ---
+        all_signals_from_strategy = []
+        def signal_handler(signal):
+            all_signals_from_strategy.append(signal)
 
-        strategy_instance.signal_log = []
+        # 在策略参数中加入回调
+        if strategy_params is None:
+            strategy_params = {}
+        strategy_params['signal_callback'] = signal_handler
+        
+        cerebro.addstrategy(strategy_class, **strategy_params)
 
-        def buy_signal_recorder(self, *args, **kwargs):
-            signal_date = self.data.datetime.date(0)
-            signal_price = self.data.close[0]
-            self.signal_log.append({
-                'code': self.data._name,
-                'signal_date': signal_date,
-                'price': signal_price,
-            })
+        cerebro.run()
 
-        strategy_instance.buy = types.MethodType(buy_signal_recorder, strategy_instance)
-
-        results = cerebro.run()
-
-        final_signals = []
+        # --- 从所有信号中筛选出最终的买入信号 ---
+        final_buy_signals = []
         scan_start_date_obj = pd.to_datetime(scan_start_date).date()
         scan_end_date_obj = pd.to_datetime(scan_end_date).date()
 
-        for signal in results[0].signal_log:
-            if scan_start_date_obj <= signal['signal_date'] <= scan_end_date_obj:
-                final_signals.append(signal)
+        for signal in all_signals_from_strategy:
+            signal_date = signal['datetime']
+            if signal['signal_type'] == 'BUY_SIGNAL' and \
+               scan_start_date_obj <= signal_date <= scan_end_date_obj:
+                final_buy_signals.append({
+                    'code': signal['code'],
+                    'signal_date': signal_date,
+                    'price': signal['close'],
+                    'details': signal.get('details', 'N/A')
+                })
 
-        return final_signals
+        return final_buy_signals
 
     except Exception:
         return None
@@ -117,10 +119,14 @@ def _run_scan(strategy_class, start_date, end_date,
                  f"日期范围: [{start_date}, {end_date}]")
 
     all_signals = []
+    
+    # 为扫描过程创建一个静默版的策略参数
+    scan_params = (strategy_params or {}).copy()
+    scan_params['silent'] = True
 
     with tqdm(total=len(stock_list), desc="扫描进度") as pbar:
         for code in stock_list:
-            signals = _scan_single_stock(code, strategy_class, strategy_params, data_path,
+            signals = _scan_single_stock(code, strategy_class, scan_params, data_path,
                                          start_date, end_date)
             if signals:
                 all_signals.extend(signals)
@@ -176,7 +182,8 @@ def scan_and_visualize(scan_strategy, scan_start_date, scan_end_date=None,
         for signal in signals:
             f.write(f"股票: {signal['code']}, "
                     f"信号日期: {signal['signal_date'].strftime('%Y-%m-%d')}, "
-                    f"价格: {signal['price']:.2f}\n")
+                    f"价格: {signal['price']:.2f}, "
+                    f"详情: {signal.get('details', '')}\n")
 
     print(f"\n扫描结果摘要已保存到: {summary_path}")
     print(f"开始对 {len(signals)} 个信号逐一进行可视化分析...")
@@ -200,7 +207,8 @@ def scan_and_visualize(scan_strategy, scan_start_date, scan_end_date=None,
             strategy_params=strategy_params,
             log_trades=True,
             visualize=True,
-            signal_dates=[signal_date]
+            signal_dates=[signal_date],
+            interactive_plot=False  # 禁用弹出图表
         )
 
 if __name__ == '__main__':

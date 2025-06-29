@@ -2,6 +2,7 @@ import logging
 import warnings
 
 from strategy.breakout_strategy import BreakoutStrategy
+from strategy.scannable_strategy import ScannableBreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
 from strategy.origin_breakout_strategy import OriginBreakoutStrategy
@@ -64,7 +65,7 @@ def backtrade_simulate():
 def strategy_scan():
     # --- 扫描并可视化 ---
     scan_and_visualize(
-        scan_strategy=BreakoutStrategy,
+        scan_strategy=ScannableBreakoutStrategy,
         scan_start_date='20250401',
         scan_end_date=None,  # 若为None，则默认为最近交易日
         stock_pool=None  # 使用 'all' 扫描所有股票，或 None 使用默认txt文件

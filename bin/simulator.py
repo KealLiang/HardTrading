@@ -1,5 +1,6 @@
 import os
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta
 
 import backtrader as bt
 import pandas as pd
@@ -73,19 +74,26 @@ def calculate_benchmark(data, initial_amount, final_amount):
 
 def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None,
-             log_trades=False, visualize=False, signal_dates=None):
+             log_trades=False, visualize=False, signal_dates=None, interactive_plot=True):
     print(f"使用股票代码: {code}")
 
+    # --- Bug修复关键: 为可视化回测也增加预热期 ---
+    # 至少需要一个最长的指标周期作为预热期 (这里保守地使用100天)
+    warm_up_days = 100 
+    
     dataframe = read_stock_data(code, filepath)
     if dataframe is None:
         print("数据加载失败，程序退出。")
         return
 
+    # 计算实际需要的数据起点
+    data_start_date = startdate - timedelta(days=warm_up_days) if startdate else None
+
     # 日期过滤
-    if startdate:
-        dataframe = dataframe.loc[pd.to_datetime(startdate).date():]
+    if data_start_date:
+        dataframe = dataframe.loc[data_start_date:]
     if enddate:
-        dataframe = dataframe.loc[:pd.to_datetime(enddate).date()]
+        dataframe = dataframe.loc[:enddate]
 
     if dataframe.empty:
         print("指定日期范围内无数据，程序退出。")
@@ -106,18 +114,19 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         start_date_str = dataframe.index[0].strftime('%Y%m%d')
         end_date_str = dataframe.index[-1].strftime('%Y%m%d')
         
-        # 根据调用来源决定输出目录
         if signal_dates:
-            # 扫描器的输出
+            # 扫描器的输出: 为每只股票创建一个主目录，每个信号在主目录下创建一个子目录
             signal_date_str = pd.to_datetime(signal_dates[0]).strftime('%Y%m%d')
-            folder_name = f"{code}_{signal_date_str}_{strategy.__name__}"
+            stock_folder = code
+            signal_folder = f"{signal_date_str}_{strategy.__name__}"
             base_path = os.path.join('bin', 'candidate_stocks_result')
+            output_dir = os.path.join(base_path, stock_folder, signal_folder)
         else:
             # 普通回测的输出
             folder_name = f"{code}_{start_date_str}-{end_date_str}"
             base_path = os.path.join('strategy', 'post_analysis')
-        
-        output_dir = os.path.join(base_path, folder_name)
+            output_dir = os.path.join(base_path, folder_name)
+
         os.makedirs(output_dir, exist_ok=True)
         # 完整运行日志的路径
         full_log_path = os.path.join(output_dir, 'run_log.txt')
@@ -177,7 +186,9 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
             output_dir=output_dir,
             signal_dates=signal_dates  # 传递信号日期
         )
-    cerebro.plot()
+    
+    if interactive_plot:
+        cerebro.plot()
 
 
 if __name__ == '__main__':
