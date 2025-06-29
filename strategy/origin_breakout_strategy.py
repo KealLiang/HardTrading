@@ -1,7 +1,7 @@
 import backtrader as bt
 
 
-class BreakoutStrategy(bt.Strategy):
+class OriginBreakoutStrategy(bt.Strategy):
     """
     一个多维度分析"波动性压缩后突破"的信号评级策略。
     - 核心逻辑：捕捉放量突破布林带上轨的信号，并对其进行评级。
@@ -16,10 +16,12 @@ class BreakoutStrategy(bt.Strategy):
         ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
+        ('macro_ranging_pct', 0.05),  # 定义震荡市的均线上下浮动范围
         ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
+        ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -51,7 +53,7 @@ class BreakoutStrategy(bt.Strategy):
         # --- 信号检查的配置 ---
         self.confirmation_signals = [
             ('coiled_spring', self.check_coiled_spring_conditions),
-            ('v_reversal', self.check_v_reversal_conditions),
+            ('pocket_pivot', self.check_pocket_pivot_conditions),
         ]
 
         # 状态跟踪
@@ -186,11 +188,15 @@ class BreakoutStrategy(bt.Strategy):
             if is_breakout and is_volume_up:
                 # --- 信号评级系统 ---
 
-                # 1. 宏观环境评级
-                if self.data.close[0] > self.ma_macro[0]:
+                # 1. 宏观环境评级 (重构)
+                upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
+                lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
+                if self.data.close[0] > upper_band_macro:
                     env_grade, env_score = '牛市', 3
-                else:
+                elif self.data.close[0] < lower_band_macro:
                     env_grade, env_score = '熊市', 1
+                else:
+                    env_grade, env_score = '震荡市', 2
 
                 # 2. 压缩程度评级
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
@@ -204,14 +210,20 @@ class BreakoutStrategy(bt.Strategy):
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
 
-                # 3. 成交量力度评级
+                # 3. 成交量力度评级 (重构)
+                # 结合量价分析经验：成交量需要显著放大，但过高的成交量可能是衰竭信号。
+                # 因此，我们定义一个理想区间。
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if volume_ratio > 2.0:
-                    volume_grade, volume_score = 'A级', 3
-                elif volume_ratio > 1.5:
-                    volume_grade, volume_score = 'B级', 2
+                if 2.0 < volume_ratio <= 5.0:
+                    volume_grade, volume_score = 'A级(理想)', 3
+                elif 1.5 < volume_ratio <= 2.0:
+                    volume_grade, volume_score = 'B级(优秀)', 2
+                elif 1.1 < volume_ratio <= 1.5:
+                    volume_grade, volume_score = 'C级(合格)', 1
                 else:
-                    volume_grade, volume_score = 'C级', 1
+                    # D级：成交量过高（可能衰竭）或过低（无力）
+                    grade_reason = "过高" if volume_ratio > 4.0 else "过低"
+                    volume_grade, volume_score = f'D级({grade_reason})', 0
 
                 # 综合评级
                 total_score = env_score + squeeze_score + volume_score
@@ -238,13 +250,6 @@ class BreakoutStrategy(bt.Strategy):
                     # 记录源信号的关键部分用于后续日志
                     self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
 
-                # 为了分析，我们仍然执行所有压缩评级不为D的信号
-                if squeeze_score > 0:
-                    stake = self.broker.getvalue() * self.p.initial_stake_pct
-                    size = int(stake / self.data.close[0])
-                    if size > 0:
-                        self.order = self.buy(size=size)
-
     def _check_confirmation_signals(self):
         """
         统一检查所有二次确认信号。
@@ -253,7 +258,7 @@ class BreakoutStrategy(bt.Strategy):
             if check_function():
                 log_msg_map = {
                     'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
-                    'v_reversal': f'突破信号:【V型反转】(源信号: {self.sentry_source_signal})'
+                    'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
                 }
                 log_msg = log_msg_map.get(signal_name, '未知确认信号')
                 self.log(log_msg)
@@ -294,15 +299,27 @@ class BreakoutStrategy(bt.Strategy):
 
         return True
 
-    def check_v_reversal_conditions(self):
+    def check_pocket_pivot_conditions(self):
         """
-        检查"V型反转"信号条件。
-        这是一个普通的二次确认信号。
+        检查“口袋支点”信号。
+        这是一种基于成交量的早期信号，用于识别机构吸筹。
+        它寻找成交量远超近期所有抛售压力的一天。
         """
-        # 条件1: 从下向上穿越中轨
-        is_cross_mid = self.data.close[-1] < self.bband.lines.mid[-1] and \
-                       self.data.close[0] > self.bband.lines.mid[0]
-        # 条件2: 成交量配合
-        is_volume_ok = self.data.volume[0] > self.volume_ma[0]
+        # 条件1: 价格必须处于布林带中轨之上，表明处于短期强势区
+        if self.data.close[0] < self.bband.lines.mid[0]:
+            return False
 
-        return is_cross_mid and is_volume_ok
+        # 条件2: 必须是上涨日 (收盘价高于前一日收盘价)
+        if self.data.close[0] <= self.data.close[-1]:
+            return False
+
+        # 条件3: 当日成交量必须大于过去N日内所有下跌日的成交量最大值
+        lookback = self.p.pocket_pivot_lookback
+        highest_down_volume = 0
+        # The loop goes from bar t-1 to t-lookback
+        for i in range(1, lookback + 1):
+            # If it was a down day (close < previous close)
+            if self.data.close[-i] < self.data.close[-i - 1]:
+                highest_down_volume = max(highest_down_volume, self.data.volume[-i])
+
+        return self.data.volume[0] > highest_down_volume

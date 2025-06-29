@@ -22,6 +22,9 @@ class BreakoutStrategy(bt.Strategy):
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
+        ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
+        ('price_acceptance_pct', 0.15),  # 从基准价上涨的最大可接受百分比(15%)
+        ('pullback_from_peak_pct', 0.05),  # 从观察期高点可接受的最大回撤(5%)
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -64,6 +67,9 @@ class BreakoutStrategy(bt.Strategy):
         self.observation_mode = False
         self.observation_counter = 0
         self.sentry_source_signal = ""
+        # 新增：价格接受度过滤器所需的状态
+        self.sentry_base_price = 0
+        self.sentry_highest_high = 0
         # 新增：蓄势待发信号的考察期状态
         self.coiled_spring_buy_pending = False
         self.in_coiled_spring_probation = False
@@ -172,6 +178,9 @@ class BreakoutStrategy(bt.Strategy):
 
         # --- 2. 空仓时：根据模式决定买入逻辑 ---
         if self.observation_mode:
+            # 更新观察期内的最高价
+            self.sentry_highest_high = max(self.sentry_highest_high, self.data.high[0])
+
             self._check_confirmation_signals()
 
             # 如果没有触发任何信号，则递减观察期计数器
@@ -181,14 +190,22 @@ class BreakoutStrategy(bt.Strategy):
                     self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
                     self.observation_mode = False
         else:
-            # B. 常规模式：寻找初始突破信号
-            is_breakout = self.data.close[0] > self.bband.lines.top[0]
+            # --- 寻找初始突破信号(重构) ---
             is_volume_up = self.data.volume[0] > self.volume_ma[0]
 
-            if is_breakout and is_volume_up:
-                # --- 信号评级系统 ---
+            # 1. 定义两种突破形态
+            is_strict_breakout = self.data.close[0] > self.bband.lines.top[0]
 
-                # 1. 宏观环境评级 (重构)
+            is_quasi_breakout = (
+                    self.data.high[0] > self.bband.lines.top[0] and
+                    self.data.close[0] >= self.bband.lines.top[0] * (1 - self.p.breakout_proximity_pct)
+            )
+
+            # 必须放量，且至少满足一种突破形态
+            if is_volume_up and (is_strict_breakout or is_quasi_breakout):
+
+                # --- 信号评级系统 ---
+                # (评级逻辑保持不变)
                 upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
                 lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
                 if self.data.close[0] > upper_band_macro:
@@ -198,7 +215,6 @@ class BreakoutStrategy(bt.Strategy):
                 else:
                     env_grade, env_score = '震荡市', 2
 
-                # 2. 压缩程度评级
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
                 if squeeze_pct < 0.10:
@@ -210,9 +226,6 @@ class BreakoutStrategy(bt.Strategy):
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
 
-                # 3. 成交量力度评级 (重构)
-                # 结合量价分析经验：成交量需要显著放大，但过高的成交量可能是衰竭信号。
-                # 因此，我们定义一个理想区间。
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
                 if 2.0 < volume_ratio <= 5.0:
                     volume_grade, volume_score = 'A级(理想)', 3
@@ -221,34 +234,48 @@ class BreakoutStrategy(bt.Strategy):
                 elif 1.1 < volume_ratio <= 1.5:
                     volume_grade, volume_score = 'C级(合格)', 1
                 else:
-                    # D级：成交量过高（可能衰竭）或过低（无力）
                     grade_reason = "过高" if volume_ratio > 4.0 else "过低"
                     volume_grade, volume_score = f'D级({grade_reason})', 0
 
-                # 综合评级
                 total_score = env_score + squeeze_score + volume_score
-                if total_score >= 8:
-                    overall_grade = '【A+级】'
-                elif total_score >= 6:
-                    overall_grade = '【B级】'
-                else:
-                    overall_grade = '【C级】'
 
-                log_msg = (
-                    f'突破信号: {overall_grade} '
-                    f'(环境:{env_grade}, '
-                    f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
-                    f'量能:{volume_grade}({volume_ratio:.1f}x))'
-                )
-                self.log(log_msg)
+                # --- 决策逻辑：结合补偿机制 ---
+                trigger_observation = False
+                breakout_type = ""
 
-                # --- 核心改动：触发观察模式 ---
-                if total_score >= 6:  # B级或更优的信号
+                if total_score >= 6:  # 至少是B级信号
+                    if is_strict_breakout:
+                        trigger_observation = True
+                        breakout_type = "标准突破"
+                    elif is_quasi_breakout:
+                        # 对于"准突破"，需要额外的补偿条件
+                        if squeeze_score == 3 or volume_score == 3:
+                            trigger_observation = True
+                            breakout_type = "准突破(已补偿)"
+
+                if trigger_observation:
+                    if total_score >= 8:
+                        overall_grade = '【A+级】'
+                    elif total_score >= 6:
+                        overall_grade = '【B级】'
+                    else:
+                        overall_grade = '【C级】'  # 理论上不会到这里
+
+                    log_msg = (
+                        f'突破信号: {overall_grade} - {breakout_type} '
+                        f'(环境:{env_grade}, '
+                        f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
+                        f'量能:{volume_grade}({volume_ratio:.1f}x))'
+                    )
+                    self.log(log_msg)
+
                     self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
                     self.observation_mode = True
                     self.observation_counter = self.p.observation_period
-                    # 记录源信号的关键部分用于后续日志
                     self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
+                    # 记录价格过滤器所需的状态
+                    self.sentry_base_price = self.data.close[0]
+                    self.sentry_highest_high = self.data.high[0]
 
     def _check_confirmation_signals(self):
         """
@@ -256,6 +283,23 @@ class BreakoutStrategy(bt.Strategy):
         """
         for signal_name, check_function in self.confirmation_signals:
             if check_function():
+                # --- 新增：动态价格接受窗口过滤器 ---
+                price_floor = self.sentry_base_price
+                price_ceiling_from_base = price_floor * (1 + self.p.price_acceptance_pct)
+                price_ceiling_from_peak = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
+                current_price = self.data.close[0]
+
+                if current_price > price_ceiling_from_base:
+                    self.log(
+                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 过高, > 基准价 {price_floor:.2f} 的 {self.p.price_acceptance_pct:.0%}")
+                    continue  # 继续检查下一个信号，或者结束本轮
+
+                if current_price < price_ceiling_from_peak:
+                    self.log(
+                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深")
+                    continue  # 继续检查下一个信号，或者结束本轮
+                # --- 过滤器结束 ---
+
                 log_msg_map = {
                     'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
                     'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
@@ -301,7 +345,7 @@ class BreakoutStrategy(bt.Strategy):
 
     def check_pocket_pivot_conditions(self):
         """
-        检查“口袋支点”信号。
+        检查"口袋支点"信号。
         这是一种基于成交量的早期信号，用于识别机构吸筹。
         它寻找成交量远超近期所有抛售压力的一天。
         """
