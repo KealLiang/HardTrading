@@ -23,8 +23,8 @@ class BreakoutStrategy(bt.Strategy):
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
-        ('price_acceptance_pct', 0.15),  # 从基准价上涨的最大可接受百分比(15%)
-        ('pullback_from_peak_pct', 0.05),  # 从观察期高点可接受的最大回撤(5%)
+        ('price_acceptance_pct', 0.20),  # 从观察期基准价上涨的最大可接受百分比(20%)
+        ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -128,8 +128,8 @@ class BreakoutStrategy(bt.Strategy):
             if self.in_coiled_spring_probation:
                 self.probation_counter -= 1
 
-                # 检查是否通过考察: 收盘价站上布林带上轨
-                if self.data.close[0] > self.bband.lines.top[0]:
+                # 检查是否通过考察: 最高价站上布林带上轨
+                if self.data.high[0] > self.bband.lines.top[0]:
                     self.log('*** 考察期成功通过！切换为ATR跟踪止损 ***')
                     self.in_coiled_spring_probation = False
                     # 通过后，立即为ATR止损设置初始值
@@ -274,7 +274,7 @@ class BreakoutStrategy(bt.Strategy):
                     self.observation_counter = self.p.observation_period
                     self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
                     # 记录价格过滤器所需的状态
-                    self.sentry_base_price = self.data.close[0]
+                    self.sentry_base_price = self.data.open[0]
                     self.sentry_highest_high = self.data.high[0]
 
     def _check_confirmation_signals(self):
