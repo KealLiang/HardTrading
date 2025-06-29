@@ -169,7 +169,7 @@ def pair_trades(log_csv_path, full_log_path=None):
     return pd.DataFrame(trades)
 
 
-def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period):
+def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_dates=None):
     """为单笔交易生成并保存图表。"""
     stock_code = _format_code(trade['symbol'])
     stock_data = read_stock_data(stock_code, data_dir)
@@ -206,6 +206,23 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         mpf.make_addplot(buy_markers, type='scatter', marker='^', color='lime', markersize=150),
         mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
     ]
+
+    # --- 新增：如果存在，绘制信号日期 ---
+    if signal_dates:
+        signal_markers = [float('nan')] * len(chart_df)
+        for signal_date in signal_dates:
+            try:
+                # 将datetime.date转换为datetime.datetime
+                signal_dt = pd.to_datetime(signal_date)
+                marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
+                if marker_idx >= 0:
+                    signal_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.95
+            except (KeyError, IndexError):
+                pass  # 如果日期不存在，忽略标记
+        
+        addplots.append(
+            mpf.make_addplot(signal_markers, type='scatter', marker='o', color='cyan', markersize=100)
+        )
 
     # 新增：如果存在，绘制额外的标记点
     if 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
@@ -259,7 +276,8 @@ def analyze_and_visualize_trades(
         full_log_path=None,
         data_dir='data/astocks',
         output_dir='strategy/post_analysis',
-        post_exit_period=60
+        post_exit_period=60,
+        signal_dates=None
 ):
     """
     读取交易日志，配对买卖操作，并对每笔完整交易进行可视化。
@@ -281,7 +299,8 @@ def analyze_and_visualize_trades(
                 data_dir=data_dir,
                 output_dir=output_dir,
                 style=style,
-                post_exit_period=post_exit_period
+                post_exit_period=post_exit_period,
+                signal_dates=signal_dates  # 传递信号日期
             )
         except Exception as e:
             print(f"\n错误: 为交易 {i + 1} 生成图表时发生未知错误: {e}")

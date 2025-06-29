@@ -4,6 +4,7 @@ import warnings
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
+from strategy.origin_breakout_strategy import OriginBreakoutStrategy
 from strategy.panic_rebound_strategy import PanicReboundStrategy
 from strategy.regime_classifier_strategy import RegimeClassifierStrategy
 
@@ -35,6 +36,7 @@ from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
 from strategy.kline_pattern import TALibPatternStrategy
+from bin.scanner import scan_and_visualize
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -43,17 +45,30 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     # code = '300033'
+    # code = '300059'
     # code = '000062'
-    code = '600610'
+    code = '300204'
+    # code = '600610'
+    # code = '002693'
 
     # 使用修复后的策略
     simulator.go_trade(code,
-                    #    startdate=datetime(2020, 1, 1),
+                       #    startdate=datetime(2020, 1, 1),
                        startdate=datetime(2020, 1, 1),
-                    #    enddate=datetime(2024, 9, 22),
+                       #    enddate=datetime(2024, 9, 22),
                        enddate=datetime(2025, 6, 20),
                        strategy=BreakoutStrategy,
                        log_trades=True, visualize=True)
+
+
+def strategy_scan():
+    # --- 扫描并可视化 ---
+    scan_and_visualize(
+        scan_strategy=BreakoutStrategy,
+        scan_start_date='20250401',
+        scan_end_date=None,  # 若为None，则默认为最近交易日
+        stock_pool=None  # 使用 'all' 扫描所有股票，或 None 使用默认txt文件
+    )
 
 
 # 获取热点概念词云
@@ -294,7 +309,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    backtrade_simulate()
+    # backtrade_simulate()
+    strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()

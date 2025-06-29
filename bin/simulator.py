@@ -73,7 +73,7 @@ def calculate_benchmark(data, initial_amount, final_amount):
 
 def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None,
-             log_trades=False, visualize=False):
+             log_trades=False, visualize=False, signal_dates=None):
     print(f"使用股票代码: {code}")
 
     dataframe = read_stock_data(code, filepath)
@@ -105,8 +105,19 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     if log_trades or visualize:
         start_date_str = dataframe.index[0].strftime('%Y%m%d')
         end_date_str = dataframe.index[-1].strftime('%Y%m%d')
-        folder_name = f"{code}_{start_date_str}-{end_date_str}"
-        output_dir = os.path.join('strategy', 'post_analysis', folder_name)
+        
+        # 根据调用来源决定输出目录
+        if signal_dates:
+            # 扫描器的输出
+            signal_date_str = pd.to_datetime(signal_dates[0]).strftime('%Y%m%d')
+            folder_name = f"{code}_{signal_date_str}_{strategy.__name__}"
+            base_path = os.path.join('bin', 'candidate_stocks_result')
+        else:
+            # 普通回测的输出
+            folder_name = f"{code}_{start_date_str}-{end_date_str}"
+            base_path = os.path.join('strategy', 'post_analysis')
+        
+        output_dir = os.path.join(base_path, folder_name)
         os.makedirs(output_dir, exist_ok=True)
         # 完整运行日志的路径
         full_log_path = os.path.join(output_dir, 'run_log.txt')
@@ -163,7 +174,8 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
             log_csv=log_csv_path,
             full_log_path=full_log_path,  # 传入完整日志文件路径
             data_dir=filepath,
-            output_dir=output_dir
+            output_dir=output_dir,
+            signal_dates=signal_dates  # 传递信号日期
         )
     cerebro.plot()
 
