@@ -65,36 +65,23 @@ def backtrade_simulate():
 
 
 def strategy_scan():
-    # --- 扫描并可视化 ---
-    # scan_and_visualize(
-    #     scan_strategy=ScannableBreakoutStrategy,
-    #     scan_start_date='20250401',
-    #     scan_end_date=None,  # 若为None，则默认为最近交易日
-    #     stock_pool=None  # 使用 'all' 扫描所有股票，或 None 使用默认txt文件
-    # )
-    
     # 使用更精确的信号模式列表
     signal_patterns = [
-        '突破信号', 
+        '突破信号',
         '*** 二次确认信号已',
         '*** 触发【突破观察哨】'
     ]
-    
-    print(f"开始使用以下信号模式扫描: {signal_patterns}")
-    print("-" * 50)
-    
-    # 使用更合理的日期范围
-    start_date = '20250520'
-    end_date = '20250620'
-    print(f"扫描时间范围: {start_date} 到 {end_date}")
-    
-    from bin.scanner_analyzer import scan_and_visualize_analyzer
-    
+
+    start_date = '20250615'
+    end_date = '20250630'
+    stock_pool = ['301357']
+
+    # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
-        scan_end_date=end_date,
-        stock_pool=['301357'],  # 先指定一只确定有信号的股票
+        scan_end_date=None,
+        stock_pool=None,
         signal_patterns=signal_patterns
     )
 
@@ -113,12 +100,12 @@ def get_index_data():
 # 拉a股历史数据
 def get_stock_datas():
     stock_list = ["600610", "300033"]
-    use_realtime = False
+    use_realtime = True
 
     # end_date = '20250620'
     end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20150615', end_date='20250627', save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20150615', end_date=None, save_path='./data/astocks',
                                     max_workers=4, stock_list=None)
 
     # 根据参数选择不同的数据获取方式
@@ -227,7 +214,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250520'  # 开始日期
+    start_date = '20250530'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -306,7 +293,7 @@ def update_synonym_groups():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250520"
+    start_date = "20250530"
     end_date = None
 
     process_zt_data(start_date, end_date, clean_output=True)
