@@ -19,3 +19,4 @@ local.ini
 run_main.py
 .specstory/**
 temp/
+candidate_stocks_result/

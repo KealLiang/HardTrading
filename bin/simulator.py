@@ -115,12 +115,11 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         end_date_str = dataframe.index[-1].strftime('%Y%m%d')
         
         if signal_dates:
-            # 扫描器的输出: 为每只股票创建一个主目录，每个信号在主目录下创建一个子目录
+            # 扫描器的输出: 优化为扁平化的文件夹结构
             signal_date_str = pd.to_datetime(signal_dates[0]).strftime('%Y%m%d')
-            stock_folder = code
-            signal_folder = f"{signal_date_str}_{strategy.__name__}"
+            folder_name = f"{code}_{signal_date_str}_{strategy.__name__}"
             base_path = os.path.join('bin', 'candidate_stocks_result')
-            output_dir = os.path.join(base_path, stock_folder, signal_folder)
+            output_dir = os.path.join(base_path, folder_name)
         else:
             # 普通回测的输出
             folder_name = f"{code}_{start_date_str}-{end_date_str}"

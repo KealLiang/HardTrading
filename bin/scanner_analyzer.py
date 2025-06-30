@@ -20,6 +20,13 @@ from utils.date_util import get_current_or_prev_trading_day
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
 
+# --- Constants ---
+DEFAULT_DATA_PATH = './data/astocks'
+DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks.txt'
+DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
+
+
+# --- Analyzers ---
 class SignalCaptureAnalyzer(bt.Analyzer):
     """
     通用信号捕获分析器
@@ -172,37 +179,101 @@ class SignalCaptureAnalyzer(bt.Analyzer):
         }
 
 
-def get_stock_pool(source=None, data_dir='./data/astocks'):
+# --- Helper Functions ---
+def _filter_signals_to_unique_opportunities(signals, strategy_class):
     """
-    获取股票池列表。
-    :param source: 股票来源。可以是列表, 'all', 或文件路径 (默认: 'bin/candidate_stocks.txt')。
-    :param data_dir: 股票数据目录, 当 source='all' 时使用。
+    过滤信号，确保每个交易机会只处理一次。
+    逻辑：将时间上接近的信号（在一个观察周期内）视为一个"簇"，并只选择每个簇中最新的一个信号。
+    """
+    if not signals:
+        return []
+
+    # 从策略类中获取默认观察周期
+    strategy_params_dict = vars(strategy_class.params)
+    observation_period_days = strategy_params_dict.get('observation_period', 15)
+    logging.info(f"使用观察周期 {observation_period_days} 天对信号进行聚类...")
+
+    signals_by_code = {}
+    for s in signals:
+        signals_by_code.setdefault(s['code'], []).append(s)
+
+    final_signals = []
+    for code, stock_signals in signals_by_code.items():
+        stock_signals.sort(key=lambda x: x['datetime'])
+
+        if not stock_signals:
+            continue
+
+        # 使用信号簇来处理
+        opportunity_clusters = []
+        current_cluster = [stock_signals[0]]
+
+        for i in range(1, len(stock_signals)):
+            current_signal = stock_signals[i]
+            last_signal_in_cluster = current_cluster[-1]
+            # 确保datetime是datetime对象
+            current_dt = pd.to_datetime(current_signal['datetime'])
+            last_dt = pd.to_datetime(last_signal_in_cluster['datetime'])
+
+            if (current_dt - last_dt).days <= observation_period_days:
+                current_cluster.append(current_signal)
+            else:
+                opportunity_clusters.append(current_cluster)
+                current_cluster = [current_signal]
+        
+        opportunity_clusters.append(current_cluster)
+
+        for cluster in opportunity_clusters:
+            if cluster:
+                # 选择簇中最新的一个信号加入最终列表
+                final_signals.append(cluster[-1])
+                
+    return final_signals
+
+
+def _parse_stock_directory(data_dir):
+    """
+    扫描数据目录一次，获取所有股票代码和名称映射。
+    处理 '<code>_<name>.csv' 格式的文件名。
+    """
+    codes = []
+    name_map = {}
+    try:
+        for filename in os.listdir(data_dir):
+            if filename.endswith('.csv'):
+                # 文件名格式: <code>_<name>.csv, 支持名称中包含"_"
+                parts = filename[:-4].split('_')
+                if len(parts) >= 2:
+                    code, name = parts[0], '_'.join(parts[1:])
+                    code = code.zfill(6)
+                    codes.append(code)
+                    name_map[code] = name
+    except FileNotFoundError:
+        logging.warning(f"数据目录 {data_dir} 未找到，无法加载股票代码和名称。")
+    return sorted(codes), name_map
+
+
+def get_stock_pool(source, all_codes_from_dir=None):
+    """
+    根据指定的源获取股票池列表。
+    :param source: 股票来源。可以是列表, 'all', 或文件路径。
+    :param all_codes_from_dir: 当 source='all' 时使用的预扫描代码列表。
     :return: 股票代码列表。
     """
     if isinstance(source, list):
         return [str(s).zfill(6) for s in source]
 
-    if source is None:
-        source = 'bin/candidate_stocks.txt'
-
-    if os.path.exists(source):
-        try:
-            with open(source, 'r', encoding='utf-8') as f:
-                stocks = [line.strip() for line in f if line.strip() and not line.startswith("股票代码")]
-            return [s.zfill(6) for s in stocks]
-        except Exception as e:
-            logging.error(f"读取股票池文件 {source} 失败: {e}")
-            return []
-
     if source == 'all':
-        try:
-            return [f.split('_')[0] for f in os.listdir(data_dir) if f.endswith('.csv')]
-        except FileNotFoundError:
-            logging.error(f"数据目录 {data_dir} 不存在。")
-            return []
+        return all_codes_from_dir if all_codes_from_dir is not None else []
 
-    logging.warning(f"无法识别的股票池来源: {source}")
-    return []
+    # 如果不是列表也不是'all'，则假定为文件路径
+    try:
+        with open(source, 'r', encoding='utf-8') as f:
+            stocks = [line.strip() for line in f if line.strip() and not line.startswith("股票代码")]
+        return [s.zfill(6) for s in stocks]
+    except Exception as e:
+        logging.error(f"读取股票池文件 {source} 失败: {e}")
+        return []
 
 
 def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path,
@@ -271,25 +342,11 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
         return None
 
 
-def _run_scan_analyzer(strategy_class, start_date, end_date,
-                      stock_pool_source=None, data_path='./data/astocks',
-                      strategy_params=None, signal_patterns=None):
+def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
+                      data_path, strategy_params=None, signal_patterns=None):
     """
-    使用Analyzer方式运行股票扫描器。
-    
-    参数:
-        strategy_class: 策略类
-        start_date: 扫描开始日期
-        end_date: 扫描结束日期
-        stock_pool_source: 股票池来源
-        data_path: 数据路径
-        strategy_params: 策略参数
-        signal_patterns: 要捕获的信号模式列表
-    
-    返回:
-        捕获的信号列表
+    使用Analyzer方式对给定的股票列表运行扫描器。
     """
-    stock_list = get_stock_pool(stock_pool_source, data_path)
     if not stock_list:
         logging.error("股票池为空，扫描终止。")
         return []
@@ -311,20 +368,14 @@ def _run_scan_analyzer(strategy_class, start_date, end_date,
     return all_signals
 
 
+# --- Main Orchestration Function ---
 def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=None,
-                               stock_pool=None, strategy_params=None, signal_patterns=None):
+                               stock_pool=None, strategy_params=None, signal_patterns=None,
+                               data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR):
     """
-    使用Analyzer方式执行股票扫描并可视化结果
-    
-    参数:
-        scan_strategy: 用于扫描的策略类
-        scan_start_date: 扫描开始日期 (格式: 'YYYYMMDD')
-        scan_end_date: 扫描结束日期 (格式: 'YYYYMMDD')，若为None则为最近交易日
-        stock_pool: 股票池来源 (None, 'all', list, or file path)
-        strategy_params: 策略参数字典
-        signal_patterns: 要捕获的信号模式列表
+    执行股票扫描并可视化结果的总调度函数。
     """
-    # --- 1. 日期处理 ---
+    # --- 1. 日期与路径准备 ---
     start_date_fmt = f"{scan_start_date[:4]}-{scan_start_date[4:6]}-{scan_start_date[6:8]}"
     if scan_end_date is None:
         today_str = datetime.now().strftime('%Y%m%d')
@@ -334,46 +385,65 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         end_date_str = scan_end_date
         end_date_fmt = f"{scan_end_date[:4]}-{scan_end_date[4:6]}-{scan_end_date[6:8]}"
 
-    # --- 2. 执行扫描 ---
-    signals = _run_scan_analyzer(
+    os.makedirs(output_path, exist_ok=True)
+    
+    # --- 2. 获取股票代码和名称 ---
+    all_codes, name_map = _parse_stock_directory(data_path)
+    
+    # 如果未指定股票池, 默认使用候选文件
+    if stock_pool is None:
+        stock_pool = DEFAULT_CANDIDATE_FILE
+        
+    target_stock_list = get_stock_pool(
+        source=stock_pool,
+        all_codes_from_dir=all_codes
+    )
+
+    # --- 3. 执行扫描，获取所有原始信号 ---
+    raw_signals = _run_scan_analyzer(
+        stock_list=target_stock_list,
         strategy_class=scan_strategy,
         start_date=start_date_fmt,
         end_date=end_date_fmt,
-        stock_pool_source=stock_pool,
+        data_path=data_path,
         strategy_params=strategy_params,
         signal_patterns=signal_patterns
     )
 
-    if not signals:
+    if not raw_signals:
         print("扫描完成，没有发现符合条件的信号。")
         return
 
-    # --- 3. 创建输出目录和日志文件 ---
-    output_dir = os.path.join('bin', 'candidate_stocks_result')
-    os.makedirs(output_dir, exist_ok=True)
-    summary_path = os.path.join(output_dir, f"scan_summary_{scan_start_date}-{end_date_str}.txt")
-
-    # 按信号日期倒序排列
-    signals.sort(key=lambda x: x['datetime'], reverse=True)
+    # --- 4. 使用原始信号生成完整的摘要日志 ---
+    summary_path = os.path.join(output_path, f"scan_summary_{scan_start_date}-{end_date_str}.txt")
+    raw_signals.sort(key=lambda x: x['datetime'], reverse=True)
 
     with open(summary_path, 'w', encoding='utf-8') as f:
         f.write(f"扫描策略: {scan_strategy.__name__}\n")
         f.write(f"扫描范围: {start_date_fmt} to {end_date_fmt}\n")
-        f.write(f"总计发现 {len(signals)} 个信号，涉及 {len(set(s['code'] for s in signals))} 只股票。\n")
+        f.write(f"总计发现 {len(raw_signals)} 个原始信号，涉及 {len(set(s['code'] for s in raw_signals))} 只股票。\n")
         f.write("-" * 50 + "\n")
-        for signal in signals:
+        for signal in raw_signals:
+            code = signal['code']
+            name = name_map.get(code, '')
+            stock_display = f"{code} {name}" if name else code
             score_info = f"评分: {signal.get('score', '未评分')}，" if 'score' in signal else ""
-            f.write(f"股票: {signal['code']}, "
+            f.write(f"股票: {stock_display}, "
                     f"信号日期: {signal['datetime'].strftime('%Y-%m-%d')}, "
                     f"价格: {signal['close']:.2f}, "
                     f"{score_info}"
                     f"详情: {signal.get('details', '')}\n")
 
     print(f"\n扫描结果摘要已保存到: {summary_path}")
-    print(f"开始对 {len(signals)} 个信号逐一进行可视化分析...")
 
-    # --- 4. 对每个信号进行可视化 ---
-    for signal in signals:
+    # --- 5. 过滤信号用于可视化 ---
+    final_signals = _filter_signals_to_unique_opportunities(raw_signals, scan_strategy)
+    logging.info(f"信号聚类后，得到 {len(final_signals)} 个独立的交易机会进行分析。")
+
+    print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
+
+    # --- 6. 对每个过滤后的信号进行可视化 ---
+    for signal in final_signals:
         code = signal['code']
         signal_date = signal['datetime']
         
@@ -381,7 +451,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         vis_end_date = pd.to_datetime(signal_date) + pd.Timedelta(days=90)
 
         print("-" * 70)
-        print(f"正在分析股票: {code}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
+        print(f"正在分析股票: {code} {name_map.get(code, '')}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
 
         simulator.go_trade(
             code=code,
@@ -395,7 +465,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
             interactive_plot=False  # 禁用弹出图表
         )
 
-    return signals
+    return final_signals
 
 
 if __name__ == '__main__':
@@ -407,8 +477,7 @@ if __name__ == '__main__':
     
     # 更精确的信号模式列表
     signal_patterns = [
-        '突破信号:', 
-        '突破信号：',
+        '突破信号', 
         '*** 二次确认信号已',
         '*** 触发【突破观察哨】'
     ]
@@ -426,6 +495,8 @@ if __name__ == '__main__':
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
         scan_end_date=end_date,
-        stock_pool=['600610'],  # 先指定一只确定有信号的股票
+        stock_pool=['600610', '301357'],  # 扫描指定列表
+        # stock_pool='all',  # 扫描数据文件夹下所有股票
+        # stock_pool='bin/candidate_stocks.txt', # 从文件加载
         signal_patterns=signal_patterns
     ) 

@@ -23,7 +23,7 @@ class BreakoutStrategy(bt.Strategy):
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
-        ('price_acceptance_pct', 0.20),  # 从观察期基准价上涨的最大可接受百分比(20%)
+        ('price_acceptance_pct', 0.25),  # 从观察期基准价上涨的最大可接受百分比(20%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
