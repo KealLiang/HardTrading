@@ -10,6 +10,17 @@ from matplotlib.font_manager import FontProperties
 
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
+# 信号标记的映射
+signal_marker_map = {
+    '突破信号': {'marker': 'P', 'color': 'purple', 'size': 100},
+    '蓄势待发': {'marker': '*', 'color': 'cyan', 'size': 100},
+    '口袋支点': {'marker': 'D', 'color': 'blue', 'size': 100},
+    '观察哨': {'marker': 's', 'color': 'orange', 'size': 100},  # 方形标记
+    '二次确认': {'marker': 'p', 'color': 'red', 'size': 120},  # 五角星
+    '卖出信号': {'marker': 'X', 'color': 'green', 'size': 120},  # 实心x
+    'Unknown': {'marker': 'o', 'color': 'yellow', 'size': 80}
+}
+
 
 # --- 助手函数 ---
 
@@ -207,36 +218,26 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
     ]
 
-    # 信号标记的映射
-    signal_marker_map = {
-        '突破信号': {'marker': 'o', 'color': 'red', 'size': 100},
-        '蓄势待发': {'marker': '*', 'color': 'cyan', 'size': 120},
-        '口袋支点': {'marker': 'D', 'color': 'yellow', 'size': 100},
-        '观察哨': {'marker': 's', 'color': 'orange', 'size': 100},    # 方形标记
-        '二次确认': {'marker': 'p', 'color': 'purple', 'size': 100},  # 五角星
-        'Unknown': {'marker': 'X', 'color': 'white', 'size': 80}
-    }
-    
     # 用于图例的信号类型和标记
     used_signal_types = []
-    
+
     # --- 绘制信号标记 ---
     if signal_info:
         # 为不同类型的信号创建独立的标记数组
         signal_markers_dict = {}
-        
+
         for signal in signal_info:
             signal_date = signal['date']
             signal_type = signal['type']
-            
+
             # 获取信号类型的标记样式，默认为Unknown
             marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
-            
+
             # 如果这个类型的信号是第一次出现，初始化标记数组
             if signal_type not in signal_markers_dict:
                 signal_markers_dict[signal_type] = [float('nan')] * len(chart_df)
                 used_signal_types.append(signal_type)
-            
+
             try:
                 # 将datetime.date转换为datetime.datetime
                 signal_dt = pd.to_datetime(signal_date)
@@ -248,11 +249,11 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
                         vertical_offset = 0.93
                     elif signal_type in ['口袋支点']:
                         vertical_offset = 0.91
-                    
+
                     signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
             except (KeyError, IndexError):
                 pass  # 如果日期不存在，忽略标记
-        
+
         # 为每种信号类型添加单独的标记
         for signal_type, markers in signal_markers_dict.items():
             marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
