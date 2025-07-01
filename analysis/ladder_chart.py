@@ -1207,7 +1207,7 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
     # 获取当日涨跌幅
     date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
     pct_change = get_stock_daily_pct_change(stock_code, date_yyyymmdd)
-    if pct_change is not None:
+    if pd.notna(pct_change):
         # 基本涨跌幅显示
         cell_value = f"{pct_change:.2f}%"
 
