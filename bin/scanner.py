@@ -193,11 +193,26 @@ def scan_and_visualize(scan_strategy, scan_start_date, scan_end_date=None,
         code = signal['code']
         signal_date = signal['signal_date']
         
+        # 提取信号类型，默认为"Unknown"
+        signal_type = "Unknown"
+        signal_details = signal.get('details', '')
+        
+        # 尝试从信号详情中提取信号类型
+        if ':' in signal_details:
+            signal_type = signal_details.split(':')[0].strip()
+        
+        # 准备信号信息字典
+        signal_info = [{
+            'date': signal_date,
+            'type': signal_type,
+            'details': signal_details
+        }]
+        
         vis_start_date = signal_date - pd.Timedelta(days=90)
         vis_end_date = signal_date + pd.Timedelta(days=90)
 
         print("-" * 70)
-        print(f"正在分析股票: {code}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
+        print(f"正在分析股票: {code}, 信号日期: {signal_date.strftime('%Y-%m-%d')}, 信号类型: {signal_type}")
 
         simulator.go_trade(
             code=code,
@@ -207,7 +222,7 @@ def scan_and_visualize(scan_strategy, scan_start_date, scan_end_date=None,
             strategy_params=strategy_params,
             log_trades=True,
             visualize=True,
-            signal_dates=[signal_date],
+            signal_info=signal_info,  # 传递信号信息
             interactive_plot=False  # 禁用弹出图表
         )
 

@@ -453,6 +453,119 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         print("-" * 70)
         print(f"正在分析股票: {code} {name_map.get(code, '')}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
 
+        # 先准备基础信号信息
+        primary_signal = {
+            'date': signal_date,
+            'type': "Unknown",
+            'details': signal.get('details', '')
+        }
+        
+        # 尝试从信号详情中提取信号类型
+        signal_details = signal.get('details', '')
+        if ':' in signal_details:
+            primary_signal['type'] = signal_details.split(':')[0].strip()
+        
+        # 准备完整的信号信息列表，先添加主要信号
+        signal_info = [primary_signal]
+        
+        # --- 从日志中获取额外信号 ---
+        # 1. 运行一次回测以生成完整的策略日志
+        temp_output_dir = os.path.join(output_path, f"temp_{code}_{pd.to_datetime(signal_date).strftime('%Y%m%d')}")
+        os.makedirs(temp_output_dir, exist_ok=True)
+        temp_log_path = os.path.join(temp_output_dir, 'full_log.txt')
+        
+        # 运行一次回测以生成完整日志
+        from contextlib import redirect_stdout
+        with open(temp_log_path, 'w', encoding='utf-8') as f:
+            with redirect_stdout(f):
+                simulator.go_trade(
+                    code=code,
+                    startdate=vis_start_date,
+                    enddate=vis_end_date,
+                    strategy=scan_strategy,
+                    strategy_params=strategy_params,
+                    log_trades=False,
+                    visualize=False,
+                    signal_info=[],
+                    interactive_plot=False
+                )
+        
+        # 2. 解析日志提取所有信号
+        try:
+            with open(temp_log_path, 'r', encoding='utf-8') as f:
+                log_lines = f.readlines()
+                
+            # 解析日志中的所有信号
+            for line in log_lines:
+                # 检查是否含有日期格式
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
+                if not date_match:
+                    continue
+                    
+                signal_date_str = date_match.group(1)
+                
+                # 寻找典型的信号模式
+                signal_patterns = [
+                    # 特定类型的信号 (先匹配更具体的模式)
+                    (r'【口袋支点】', '口袋支点'),
+                    (r'【蓄势待发】', '蓄势待发'),
+                    
+                    # 二次确认信号
+                    (r'\*\*\* 二次确认信号已', '二次确认'),
+                    
+                    # 观察哨模式
+                    (r'\*\*\* 触发【突破观察哨】', '观察哨'),
+                    
+                    # 突破信号 - 各种格式 (后匹配通用模式)
+                    (r'突破信号[:：]\s*【[A-Z]\+?级】', '突破信号'),  # 匹配"突破信号: 【A+级】"等
+                    (r'突破信号[:：]\s*【[A-C]级】', '突破信号'),     # 匹配"突破信号: 【B级】"等
+                    (r'突破信号[:：]', '突破信号'),                  # 通用突破信号匹配
+                ]
+                
+                # 添加一个变量跟踪是否匹配到任何信号
+                matched = False
+                
+                for pattern, signal_type in signal_patterns:
+                    if re.search(pattern, line):
+                        # 调试日志
+                        print(f"  匹配到信号: {signal_date_str} - {signal_type} - {line.strip()}")
+                        
+                        # 检查是否已经有相同日期和类型的信号
+                        signal_date_obj = pd.to_datetime(signal_date_str).date()
+                        duplicate = False
+                        
+                        for existing_signal in signal_info:
+                            existing_date = existing_signal['date']
+                            if isinstance(existing_date, str):
+                                existing_date = pd.to_datetime(existing_date).date()
+                            else:
+                                existing_date = existing_date.date() if hasattr(existing_date, 'date') else existing_date
+                                
+                            if (existing_date == signal_date_obj and 
+                                existing_signal['type'] == signal_type):
+                                duplicate = True
+                                break
+                                
+                        if not duplicate:
+                            signal_info.append({
+                                'date': signal_date_obj,
+                                'type': signal_type,
+                                'details': line.strip()
+                            })
+                            matched = True
+        except Exception as e:
+            logging.error(f"解析信号日志时出错: {e}")
+                
+        # 删除临时目录
+        import shutil
+        shutil.rmtree(temp_output_dir, ignore_errors=True)
+                
+        # 打印所有捕获的信号，用于调试
+        print(f"捕获到的信号总数: {len(signal_info)}")
+        for idx, s in enumerate(signal_info):
+            print(f"  信号{idx+1}: {s['date']} - {s['type']}")
+        
+        # 正式运行回测和可视化
         simulator.go_trade(
             code=code,
             startdate=vis_start_date,
@@ -461,7 +574,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
             strategy_params=strategy_params,
             log_trades=True,
             visualize=True,
-            signal_dates=[signal_date],
+            signal_info=signal_info,  # 传递完整的信号信息
             interactive_plot=False  # 禁用弹出图表
         )
 

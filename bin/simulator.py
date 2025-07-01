@@ -74,7 +74,21 @@ def calculate_benchmark(data, initial_amount, final_amount):
 
 def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None,
-             log_trades=False, visualize=False, signal_dates=None, interactive_plot=True):
+             log_trades=False, visualize=False, signal_info=None, interactive_plot=True):
+    """执行股票回测和可视化。
+    
+    参数:
+    code - 股票代码
+    amount - 初始资金
+    startdate, enddate - 回测起止日期
+    filepath - 股票数据目录
+    strategy - 回测策略类
+    strategy_params - 策略参数
+    log_trades - 是否记录交易日志
+    visualize - 是否生成交易可视化
+    signal_info - 信号信息列表，每个元素包含date, type, details
+    interactive_plot - 是否显示交互式图表
+    """
     print(f"使用股票代码: {code}")
 
     # --- Bug修复关键: 为可视化回测也增加预热期 ---
@@ -114,9 +128,14 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         start_date_str = dataframe.index[0].strftime('%Y%m%d')
         end_date_str = dataframe.index[-1].strftime('%Y%m%d')
         
-        if signal_dates:
-            # 扫描器的输出: 优化为扁平化的文件夹结构
-            signal_date_str = pd.to_datetime(signal_dates[0]).strftime('%Y%m%d')
+        # 兼容处理：如果有人通过旧的方式调用，自动处理
+        if isinstance(signal_info, list) and signal_info and not isinstance(signal_info[0], dict):
+            # 可能是旧的signal_dates格式，转换为signal_info格式
+            signal_info = [{'date': date, 'type': 'Unknown', 'details': ''} for date in signal_info]
+        
+        if signal_info:
+            # 使用第一个信号的日期来命名文件夹
+            signal_date_str = pd.to_datetime(signal_info[0]['date']).strftime('%Y%m%d')
             folder_name = f"{code}_{signal_date_str}_{strategy.__name__}"
             base_path = os.path.join('bin', 'candidate_stocks_result')
             output_dir = os.path.join(base_path, folder_name)
@@ -183,7 +202,7 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
             full_log_path=full_log_path,  # 传入完整日志文件路径
             data_dir=filepath,
             output_dir=output_dir,
-            signal_dates=signal_dates  # 传递信号日期
+            signal_info=signal_info  # 只传递signal_info
         )
     
     if interactive_plot:
@@ -202,5 +221,9 @@ if __name__ == '__main__':
         filepath=data_path,
         strategy=BreakoutStrategy,
         log_trades=True,
-        visualize=True
+        visualize=True,
+        signal_info=[
+            # 可以提供信号信息，例如:
+            # {'date': '2023-01-15', 'type': '突破信号', 'details': '突破信号: 【A级】 - 标准突破'}
+        ]  # 提供信号信息列表，或None
     )

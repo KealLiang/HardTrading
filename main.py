@@ -46,13 +46,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    # code = '300033'
+    code = '300033'
     # code = '300059'
     # code = '000062'
     # code = '300204'
     # code = '600610'
     # code = '002693'
-    code = '301357'
+    # code = '301357'
 
     # 使用修复后的策略
     simulator.go_trade(code,
@@ -68,7 +68,7 @@ def strategy_scan():
     # 使用更精确的信号模式列表
     signal_patterns = [
         '突破信号',
-        '*** 二次确认信号已',
+        '*** 二次确认信号',
         '*** 触发【突破观察哨】'
     ]
 
@@ -102,11 +102,9 @@ def get_stock_datas():
     stock_list = ["600610", "300033"]
     use_realtime = True
 
-    # end_date = '20250620'
-    end_date = None
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20150615', end_date=None, save_path='./data/astocks',
-                                    max_workers=4, stock_list=None)
+    data_fetcher = StockDataFetcher(start_date='20250630', end_date=None, save_path='./data/astocks',
+                                    max_workers=8, stock_list=None, force_update=False, max_sleep_time=2000)
 
     # 根据参数选择不同的数据获取方式
     if use_realtime:

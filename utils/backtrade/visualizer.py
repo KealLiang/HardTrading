@@ -169,7 +169,7 @@ def pair_trades(log_csv_path, full_log_path=None):
     return pd.DataFrame(trades)
 
 
-def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_dates=None):
+def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None):
     """为单笔交易生成并保存图表。"""
     stock_code = _format_code(trade['symbol'])
     stock_data = read_stock_data(stock_code, data_dir)
@@ -207,22 +207,65 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
     ]
 
-    # --- 新增：如果存在，绘制信号日期 ---
-    if signal_dates:
-        signal_markers = [float('nan')] * len(chart_df)
-        for signal_date in signal_dates:
+    # 信号标记的映射
+    signal_marker_map = {
+        '突破信号': {'marker': 'o', 'color': 'red', 'size': 100},
+        '蓄势待发': {'marker': '*', 'color': 'cyan', 'size': 120},
+        '口袋支点': {'marker': 'D', 'color': 'yellow', 'size': 100},
+        '观察哨': {'marker': 's', 'color': 'orange', 'size': 100},    # 方形标记
+        '二次确认': {'marker': 'p', 'color': 'purple', 'size': 100},  # 五角星
+        'Unknown': {'marker': 'X', 'color': 'white', 'size': 80}
+    }
+    
+    # 用于图例的信号类型和标记
+    used_signal_types = []
+    
+    # --- 绘制信号标记 ---
+    if signal_info:
+        # 为不同类型的信号创建独立的标记数组
+        signal_markers_dict = {}
+        
+        for signal in signal_info:
+            signal_date = signal['date']
+            signal_type = signal['type']
+            
+            # 获取信号类型的标记样式，默认为Unknown
+            marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
+            
+            # 如果这个类型的信号是第一次出现，初始化标记数组
+            if signal_type not in signal_markers_dict:
+                signal_markers_dict[signal_type] = [float('nan')] * len(chart_df)
+                used_signal_types.append(signal_type)
+            
             try:
                 # 将datetime.date转换为datetime.datetime
                 signal_dt = pd.to_datetime(signal_date)
                 marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
                 if marker_idx >= 0:
-                    signal_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.95
+                    # 稍微错开不同类型的标记，避免重叠
+                    vertical_offset = 0.95
+                    if signal_type in ['蓄势待发']:
+                        vertical_offset = 0.93
+                    elif signal_type in ['口袋支点']:
+                        vertical_offset = 0.91
+                    
+                    signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
             except (KeyError, IndexError):
                 pass  # 如果日期不存在，忽略标记
         
-        addplots.append(
-            mpf.make_addplot(signal_markers, type='scatter', marker='o', color='cyan', markersize=100)
-        )
+        # 为每种信号类型添加单独的标记
+        for signal_type, markers in signal_markers_dict.items():
+            marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
+            addplots.append(
+                mpf.make_addplot(
+                    markers,
+                    type='scatter',
+                    marker=marker_style['marker'],
+                    color=marker_style['color'],
+                    markersize=marker_style['size'],
+                    label=signal_type  # 添加标签用于图例
+                )
+            )
 
     # 新增：如果存在，绘制额外的标记点
     if 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
@@ -230,10 +273,11 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         try:
             marker_idx = chart_df.index.searchsorted(trade['datetime_marker'], side='right') - 1
             if marker_idx >= 0:
-                extra_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.95
+                extra_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.97  # 稍微错开位置
                 addplots.append(
-                    mpf.make_addplot(extra_markers, type='scatter', marker='o', color='cyan', markersize=100)
+                    mpf.make_addplot(extra_markers, type='scatter', marker='o', color='cyan', markersize=100, label='源信号')
                 )
+                used_signal_types.append('源信号')
         except (KeyError, IndexError):
             pass  # 如果日期不存在，忽略标记
 
@@ -250,6 +294,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
 
     output_path = os.path.join(output_dir, f"trade_{trade_id}_{stock_code}.png")
 
+    # 创建图表，返回figure和axes用于后续处理
     fig, axes = mpf.plot(
         chart_df, type='candle', style=style,
         ylabel='价格', volume=True, ylabel_lower='成交量',
@@ -257,6 +302,10 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         tight_layout=True
     )
     axes[0].set_title(title, loc='left', fontweight='bold')
+
+    # 添加图例
+    if used_signal_types:
+        axes[0].legend(loc='upper left')
 
     # 自定义坐标轴，解决日期显示问题
     num_days = len(chart_df)
@@ -277,10 +326,25 @@ def analyze_and_visualize_trades(
         data_dir='data/astocks',
         output_dir='strategy/post_analysis',
         post_exit_period=60,
-        signal_dates=None
+        signal_info=None
 ):
     """
     读取交易日志，配对买卖操作，并对每笔完整交易进行可视化。
+    
+    Parameters:
+    -----------
+    log_csv : str
+        交易日志CSV文件路径
+    full_log_path : str, optional
+        完整日志文件路径，用于解析额外信息
+    data_dir : str
+        股票数据目录
+    output_dir : str
+        输出目录
+    post_exit_period : int
+        出场后的观察天数
+    signal_info : list of dict, optional
+        信号详细信息列表，每个字典包含 date, type, details
     """
     trades_df = pair_trades(log_csv, full_log_path)
     if trades_df.empty:
@@ -300,7 +364,7 @@ def analyze_and_visualize_trades(
                 output_dir=output_dir,
                 style=style,
                 post_exit_period=post_exit_period,
-                signal_dates=signal_dates  # 传递信号日期
+                signal_info=signal_info
             )
         except Exception as e:
             print(f"\n错误: 为交易 {i + 1} 生成图表时发生未知错误: {e}")
