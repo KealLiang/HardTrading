@@ -12,13 +12,16 @@ plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
 # 信号标记的映射
 signal_marker_map = {
+    # 扫描模式
     '突破信号': {'marker': 'P', 'color': 'purple', 'size': 100},
     '蓄势待发': {'marker': '*', 'color': 'cyan', 'size': 100},
     '口袋支点': {'marker': 'D', 'color': 'blue', 'size': 100},
     '观察哨': {'marker': 's', 'color': 'orange', 'size': 100},  # 方形标记
     '二次确认': {'marker': 'p', 'color': 'red', 'size': 120},  # 五角星
     '卖出信号': {'marker': 'X', 'color': 'green', 'size': 120},  # 实心x
-    'Unknown': {'marker': 'o', 'color': 'yellow', 'size': 80}
+    'Unknown': {'marker': 'o', 'color': 'yellow', 'size': 80},
+    # 回测模式
+    '源信号': {'marker': 'o', 'color': 'cyan', 'size': 100}
 }
 
 
@@ -102,10 +105,11 @@ def _setup_mpf_style():
     return style
 
 
-def pair_trades(log_csv_path, full_log_path=None):
+def pair_trades(log_csv_path, full_log_path=None, include_open=False):
     """
     将买入和卖出日志配对成完整的交易DataFrame。
     新增功能: 如果提供了完整日志路径，会尝试解析并添加额外标记的日期。
+    新增功能: `include_open` 参数决定是否包含未平仓的交易。
     """
     try:
         log_df = pd.read_csv(log_csv_path, parse_dates=['datetime'])
@@ -121,13 +125,38 @@ def pair_trades(log_csv_path, full_log_path=None):
         except Exception as e:
             print(f"警告: 读取完整交易日志 {full_log_path} 出错: {e}")
 
+    def _find_marker_date(buy_op, log_lines):
+        if not log_lines:
+            return None
+        try:
+            buy_date_str = buy_op['datetime'].strftime('%Y-%m-%d')
+            buy_size_str = f"{int(buy_op['size'])}股"
+            buy_log_line_idx = -1
+            for i, line in enumerate(log_lines):
+                if (buy_date_str in line and '买入成交' in line and
+                        buy_size_str in line):
+                    buy_log_line_idx = i
+                    break
+
+            if buy_log_line_idx != -1:
+                # 从买入日志行向上查找源信号
+                for i in range(buy_log_line_idx - 1, -1, -1):
+                    line = log_lines[i]
+                    if '(源信号:' in line:
+                        date_str = line.split('@')[-1].strip().split(')')[0]
+                        return pd.to_datetime(date_str)
+        except Exception:
+            return None
+        return None
+
     buys = log_df[log_df['type'] == 'BUY'].copy()
     sells = log_df[log_df['type'] == 'SELL'].copy()
 
     trades = []
     used_sell_indices = set()
+    used_buy_indices = set()
 
-    for _, buy_op in buys.iterrows():
+    for buy_idx, buy_op in buys.iterrows():
         symbol_str = _format_code(buy_op['symbol'])
 
         potential_sells = sells[
@@ -138,32 +167,7 @@ def pair_trades(log_csv_path, full_log_path=None):
 
         if not potential_sells.empty:
             sell_op = potential_sells.iloc[0]
-
-            # --- 解析额外标记日期 ---
-            extra_marker_date = None
-            if full_log_lines:
-                buy_date_str = buy_op['datetime'].strftime('%Y-%m-%d')
-                buy_size_str = f"{int(buy_op['size'])}股"
-
-                buy_log_line_idx = -1
-                for i, line in enumerate(full_log_lines):
-                    if (buy_date_str in line and '买入成交' in line and
-                            buy_size_str in line):
-                        buy_log_line_idx = i
-                        break
-
-                if buy_log_line_idx != -1:
-                    # 从买入日志行向上查找源信号
-                    for i in range(buy_log_line_idx - 1, -1, -1):
-                        line = full_log_lines[i]
-                        if '(源信号:' in line:
-                            try:
-                                # 解析出源信号的日期
-                                date_str = line.split('@')[-1].strip().split(')')[0]
-                                extra_marker_date = pd.to_datetime(date_str)
-                            except Exception:
-                                pass  # 解析失败则忽略
-                            break  # 找到后即停止
+            extra_marker_date = _find_marker_date(buy_op, full_log_lines)
 
             trades.append({
                 'symbol': symbol_str,
@@ -173,15 +177,31 @@ def pair_trades(log_csv_path, full_log_path=None):
                 'datetime_sell': sell_op['datetime'],
                 'price_sell': sell_op['price'],
                 'size_sell': sell_op['size'],
-                'datetime_marker': extra_marker_date,  # 使用通用字段名
+                'datetime_marker': extra_marker_date,
             })
             used_sell_indices.add(sell_op.name)
+            used_buy_indices.add(buy_idx)
+
+    if include_open:
+        open_buys = buys[~buys.index.isin(used_buy_indices)]
+        for _, buy_op in open_buys.iterrows():
+            extra_marker_date = _find_marker_date(buy_op, full_log_lines)
+            trades.append({
+                'symbol': _format_code(buy_op['symbol']),
+                'datetime_buy': buy_op['datetime'],
+                'price_buy': buy_op['price'],
+                'size_buy': buy_op['size'],
+                'datetime_sell': pd.NaT,
+                'price_sell': float('nan'),
+                'size_sell': float('nan'),
+                'datetime_marker': extra_marker_date,
+            })
 
     return pd.DataFrame(trades)
 
 
 def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None):
-    """为单笔交易生成并保存图表。"""
+    """为单笔交易生成并保存图表, 兼容未平仓交易。"""
     stock_code = _format_code(trade['symbol'])
     stock_data = read_stock_data(stock_code, data_dir)
 
@@ -190,11 +210,21 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         return
 
     entry_date = trade['datetime_buy']
-    exit_date = trade['datetime_sell']
-    start_chart = entry_date - timedelta(days=60)
-    end_chart = exit_date + timedelta(days=post_exit_period)
+    is_open_trade = pd.isna(trade['datetime_sell'])
 
+    # 确定图表结束日期
+    if is_open_trade:
+        exit_date = None
+        # 对于未平仓交易, 图表结束日期是入场后的一段时间
+        end_chart = entry_date + timedelta(days=post_exit_period)
+    else:
+        exit_date = trade['datetime_sell']
+        # 对于已平仓交易, 图表结束日期是出场后的一段时间
+        end_chart = exit_date + timedelta(days=post_exit_period)
+
+    start_chart = entry_date - timedelta(days=60)
     chart_df = stock_data.loc[start_chart:end_chart].copy()
+
     if chart_df.empty:
         print(f"警告: 交易 {trade_id} 在 {stock_code} 中找不到指定的绘图日期范围，已跳过。")
         return
@@ -202,21 +232,22 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     # 准备买卖点标记
     buy_markers = [float('nan')] * len(chart_df)
     sell_markers = [float('nan')] * len(chart_df)
+    addplots = []
+
     try:
         entry_idx = chart_df.index.searchsorted(entry_date, side='right') - 1
-        exit_idx = chart_df.index.searchsorted(exit_date, side='right') - 1
         if entry_idx >= 0:
             buy_markers[entry_idx] = chart_df.iloc[entry_idx]['Low'] * 0.98
-        if exit_idx >= 0:
-            sell_markers[exit_idx] = chart_df.iloc[exit_idx]['High'] * 1.02
-    except (KeyError, IndexError):
-        # 如果日期不存在，忽略标记
-        pass
+        addplots.append(mpf.make_addplot(buy_markers, type='scatter', marker='^', color='lime', markersize=150))
 
-    addplots = [
-        mpf.make_addplot(buy_markers, type='scatter', marker='^', color='lime', markersize=150),
-        mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150)
-    ]
+        if not is_open_trade:
+            exit_idx = chart_df.index.searchsorted(exit_date, side='right') - 1
+            if exit_idx >= 0:
+                sell_markers[exit_idx] = chart_df.iloc[exit_idx]['High'] * 1.02
+            addplots.append(mpf.make_addplot(sell_markers, type='scatter', marker='v', color='magenta', markersize=150))
+
+    except (KeyError, IndexError):
+        pass
 
     # 用于图例的信号类型和标记
     used_signal_types = []
@@ -268,30 +299,23 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
                 )
             )
 
-    # 新增：如果存在，绘制额外的标记点
-    if 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
-        extra_markers = [float('nan')] * len(chart_df)
-        try:
-            marker_idx = chart_df.index.searchsorted(trade['datetime_marker'], side='right') - 1
-            if marker_idx >= 0:
-                extra_markers[marker_idx] = chart_df.iloc[marker_idx]['Low'] * 0.97  # 稍微错开位置
-                addplots.append(
-                    mpf.make_addplot(extra_markers, type='scatter', marker='o', color='cyan', markersize=100, label='源信号')
-                )
-                used_signal_types.append('源信号')
-        except (KeyError, IndexError):
-            pass  # 如果日期不存在，忽略标记
+    # --- 生成图表标题 ---
+    if is_open_trade:
+        title = (
+            f"股票: {stock_code} | 交易ID: {trade_id} | 持仓中\n"
+            f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f}"
+        )
+    else:
+        pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
+        pnl_percent = 0
+        if trade['price_buy'] > 0:
+            pnl_percent = ((trade['price_sell'] - trade['price_buy']) / trade['price_buy']) * 100
 
-    pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
-    pnl_percent = 0
-    if trade['price_buy'] > 0:
-        pnl_percent = ((trade['price_sell'] - trade['price_buy']) / trade['price_buy']) * 100
-
-    title = (
-        f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
-        f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
-        f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}"
-    )
+        title = (
+            f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
+            f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
+            f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}"
+        )
 
     output_path = os.path.join(output_dir, f"trade_{trade_id}_{stock_code}.png")
 
@@ -327,7 +351,8 @@ def analyze_and_visualize_trades(
         data_dir='data/astocks',
         output_dir='strategy/post_analysis',
         post_exit_period=60,
-        signal_info=None
+        signal_info=None,
+        include_open_trades=False
 ):
     """
     读取交易日志，配对买卖操作，并对每笔完整交易进行可视化。
@@ -346,8 +371,10 @@ def analyze_and_visualize_trades(
         出场后的观察天数
     signal_info : list of dict, optional
         信号详细信息列表，每个字典包含 date, type, details
+    include_open_trades : bool
+        是否包含未平仓的交易进行可视化
     """
-    trades_df = pair_trades(log_csv, full_log_path)
+    trades_df = pair_trades(log_csv, full_log_path, include_open=include_open_trades)
     if trades_df.empty:
         print("未能配对任何完整的买卖交易。请检查日志文件。")
         return
@@ -358,6 +385,17 @@ def analyze_and_visualize_trades(
 
     for i, trade in trades_df.iterrows():
         try:
+            # --- 信号决策逻辑 ---
+            # 优先使用外部传入的 signal_info (扫描器模式)
+            # 如果没有，则使用从日志中解析出的 源信号 (独立回测模式)
+            signals_to_plot = signal_info
+            if not signals_to_plot and 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
+                signals_to_plot = [{
+                    'date': trade['datetime_marker'],
+                    'type': '源信号',
+                    'details': '回测模式下的买入源信号'
+                }]
+
             _plot_single_trade(
                 trade=trade,
                 trade_id=i + 1,
@@ -365,7 +403,7 @@ def analyze_and_visualize_trades(
                 output_dir=output_dir,
                 style=style,
                 post_exit_period=post_exit_period,
-                signal_info=signal_info
+                signal_info=signals_to_plot
             )
         except Exception as e:
             print(f"\n错误: 为交易 {i + 1} 生成图表时发生未知错误: {e}")

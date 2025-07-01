@@ -46,8 +46,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    code = '300033'
-    # code = '300059'
+    # code = '300033'
+    code = '300059'
     # code = '000062'
     # code = '300204'
     # code = '600610'
@@ -74,14 +74,14 @@ def strategy_scan():
 
     start_date = '20250615'
     end_date = '20250630'
-    stock_pool = ['301357']
+    stock_pool = ['001298']
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
         scan_end_date=None,
-        stock_pool=None,
+        stock_pool=stock_pool,
         signal_patterns=signal_patterns
     )
 

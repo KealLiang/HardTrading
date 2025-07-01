@@ -1,6 +1,6 @@
 import os
 from contextlib import redirect_stdout
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import backtrader as bt
 import pandas as pd
@@ -10,6 +10,9 @@ from strategy.breakout_strategy import BreakoutStrategy
 from strategy.kdj_macd import KDJ_MACD_Strategy
 from utils.backtrade.analyzers import OrderLogger
 from utils.backtrade.visualizer import analyze_and_visualize_trades
+
+# 至少需要一个最长的指标周期作为预热期 (这里保守地使用100天)
+warm_up_days = 100
 
 
 # 这是来自 origin_simulator.py 的原始、可工作的 read_stock_data 函数
@@ -89,12 +92,8 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     signal_info - 信号信息列表，每个元素包含date, type, details
     interactive_plot - 是否显示交互式图表
     """
-    print(f"使用股票代码: {code}")
+    print(f"使用股票代码: {code}, 预热期: {warm_up_days}")
 
-    # --- Bug修复关键: 为可视化回测也增加预热期 ---
-    # 至少需要一个最长的指标周期作为预热期 (这里保守地使用100天)
-    warm_up_days = 100 
-    
     dataframe = read_stock_data(code, filepath)
     if dataframe is None:
         print("数据加载失败，程序退出。")
@@ -127,12 +126,12 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
     if log_trades or visualize:
         start_date_str = dataframe.index[0].strftime('%Y%m%d')
         end_date_str = dataframe.index[-1].strftime('%Y%m%d')
-        
+
         # 兼容处理：如果有人通过旧的方式调用，自动处理
         if isinstance(signal_info, list) and signal_info and not isinstance(signal_info[0], dict):
             # 可能是旧的signal_dates格式，转换为signal_info格式
             signal_info = [{'date': date, 'type': 'Unknown', 'details': ''} for date in signal_info]
-        
+
         if signal_info:
             # 使用第一个信号的日期来命名文件夹
             signal_date_str = pd.to_datetime(signal_info[0]['date']).strftime('%Y%m%d')
@@ -197,14 +196,19 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         print("=" * 50)
         print("回测完成，开始执行交易可视化分析...")
         print("=" * 50)
+
+        # 扫描模式下（有signal_info），需要可视化未平仓的交易
+        visualize_open_trades = True if signal_info else False
+
         analyze_and_visualize_trades(
             log_csv=log_csv_path,
             full_log_path=full_log_path,  # 传入完整日志文件路径
             data_dir=filepath,
             output_dir=output_dir,
-            signal_info=signal_info  # 只传递signal_info
+            signal_info=signal_info,  # 只传递signal_info
+            include_open_trades=visualize_open_trades
         )
-    
+
     if interactive_plot:
         cerebro.plot()
 
