@@ -74,7 +74,7 @@ def strategy_scan():
 
     start_date = '20250615'
     end_date = '20250630'
-    stock_pool = ['001298']
+    stock_pool = ['300645']
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -328,8 +328,8 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # update_synonym_groups()
     # generate_ladder_chart()
+    # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()
