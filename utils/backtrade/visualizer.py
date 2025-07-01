@@ -105,6 +105,55 @@ def _setup_mpf_style():
     return style
 
 
+def _add_signal_markers_to_plot(chart_df, signal_info):
+    """
+    根据信号信息，在图表上添加标记。
+    返回一个 addplots 列表和一个 used_signal_types 列表。
+    """
+    if not signal_info:
+        return [], []
+
+    signal_markers_dict = {}
+    used_signal_types = []
+    addplots = []
+
+    for signal in signal_info:
+        signal_date = signal['date']
+        signal_type = signal['type']
+        marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
+
+        if signal_type not in signal_markers_dict:
+            signal_markers_dict[signal_type] = [float('nan')] * len(chart_df)
+            used_signal_types.append(signal_type)
+
+        try:
+            signal_dt = pd.to_datetime(signal_date)
+            marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
+            if marker_idx >= 0:
+                vertical_offset = 0.95
+                if signal_type in ['蓄势待发']:
+                    vertical_offset = 0.93
+                elif signal_type in ['口袋支点']:
+                    vertical_offset = 0.91
+                signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
+        except (KeyError, IndexError):
+            pass
+
+    for signal_type, markers in signal_markers_dict.items():
+        marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
+        addplots.append(
+            mpf.make_addplot(
+                markers,
+                type='scatter',
+                marker=marker_style['marker'],
+                color=marker_style['color'],
+                markersize=marker_style['size'],
+                label=signal_type
+            )
+        )
+    return addplots, used_signal_types
+
+
 def pair_trades(log_csv_path, full_log_path=None, include_open=False):
     """
     将买入和卖出日志配对成完整的交易DataFrame。
@@ -250,54 +299,8 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         pass
 
     # 用于图例的信号类型和标记
-    used_signal_types = []
-
-    # --- 绘制信号标记 ---
-    if signal_info:
-        # 为不同类型的信号创建独立的标记数组
-        signal_markers_dict = {}
-
-        for signal in signal_info:
-            signal_date = signal['date']
-            signal_type = signal['type']
-
-            # 获取信号类型的标记样式，默认为Unknown
-            marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
-
-            # 如果这个类型的信号是第一次出现，初始化标记数组
-            if signal_type not in signal_markers_dict:
-                signal_markers_dict[signal_type] = [float('nan')] * len(chart_df)
-                used_signal_types.append(signal_type)
-
-            try:
-                # 将datetime.date转换为datetime.datetime
-                signal_dt = pd.to_datetime(signal_date)
-                marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
-                if marker_idx >= 0:
-                    # 稍微错开不同类型的标记，避免重叠
-                    vertical_offset = 0.95
-                    if signal_type in ['蓄势待发']:
-                        vertical_offset = 0.93
-                    elif signal_type in ['口袋支点']:
-                        vertical_offset = 0.91
-
-                    signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
-            except (KeyError, IndexError):
-                pass  # 如果日期不存在，忽略标记
-
-        # 为每种信号类型添加单独的标记
-        for signal_type, markers in signal_markers_dict.items():
-            marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
-            addplots.append(
-                mpf.make_addplot(
-                    markers,
-                    type='scatter',
-                    marker=marker_style['marker'],
-                    color=marker_style['color'],
-                    markersize=marker_style['size'],
-                    label=signal_type  # 添加标签用于图例
-                )
-            )
+    signal_addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
+    addplots.extend(signal_addplots)
 
     # --- 生成图表标题 ---
     if is_open_trade:
@@ -341,6 +344,62 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"已生成图表: {output_path}")
+
+
+def plot_signal_chart(code, data_dir, output_dir, signal_info):
+    """
+    为未发生交易但有信号的股票生成信号分析图。
+    """
+    stock_code = _format_code(code)
+    stock_data = read_stock_data(stock_code, data_dir)
+    style = _setup_mpf_style()
+
+    if stock_data is None or stock_data.empty:
+        print(f"警告: 无法为 {stock_code} 加载数据，跳过信号图生成。")
+        return
+
+    if not signal_info:
+        print(f"警告: {stock_code} 没有提供信号信息，无法生成信号图。")
+        return
+
+    # 使用第一个信号确定图表范围
+    primary_signal_date = pd.to_datetime(signal_info[0]['date'])
+    start_chart = primary_signal_date - timedelta(days=90)
+    end_chart = primary_signal_date + timedelta(days=30)
+    chart_df = stock_data.loc[start_chart:end_chart].copy()
+
+    if chart_df.empty:
+        print(f"警告: 在 {stock_code} 中找不到指定的信号绘图日期范围，已跳过。")
+        return
+
+    # 获取信号标记
+    addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
+
+    title = f"信号分析: {stock_code}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}"
+
+    signal_date_str = primary_signal_date.strftime('%Y%m%d')
+    output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_{signal_date_str}.png")
+
+    fig, axes = mpf.plot(
+        chart_df, type='candle', style=style,
+        ylabel='价格', volume=True, ylabel_lower='成交量',
+        addplot=addplots, figsize=(16, 8), returnfig=True,
+        tight_layout=True
+    )
+    axes[0].set_title(title, loc='left', fontweight='bold')
+
+    if used_signal_types:
+        axes[0].legend(loc='upper left')
+
+    # 自定义坐标轴，解决日期显示问题
+    num_days = len(chart_df)
+    interval = max(1, num_days // 20) if num_days > 20 else 1
+    axes[0].xaxis.set_major_locator(mdates.DayLocator(interval=interval))
+    fig.autofmt_xdate(rotation=30)
+
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"已生成信号分析图: {output_path}")
 
 
 # --- 主函数 ---

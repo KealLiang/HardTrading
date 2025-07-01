@@ -9,7 +9,7 @@ from backtrader import feeds
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.kdj_macd import KDJ_MACD_Strategy
 from utils.backtrade.analyzers import OrderLogger
-from utils.backtrade.visualizer import analyze_and_visualize_trades
+from utils.backtrade.visualizer import analyze_and_visualize_trades, plot_signal_chart
 
 # 至少需要一个最长的指标周期作为预热期 (这里保守地使用100天)
 warm_up_days = 100
@@ -197,17 +197,34 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         print("回测完成，开始执行交易可视化分析...")
         print("=" * 50)
 
-        # 扫描模式下（有signal_info），需要可视化未平仓的交易
-        visualize_open_trades = True if signal_info else False
+        # 检查交易日志中是否有实际成交
+        trade_log_has_trades = False
+        try:
+            # 简单检查文件大小，大于一个很小的值（如30字节）就认为有内容
+            if os.path.getsize(log_csv_path) > 30:
+                trade_log_has_trades = True
+        except (OSError, FileNotFoundError):
+            pass  # 文件不存在或无法访问，则认为无成交
 
-        analyze_and_visualize_trades(
-            log_csv=log_csv_path,
-            full_log_path=full_log_path,  # 传入完整日志文件路径
-            data_dir=filepath,
-            output_dir=output_dir,
-            signal_info=signal_info,  # 只传递signal_info
-            include_open_trades=visualize_open_trades
-        )
+        if trade_log_has_trades:
+            # 扫描模式下（有signal_info），需要可视化未平仓的交易
+            visualize_open_trades = True if signal_info else False
+            analyze_and_visualize_trades(
+                log_csv=log_csv_path,
+                full_log_path=full_log_path,
+                data_dir=filepath,
+                output_dir=output_dir,
+                signal_info=signal_info,
+                include_open_trades=visualize_open_trades
+            )
+        elif signal_info:  # 无成交，但有信号（扫描模式）
+            print("未执行任何交易，但检测到信号。生成信号分析图...")
+            plot_signal_chart(
+                code=code,
+                data_dir=filepath,
+                output_dir=output_dir,
+                signal_info=signal_info
+            )
 
     if interactive_plot:
         cerebro.plot()
