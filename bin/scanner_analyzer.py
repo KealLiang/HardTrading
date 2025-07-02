@@ -6,19 +6,19 @@
 import logging
 import os
 import re
+import shutil
 from datetime import datetime
+from contextlib import redirect_stdout
 
 import backtrader as bt
 import pandas as pd
 from tqdm import tqdm
 
 import bin.simulator as simulator
-from bin.simulator import read_stock_data, ExtendedPandasData
-from strategy.breakout_strategy import BreakoutStrategy
+from bin.simulator import read_stock_data, ExtendedPandasData, warm_up_days
 from utils.date_util import get_current_or_prev_trading_day
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
-
 
 # --- Constants ---
 DEFAULT_DATA_PATH = './data/astocks'
@@ -33,40 +33,40 @@ class SignalCaptureAnalyzer(bt.Analyzer):
     可以捕获策略产生的买入信号，无需修改原始策略代码
     适用于backtrader的任何策略
     """
-    
+
     params = (
         ('signal_patterns', ['突破信号']),  # 要捕获的信号模式列表
-        ('score_threshold', 0),           # 最低信号评分要求（0表示所有信号）
-        ('position_change', True),        # 是否检测仓位变化
-        ('order_monitor', True),          # 是否监控订单创建
-        ('log_monitor', True),            # 是否监控日志输出
-        ('direct_log_capture', True),     # 是否直接从日志捕获信号，不等待订单创建
+        ('score_threshold', 0),  # 最低信号评分要求（0表示所有信号）
+        ('position_change', True),  # 是否检测仓位变化
+        ('order_monitor', True),  # 是否监控订单创建
+        ('log_monitor', True),  # 是否监控日志输出
+        ('direct_log_capture', True),  # 是否直接从日志捕获信号，不等待订单创建
     )
-    
+
     def __init__(self):
         self.signals = []
         self.position_size_prev = 0
-        
+
         # 如果启用日志监控，保存并替换原始log函数
         if self.p.log_monitor and hasattr(self.strategy, 'log'):
             self.original_log = self.strategy.log
             self.strategy.log = self._log_wrapper
-        
+
         # 如果启用订单监控，备份并替换原始next方法
         if self.p.order_monitor:
             self.original_next = self.strategy._next
             self.strategy._next = self._next_wrapper
-            
+
         # 信号处理状态
         self.signal_date = None
         self.signal_details = {}
-        
+
     def _log_wrapper(self, txt, dt=None):
         """包装策略的log函数，捕获信号信息"""
         # 先调用原始log函数
         self.original_log(txt, dt)
         dt = dt or self.strategy.datas[0].datetime.date(0)
-        
+
         # 捕获符合条件的信号
         for pattern in self.p.signal_patterns:
             if pattern in txt:
@@ -81,38 +81,38 @@ class SignalCaptureAnalyzer(bt.Analyzer):
                         'details': txt,
                         'score': score
                     }
-                    
+
                     # 记录信号日期和详情，用于后续next中的订单监控
                     self.signal_date = dt
                     self.signal_details = {
                         'source': txt,
                         'score': score
                     }
-                    
+
                     # 如果不监控订单或启用直接日志捕获，则直接添加信号
                     if not self.p.order_monitor or self.p.direct_log_capture:
                         self.signals.append(signal_info)
                 break
-    
+
     def _next_wrapper(self):
         """包装策略的next方法，检测订单创建和仓位变化"""
         # 保存之前的仓位状态
         self.position_size_prev = self.strategy.position.size if self.strategy.position else 0
-        
+
         # 执行原始next
         self.original_next()
-        
+
         # 检测买入信号：通过订单创建
         if self.strategy.order and self.strategy.order.isbuy():
             # 检查是否有之前捕获的信号详情
             details = self.signal_details.get('source', '')
             score = self.signal_details.get('score', 0)
-            
+
             # 如果没有通过日志捕获到信号但有买入操作，创建基本信号
             if not details:
                 dt = self.strategy.datas[0].datetime.date(0)
                 details = f"买入信号 @ {dt}"
-                
+
             self.signals.append({
                 'datetime': self.strategy.datas[0].datetime.date(0),
                 'code': self.strategy.datas[0]._name,
@@ -121,11 +121,11 @@ class SignalCaptureAnalyzer(bt.Analyzer):
                 'details': details,
                 'score': score
             })
-            
+
             # 重置信号临时数据
             self.signal_date = None
             self.signal_details = {}
-        
+
         # 检测仓位变化
         elif self.p.position_change and not self.position_size_prev and self.strategy.position and self.strategy.position.size > 0:
             self.signals.append({
@@ -136,14 +136,14 @@ class SignalCaptureAnalyzer(bt.Analyzer):
                 'details': "检测到仓位增加",
                 'score': 0
             })
-    
+
     def _extract_score(self, txt):
         """从信号文本中提取评分"""
         # 处理情况1：直接包含数字评分的情况
         score_match = re.search(r'评分[:：\s]*([\d]+)', txt)
         if score_match:
             return int(score_match.group(1))
-            
+
         # 处理情况2：BreakoutStrategy中的评级
         if '【A+级】' in txt:
             return 9
@@ -153,24 +153,24 @@ class SignalCaptureAnalyzer(bt.Analyzer):
             return 6
         elif '【C级】' in txt:
             return 4
-            
+
         # 处理情况3：其他信号强度表述
         if '强烈' in txt or '显著' in txt:
             return 7
         elif '中等' in txt:
             return 5
-        
+
         # 默认评分
         return 0
-    
+
     def stop(self):
         """还原被替换的方法"""
         if self.p.log_monitor and hasattr(self, 'original_log'):
             self.strategy.log = self.original_log
-            
+
         if self.p.order_monitor and hasattr(self, 'original_next'):
             self.strategy._next = self.original_next
-    
+
     def get_analysis(self):
         """返回分析结果"""
         return {
@@ -220,14 +220,14 @@ def _filter_signals_to_unique_opportunities(signals, strategy_class):
             else:
                 opportunity_clusters.append(current_cluster)
                 current_cluster = [current_signal]
-        
+
         opportunity_clusters.append(current_cluster)
 
         for cluster in opportunity_clusters:
             if cluster:
                 # 选择簇中最新的一个信号加入最终列表
                 final_signals.append(cluster[-1])
-                
+
     return final_signals
 
 
@@ -277,10 +277,10 @@ def get_stock_pool(source, all_codes_from_dir=None):
 
 
 def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path,
-                              scan_start_date, scan_end_date, signal_patterns=None):
+                                scan_start_date, scan_end_date, signal_patterns=None):
     """
     使用Analyzer方式对单个股票进行扫描
-    
+
     参数:
         code: 股票代码
         strategy_class: 策略类
@@ -289,7 +289,7 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
         scan_start_date: 扫描开始日期
         scan_end_date: 扫描结束日期
         signal_patterns: 要捕获的信号模式列表 (默认: ['突破信号'])
-    
+
     返回:
         捕获的信号列表
     """
@@ -298,41 +298,46 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
         if dataframe is None or dataframe.empty:
             return None
 
-        # 确保有足够的数据用于指标预热
-        required_start = pd.to_datetime(scan_start_date) - pd.Timedelta(days=100)
-        if dataframe.index[0] > required_start:
+        # 截取所需的数据段，以减少不必要的计算，并防止日志中出现过旧的信息
+        required_data_start = pd.to_datetime(scan_start_date) - pd.Timedelta(days=warm_up_days)
+        scan_end_date_obj = pd.to_datetime(scan_end_date)
+
+        dataframe = dataframe.loc[required_data_start:scan_end_date_obj]
+
+        if dataframe.empty or len(dataframe) < 100:  # 至少要有100天的数据才有分析意义
+            logging.error("数据不足，停止分析")
             return None
 
         data_feed = ExtendedPandasData(dataname=dataframe)
 
         cerebro = bt.Cerebro(stdstats=False)
         cerebro.adddata(data_feed, name=code)
-        
+
         # 添加策略 (不需要修改策略参数)
         cerebro.addstrategy(strategy_class, **(strategy_params or {}))
-        
+
         # 如果没有指定信号模式，默认使用突破信号
         if signal_patterns is None:
             signal_patterns = ['突破信号']
-        
+
         # 添加信号捕获分析器
-        cerebro.addanalyzer(SignalCaptureAnalyzer, 
-                           _name='signalcapture',
-                           signal_patterns=signal_patterns)
+        cerebro.addanalyzer(SignalCaptureAnalyzer,
+                            _name='signalcapture',
+                            signal_patterns=signal_patterns)
 
         results = cerebro.run()
-        
+
         # 获取捕获的信号
         strat = results[0]
         signals = strat.analyzers.signalcapture.get_analysis().get('signals', [])
-        
+
         # 按日期过滤信号
         scan_start_date_obj = pd.to_datetime(scan_start_date).date()
         scan_end_date_obj = pd.to_datetime(scan_end_date).date()
-        
-        final_signals = [signal for signal in signals 
-                        if scan_start_date_obj <= signal['datetime'] <= scan_end_date_obj]
-        
+
+        final_signals = [signal for signal in signals
+                         if scan_start_date_obj <= signal['datetime'] <= scan_end_date_obj]
+
         return final_signals
 
     except Exception as e:
@@ -343,7 +348,7 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
 
 
 def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
-                      data_path, strategy_params=None, signal_patterns=None):
+                       data_path, strategy_params=None, signal_patterns=None):
     """
     使用Analyzer方式对给定的股票列表运行扫描器。
     """
@@ -359,19 +364,20 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
     with tqdm(total=len(stock_list), desc="扫描进度") as pbar:
         for code in stock_list:
             signals = _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path,
-                                               start_date, end_date, signal_patterns)
+                                                  start_date, end_date, signal_patterns)
             if signals:
                 all_signals.extend(signals)
             pbar.update(1)
 
-    logging.info(f"扫描完成。共在 {len(set(s['code'] for s in all_signals))} 只股票中找到 {len(all_signals)} 个买入信号。")
+    logging.info(
+        f"扫描完成。共在 {len(set(s['code'] for s in all_signals))} 只股票中找到 {len(all_signals)} 个买入信号。")
     return all_signals
 
 
 # --- Main Orchestration Function ---
 def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=None,
-                               stock_pool=None, strategy_params=None, signal_patterns=None,
-                               data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR):
+                                stock_pool=None, strategy_params=None, signal_patterns=None,
+                                data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR):
     """
     执行股票扫描并可视化结果的总调度函数。
     """
@@ -386,14 +392,14 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         end_date_fmt = f"{scan_end_date[:4]}-{scan_end_date[4:6]}-{scan_end_date[6:8]}"
 
     os.makedirs(output_path, exist_ok=True)
-    
+
     # --- 2. 获取股票代码和名称 ---
     all_codes, name_map = _parse_stock_directory(data_path)
-    
+
     # 如果未指定股票池, 默认使用候选文件
     if stock_pool is None:
         stock_pool = DEFAULT_CANDIDATE_FILE
-        
+
     target_stock_list = get_stock_pool(
         source=stock_pool,
         all_codes_from_dir=all_codes
@@ -446,7 +452,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
     for signal in final_signals:
         code = signal['code']
         signal_date = signal['datetime']
-        
+
         vis_start_date = pd.to_datetime(signal_date) - pd.Timedelta(days=90)
         vis_end_date = pd.to_datetime(signal_date) + pd.Timedelta(days=90)
 
@@ -459,23 +465,22 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
             'type': "Unknown",
             'details': signal.get('details', '')
         }
-        
+
         # 尝试从信号详情中提取信号类型
         signal_details = signal.get('details', '')
         if ':' in signal_details:
             primary_signal['type'] = signal_details.split(':')[0].strip()
-        
+
         # 准备完整的信号信息列表，先添加主要信号
         signal_info = [primary_signal]
-        
+
         # --- 从日志中获取额外信号 ---
         # 1. 运行一次回测以生成完整的策略日志
         temp_output_dir = os.path.join(output_path, f"temp_{code}_{pd.to_datetime(signal_date).strftime('%Y%m%d')}")
         os.makedirs(temp_output_dir, exist_ok=True)
         temp_log_path = os.path.join(temp_output_dir, 'full_log.txt')
-        
+
         # 运行一次回测以生成完整日志
-        from contextlib import redirect_stdout
         with open(temp_log_path, 'w', encoding='utf-8') as f:
             with redirect_stdout(f):
                 simulator.go_trade(
@@ -489,27 +494,27 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
                     signal_info=[],
                     interactive_plot=False
                 )
-        
+
         # 2. 解析日志提取所有信号
         try:
             with open(temp_log_path, 'r', encoding='utf-8') as f:
                 log_lines = f.readlines()
-                
+
             # 解析日志中的所有信号
             for line in log_lines:
                 # 检查是否含有日期格式
                 date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
                 if not date_match:
                     continue
-                    
+
                 signal_date_str = date_match.group(1)
-                
+
                 # 寻找典型的信号模式
                 signal_patterns = [
                     # 特定类型的信号 (先匹配更具体的模式)
                     (r'【口袋支点】', '口袋支点'),
                     (r'【蓄势待发】', '蓄势待发'),
-                    
+
                     # 二次确认信号
                     (r'\*\*\* 二次确认信号', '二次确认'),
 
@@ -518,37 +523,38 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
 
                     # 观察哨模式
                     (r'\*\*\* 触发【突破观察哨】', '观察哨'),
-                    
+
                     # 突破信号 - 各种格式 (后匹配通用模式)
                     (r'突破信号[:：]\s*【[A-Z]\+?级】', '突破信号'),  # 匹配"突破信号: 【A+级】"等
-                    (r'突破信号[:：]\s*【[A-C]级】', '突破信号'),     # 匹配"突破信号: 【B级】"等
-                    (r'突破信号[:：]', '突破信号'),                  # 通用突破信号匹配
+                    (r'突破信号[:：]\s*【[A-C]级】', '突破信号'),  # 匹配"突破信号: 【B级】"等
+                    (r'突破信号[:：]', '突破信号'),  # 通用突破信号匹配
                 ]
-                
+
                 # 添加一个变量跟踪是否匹配到任何信号
                 matched = False
-                
+
                 for pattern, signal_type in signal_patterns:
                     if re.search(pattern, line):
                         # 调试日志
                         print(f"  匹配到信号: {signal_date_str} - {signal_type} - {line.strip()}")
-                        
+
                         # 检查是否已经有相同日期和类型的信号
                         signal_date_obj = pd.to_datetime(signal_date_str).date()
                         duplicate = False
-                        
+
                         for existing_signal in signal_info:
                             existing_date = existing_signal['date']
                             if isinstance(existing_date, str):
                                 existing_date = pd.to_datetime(existing_date).date()
                             else:
-                                existing_date = existing_date.date() if hasattr(existing_date, 'date') else existing_date
-                                
-                            if (existing_date == signal_date_obj and 
-                                existing_signal['type'] == signal_type):
+                                existing_date = existing_date.date() if hasattr(existing_date,
+                                                                                'date') else existing_date
+
+                            if (existing_date == signal_date_obj and
+                                    existing_signal['type'] == signal_type):
                                 duplicate = True
                                 break
-                                
+
                         if not duplicate:
                             signal_info.append({
                                 'date': signal_date_obj,
@@ -558,16 +564,10 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
                             matched = True
         except Exception as e:
             logging.error(f"解析信号日志时出错: {e}")
-                
+
         # 删除临时目录
-        import shutil
         shutil.rmtree(temp_output_dir, ignore_errors=True)
-                
-        # 打印所有捕获的信号，用于调试
-        print(f"捕获到的信号总数: {len(signal_info)}")
-        for idx, s in enumerate(signal_info):
-            print(f"  信号{idx+1}: {s['date']} - {s['type']}")
-        
+
         # 正式运行回测和可视化
         simulator.go_trade(
             code=code,
@@ -587,25 +587,25 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
 if __name__ == '__main__':
     # --- 设置日志级别为DEBUG ---
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - [%(levelname)s] - %(message)s')
-    
+
     # --- 根据不同策略设置不同的信号模式 ---
     from strategy.breakout_strategy import BreakoutStrategy
-    
+
     # 更精确的信号模式列表
     signal_patterns = [
-        '突破信号', 
+        '突破信号',
         '*** 二次确认信号已',
         '*** 触发【突破观察哨】'
     ]
-    
+
     print(f"开始使用以下信号模式扫描: {signal_patterns}")
     print("-" * 50)
-    
+
     # 使用更合理的日期范围
     start_date = '20240101'
     end_date = '20250620'
     print(f"扫描时间范围: {start_date} 到 {end_date}")
-    
+
     # 使用示例
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
@@ -615,4 +615,4 @@ if __name__ == '__main__':
         # stock_pool='all',  # 扫描数据文件夹下所有股票
         # stock_pool='bin/candidate_stocks.txt', # 从文件加载
         signal_patterns=signal_patterns
-    ) 
+    )

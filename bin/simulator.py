@@ -11,8 +11,8 @@ from strategy.kdj_macd import KDJ_MACD_Strategy
 from utils.backtrade.analyzers import OrderLogger
 from utils.backtrade.visualizer import analyze_and_visualize_trades, plot_signal_chart
 
-# 至少需要一个最长的指标周期作为预热期 (这里保守地使用100天)
-warm_up_days = 100
+# 至少需要一个最长的指标周期作为预热期
+warm_up_days = 150
 
 
 # 这是来自 origin_simulator.py 的原始、可工作的 read_stock_data 函数
@@ -79,7 +79,7 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
              strategy=KDJ_MACD_Strategy, strategy_params=None,
              log_trades=False, visualize=False, signal_info=None, interactive_plot=True):
     """执行股票回测和可视化。
-    
+
     参数:
     code - 股票代码
     amount - 初始资金
@@ -200,11 +200,13 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         # 检查交易日志中是否有实际成交
         trade_log_has_trades = False
         try:
-            # 简单检查文件大小，大于一个很小的值（如30字节）就认为有内容
-            if os.path.getsize(log_csv_path) > 30:
-                trade_log_has_trades = True
-        except (OSError, FileNotFoundError):
-            pass  # 文件不存在或无法访问，则认为无成交
+            # 更可靠地检查: 读取log文件并查看是否为空
+            if os.path.exists(log_csv_path):
+                log_df = pd.read_csv(log_csv_path)
+                if not log_df.empty:
+                    trade_log_has_trades = True
+        except (OSError, FileNotFoundError, pd.errors.EmptyDataError):
+            pass  # 文件不存在、无法访问或为空(只有头)，则认为无成交
 
         if trade_log_has_trades:
             # 扫描模式下（有signal_info），需要可视化未平仓的交易

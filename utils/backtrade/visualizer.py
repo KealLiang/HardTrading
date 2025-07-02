@@ -113,11 +113,26 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
     if not signal_info:
         return [], []
 
+    # 过滤掉超出图表范围的信号
+    filtered_signal_info = []
+    chart_start_date = pd.to_datetime(chart_df.index[0]).date()
+    chart_end_date = pd.to_datetime(chart_df.index[-1]).date()
+
+    for signal in signal_info:
+        signal_date = signal['date']
+        if isinstance(signal_date, str):
+            signal_date = pd.to_datetime(signal_date).date()
+        elif hasattr(signal_date, 'date'):
+            signal_date = signal_date.date()
+
+        if chart_start_date <= signal_date <= chart_end_date:
+            filtered_signal_info.append(signal)
+
     signal_markers_dict = {}
     used_signal_types = []
     addplots = []
 
-    for signal in signal_info:
+    for signal in filtered_signal_info:
         signal_date = signal['date']
         signal_type = signal['type']
         marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
@@ -129,7 +144,7 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
         try:
             signal_dt = pd.to_datetime(signal_date)
             marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
-            if marker_idx >= 0:
+            if marker_idx >= 0 and marker_idx < len(chart_df):  # 确保索引在有效范围内
                 vertical_offset = 0.95
                 if signal_type in ['蓄势待发']:
                     vertical_offset = 0.93
