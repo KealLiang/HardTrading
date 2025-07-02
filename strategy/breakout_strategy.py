@@ -227,14 +227,14 @@ class BreakoutStrategy(bt.Strategy):
                     squeeze_grade, squeeze_score = 'D级', 0
 
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if 2.0 < volume_ratio <= 5.0:
+                if 3.0 < volume_ratio <= 5.0:
                     volume_grade, volume_score = 'A级(理想)', 3
-                elif 1.5 < volume_ratio <= 2.0:
+                elif 1.5 < volume_ratio <= 3.0:
                     volume_grade, volume_score = 'B级(优秀)', 2
                 elif 1.1 < volume_ratio <= 1.5:
                     volume_grade, volume_score = 'C级(合格)', 1
                 else:
-                    grade_reason = "过高" if volume_ratio > 4.0 else "过低"
+                    grade_reason = "过高" if volume_ratio > 5.0 else "过低"
                     volume_grade, volume_score = f'D级({grade_reason})', 0
 
                 total_score = env_score + squeeze_score + volume_score
