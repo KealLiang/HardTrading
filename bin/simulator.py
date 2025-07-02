@@ -12,7 +12,7 @@ from utils.backtrade.analyzers import OrderLogger
 from utils.backtrade.visualizer import analyze_and_visualize_trades, plot_signal_chart
 
 # 至少需要一个最长的指标周期作为预热期
-warm_up_days = 150
+warm_up_days = 100
 
 
 # 这是来自 origin_simulator.py 的原始、可工作的 read_stock_data 函数

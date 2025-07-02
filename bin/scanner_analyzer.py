@@ -7,8 +7,8 @@ import logging
 import os
 import re
 import shutil
-from datetime import datetime
 from contextlib import redirect_stdout
+from datetime import datetime
 
 import backtrader as bt
 import pandas as pd
@@ -449,8 +449,20 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
     print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
 
     # --- 6. 对每个过滤后的信号进行可视化 ---
+    # 跟踪已处理的股票代码，避免重复处理
+    processed_stocks = set()
+
     for signal in final_signals:
         code = signal['code']
+
+        # 如果这只股票已经处理过，跳过
+        if code in processed_stocks:
+            logging.info(f"股票 {code} 已经处理过，跳过重复分析")
+            continue
+
+        # 标记该股票已处理
+        processed_stocks.add(code)
+
         signal_date = signal['datetime']
 
         vis_start_date = pd.to_datetime(signal_date) - pd.Timedelta(days=90)
