@@ -72,16 +72,16 @@ def strategy_scan():
         '*** 触发【突破观察哨】'
     ]
 
-    start_date = '20250615'
+    start_date = '20250515'
     end_date = '20250630'
-    stock_pool = ['300645']
+    stock_pool = ['002549']
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
         scan_end_date=None,
-        stock_pool=stock_pool,
+        stock_pool=None,
         signal_patterns=signal_patterns
     )
 
@@ -302,9 +302,9 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20250401'  # 调整为Excel中有数据的日期范围
+    start_date = '20250501'  # 调整为Excel中有数据的日期范围
     end_date = '20250624'  # 过了0点需指定日期
-    min_board_level = 3
+    min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
     sheet_name = None
@@ -323,12 +323,12 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # backtrade_simulate()
-    strategy_scan()
+    # strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
