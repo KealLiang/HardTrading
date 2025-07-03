@@ -47,12 +47,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     # code = '300033'
-    code = '300059'
+    # code = '300059'
     # code = '000062'
     # code = '300204'
     # code = '600610'
     # code = '002693'
-    # code = '301357'
+    code = '301357'
 
     # 使用修复后的策略
     simulator.go_trade(code,
@@ -72,9 +72,9 @@ def strategy_scan():
         '*** 触发【突破观察哨】'
     ]
 
-    start_date = '20250515'
+    start_date = '20250530'
     end_date = '20250630'
-    stock_pool = ['002549']
+    stock_pool = ['301357', '002235']
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -323,12 +323,12 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # backtrade_simulate()
-    # strategy_scan()
+    strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
