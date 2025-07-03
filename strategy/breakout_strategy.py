@@ -17,7 +17,7 @@ class BreakoutStrategy(bt.Strategy):
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
         ('macro_ranging_pct', 0.05),  # 定义震荡市的均线上下浮动范围
-        ('squeeze_period', 60),  # 波动性压缩回顾期
+        ('squeeze_period', 90),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
@@ -217,11 +217,11 @@ class BreakoutStrategy(bt.Strategy):
 
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
-                if squeeze_pct < 0.10:
+                if 0.05 < squeeze_pct <= 0.20:
                     squeeze_grade, squeeze_score = 'A级', 3
-                elif squeeze_pct < 0.25:
+                elif squeeze_pct <= 0.05:
                     squeeze_grade, squeeze_score = 'B级', 2
-                elif squeeze_pct < 0.40:
+                elif 0.20 < squeeze_pct <= 0.60:
                     squeeze_grade, squeeze_score = 'C级', 1
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
