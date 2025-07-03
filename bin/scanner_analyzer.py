@@ -15,7 +15,8 @@ import pandas as pd
 from tqdm import tqdm
 
 import bin.simulator as simulator
-from bin.simulator import read_stock_data, ExtendedPandasData, warm_up_days
+from bin.simulator import read_stock_data, ExtendedPandasData
+from utils import date_util
 from utils.date_util import get_current_or_prev_trading_day
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -24,6 +25,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 DEFAULT_DATA_PATH = './data/astocks'
 DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks.txt'
 DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
+
+# 扫描最少需要的数据天数
+MIN_REQUIRED_DAYS = 90
 
 
 # --- Analyzers ---
@@ -299,12 +303,12 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
             return None
 
         # 截取所需的数据段，以减少不必要的计算，并防止日志中出现过旧的信息
-        required_data_start = pd.to_datetime(scan_start_date) - pd.Timedelta(days=warm_up_days)
+        required_data_start = date_util.get_n_trading_days_before(scan_start_date, MIN_REQUIRED_DAYS)
         scan_end_date_obj = pd.to_datetime(scan_end_date)
 
         dataframe = dataframe.loc[required_data_start:scan_end_date_obj]
 
-        if dataframe.empty or len(dataframe) < 100:  # 至少要有100天的数据才有分析意义
+        if dataframe.empty or len(dataframe) < MIN_REQUIRED_DAYS:  # 至少要有x天的数据才有分析意义
             logging.error("数据不足，停止分析")
             return None
 
