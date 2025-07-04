@@ -26,6 +26,9 @@ class BreakoutStrategy(bt.Strategy):
         ('price_acceptance_pct', 0.25),  # 从观察期基准价上涨的最大可接受百分比(20%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         ('context_period', 15),  # PSQ 3.1: 情景定位的回看周期
+        # -- PSQ 4.2: 权重参数 --
+        ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
+        ('psq_momentum_weight', 1.0),  # PSQ 动能分权重
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -61,11 +64,17 @@ class BreakoutStrategy(bt.Strategy):
         self.ma5 = bt.indicators.SMA(self.data.close, period=5)
         self.ma10 = bt.indicators.SMA(self.data.close, period=10)
 
-        # --- K线形态指标 (TA-Lib) - PSQ 4.0 精简版 ---
+        # --- K线形态指标 (TA-Lib) - PSQ 4.1 扩展版 ---
         self.cdl_engulfing = bt.talib.CDLENGULFING(self.data.open, self.data.high, self.data.low, self.data.close)
         self.cdl_harami = bt.talib.CDLHARAMI(self.data.open, self.data.high, self.data.low, self.data.close)
         self.cdl_hammer = bt.talib.CDLHAMMER(self.data.open, self.data.high, self.data.low, self.data.close)
         self.cdl_shootingstar = bt.talib.CDLSHOOTINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_morningstar = bt.talib.CDLMORNINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_eveningstar = bt.talib.CDLEVENINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_piercing = bt.talib.CDLPIERCING(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_darkcloudcover = bt.talib.CDLDARKCLOUDCOVER(self.data.open, self.data.high, self.data.low,
+                                                             self.data.close)
+        self.cdl_doji = bt.talib.CDLDOJI(self.data.open, self.data.high, self.data.low, self.data.close)
 
         # --- 信号检查的配置 ---
         self.confirmation_signals = [
@@ -456,29 +465,38 @@ class BreakoutStrategy(bt.Strategy):
 
     def _get_kline_pattern_score(self, data):
         """
-        PSQ 4.0: 形态优先 - 识别关键的反转形态并给予权重分。
+        PSQ 4.1: 形态优先 - 识别关键的反转形态并给予分级权重分。
         核心逻辑: 在什么趋势下，出现了什么形态。
         """
-        score = 0
         # 定义近期趋势 (基于过去2天的收盘价)
         is_recent_up_trend = data.close[0] > data.close[-2]
         is_recent_down_trend = data.close[0] < data.close[-2]
 
-        # 识别关键形态
-        is_bearish_engulfing = self.cdl_engulfing[0] < 0
-        is_bullish_engulfing = self.cdl_engulfing[0] > 0
-        is_bearish_harami = self.cdl_harami[0] < 0
-        is_bullish_harami = self.cdl_harami[0] > 0
-        is_hammer = self.cdl_hammer[0] != 0
-        is_shooting_star = self.cdl_shootingstar[0] != 0
+        # --- 看跌形态 (Bearish Patterns) ---
+        if is_recent_up_trend:
+            # 强反转: -3.0
+            if self.cdl_eveningstar[0] != 0 or self.cdl_engulfing[0] < 0:
+                return -3.0
+            # 中反转: -2.0
+            if self.cdl_darkcloudcover[0] != 0 or self.cdl_harami[0] < 0 or self.cdl_shootingstar[0] != 0:
+                return -2.0
+            # 弱/警告信号: -1.0
+            if self.cdl_doji[0] != 0:
+                return -1.0
 
-        # 核心评分规则 (权重为 +/- 3.0，实现平衡)
-        if is_recent_up_trend and (is_bearish_engulfing or is_bearish_harami or is_shooting_star):
-            score = -3.0
-        elif is_recent_down_trend and (is_bullish_engulfing or is_bullish_harami or is_hammer):
-            score = 3.0
+        # --- 看涨形态 (Bullish Patterns) ---
+        elif is_recent_down_trend:
+            # 强反转: +3.0
+            if self.cdl_morningstar[0] != 0 or self.cdl_engulfing[0] > 0:
+                return 3.0
+            # 中反转: +2.0
+            if self.cdl_piercing[0] != 0 or self.cdl_harami[0] > 0 or self.cdl_hammer[0] != 0:
+                return 2.0
+            # 弱/警告信号: +1.0
+            if self.cdl_doji[0] != 0:
+                return 1.0
 
-        return score
+        return 0.0  # 无趋势或无形态
 
     def _calculate_psq_score(self, data):
         """
@@ -503,6 +521,7 @@ class BreakoutStrategy(bt.Strategy):
 
         momentum_score = intraday_power + volume_strength
 
-        # --- 合计总分 ---
-        total_score = pattern_score + momentum_score
+        # --- 合计总分 (PSQ 4.2: 应用权重) ---
+        total_score = (pattern_score * self.p.psq_pattern_weight) + \
+                      (momentum_score * self.p.psq_momentum_weight)
         return total_score
