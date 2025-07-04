@@ -1,6 +1,6 @@
 import os
 from contextlib import redirect_stdout
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import backtrader as bt
 import pandas as pd
@@ -233,20 +233,18 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
 
 
 if __name__ == '__main__':
-    stock_code = '600610'
+    stock_code = '301357'
     initial_cash = 100000
     data_path = './data/astocks'
     go_trade(
         code=stock_code,
         amount=initial_cash,
-        startdate='2020-01-01',
-        enddate='2025-06-20',
+        startdate=datetime(2022, 1, 1),
+        enddate=datetime(2025, 7, 4),
         filepath=data_path,
         strategy=BreakoutStrategy,
         log_trades=True,
         visualize=True,
-        signal_info=[
-            # 可以提供信号信息，例如:
-            # {'date': '2023-01-15', 'type': '突破信号', 'details': '突破信号: 【A级】 - 标准突破'}
-        ]  # 提供信号信息列表，或None
+        interactive_plot=False, # 先不弹出交互图，方便查看日志
+        signal_info=[]
     )
