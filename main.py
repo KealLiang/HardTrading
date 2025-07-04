@@ -57,9 +57,9 @@ def backtrade_simulate():
     # 使用修复后的策略
     simulator.go_trade(code,
                        #    startdate=datetime(2020, 1, 1),
-                       startdate=datetime(2021, 1, 1),
+                       startdate=datetime(2022, 1, 1),
                        #    enddate=datetime(2024, 9, 22),
-                       enddate=datetime(2025, 6, 20),
+                       enddate=datetime(2025, 7, 4),
                        strategy=BreakoutStrategy,
                        log_trades=True, visualize=True)
 
@@ -322,8 +322,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # backtrade_simulate()
-    strategy_scan()
+    backtrade_simulate()
+    # strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
