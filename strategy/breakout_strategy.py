@@ -1,4 +1,5 @@
 import backtrader as bt
+import talib
 
 
 class BreakoutStrategy(bt.Strategy):
@@ -53,6 +54,22 @@ class BreakoutStrategy(bt.Strategy):
         # 成交量均线
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=self.p.volume_ma_period)
 
+        # --- PSQ 2.0 辅助指标 ---
+        self.ma5 = bt.indicators.SMA(self.data.close, period=5)
+        self.ma10 = bt.indicators.SMA(self.data.close, period=10)
+
+        # --- K线形态指标 (TA-Lib) ---
+        self.cdl_engulfing = bt.talib.CDLENGULFING(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_morningstar = bt.talib.CDLMORNINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_3whitesoldiers = bt.talib.CDL3WHITESOLDIERS(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_hammer = bt.talib.CDLHAMMER(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_piercing = bt.talib.CDLPIERCING(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_eveningstar = bt.talib.CDLEVENINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_3blackcrows = bt.talib.CDL3BLACKCROWS(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_shootingstar = bt.talib.CDLSHOOTINGSTAR(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_darkcloudcover = bt.talib.CDLDARKCLOUDCOVER(self.data.open, self.data.high, self.data.low, self.data.close)
+        self.cdl_doji = bt.talib.CDLDOJI(self.data.open, self.data.high, self.data.low, self.data.close)
+
         # --- 信号检查的配置 ---
         self.confirmation_signals = [
             ('coiled_spring', self.check_coiled_spring_conditions),
@@ -74,6 +91,10 @@ class BreakoutStrategy(bt.Strategy):
         self.coiled_spring_buy_pending = False
         self.in_coiled_spring_probation = False
         self.probation_counter = 0
+        # --- PSQ 2.0 状态 ---
+        self.psq_scores = []
+        self.psq_tracking_reason = None
+        self.psq_signal_day_context = {}  # 存储信号日的关键数据
 
     def log(self, txt, dt=None):
         dt = dt or self.datas[0].datetime.date(0)
@@ -85,6 +106,11 @@ class BreakoutStrategy(bt.Strategy):
 
         if order.status in [order.Completed]:
             if order.isbuy():
+                # 结束观察期评分，开始持仓期评分
+                if self.psq_tracking_reason == '观察期':
+                    self._stop_and_log_psq()
+                self._start_psq_tracking('持仓期', self.datas[0])
+
                 position_pct = order.executed.value / self.broker.getvalue() * 100
                 self.log(
                     f'买入成交: {order.executed.size}股 @ {order.executed.price:.2f}, '
@@ -111,6 +137,8 @@ class BreakoutStrategy(bt.Strategy):
     def notify_trade(self, trade):
         if trade.isclosed:
             self.log(f'交易关闭, 净盈亏: {trade.pnlcomm:.2f}, 当前总资产: {self.broker.getvalue():.2f}')
+            # 结束持仓期评分
+            self._stop_and_log_psq()
             # 重置所有交易相关的状态
             self.stop_price = 0
             self.highest_high_since_buy = 0
@@ -118,6 +146,17 @@ class BreakoutStrategy(bt.Strategy):
             self.probation_counter = 0
 
     def next(self):
+        # --- PSQ 2.0 评分 (每日) ---
+        # 仅在信号日之后进行每日评分
+        is_after_signal_day = self.psq_signal_day_context and \
+                              self.datas[0].datetime.date(0) > self.psq_signal_day_context.get('date')
+
+        if self.psq_tracking_reason and is_after_signal_day:
+            psq_score = self._calculate_psq_score(self.psq_tracking_reason, self.datas[0])
+            self.psq_scores.append(psq_score)
+            # 可选：如果需要详细的每日日志，可以取消下面的注释
+            # self.log(f"PSQ({self.psq_tracking_reason}) Day Score: {psq_score:.2f}")
+
         # 如果有挂单，不操作
         if self.order:
             return
@@ -188,6 +227,7 @@ class BreakoutStrategy(bt.Strategy):
                 self.observation_counter -= 1
                 if self.observation_counter <= 0:
                     self.log('*** 观察期结束，未出现二次确认信号，解除观察模式 ***')
+                    self._stop_and_log_psq()  # 结束观察期评分
                     self.observation_mode = False
         else:
             # --- 寻找初始突破信号(重构) ---
@@ -276,6 +316,8 @@ class BreakoutStrategy(bt.Strategy):
                     # 记录价格过滤器所需的状态
                     self.sentry_base_price = self.data.open[0]
                     self.sentry_highest_high = self.data.high[0]
+                    # 开始PSQ评分 - 从信号日当天开始
+                    self._start_psq_tracking('观察期', self.datas[0])
 
     def _check_confirmation_signals(self):
         """
@@ -315,6 +357,8 @@ class BreakoutStrategy(bt.Strategy):
                     if signal_name == 'coiled_spring':
                         self.coiled_spring_buy_pending = True
 
+                # 注意：此处不停止PSQ，因为买单可能不会立即成交。
+                # 评分的停止和切换将在notify_order中处理
                 self.observation_mode = False
                 log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
                 self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式 ***')
@@ -367,3 +411,138 @@ class BreakoutStrategy(bt.Strategy):
                 highest_down_volume = max(highest_down_volume, self.data.volume[-i])
 
         return self.data.volume[0] > highest_down_volume
+
+    # --- PSQ 2.0 评分系统 ---
+    def _start_psq_tracking(self, reason, data):
+        """开始一个新的PSQ评分周期，并立即对当天（信号日/入场日）评分。"""
+        self.psq_scores = []
+        self.psq_tracking_reason = reason
+
+        # 捕获信号日/入场日的上下文
+        self.psq_signal_day_context = {
+            'date': data.datetime.date(0),
+            'open': data.open[0],
+            'high': data.high[0],
+            'low': data.low[0],
+            'close': data.close[0],
+            'volume': data.volume[0],
+            'mid_price': (data.open[0] + data.close[0]) / 2
+        }
+        self.log(f'*** PSQ评分系统已激活，原因: {reason} ***')
+
+        # 立即对激活当天进行评分
+        day_0_score = self._calculate_psq_score(reason, data)
+        self.psq_scores.append(day_0_score)
+        self.log(f"PSQ({reason})激活日得分: {day_0_score:.2f}")
+
+    def _stop_and_log_psq(self):
+        """结束当前的PSQ评分周期并记录聚合日志"""
+        if not self.psq_tracking_reason:
+            return
+
+        total_score = sum(self.psq_scores)
+        avg_score = total_score / len(self.psq_scores) if self.psq_scores else 0
+        psq_scores_formatted = [round(s, 2) for s in self.psq_scores]
+
+        log_msg = (
+            f"PSQ报告({self.psq_tracking_reason}): "
+            f"累计总分: {total_score:.2f}, "
+            f"日均分: {avg_score:.2f}, "
+            f"持续天数: {len(self.psq_scores)}, "
+            f"每日得分: {psq_scores_formatted}"
+        )
+        self.log(log_msg)
+        # 重置状态
+        self.psq_scores = []
+        self.psq_tracking_reason = None
+        self.psq_signal_day_context = {}
+
+    def _get_kline_pattern_score(self):
+        """使用TA-Lib识别K线形态并评分"""
+        score = 0
+        # 强势看涨形态
+        if self.cdl_engulfing[0] > 0: score += 2.0
+        if self.cdl_morningstar[0] != 0: score += 2.0
+        if self.cdl_3whitesoldiers[0] != 0: score += 3.0
+        # 弱势看涨/反转形态
+        if self.cdl_hammer[0] != 0: score += 1.0
+        if self.cdl_piercing[0] != 0: score += 1.5
+
+        # 强势看跌形态
+        if self.cdl_engulfing[0] < 0: score -= 2.0
+        if self.cdl_eveningstar[0] != 0: score -= 2.0
+        if self.cdl_3blackcrows[0] != 0: score -= 3.0
+        # 弱势看跌/反转形态
+        if self.cdl_shootingstar[0] != 0: score -= 1.0
+        if self.cdl_darkcloudcover[0] != 0: score -= 1.5
+
+        # 十字星等中性形态
+        if self.cdl_doji[0] != 0: score -= 0.5  # 通常代表犹豫
+
+        return score
+
+    def _calculate_psq_score(self, period_type, data):
+        """计算当日的PSQ 2.0总分"""
+        # --- 1. K线形态分 ---
+        pattern_score = self._get_kline_pattern_score()
+
+        # --- 2. 价格行为分 ---
+        gap_pct = (data.open[0] / data.close[-1] - 1) * 100
+        gap_score = min(max(gap_pct, -2), 2)  # 将跳空得分限制在[-2, 2]
+
+        candle_range = data.high[0] - data.low[0]
+        intraday_strength = 0
+        if candle_range > 1e-9:
+            intraday_strength = (data.close[0] - data.open[0]) / candle_range
+        price_action_score = gap_score + intraday_strength * 2 # 日内强度权重为2
+
+        # --- 3. 量能匹配分 ---
+        volume_ratio_ma = data.volume[0] / self.volume_ma[0] if self.volume_ma[0] > 0 else 1
+        signal_vol = self.psq_signal_day_context.get('volume', 0)
+        volume_ratio_signal = data.volume[0] / signal_vol if signal_vol > 0 else 1
+
+        is_price_up = data.close[0] > data.close[-1]
+        is_volume_up_ma = volume_ratio_ma > 1.1
+
+        # 基础量价关系
+        if (is_price_up and is_volume_up_ma) or (not is_price_up and not is_volume_up_ma):
+            volume_score = 1  # 健康
+        else:
+            volume_score = -1 # 不健康
+
+        # 对比信号日成交量进行修正
+        if period_type == '观察期' and data.datetime.date(0) > self.psq_signal_day_context['date']:
+            if is_price_up and volume_ratio_signal < 0.7:
+                volume_score -= 1 # 上涨但量能相比信号日萎缩太多
+            if not is_price_up and volume_ratio_signal > 1.2:
+                volume_score -= 1.5 # 下跌但量能比信号日还大，非常危险
+
+        # --- 4. 位置结构分 ---
+        positional_score = 0
+        # 相对于均线的位置
+        if data.close[0] > self.ma5[0]: positional_score += 0.5
+        if data.close[0] > self.ma10[0]: positional_score += 0.5
+
+        # 相对于信号日关键位置
+        signal_mid_price = self.psq_signal_day_context.get('mid_price', data.close[0])
+        if data.close[0] < signal_mid_price:
+            positional_score -= 1 # 跌破信号日中点，警示信号
+
+        # --- 5. 情景化调整 (核心) ---
+        scenario_adjustment = 0
+        if period_type == '观察期':
+            # 拒绝过热: 首次突破布林带上轨是好事，但持续过高则不好
+            if data.close[0] > self.bband.lines.top[0] and data.close[-1] > self.bband.lines.top[-1]:
+                scenario_adjustment -= 1 # 连续两天在上轨之上，可能过热
+            # 拒绝深跌
+            pullback_from_high = (data.high[0] - data.close[0]) / (data.high[0] - data.low[0]) if (data.high[0] - data.low[0]) > 1e-9 else 0
+            if pullback_from_high > 0.7:
+                 scenario_adjustment -= 1 # 长上影线，抛压沉重
+
+        elif period_type == '持仓期':
+            # 奖励强势
+            if data.close[0] > self.highest_high_since_buy:
+                scenario_adjustment += 1.5 # 创持仓新高，强力加分
+
+        total_score = pattern_score + price_action_score + volume_score + positional_score + scenario_adjustment
+        return total_score
