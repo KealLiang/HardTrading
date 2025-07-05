@@ -236,7 +236,7 @@ def batch_backtrade_simulate():
     """
     对预设的股票池进行批量回测，并将所有控制台输出汇总到日志文件中。
     """
-    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357']
+    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744']
     # 定义结果汇总文件
     output_dir = "strategy/post_analysis"
     os.makedirs(output_dir, exist_ok=True)

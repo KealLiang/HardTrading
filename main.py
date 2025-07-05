@@ -52,14 +52,14 @@ def backtrade_simulate():
     # batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '002693'
+    stock_code = '600610'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
         startdate=datetime(2022, 1, 1),
         enddate=datetime(2025, 7, 4),
         strategy=BreakoutStrategy,
-        strategy_params={'debug': False},  # 开启详细日志
+        strategy_params={'debug': True},  # 开启详细日志
         log_trades=True,
         visualize=True,
         interactive_plot=True,  # 弹出交互图

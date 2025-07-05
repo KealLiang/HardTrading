@@ -27,10 +27,12 @@ class BreakoutStrategy(bt.Strategy):
         ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         ('context_period', 15),  # PSQ 3.1: 情景定位的回看周期
-        # -- PSQ 4.2: 权重参数 --
+        # -- PSQ 权重参数 --
         ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
         ('psq_momentum_weight', 1.0),  # PSQ 动能分权重
         ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
+        # -- PSQ 分析参数 --
+        ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -105,6 +107,9 @@ class BreakoutStrategy(bt.Strategy):
         self.psq_tracking_reason = None
         self.psq_signal_day_context = {}  # 存储信号日的关键数据
         self.last_overheat_score = 0.0  # 存储最近一次计算的过热分
+        # -- 新增：PSQ分析数据存储 --
+        self.all_trades_data = []
+        self.current_observation_scores = []
 
     def log(self, txt, dt=None):
         dt = dt or self.datas[0].datetime.date(0)
@@ -147,6 +152,15 @@ class BreakoutStrategy(bt.Strategy):
     def notify_trade(self, trade):
         if trade.isclosed:
             self.log(f'交易关闭, 净盈亏: {trade.pnlcomm:.2f}, 当前总资产: {self.broker.getvalue():.2f}')
+            # -- 新增：为PSQ分析报告收集数据 --
+            trade_data = {
+                'pnl': trade.pnlcomm,
+                'obs_scores': self.current_observation_scores,
+                'pos_scores': self.psq_scores.copy()  # 必须用copy，因为下面马上要清空
+            }
+            self.all_trades_data.append(trade_data)
+            self.current_observation_scores = []  # 重置
+
             # 结束持仓期评分
             self._stop_and_log_psq()
             # 重置所有交易相关的状态
@@ -386,6 +400,8 @@ class BreakoutStrategy(bt.Strategy):
                 stake = self.broker.getvalue() * self.p.initial_stake_pct
                 size = int(stake / self.data.close[0])
                 if size > 0:
+                    # -- 新增：为PSQ分析报告捕获观察期分数 --
+                    self.current_observation_scores = self.psq_scores.copy()
                     self.order = self.buy(size=size)
                     # 只有"蓄势待发"信号需要进入考察期
                     if signal_name == 'coiled_spring':
@@ -577,16 +593,99 @@ class BreakoutStrategy(bt.Strategy):
                       (momentum_score * self.p.psq_momentum_weight)
 
         # --- 调试日志 ---
-        # 仅在观察期且有过热分时，打印特定日志
-        if self.p.debug and self.psq_tracking_reason == '观察期' and overheat_score > 0:
+        # 仅在观察期时，打印详细的PSQ分数构成
+        if self.p.debug and self.psq_tracking_reason == '观察期':
             self.log(
                 f"[psq_debug] "
                 f"pat:{pattern_score:.2f}, "
                 f"power:{intraday_power:.2f}, "
                 f"vol:{volume_strength:.2f}, "
-                f"overheat:{overheat_score:.2f} "  # 新增过热分
+                f"overheat:{overheat_score:.2f} "
                 f"-> total:{total_score:.2f}"
             )
 
         self.last_overheat_score = overheat_score  # 存储过热分，供过滤器使用
         return total_score
+
+    def stop(self):
+        """在回测结束时调用，用于最终的统计分析。"""
+        self._analyze_and_log_psq_summary()
+
+    def _analyze_and_log_psq_summary(self):
+        """
+        在回测结束后，分析所有交易的PSQ数据，并生成一份指导性报告。
+        """
+        if not self.all_trades_data:
+            return
+
+        print('\n' + '=' * 60)
+        print(f'PSQ 特征分析报告: {self.data._name}')
+        print('=' * 60)
+
+        all_pnls = [t['pnl'] for t in self.all_trades_data]
+
+        # 动态计算"平庸"交易的界限
+        if len(all_pnls) >= 3:
+            pnl_mean = sum(all_pnls) / len(all_pnls)
+            pnl_variance = sum([(p - pnl_mean) ** 2 for p in all_pnls]) / len(all_pnls)
+            pnl_std_dev = pnl_variance ** 0.5
+            significance_threshold = 0.25 * pnl_std_dev
+        else:
+            significance_threshold = 0  # 交易太少，无法计算有意义的统计，退化为简单盈亏
+
+        winners = [t for t in self.all_trades_data if t['pnl'] > significance_threshold]
+        losers = [t for t in self.all_trades_data if t['pnl'] < -significance_threshold]
+        mediocre = [t for t in self.all_trades_data if -significance_threshold <= t['pnl'] <= significance_threshold]
+
+        def _calculate_stats(trades):
+            if not trades:
+                return {'avg_obs_psq': 0, 'avg_obs_end_psq': 0, 'avg_pos_psq': 0, 'avg_pos_first_n_psq': 0, 'count': 0,
+                        'avg_pnl': 0}
+
+            def safe_avg(data_list):
+                return sum(data_list) / len(data_list) if data_list else 0
+
+            obs_psq_avgs = [safe_avg(t['obs_scores']) for t in trades if t['obs_scores']]
+            obs_end_psqs = [t['obs_scores'][-1] for t in trades if t['obs_scores']]
+            pos_psq_avgs = [safe_avg(t['pos_scores']) for t in trades if t['pos_scores']]
+
+            n = self.p.psq_summary_period
+            pos_first_n_avgs = [safe_avg(t['pos_scores'][:n]) for t in trades if t['pos_scores']]
+
+            pnl_values = [t['pnl'] for t in trades]
+
+            return {
+                'avg_obs_psq': safe_avg(obs_psq_avgs),
+                'avg_obs_end_psq': safe_avg(obs_end_psqs),
+                'avg_pos_psq': safe_avg(pos_psq_avgs),
+                'avg_pos_first_n_psq': safe_avg(pos_first_n_avgs),
+                'count': len(trades),
+                'avg_pnl': safe_avg(pnl_values)
+            }
+
+        winner_stats = _calculate_stats(winners)
+        loser_stats = _calculate_stats(losers)
+        mediocre_stats = _calculate_stats(mediocre)
+
+        print(f"\n--- 盈利交易特征 ({winner_stats['count']} 笔, 平均盈利: {winner_stats['avg_pnl']:.2f}) ---")
+        if winner_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {winner_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {winner_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {winner_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {winner_stats['avg_pos_first_n_psq']:.2f}")
+
+        print(f"\n--- 平庸交易特征 ({mediocre_stats['count']} 笔, 平均盈亏: {mediocre_stats['avg_pnl']:.2f}) ---")
+        if mediocre_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {mediocre_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {mediocre_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {mediocre_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {mediocre_stats['avg_pos_first_n_psq']:.2f}")
+
+        print(f"\n--- 亏损交易特征 ({loser_stats['count']} 笔, 平均亏损: {loser_stats['avg_pnl']:.2f}) ---")
+        if loser_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {loser_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {loser_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {loser_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {loser_stats['avg_pos_first_n_psq']:.2f}")
+
+        print('=' * 60 + '\n')
