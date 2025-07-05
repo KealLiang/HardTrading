@@ -25,7 +25,6 @@ class BreakoutStrategy(bt.Strategy):
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
-        ('price_acceptance_pct', 0.25),  # 从观察期基准价上涨的最大可接受百分比(20%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         ('context_period', 15),  # PSQ 3.1: 情景定位的回看周期
         # -- PSQ 4.2: 权重参数 --
@@ -35,6 +34,7 @@ class BreakoutStrategy(bt.Strategy):
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
         ('atr_multiplier', 2.0),  # ATR止损乘数
+        ('atr_ceiling_multiplier', 4.0),  # 新增：基于ATR的价格窗口乘数
     )
 
     def __init__(self):
@@ -344,21 +344,27 @@ class BreakoutStrategy(bt.Strategy):
         """
         for signal_name, check_function in self.confirmation_signals:
             if check_function():
-                # --- 新增：动态价格接受窗口过滤器 ---
-                price_floor = self.sentry_base_price
-                price_ceiling_from_base = price_floor * (1 + self.p.price_acceptance_pct)
-                price_ceiling_from_peak = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
+                # --- 新增：动态价格接受窗口过滤器 (ATR自适应版) ---
+                # 价格上限：我们允许价格超过观察期高点一定ATR倍数，形成一个"动能区"
+                price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
+                # 价格下限：我们不允许价格从观察期高点回撤过深
+                price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
                 current_price = self.data.close[0]
 
-                if current_price > price_ceiling_from_base:
+                if current_price > price_ceiling_from_peak_atr:
                     self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 过高, > 基准价 {price_floor:.2f} 的 {self.p.price_acceptance_pct:.0%}")
-                    continue  # 继续检查下一个信号，或者结束本轮
+                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 过高, "
+                        f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
+                        f"({price_ceiling_from_peak_atr:.2f})"
+                    )
+                    continue
 
-                if current_price < price_ceiling_from_peak:
+                if current_price < price_floor_from_peak_pct:
                     self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深")
-                    continue  # 继续检查下一个信号，或者结束本轮
+                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
+                        f"< 止损线 {price_floor_from_peak_pct:.2f}"
+                    )
+                    continue
                 # --- 过滤器结束 ---
 
                 log_msg_map = {
