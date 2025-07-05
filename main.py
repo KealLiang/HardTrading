@@ -40,7 +40,6 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
-from strategy.kline_pattern import TALibPatternStrategy
 from bin.scanner import scan_and_visualize
 
 # 配置日志
@@ -53,14 +52,14 @@ def backtrade_simulate():
     # batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '300204'
+    stock_code = '002693'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
         startdate=datetime(2022, 1, 1),
         enddate=datetime(2025, 7, 4),
         strategy=BreakoutStrategy,
-        strategy_params={'debug': True},  # 开启详细日志
+        strategy_params={'debug': False},  # 开启详细日志
         log_trades=True,
         visualize=True,
         interactive_plot=True,  # 弹出交互图

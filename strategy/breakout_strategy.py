@@ -30,6 +30,7 @@ class BreakoutStrategy(bt.Strategy):
         # -- PSQ 4.2: 权重参数 --
         ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
         ('psq_momentum_weight', 1.0),  # PSQ 动能分权重
+        ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -103,6 +104,7 @@ class BreakoutStrategy(bt.Strategy):
         self.psq_scores = []
         self.psq_tracking_reason = None
         self.psq_signal_day_context = {}  # 存储信号日的关键数据
+        self.last_overheat_score = 0.0  # 存储最近一次计算的过热分
 
     def log(self, txt, dt=None):
         dt = dt or self.datas[0].datetime.date(0)
@@ -365,7 +367,14 @@ class BreakoutStrategy(bt.Strategy):
                         f"< 止损线 {price_floor_from_peak_pct:.2f}"
                     )
                     continue
-                # --- 过滤器结束 ---
+
+                # --- 新增：过热分数过滤器 ---
+                if self.last_overheat_score > self.p.overheat_threshold:
+                    self.log(
+                        f"信号拒绝({signal_name}): 过热分数 {self.last_overheat_score:.2f} "
+                        f"> 阈值 {self.p.overheat_threshold}"
+                    )
+                    continue
 
                 log_msg_map = {
                     'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
@@ -386,7 +395,7 @@ class BreakoutStrategy(bt.Strategy):
                 # 评分的停止和切换将在notify_order中处理
                 self.observation_mode = False
                 log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
-                self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式 ***')
+                self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式，当前过热分: {self.last_overheat_score:.2f} ***')
                 return  # 找到一个信号后就停止检查
 
     def check_coiled_spring_conditions(self):
@@ -437,7 +446,7 @@ class BreakoutStrategy(bt.Strategy):
 
         return self.data.volume[0] > highest_down_volume
 
-    # --- PSQ 2.0 评分系统 ---
+    # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):
         """开始一个新的PSQ评分周期，并立即对当天（信号日/入场日）评分。"""
         self.psq_scores = []
@@ -519,9 +528,10 @@ class BreakoutStrategy(bt.Strategy):
 
     def _calculate_psq_score(self, data):
         """
-        计算当日的PSQ 4.0总分。
-        - 形态分: 来自 _get_kline_pattern_score，拥有较高权重。
+        计算当日的PSQ总分。
+        - 形态分: 来自 _get_kline_pattern_score。
         - 动能分: 代表当日价格与成交量的综合表现。
+        - 新增：过热分，用于识别观察期内的追高风险。
         """
         # --- 1. 形态分 (Pattern Score) ---
         pattern_score = self._get_kline_pattern_score(data)
@@ -540,7 +550,43 @@ class BreakoutStrategy(bt.Strategy):
 
         momentum_score = intraday_power + volume_strength
 
+        # --- 3. 新增：过热分 (Overheat Score) ---
+        overheat_score = 0.0
+        # 只在观察期内计算
+        if self.psq_tracking_reason == '观察期':
+            signal_context = self.psq_signal_day_context
+            days_since_signal = len(self.psq_scores)
+
+            if signal_context and days_since_signal > 0:
+                # a. 计算涨速指标 (Velocity Metric), 综合考虑"日均涨速"和"单日涨速"
+                total_rise_pct = (data.close[0] - signal_context['close']) / signal_context['close']
+                avg_velocity = total_rise_pct / days_since_signal
+                single_day_rise_pct = (data.close[0] - data.close[-1]) / data.close[-1] if data.close[-1] > 0 else 0
+
+                # 取两者中更快的速度作为风险衡量的基础，并放大10倍
+                velocity_metric = max(avg_velocity, single_day_rise_pct) * 10
+
+                # b. 结合犹豫信号(上影线)进行放大，计算最终过热分
+                # 只有当存在上涨时才计算过热分
+                if velocity_metric > 0:
+                    # 上影线越长(0~1)，放大效应越强(1~3倍)
+                    overheat_score = velocity_metric * (1 + upper_shadow * 3)
+
         # --- 合计总分 (PSQ 4.2: 应用权重) ---
         total_score = (pattern_score * self.p.psq_pattern_weight) + \
                       (momentum_score * self.p.psq_momentum_weight)
+
+        # --- 调试日志 ---
+        # 仅在观察期且有过热分时，打印特定日志
+        if self.p.debug and self.psq_tracking_reason == '观察期' and overheat_score > 0:
+            self.log(
+                f"[psq_debug] "
+                f"pat:{pattern_score:.2f}, "
+                f"power:{intraday_power:.2f}, "
+                f"vol:{volume_strength:.2f}, "
+                f"overheat:{overheat_score:.2f} "  # 新增过热分
+                f"-> total:{total_score:.2f}"
+            )
+
+        self.last_overheat_score = overheat_score  # 存储过热分，供过滤器使用
         return total_score
