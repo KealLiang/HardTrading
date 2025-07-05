@@ -232,6 +232,51 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
         cerebro.plot()
 
 
+def batch_backtrade_simulate():
+    """
+    对预设的股票池进行批量回测，并将所有控制台输出汇总到日志文件中。
+    """
+    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357']
+    # 定义结果汇总文件
+    output_dir = "strategy/post_analysis"
+    os.makedirs(output_dir, exist_ok=True)
+    summary_file_path = os.path.join(output_dir, "backtest_summary.txt")
+    # 定义策略和参数
+    strategy_to_run = BreakoutStrategy
+    strategy_params = {'debug': True}  # 保持debug开启，以便分析
+    print(f"准备执行批量回测，结果将保存到: {summary_file_path}")
+    # 重定向stdout到文件
+    with open(summary_file_path, 'w', encoding='utf-8') as f:
+        with redirect_stdout(f):
+            print(f"===== 批量回测报告 =====")
+            print(f"策略: {strategy_to_run.__name__}")
+            print(f"参数: {strategy_params}")
+            print(f"回测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print("=" * 80)
+
+            for code in stock_codes:
+                print(f"--- 开始回测股票: {code} ---")
+                try:
+                    # 注意：批量回测时，关闭交互式绘图以避免阻塞
+                    go_trade(
+                        code=code,
+                        startdate=datetime(2022, 1, 1),
+                        enddate=datetime(2025, 7, 4),
+                        strategy=strategy_to_run,
+                        strategy_params=strategy_params,
+                        log_trades=True,
+                        visualize=True,  # 仍然为每笔交易生成单独图表
+                        interactive_plot=False  # 关闭弹出的cerebro图表
+                    )
+                    print(f"--- 股票: {code} 回测完成 ---")
+                except Exception as e:
+                    print(f"--- 股票: {code} 回测失败: {e} ---")
+                print("-" * 60)
+
+            print("===== 批量回测全部完成 =====")
+    print(f"批量回测执行完毕。请查看报告: {summary_file_path}")
+
+
 if __name__ == '__main__':
     stock_code = '301357'
     initial_cash = 100000

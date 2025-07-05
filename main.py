@@ -1,7 +1,10 @@
 import logging
 import warnings
+import os
+from contextlib import redirect_stdout
 
 from bin.scanner_analyzer import scan_and_visualize_analyzer
+from bin.simulator import batch_backtrade_simulate
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.scannable_strategy import ScannableBreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
@@ -46,22 +49,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    # code = '300033'
-    # code = '300059'
-    # code = '000062'
-    # code = '300204'
-    # code = '600610'
-    # code = '002693'
-    code = '301357'
+    # 批量回测
+    # batch_backtrade_simulate()
 
-    # 使用修复后的策略
-    simulator.go_trade(code,
-                       #    startdate=datetime(2020, 1, 1),
-                       startdate=datetime(2022, 1, 1),
-                       #    enddate=datetime(2024, 9, 22),
-                       enddate=datetime(2025, 7, 4),
-                       strategy=BreakoutStrategy,
-                       log_trades=True, visualize=True)
+    # 单个回测
+    stock_code = '300204'
+    simulator.go_trade(
+        code=stock_code,
+        amount=100000,
+        startdate=datetime(2022, 1, 1),
+        enddate=datetime(2025, 7, 4),
+        strategy=BreakoutStrategy,
+        strategy_params={'debug': True},  # 开启详细日志
+        log_trades=True,
+        visualize=True,
+        interactive_plot=True,  # 弹出交互图
+    )
 
 
 def strategy_scan():
