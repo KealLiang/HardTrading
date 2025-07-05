@@ -10,6 +10,8 @@ class BreakoutStrategy(bt.Strategy):
     - 卖出逻辑：使用ATR跟踪止损来管理风险。
     """
     params = (
+        # -- 调试开关 --
+        ('debug', False),  # 是否开启信号评级的详细日志
         # -- 核心指标 --
         ('bband_period', 20),  # 布林带周期
         ('bband_devfactor', 2.0),  # 布林带标准差
@@ -284,6 +286,17 @@ class BreakoutStrategy(bt.Strategy):
                     volume_grade, volume_score = f'D级({grade_reason})', 0
 
                 total_score = env_score + squeeze_score + volume_score
+
+                # --- 调试日志 ---
+                if self.p.debug:
+                    debug_msg = (
+                        f"[debug]信号候选日: "
+                        f"环境(分:{env_score},级:{env_grade}), "
+                        f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
+                        f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x) | "
+                        f"总分: {total_score}"
+                    )
+                    self.log(debug_msg)
 
                 # --- 决策逻辑：结合补偿机制 ---
                 trigger_observation = False

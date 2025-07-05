@@ -243,8 +243,9 @@ if __name__ == '__main__':
         enddate=datetime(2025, 7, 4),
         filepath=data_path,
         strategy=BreakoutStrategy,
+        strategy_params={'debug': True},  # 开启PSQ详细日志
         log_trades=True,
         visualize=True,
-        interactive_plot=False, # 先不弹出交互图，方便查看日志
+        interactive_plot=False,  # 先不弹出交互图，方便查看日志
         signal_info=[]
     )
