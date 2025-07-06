@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import timedelta
 
 import matplotlib.dates as mdates
@@ -8,21 +9,35 @@ import pandas as pd
 from matplotlib import font_manager
 from matplotlib.font_manager import FontProperties
 
+from strategy.constant.signal_constants import SIGNAL_MARKER_MAP, SIG_UNKNOWN, SIG_SOURCE
+
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
-# 信号标记的映射
-signal_marker_map = {
-    # 扫描模式
-    '突破信号': {'marker': 'P', 'color': 'purple', 'size': 100},
-    '蓄势待发': {'marker': '*', 'color': 'cyan', 'size': 100},
-    '口袋支点': {'marker': 'D', 'color': 'blue', 'size': 100},
-    '观察哨': {'marker': 's', 'color': 'orange', 'size': 100},  # 方形标记
-    '二次确认': {'marker': 'p', 'color': 'red', 'size': 120},  # 五角星
-    '卖出信号': {'marker': 'X', 'color': 'green', 'size': 120},  # 实心x
-    'Unknown': {'marker': 'o', 'color': 'yellow', 'size': 80},
-    # 回测模式
-    '源信号': {'marker': 'o', 'color': 'cyan', 'size': 100}
-}
+
+def _extract_scores_from_details(signal_info):
+    """从信号详情中解析VCP和过热分"""
+    if not signal_info:
+        return None, None
+
+    details_text = ""
+    # 优先寻找包含VCP分数的 '二次确认' 信号
+    for signal in signal_info:
+        # 寻找最可能包含分数的信号详情
+        current_details = signal.get('details', '')
+        if 'VCP' in current_details and '过热分' in current_details:
+            details_text = current_details
+            break
+
+    if not details_text:
+        return None, None
+
+    overheat_match = re.search(r'过热分:\s*([\d\.]+)', details_text)
+    vcp_match = re.search(r'Score:\s*([\d\.\-]+)', details_text)
+
+    overheat_score = overheat_match.group(1) if overheat_match else None
+    vcp_score = vcp_match.group(1) if vcp_match else None
+
+    return overheat_score, vcp_score
 
 
 # --- 助手函数 ---
@@ -135,7 +150,6 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
     for signal in filtered_signal_info:
         signal_date = signal['date']
         signal_type = signal['type']
-        marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
 
         if signal_type not in signal_markers_dict:
             signal_markers_dict[signal_type] = [float('nan')] * len(chart_df)
@@ -155,7 +169,7 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
             pass
 
     for signal_type, markers in signal_markers_dict.items():
-        marker_style = signal_marker_map.get(signal_type, signal_marker_map['Unknown'])
+        marker_style = SIGNAL_MARKER_MAP.get(signal_type, SIGNAL_MARKER_MAP[SIG_UNKNOWN])
         addplots.append(
             mpf.make_addplot(
                 markers,
@@ -318,10 +332,15 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     addplots.extend(signal_addplots)
 
     # --- 生成图表标题 ---
+    overheat_score, vcp_score = _extract_scores_from_details(signal_info)
+    extra_info = ""
+    if overheat_score is not None and vcp_score is not None:
+        extra_info = f" (过热分: {overheat_score}, VCP Score: {vcp_score})"
+
     if is_open_trade:
         title = (
             f"股票: {stock_code} | 交易ID: {trade_id} | 持仓中\n"
-            f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f}"
+            f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f}{extra_info}"
         )
     else:
         pnl = (trade['price_sell'] - trade['price_buy']) * abs(trade['size_sell'])
@@ -332,7 +351,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         title = (
             f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
             f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
-            f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}"
+            f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}{extra_info}"
         )
 
     output_path = os.path.join(output_dir, f"trade_{trade_id}_{stock_code}.png")
@@ -390,7 +409,12 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info):
     # 获取信号标记
     addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
 
-    title = f"信号分析: {stock_code}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}"
+    overheat_score, vcp_score = _extract_scores_from_details(signal_info)
+    extra_info = ""
+    if overheat_score is not None and vcp_score is not None:
+        extra_info = f" (过热分: {overheat_score}, VCP Score: {vcp_score})"
+
+    title = f"信号分析: {stock_code}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}{extra_info}"
 
     signal_date_str = primary_signal_date.strftime('%Y%m%d')
     output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_{signal_date_str}.png")
@@ -466,7 +490,7 @@ def analyze_and_visualize_trades(
             if not signals_to_plot and 'datetime_marker' in trade and pd.notna(trade['datetime_marker']):
                 signals_to_plot = [{
                     'date': trade['datetime_marker'],
-                    'type': '源信号',
+                    'type': SIG_SOURCE,
                     'details': '回测模式下的买入源信号'
                 }]
 

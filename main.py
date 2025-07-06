@@ -52,7 +52,7 @@ def backtrade_simulate():
     # batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '300204'
+    stock_code = '300581'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
@@ -69,21 +69,21 @@ def backtrade_simulate():
 def strategy_scan():
     # 使用更精确的信号模式列表
     signal_patterns = [
-        '突破信号',
+        # '突破信号',
+        # '*** 触发【突破观察哨】',
         '*** 二次确认信号',
-        '*** 触发【突破观察哨】'
     ]
 
     start_date = '20250530'
-    end_date = '20250630'
-    stock_pool = ['301357', '002235']
+    end_date = '20250704'
+    stock_pool = ['300581', '600475']
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
-        scan_end_date=None,
-        stock_pool=None,
+        scan_end_date=end_date,
+        stock_pool=stock_pool,
         signal_patterns=signal_patterns
     )
 
@@ -324,8 +324,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    backtrade_simulate()
-    # strategy_scan()
+    # backtrade_simulate()
+    strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()

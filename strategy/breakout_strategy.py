@@ -794,7 +794,8 @@ class BreakoutStrategy(bt.Strategy):
 
     def stop(self):
         """在回测结束时调用，用于最终的统计分析。"""
-        self._analyze_and_log_psq_summary()
+        if self.p.debug:
+            self._analyze_and_log_psq_summary()
 
     def _analyze_and_log_psq_summary(self):
         """
