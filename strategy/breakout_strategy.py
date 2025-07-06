@@ -26,7 +26,7 @@ class BreakoutStrategy(bt.Strategy):
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
-        ('context_period', 15),  # PSQ 3.1: 情景定位的回看周期
+        ('context_period', 7),  # PSQ 3.1: 情景定位的回看周期
         # -- PSQ 权重参数 --
         ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
         ('psq_momentum_weight', 1.0),  # PSQ 动能分权重
@@ -552,16 +552,28 @@ class BreakoutStrategy(bt.Strategy):
         # --- 1. 形态分 (Pattern Score) ---
         pattern_score = self._get_kline_pattern_score(data)
 
-        # --- 2. 动能分 (Momentum Score) ---
-        # a. 日内博弈
+        # --- 2. 动能分 (PSQ 3.1: Context-aware Momentum Score) ---
+        # a. 计算基础K线特征
         candle_range = data.high[0] - data.low[0]
         if candle_range < 1e-9: candle_range = 1e-9
         entity_ratio = (data.close[0] - data.open[0]) / candle_range
         lower_shadow = (min(data.open[0], data.close[0]) - data.low[0]) / candle_range
         upper_shadow = (data.high[0] - max(data.open[0], data.close[0])) / candle_range
-        intraday_power = (entity_ratio * 2) + lower_shadow - upper_shadow
 
-        # b. 量能强度
+        # b. 情景定位 (Context Positioning)
+        channel_range = self.recent_high[0] - self.recent_low[0]
+        price_position_pct = (data.close[0] - self.recent_low[0]) / channel_range if channel_range > 1e-9 else 1.0
+
+        # c. 结合情景计算日内力量
+        # 实体分是基础
+        power = entity_ratio * 2.0
+        # 下影线：在低位是强支撑信号，在高位意义不大
+        power += lower_shadow * (2.0 * (1 - price_position_pct))  # 低位时权重接近2, 高位时接近0
+        # 上影线：在高位是强阻力信号，在低位可能是试探，惩罚较轻
+        power -= upper_shadow * (1.0 + price_position_pct)  # 低位时权重接近-1, 高位时接近-2
+        intraday_power = power
+
+        # d. 量能强度
         volume_strength = (data.volume[0] / self.volume_ma[0] - 1) if self.volume_ma[0] > 0 else 0
 
         momentum_score = intraday_power + volume_strength
