@@ -52,7 +52,7 @@ def backtrade_simulate():
     # batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '600610'
+    stock_code = '300204'
     simulator.go_trade(
         code=stock_code,
         amount=100000,

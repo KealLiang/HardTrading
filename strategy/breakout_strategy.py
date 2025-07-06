@@ -1,4 +1,5 @@
 import backtrader as bt
+import numpy as np
 
 
 class BreakoutStrategy(bt.Strategy):
@@ -33,6 +34,15 @@ class BreakoutStrategy(bt.Strategy):
         ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
         # -- PSQ 分析参数 --
         ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
+        # -- 加入vcp评分 --
+        ('vcp_lookback', 90),  # VCP形态回顾期
+        ('vcp_min_contractions', 3),  # VCP最少需要几次收缩才能进行趋势分析
+        ('vcp_max_depth_pct', 0.5),  # VCP首次最大回撤深度(50%)
+        ('vcp_proximity_pct', 0.05),  # 突破点距离枢轴点的最大容忍度(5%)
+        ('vcp_regression_slope_threshold', -0.01),  # VCP收缩趋势的线性回归斜率阈值
+        ('vcp_pressure_lookback', 20),  # "压力测试"的回看期
+        ('vcp_pressure_proximity_pct', 0.03),  # "压力测试"中，价格接近高点的容忍度
+        ('vcp_pressure_min_tests', 3),  # "压力测试"最少需要几次有效测试才能加分
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -98,6 +108,8 @@ class BreakoutStrategy(bt.Strategy):
         # 新增：价格接受度过滤器所需的状态
         self.sentry_base_price = 0
         self.sentry_highest_high = 0
+        # 新增：用于精确计算信号日偏移量的索引
+        self.signal_day_index = -1
         # 新增：蓄势待发信号的考察期状态
         self.coiled_spring_buy_pending = False
         self.in_coiled_spring_probation = False
@@ -269,7 +281,6 @@ class BreakoutStrategy(bt.Strategy):
             if is_volume_up and (is_strict_breakout or is_quasi_breakout):
 
                 # --- 信号评级系统 ---
-                # (评级逻辑保持不变)
                 upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
                 lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
                 if self.data.close[0] > upper_band_macro:
@@ -351,68 +362,93 @@ class BreakoutStrategy(bt.Strategy):
                     # 记录价格过滤器所需的状态
                     self.sentry_base_price = self.data.open[0]
                     self.sentry_highest_high = self.data.high[0]
+                    # 新增: 精确记录信号日的索引
+                    self.signal_day_index = len(self.data) - 1
                     # 开始PSQ评分 - 从信号日当天开始
                     self._start_psq_tracking('观察期', self.datas[0])
 
     def _check_confirmation_signals(self):
         """
-        统一检查所有二次确认信号。
+        统一检查所有二次确认信号。 V2.0 优化日志逻辑
+        1. 先找出当天所有满足条件的信号。
+        2. 再对这些信号统一应用过滤器。
+        3. 如果通过，则按优先级（coiled_spring > pocket_pivot）执行交易。
         """
-        for signal_name, check_function in self.confirmation_signals:
-            if check_function():
-                # --- 新增：动态价格接受窗口过滤器 (ATR自适应版) ---
-                # 价格上限：我们允许价格超过观察期高点一定ATR倍数，形成一个"动能区"
-                price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
-                # 价格下限：我们不允许价格从观察期高点回撤过深
-                price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
-                current_price = self.data.close[0]
+        # 步骤1: 找出当天所有活跃的信号
+        active_signals = [
+            signal_name for signal_name, check_function in self.confirmation_signals
+            if check_function()
+        ]
 
-                if current_price > price_ceiling_from_peak_atr:
-                    self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 过高, "
-                        f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
-                        f"({price_ceiling_from_peak_atr:.2f})"
-                    )
-                    continue
+        if not active_signals:
+            return
 
-                if current_price < price_floor_from_peak_pct:
-                    self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
-                        f"< 止损线 {price_floor_from_peak_pct:.2f}"
-                    )
-                    continue
+        # 步骤2: 对活跃信号统一应用过滤器
+        signal_names_str = ", ".join(active_signals)
 
-                # --- 新增：过热分数过滤器 ---
-                if self.last_overheat_score > self.p.overheat_threshold:
-                    self.log(
-                        f"信号拒绝({signal_name}): 过热分数 {self.last_overheat_score:.2f} "
-                        f"> 阈值 {self.p.overheat_threshold}"
-                    )
-                    continue
+        # 过滤器1: 动态价格接受窗口
+        price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
+        price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
+        current_price = self.data.close[0]
 
-                log_msg_map = {
-                    'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
-                    'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
-                }
-                log_msg = log_msg_map.get(signal_name, '未知确认信号')
-                self.log(log_msg)
+        if current_price > price_ceiling_from_peak_atr:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 过高, "
+                f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
+                f"({price_ceiling_from_peak_atr:.2f})"
+            )
+            return
 
-                stake = self.broker.getvalue() * self.p.initial_stake_pct
-                size = int(stake / self.data.close[0])
-                if size > 0:
-                    # -- 新增：为PSQ分析报告捕获观察期分数 --
-                    self.current_observation_scores = self.psq_scores.copy()
-                    self.order = self.buy(size=size)
-                    # 只有"蓄势待发"信号需要进入考察期
-                    if signal_name == 'coiled_spring':
-                        self.coiled_spring_buy_pending = True
+        if current_price < price_floor_from_peak_pct:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
+                f"< 止损线 {price_floor_from_peak_pct:.2f}"
+            )
+            return
 
-                # 注意：此处不停止PSQ，因为买单可能不会立即成交。
-                # 评分的停止和切换将在notify_order中处理
-                self.observation_mode = False
-                log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
-                self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式，当前过热分: {self.last_overheat_score:.2f} ***')
-                return  # 找到一个信号后就停止检查
+        # 过滤器2: 过热分数
+        if self.last_overheat_score > self.p.overheat_threshold:
+            self.log(
+                f"信号拒绝({signal_names_str}): 过热分数 {self.last_overheat_score:.2f} "
+                f"> 阈值 {self.p.overheat_threshold}"
+            )
+            return
+
+        # 所有前置过滤器通过，计算VCP分数作为参考，不作为决策依据
+        vcp_score, vcp_grade = self._calculate_vcp_score()
+
+        # 步骤3: 所有过滤器通过，按优先级执行交易
+        # active_signals中的顺序由self.confirmation_signals定义，默认coiled_spring优先
+        signal_to_execute = active_signals[0]
+
+        log_msg_map = {
+            'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
+            'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
+        }
+        log_msg_base = log_msg_map.get(signal_to_execute, '未知确认信号')
+        # 信号日志回归简洁，不再包含结构分
+        self.log(log_msg_base)
+
+        stake = self.broker.getvalue() * self.p.initial_stake_pct
+        size = int(stake / self.data.close[0])
+        if size > 0:
+            # -- 新增：为PSQ分析报告捕获观察期分数 --
+            self.current_observation_scores = self.psq_scores.copy()
+            self.order = self.buy(size=size)
+            # 只有"蓄势待发"信号需要进入考察期
+            if signal_to_execute == 'coiled_spring':
+                self.coiled_spring_buy_pending = True
+
+        # 注意：此处不停止PSQ，因为买单可能不会立即成交。
+        # 评分的停止和切换将在notify_order中处理
+        self.observation_mode = False
+        log_suffix = "发出" if signal_to_execute == 'coiled_spring' else "执行"
+        # 按要求将VCP信息添加到此日志行
+        self.log(
+            f'*** 二次确认信号已{log_suffix}，解除观察模式，'
+            f'当前过热分: {self.last_overheat_score:.2f} '
+            f'(VCP 参考: {vcp_grade}, Score: {vcp_score}) ***'
+        )
 
     def check_coiled_spring_conditions(self):
         """
@@ -461,6 +497,143 @@ class BreakoutStrategy(bt.Strategy):
                 highest_down_volume = max(highest_down_volume, self.data.volume[-i])
 
         return self.data.volume[0] > highest_down_volume
+
+    def _calculate_vcp_score(self):
+        """
+        VCP 2.0: 计算VCP（波动性收缩规律）分数。
+        - 结合线性回归分析收缩趋势，提高容错性。
+        """
+        # V2.2: 使用信号日索引精确计算偏移量
+        if self.signal_day_index == -1: return 0, "N/A"
+        days_since_signal = (len(self.data) - 1) - self.signal_day_index
+
+        lookback = self.p.vcp_lookback
+        if len(self.data) < days_since_signal + lookback + 1:
+            return 0, "N/A"
+
+        try:
+            # 修正: lookback从信号日前(t_signal-1)开始
+            start_idx = days_since_signal + 1
+            end_idx = days_since_signal + lookback + 1
+            highs = [self.data.high[-i] for i in range(start_idx, end_idx)]
+            lows = [self.data.low[-i] for i in range(start_idx, end_idx)]
+        except IndexError:
+            return 0, "N/A"
+
+        highs.reverse()
+        lows.reverse()
+
+        # Step 1: Find the initial peak in the first 75% of the lookback period
+        peak1_search_range = int(lookback * 0.75)
+        peak1_price = -1.0
+        peak1_idx = -1
+        for i in range(peak1_search_range):
+            if highs[i] > peak1_price:
+                peak1_price = highs[i]
+                peak1_idx = i
+
+        if peak1_idx == -1:
+            return 0, "NoVCP"
+
+        # Step 2: Find contractions sequentially
+        contractions = []
+        last_peak_price = peak1_price
+        current_idx = peak1_idx
+
+        for _ in range(5):  # Look for up to 5 contractions
+            # Find next trough
+            search_area_lows = lows[current_idx:]
+            if not search_area_lows: break
+            trough_price = min(search_area_lows)
+            trough_idx = lows.index(trough_price, current_idx)
+
+            # Find next peak
+            search_area_highs = highs[trough_idx:]
+            if not search_area_highs: break
+            peak_price = max(search_area_highs)
+            peak_idx = highs.index(peak_price, trough_idx)
+
+            # A valid contraction must form a lower or similar high
+            if peak_price > last_peak_price * 1.03:  # Allow 3% overshoot
+                break
+
+            depth = (last_peak_price - trough_price) / last_peak_price if last_peak_price > 0 else 0
+            contractions.append({'depth': depth, 'peak_price': peak_price})
+
+            last_peak_price = peak_price
+            current_idx = peak_idx
+            if current_idx >= lookback - 2:  # Reached the end
+                break
+
+        # --- VCP 2.0 Scoring ---
+        base_score = 0
+        details_str = ""
+
+        # 1. Base Score from Contraction Trend (Linear Regression)
+        contraction_depths = [c['depth'] for c in contractions]
+        if len(contraction_depths) >= self.p.vcp_min_contractions:
+            if contraction_depths[0] <= self.p.vcp_max_depth_pct:
+                x = np.arange(len(contraction_depths))
+                y = np.array(contraction_depths)
+                slope, _ = np.polyfit(x, y, 1)
+
+                if slope < self.p.vcp_regression_slope_threshold:
+                    base_score = 1  # Valid structure with negative slope
+                    details_str = f"VCP(s={slope:.2f})"
+                    if slope < (self.p.vcp_regression_slope_threshold * 3):  # Significantly contracting
+                        base_score = 2
+                        details_str = f"VCP-Tight(s={slope:.2f})"
+                else:
+                    details_str = f"VCP-Div(s={slope:.2f})"
+            else:
+                details_str = f"Depth>{self.p.vcp_max_depth_pct:.0%}"
+        else:
+            details_str = "NoVCP"
+
+        # 2. Pivot Point Bonus
+        pivot_bonus = 0
+        if base_score > 0:
+            pivot_price = contractions[-1]['peak_price']
+            current_close = self.data.close[0]
+            if abs(pivot_price - current_close) / pivot_price <= self.p.vcp_proximity_pct:
+                pivot_bonus = 1
+                details_str += "+Pivot"
+
+        # 3. Pressure Test Score (Memory)
+        pressure_score = 0
+        pressure_lookback = self.p.vcp_pressure_lookback
+        if len(self.data.high) > pressure_lookback:
+            try:
+                # Use a slice of recent highs, excluding today
+                recent_highs = [self.data.high[-i] for i in range(1, pressure_lookback + 1)]
+                high_water_mark = max(recent_highs)
+                test_threshold = high_water_mark * (1 - self.p.vcp_pressure_proximity_pct)
+                test_count = sum(1 for h in recent_highs if h >= test_threshold)
+
+                if test_count >= self.p.vcp_pressure_min_tests:
+                    pressure_score = 1
+                    if test_count >= self.p.vcp_pressure_min_tests * 1.5:
+                        pressure_score = 2
+                    details_str += f"+PT({test_count})"
+            except (IndexError, ValueError):
+                pass  # Not enough data or other issue
+
+        # Final Score is a combination of all factors
+        final_score = base_score + pivot_bonus + pressure_score
+
+        # Fallback for empty details string
+        if not details_str:
+            details_str = "NoStruct"
+
+        if self.p.debug:
+            depths_str = ", ".join([f"{d:.1%}" for d in contraction_depths]) if contraction_depths else "N/A"
+            self.log(
+                f"[vcp_debug] VCP Analysis: {details_str} | "
+                f"Score factors: base({base_score}) + pivot({pivot_bonus}) + pressure({pressure_score}) = {final_score} | "
+                f"Depths: [{depths_str}]"
+            )
+
+        return final_score, details_str
 
     # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):
