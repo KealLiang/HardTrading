@@ -19,7 +19,7 @@ class BreakoutStrategy(bt.Strategy):
         ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
-        ('macro_ranging_pct', 0.05),  # 定义震荡市的均线上下浮动范围
+        ('macro_ranging_pct', 0.10),  # 定义震荡市的均线上下浮动范围
         ('squeeze_period', 90),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
@@ -284,11 +284,11 @@ class BreakoutStrategy(bt.Strategy):
                 upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
                 lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
                 if self.data.close[0] > upper_band_macro:
-                    env_grade, env_score = '牛市', 3
+                    env_grade, env_score = '牛市', 2
                 elif self.data.close[0] < lower_band_macro:
                     env_grade, env_score = '熊市', 1
                 else:
-                    env_grade, env_score = '震荡市', 2
+                    env_grade, env_score = '震荡市', 3
 
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
@@ -296,13 +296,33 @@ class BreakoutStrategy(bt.Strategy):
                     squeeze_grade, squeeze_score = 'A级', 3
                 elif squeeze_pct <= 0.05:
                     squeeze_grade, squeeze_score = 'B级', 2
-                elif 0.20 < squeeze_pct <= 0.60:
+                elif 0.20 < squeeze_pct <= 1.00:
                     squeeze_grade, squeeze_score = 'C级', 1
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
 
+                # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
+                # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
+                lookback = self.p.pocket_pivot_lookback
+                highest_down_volume = 0
+                is_pocket_pivot_volume = False
+                if len(self.data.close) > lookback + 1:
+                    for i in range(1, lookback + 1):
+                        if self.data.close[-i] < self.data.close[-i - 1]:
+                            highest_down_volume = max(highest_down_volume, self.data.volume[-i])
+                    if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
+                        is_pocket_pivot_volume = True
+
+                # 2. 基于传统量比和口袋支点特征进行综合评分
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if 3.0 < volume_ratio <= 5.0:
+
+                if is_pocket_pivot_volume:
+                    # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
+                    if volume_ratio > 2.5:
+                        volume_grade, volume_score = 'A级(口袋支点+)', 3
+                    else:
+                        volume_grade, volume_score = 'B级(口袋支点)', 2
+                elif 3.0 < volume_ratio <= 5.0:
                     volume_grade, volume_score = 'A级(理想)', 3
                 elif 1.5 < volume_ratio <= 3.0:
                     volume_grade, volume_score = 'B级(优秀)', 2
