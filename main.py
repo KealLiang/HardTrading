@@ -52,7 +52,7 @@ def backtrade_simulate():
     # batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '300581'
+    stock_code = '300204'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
@@ -82,8 +82,8 @@ def strategy_scan():
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
-        scan_end_date=end_date,
-        stock_pool=stock_pool,
+        scan_end_date=None,
+        stock_pool=None,
         signal_patterns=signal_patterns
     )
 
