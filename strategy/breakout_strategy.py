@@ -20,7 +20,7 @@ class BreakoutStrategy(bt.Strategy):
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
         ('macro_ranging_pct', 0.10),  # 定义震荡市的均线上下浮动范围
-        ('squeeze_period', 90),  # 波动性压缩回顾期
+        ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数

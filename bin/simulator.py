@@ -265,7 +265,7 @@ def batch_backtrade_simulate():
                         strategy=strategy_to_run,
                         strategy_params=strategy_params,
                         log_trades=True,
-                        visualize=True,  # 仍然为每笔交易生成单独图表
+                        visualize=False,  # 仍然为每笔交易生成单独图表
                         interactive_plot=False  # 关闭弹出的cerebro图表
                     )
                     print(f"--- 股票: {code} 回测完成 ---")
