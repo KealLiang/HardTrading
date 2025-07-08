@@ -49,27 +49,27 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     # 批量回测
-    # batch_backtrade_simulate()
+    batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '300204'
-    simulator.go_trade(
-        code=stock_code,
-        amount=100000,
-        startdate=datetime(2022, 1, 1),
-        enddate=datetime(2025, 7, 4),
-        strategy=BreakoutStrategy,
-        strategy_params={'debug': True},  # 开启详细日志
-        log_trades=True,
-        visualize=True,
-        interactive_plot=True,  # 弹出交互图
-    )
+    # stock_code = '300204'
+    # simulator.go_trade(
+    #     code=stock_code,
+    #     amount=100000,
+    #     startdate=datetime(2022, 1, 1),
+    #     enddate=datetime(2025, 7, 4),
+    #     strategy=BreakoutStrategy,
+    #     strategy_params={'debug': True},  # 开启详细日志
+    #     log_trades=True,
+    #     visualize=True,
+    #     interactive_plot=True,  # 弹出交互图
+    # )
 
 
 def strategy_scan():
     # 使用更精确的信号模式列表
     signal_patterns = [
-        # '突破信号',
+        '突破信号',
         # '*** 触发【突破观察哨】',
         '*** 二次确认信号',
     ]
