@@ -392,9 +392,13 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
 # --- Main Orchestration Function ---
 def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=None,
                                 stock_pool=None, strategy_params=None, signal_patterns=None,
-                                data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR):
+                                data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR,
+                                details_after_date=None):
     """
     执行股票扫描并可视化结果的总调度函数。
+
+    :param details_after_date: str, 可选。格式如 'YYYYMMDD' 或 'YYYY-MM-DD'。
+                               只有信号日期在此日期或之后的股票才会生成详细的可视化报告。
     """
     # --- 1. 日期与路径准备 ---
     start_date_fmt = f"{scan_start_date[:4]}-{scan_start_date[4:6]}-{scan_start_date[6:8]}"
@@ -460,6 +464,26 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
     # --- 5. 过滤信号用于可视化 ---
     final_signals = _filter_signals_to_unique_opportunities(raw_signals, scan_strategy)
     logging.info(f"信号聚类后，得到 {len(final_signals)} 个独立的交易机会进行分析。")
+
+    # 根据 `details_after_date` 参数进一步过滤用于可视化的信号
+    if details_after_date:
+        try:
+            # 兼容 YYYY-MM-DD 和 YYYYMMDD 格式
+            filter_date = pd.to_datetime(details_after_date).date()
+            original_count = len(final_signals)
+            final_signals = [
+                s for s in final_signals if s['datetime'] >= filter_date
+            ]
+            logging.info(
+                f"根据 'details_after_date' ({details_after_date}) 过滤后，"
+                f"剩余 {len(final_signals)} 个交易机会需要生成详细报告 (原 {original_count} 个)。"
+            )
+        except Exception as e:
+            logging.error(f"解析 details_after_date ('{details_after_date}') 时出错: {e}。将不进行过滤。")
+
+    if not final_signals:
+        print("根据过滤条件，没有需要进行可视化分析的信号。")
+        return
 
     print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
 
@@ -566,6 +590,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         # 正式运行回测和可视化
         simulator.go_trade(
             code=code,
+            stock_name=name_map.get(code, ''),
             startdate=vis_start_date,
             enddate=vis_end_date,
             strategy=scan_strategy,

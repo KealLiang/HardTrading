@@ -75,13 +75,14 @@ def calculate_benchmark(data, initial_amount, final_amount):
     }
 
 
-def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
+def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None,
              log_trades=False, visualize=False, signal_info=None, interactive_plot=True):
     """执行股票回测和可视化。
 
     参数:
     code - 股票代码
+    stock_name - 股票名称
     amount - 初始资金
     startdate, enddate - 回测起止日期
     filepath - 股票数据目录
@@ -217,7 +218,8 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
                 data_dir=filepath,
                 output_dir=output_dir,
                 signal_info=signal_info,
-                include_open_trades=visualize_open_trades
+                include_open_trades=visualize_open_trades,
+                stock_name=stock_name
             )
         elif signal_info:  # 无成交，但有信号（扫描模式）
             print("未执行任何交易，但检测到信号。生成信号分析图...")
@@ -225,7 +227,8 @@ def go_trade(code, amount=100000, startdate=None, enddate=None, filepath='./data
                 code=code,
                 data_dir=filepath,
                 output_dir=output_dir,
-                signal_info=signal_info
+                signal_info=signal_info,
+                stock_name=stock_name
             )
 
     if interactive_plot:
@@ -236,7 +239,7 @@ def batch_backtrade_simulate():
     """
     对预设的股票池进行批量回测，并将所有控制台输出汇总到日志文件中。
     """
-    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640', '002104']
+    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640', '002104', '002658']
     # 定义结果汇总文件
     output_dir = "strategy/post_analysis"
     os.makedirs(output_dir, exist_ok=True)

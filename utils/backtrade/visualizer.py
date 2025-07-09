@@ -278,7 +278,7 @@ def pair_trades(log_csv_path, full_log_path=None, include_open=False):
     return pd.DataFrame(trades)
 
 
-def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None):
+def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None, stock_name=None):
     """为单笔交易生成并保存图表, 兼容未平仓交易。"""
     stock_code = _format_code(trade['symbol'])
     stock_data = read_stock_data(stock_code, data_dir)
@@ -332,6 +332,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     addplots.extend(signal_addplots)
 
     # --- 生成图表标题 ---
+    stock_display = f"{stock_code} {stock_name}" if stock_name else stock_code
     overheat_score, vcp_score = _extract_scores_from_details(signal_info)
     extra_info = ""
     if overheat_score is not None and vcp_score is not None:
@@ -339,7 +340,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
 
     if is_open_trade:
         title = (
-            f"股票: {stock_code} | 交易ID: {trade_id} | 持仓中\n"
+            f"股票: {stock_display} | 交易ID: {trade_id} | 持仓中\n"
             f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f}{extra_info}"
         )
     else:
@@ -349,7 +350,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
             pnl_percent = ((trade['price_sell'] - trade['price_buy']) / trade['price_buy']) * 100
 
         title = (
-            f"股票: {stock_code} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
+            f"股票: {stock_display} | 交易ID: {trade_id} | {'盈利' if pnl > 0 else '亏损'}: {pnl:.2f} ({pnl_percent:+.2f}%)\n"
             f"入场: {entry_date.strftime('%Y-%m-%d')} @ {trade['price_buy']:.2f} | "
             f"出场: {exit_date.strftime('%Y-%m-%d')} @ {trade['price_sell']:.2f}{extra_info}"
         )
@@ -380,7 +381,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     print(f"已生成图表: {output_path}")
 
 
-def plot_signal_chart(code, data_dir, output_dir, signal_info):
+def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
     """
     为未发生交易但有信号的股票生成信号分析图。
     """
@@ -409,12 +410,13 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info):
     # 获取信号标记
     addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
 
+    stock_display = f"{stock_code} {stock_name}" if stock_name else stock_code
     overheat_score, vcp_score = _extract_scores_from_details(signal_info)
     extra_info = ""
     if overheat_score is not None and vcp_score is not None:
         extra_info = f" (过热分: {overheat_score}, VCP Score: {vcp_score})"
 
-    title = f"信号分析: {stock_code}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}{extra_info}"
+    title = f"信号分析: {stock_display}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}{extra_info}"
 
     signal_date_str = primary_signal_date.strftime('%Y%m%d')
     output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_{signal_date_str}.png")
@@ -450,7 +452,8 @@ def analyze_and_visualize_trades(
         output_dir='strategy/post_analysis',
         post_exit_period=60,
         signal_info=None,
-        include_open_trades=False
+        include_open_trades=False,
+        stock_name=None
 ):
     """
     读取交易日志，配对买卖操作，并对每笔完整交易进行可视化。
@@ -471,6 +474,8 @@ def analyze_and_visualize_trades(
         信号详细信息列表，每个字典包含 date, type, details
     include_open_trades : bool
         是否包含未平仓的交易进行可视化
+    stock_name : str, optional
+        股票名称
     """
     trades_df = pair_trades(log_csv, full_log_path, include_open=include_open_trades)
     if trades_df.empty:
@@ -501,7 +506,8 @@ def analyze_and_visualize_trades(
                 output_dir=output_dir,
                 style=style,
                 post_exit_period=post_exit_period,
-                signal_info=signals_to_plot
+                signal_info=signals_to_plot,
+                stock_name=stock_name
             )
         except Exception as e:
             print(f"\n错误: 为交易 {i + 1} 生成图表时发生未知错误: {e}")
