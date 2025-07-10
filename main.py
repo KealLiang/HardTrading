@@ -49,21 +49,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 # 回溯交易
 def backtrade_simulate():
     # 批量回测
-    # batch_backtrade_simulate()
+    batch_backtrade_simulate()
 
     # 单个回测
-    stock_code = '002658'
-    simulator.go_trade(
-        code=stock_code,
-        amount=100000,
-        startdate=datetime(2025, 1, 1),
-        enddate=datetime(2025, 7, 4),
-        strategy=BreakoutStrategy,
-        strategy_params={'debug': True},  # 开启详细日志
-        log_trades=True,
-        visualize=True,
-        interactive_plot=True,  # 弹出交互图
-    )
+    # stock_code = '300204'
+    # simulator.go_trade(
+    #     code=stock_code,
+    #     amount=100000,
+    #     startdate=datetime(2022, 1, 1),
+    #     enddate=datetime(2025, 7, 4),
+    #     strategy=BreakoutStrategy,
+    #     strategy_params={'debug': True},  # 开启详细日志
+    #     log_trades=True,
+    #     visualize=True,
+    #     interactive_plot=True,  # 弹出交互图
+    # )
 
 
 def strategy_scan():
@@ -326,8 +326,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    # backtrade_simulate()
-    strategy_scan()
+    backtrade_simulate()
+    # strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
