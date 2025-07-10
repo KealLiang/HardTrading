@@ -1,5 +1,4 @@
 import backtrader as bt
-import numpy as np
 
 
 class BreakoutStrategy(bt.Strategy):
@@ -34,15 +33,16 @@ class BreakoutStrategy(bt.Strategy):
         ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
         # -- PSQ 分析参数 --
         ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
-        # -- 加入vcp评分 --
-        ('vcp_lookback', 90),  # VCP形态回顾期
-        ('vcp_min_contractions', 3),  # VCP最少需要几次收缩才能进行趋势分析
-        ('vcp_max_depth_pct', 0.5),  # VCP首次最大回撤深度(50%)
-        ('vcp_proximity_pct', 0.05),  # 突破点距离枢轴点的最大容忍度(5%)
-        ('vcp_regression_slope_threshold', -0.01),  # VCP收缩趋势的线性回归斜率阈值
-        ('vcp_pressure_lookback', 20),  # "压力测试"的回看期
-        ('vcp_pressure_proximity_pct', 0.03),  # "压力测试"中，价格接近高点的容忍度
-        ('vcp_pressure_min_tests', 3),  # "压力测试"最少需要几次有效测试才能加分
+        # -- VCP 3.0 评分参数 --
+        ('vcp_lookback', 60),  # VCP形态回顾期
+        ('vcp_periods', 3),  # VCP形态回顾期切分成的周期数
+        ('vcp_vol_reduction_min_pct', 0.1),  # 要求最后一个周期的波动率至少降低10%
+        ('vcp_absorption_lookback', 15),  # 供给吸收分析的回看期
+        ('vcp_absorption_zone_pct', 0.03),  # 定义供给区的价格范围(3%)
+        # -- VCP 3.0 权重 --
+        ('vcp_weight_volatility', 0.3),  # 波动收缩分权重
+        ('vcp_weight_absorption', 0.5),  # 供给吸收分权重
+        ('vcp_weight_proximity', 0.2),  # 突破邻近分权重
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -467,7 +467,7 @@ class BreakoutStrategy(bt.Strategy):
         self.log(
             f'*** 二次确认信号已{log_suffix}，解除观察模式，'
             f'当前过热分: {self.last_overheat_score:.2f} '
-            f'(VCP 参考: {vcp_grade}, Score: {vcp_score}) ***'
+            f'(VCP参考: {vcp_grade}, Score: {vcp_score:.2f}) ***'
         )
 
     def check_coiled_spring_conditions(self):
@@ -520,140 +520,139 @@ class BreakoutStrategy(bt.Strategy):
 
     def _calculate_vcp_score(self):
         """
-        VCP 2.0: 计算VCP（波动性收缩规律）分数。
-        - 结合线性回归分析收缩趋势，提高容错性。
+        VCP 3.0: 计算VCP（波动性收缩规律）分数。
+        - 核心逻辑: 将VCP拆解为三个可量化的维度，并进行加权评分，以适应A股的"模糊"和"多变"特性。
+          1. 波动收缩分 (Volatility Contraction): 直接衡量波动率是否呈现趋势性下降。
+          2. 供给吸收分 (Supply Absorption): 深入分析价格在关键压力区的量价行为，判断供给是否枯竭。
+          3. 突破邻近分 (Proximity): 衡量当前价格距离关键枢轴点的远近。
         """
-        # V2.2: 使用信号日索引精确计算偏移量
         if self.signal_day_index == -1: return 0, "N/A"
         days_since_signal = (len(self.data) - 1) - self.signal_day_index
 
-        lookback = self.p.vcp_lookback
-        if len(self.data) < days_since_signal + lookback + 1:
-            return 0, "N/A"
+        # --- 数据准备 ---
+        if len(self.data) < self.p.vcp_lookback + days_since_signal + 1:
+            return 0, "NoData"
+
+        # --- 维度1: 波动收缩分 (0-100分) ---
+        volatility_score = 0
+        volatility_periods = []
+        period_len = self.p.vcp_lookback // self.p.vcp_periods
+        try:
+            for i in range(self.p.vcp_periods):
+                start_offset = days_since_signal + 1 + (i * period_len)
+                end_offset = start_offset + period_len
+                period_highs = [self.data.high[-j] for j in range(start_offset, end_offset)]
+                period_lows = [self.data.low[-j] for j in range(start_offset, end_offset)]
+
+                if not period_highs or not period_lows: continue
+
+                max_h = max(period_highs)
+                min_l = min(period_lows)
+                avg_price = (max_h + min_l) / 2
+
+                # 归一化波动率
+                normalized_volatility = (max_h - min_l) / avg_price if avg_price > 1e-9 else 0
+                volatility_periods.append(normalized_volatility)
+
+            # 必须是递减趋势
+            if len(volatility_periods) == self.p.vcp_periods and all(
+                    volatility_periods[i] > volatility_periods[i + 1] for i in range(len(volatility_periods) - 1)):
+                # 最后一个周期波动率必须显著降低
+                reduction_pct = (volatility_periods[0] - volatility_periods[-1]) / volatility_periods[0] if \
+                    volatility_periods[0] > 1e-9 else 0
+                if reduction_pct >= self.p.vcp_vol_reduction_min_pct:
+                    # 降低幅度越大，分数越高 (基础分50，最高到100)
+                    volatility_score = 50 + 50 * min(1, reduction_pct / 0.5)  # 假设降低50%以上就是满分
+        except (IndexError, ValueError):
+            volatility_score = 0
+
+        vola_str = f"Vola({int(volatility_score)})"
+
+        # --- 维度2: 供给吸收分 (0-100分) & 维度3: 突破邻近分 (0-100分) ---
+        absorption_score = 50  # 中性分50
+        proximity_score = 0
+        absorp_str = "Abs(50)"
+        prox_str = "Prox(0)"
 
         try:
-            # 修正: lookback从信号日前(t_signal-1)开始
-            start_idx = days_since_signal + 1
-            end_idx = days_since_signal + lookback + 1
-            highs = [self.data.high[-i] for i in range(start_idx, end_idx)]
-            lows = [self.data.low[-i] for i in range(start_idx, end_idx)]
-        except IndexError:
-            return 0, "N/A"
+            # 1. 定义供给区
+            lookback = self.p.vcp_absorption_lookback
+            start_offset = days_since_signal + 1
+            end_offset = start_offset + lookback
+            recent_highs = [self.data.high[-j] for j in range(start_offset, end_offset)]
 
-        highs.reverse()
-        lows.reverse()
-
-        # Step 1: Find the initial peak in the first 75% of the lookback period
-        peak1_search_range = int(lookback * 0.75)
-        peak1_price = -1.0
-        peak1_idx = -1
-        for i in range(peak1_search_range):
-            if highs[i] > peak1_price:
-                peak1_price = highs[i]
-                peak1_idx = i
-
-        if peak1_idx == -1:
-            return 0, "NoVCP"
-
-        # Step 2: Find contractions sequentially
-        contractions = []
-        last_peak_price = peak1_price
-        current_idx = peak1_idx
-
-        for _ in range(5):  # Look for up to 5 contractions
-            # Find next trough
-            search_area_lows = lows[current_idx:]
-            if not search_area_lows: break
-            trough_price = min(search_area_lows)
-            trough_idx = lows.index(trough_price, current_idx)
-
-            # Find next peak
-            search_area_highs = highs[trough_idx:]
-            if not search_area_highs: break
-            peak_price = max(search_area_highs)
-            peak_idx = highs.index(peak_price, trough_idx)
-
-            # A valid contraction must form a lower or similar high
-            if peak_price > last_peak_price * 1.03:  # Allow 3% overshoot
-                break
-
-            depth = (last_peak_price - trough_price) / last_peak_price if last_peak_price > 0 else 0
-            contractions.append({'depth': depth, 'peak_price': peak_price})
-
-            last_peak_price = peak_price
-            current_idx = peak_idx
-            if current_idx >= lookback - 2:  # Reached the end
-                break
-
-        # --- VCP 2.0 Scoring ---
-        base_score = 0
-        details_str = ""
-
-        # 1. Base Score from Contraction Trend (Linear Regression)
-        contraction_depths = [c['depth'] for c in contractions]
-        if len(contraction_depths) >= self.p.vcp_min_contractions:
-            if contraction_depths[0] <= self.p.vcp_max_depth_pct:
-                x = np.arange(len(contraction_depths))
-                y = np.array(contraction_depths)
-                slope, _ = np.polyfit(x, y, 1)
-
-                if slope < self.p.vcp_regression_slope_threshold:
-                    base_score = 1  # Valid structure with negative slope
-                    details_str = f"VCP(s={slope:.2f})"
-                    if slope < (self.p.vcp_regression_slope_threshold * 3):  # Significantly contracting
-                        base_score = 2
-                        details_str = f"VCP-Tight(s={slope:.2f})"
-                else:
-                    details_str = f"VCP-Div(s={slope:.2f})"
-            else:
-                details_str = f"Depth>{self.p.vcp_max_depth_pct:.0%}"
-        else:
-            details_str = "NoVCP"
-
-        # 2. Pivot Point Bonus
-        pivot_bonus = 0
-        if base_score > 0:
-            pivot_price = contractions[-1]['peak_price']
-            current_close = self.data.close[0]
-            if abs(pivot_price - current_close) / pivot_price <= self.p.vcp_proximity_pct:
-                pivot_bonus = 1
-                details_str += "+Pivot"
-
-        # 3. Pressure Test Score (Memory)
-        pressure_score = 0
-        pressure_lookback = self.p.vcp_pressure_lookback
-        if len(self.data.high) > pressure_lookback:
-            try:
-                # Use a slice of recent highs, excluding today
-                recent_highs = [self.data.high[-i] for i in range(1, pressure_lookback + 1)]
+            if recent_highs:
                 high_water_mark = max(recent_highs)
-                test_threshold = high_water_mark * (1 - self.p.vcp_pressure_proximity_pct)
-                test_count = sum(1 for h in recent_highs if h >= test_threshold)
+                absorption_zone_floor = high_water_mark * (1 - self.p.vcp_absorption_zone_pct)
 
-                if test_count >= self.p.vcp_pressure_min_tests:
-                    pressure_score = 1
-                    if test_count >= self.p.vcp_pressure_min_tests * 1.5:
-                        pressure_score = 2
-                    details_str += f"+PT({test_count})"
-            except (IndexError, ValueError):
-                pass  # Not enough data or other issue
+                # 2. 分析供给区的量价行为
+                test_events = []
+                for i in range(start_offset, end_offset):
+                    day_high = self.data.high[-i]
+                    if day_high >= absorption_zone_floor:
+                        day_open = self.data.open[-i]
+                        day_close = self.data.close[-i]
+                        day_low = self.data.low[-i]
+                        day_vol = self.data.volume[-i]
+                        vol_ma = self.volume_ma[-i]
 
-        # Final Score is a combination of all factors
-        final_score = base_score + pivot_bonus + pressure_score
+                        # K线质量: 收盘位置 (1:强, 0:中, -1:弱)
+                        candle_range = day_high - day_low if (day_high - day_low) > 1e-9 else 1
+                        close_pos = ((day_close - day_low) / candle_range) * 2 - 1
 
-        # Fallback for empty details string
-        if not details_str:
-            details_str = "NoStruct"
+                        # 量能质量: (<0.8x:缩量, 0.8-1.2:平量, >1.2:放量)
+                        vol_ratio = day_vol / vol_ma if vol_ma > 0 else 1
+
+                        event_score = 0
+                        if close_pos > 0.5:  # 强收盘
+                            event_score += 2 if vol_ratio < 0.8 else 1  # 缩量强收盘最佳
+                        elif close_pos < -0.5:  # 弱收盘
+                            event_score -= 2 if vol_ratio > 1.2 else 1  # 放量弱收盘最差
+                        # 中性收盘得0分
+                        test_events.append(event_score)
+
+                if test_events:
+                    # 将-2到+2的事件分映射到0-100分
+                    raw_score = sum(test_events) / len(test_events)  # 平均分
+                    absorption_score = 50 + (raw_score / 2) * 50  # 映射到0-100
+                    absorption_score = max(0, min(100, absorption_score))  # 确保在范围内
+
+                absorp_str = f"Abs({int(absorption_score)})"
+
+                # 3. 计算邻近度
+                current_close = self.data.close[0]
+                if current_close > absorption_zone_floor:
+                    # 价格已进入供给区，邻近度高
+                    distance_to_breakout = (
+                                                   high_water_mark - current_close) / high_water_mark if high_water_mark > 0 else 0
+                    # 距离越小，分数越高。-0.05(突破5%)到0.03(区内) => 0到100
+                    proximity_score = 100 * (1 - min(1, max(0, distance_to_breakout / self.p.vcp_absorption_zone_pct)))
+                prox_str = f"Prox({int(proximity_score)})"
+
+        except (IndexError, ValueError):
+            pass
+
+        # --- 最终加权总分 ---
+        final_score = (volatility_score * self.p.vcp_weight_volatility +
+                       absorption_score * self.p.vcp_weight_absorption +
+                       proximity_score * self.p.vcp_weight_proximity)
+
+        # 转换为0-5的范围，以便与旧版兼容
+        final_score_scaled = (final_score / 100) * 5
+        details_str = f"{vola_str},{absorp_str},{prox_str}"
 
         if self.p.debug:
-            depths_str = ", ".join([f"{d:.1%}" for d in contraction_depths]) if contraction_depths else "N/A"
             self.log(
                 f"[vcp_debug] VCP Analysis: {details_str} | "
-                f"Score factors: base({base_score}) + pivot({pivot_bonus}) + pressure({pressure_score}) = {final_score} | "
-                f"Depths: [{depths_str}]"
+                f"Scores: vol({volatility_score:.0f}), abs({absorption_score:.0f}), prox({proximity_score:.0f}) | "
+                f"Weighted Final: {final_score:.2f} (Scaled: {final_score_scaled:.2f})"
             )
 
-        return final_score, details_str
+        # 返回0-5范围的分数和一个更详细的评级字符串
+        grade_map = {5: "A+", 4: "A", 3: "B", 2: "C", 1: "D"}
+        grade = grade_map.get(round(final_score_scaled), "F")
+
+        return final_score_scaled, f"VCP-{grade}"
 
     # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):
