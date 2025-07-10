@@ -33,16 +33,23 @@ class BreakoutStrategy(bt.Strategy):
         ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
         # -- PSQ 分析参数 --
         ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
-        # -- VCP 3.0 评分参数 --
-        ('vcp_lookback', 60),  # VCP形态回顾期
-        ('vcp_periods', 3),  # VCP形态回顾期切分成的周期数
-        ('vcp_vol_reduction_min_pct', 0.1),  # 要求最后一个周期的波动率至少降低10%
-        ('vcp_absorption_lookback', 15),  # 供给吸收分析的回看期
-        ('vcp_absorption_zone_pct', 0.03),  # 定义供给区的价格范围(3%)
-        # -- VCP 3.0 权重 --
-        ('vcp_weight_volatility', 0.3),  # 波动收缩分权重
-        ('vcp_weight_absorption', 0.5),  # 供给吸收分权重
-        ('vcp_weight_proximity', 0.2),  # 突破邻近分权重
+        # -- VCP 4.1 "中庸之道" 评分参数 --
+        ('vcp_lookback', 60),  # VCP总回看期，用于确定波动率分位
+        ('vcp_macro_ma_period', 90),  # VCP宏观环境判断的均线周期
+        ('vcp_absorption_lookback', 20),  # VCP供给吸收分析的回看期
+        ('vcp_absorption_zone_pct', 0.07),  # 定义供给区的价格范围(7%)
+        # -- 新增: "平衡"评分参数 --
+        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
+        ('vcp_optimal_ma_roc', 1.03),  # 宏观MA最优斜率 (20日涨3%)
+        ('vcp_max_ma_roc', 1.15),  # 宏观MA斜率上限 (过热)
+        ('vcp_optimal_price_pos', 1.05),  # 价格与MA的最优位置 (高于MA 5%)
+        ('vcp_max_price_pos', 1.30),  # 价格与MA的位置上限 (过高)
+        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
+
+        # -- VCP 4.1 权重 --
+        ('vcp_weight_macro', 0.35),  # 宏观环境分权重
+        ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
+        ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -60,6 +67,9 @@ class BreakoutStrategy(bt.Strategy):
         # 计算布林带宽度在过去N期的范围，用于判断"压缩"
         self.highest_bbw = bt.indicators.Highest(self.bb_width, period=self.p.squeeze_period)
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
+        # VCP 4.0: 布林带宽度历史值，用于计算分位
+        self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
+
         # PSQ 3.1 指标: 动态高低点通道
         self.recent_high = bt.indicators.Highest(self.data.high, period=self.p.context_period)
         self.recent_low = bt.indicators.Lowest(self.data.low, period=self.p.context_period)
@@ -71,6 +81,8 @@ class BreakoutStrategy(bt.Strategy):
 
         # 新增：宏观环境判断均线
         self.ma_macro = bt.indicators.SMA(self.data, period=self.p.ma_macro_period)
+        # VCP 4.0: 宏观趋势判断的长期均线
+        self.vcp_macro_ma = bt.indicators.SMA(self.data, period=self.p.vcp_macro_ma_period)
 
         # 成交量均线
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=self.p.volume_ma_period)
@@ -467,7 +479,7 @@ class BreakoutStrategy(bt.Strategy):
         self.log(
             f'*** 二次确认信号已{log_suffix}，解除观察模式，'
             f'当前过热分: {self.last_overheat_score:.2f} '
-            f'(VCP参考: {vcp_grade}, Score: {vcp_score:.2f}) ***'
+            f'(VCP 参考: {vcp_grade}, Score: {vcp_score:.2f}) ***'
         )
 
     def check_coiled_spring_conditions(self):
@@ -520,139 +532,141 @@ class BreakoutStrategy(bt.Strategy):
 
     def _calculate_vcp_score(self):
         """
-        VCP 3.0: 计算VCP（波动性收缩规律）分数。
-        - 核心逻辑: 将VCP拆解为三个可量化的维度，并进行加权评分，以适应A股的"模糊"和"多变"特性。
-          1. 波动收缩分 (Volatility Contraction): 直接衡量波动率是否呈现趋势性下降。
-          2. 供给吸收分 (Supply Absorption): 深入分析价格在关键压力区的量价行为，判断供给是否枯竭。
-          3. 突破邻近分 (Proximity): 衡量当前价格距离关键枢轴点的远近。
+        VCP 4.1 "中庸之道": 计算VCP分数。
+        - 核心逻辑: 引入"过犹不及"的平衡思想，对各维度进行非线性评分。
+          分数在"最优状态"达到顶峰，在过高或过低时均会衰减。
         """
+
+        def _get_balanced_score(current_val, optimal_val, lower_bound, upper_bound):
+            """
+            计算一个0-100的平衡分数。
+            - 在 optimal_val 处得分为 100。
+            - 在 lower_bound 和 upper_bound 处得分为 0。
+            - 在区间之间线性递减。
+            """
+            if not (lower_bound <= optimal_val <= upper_bound): return 0
+            if current_val < lower_bound or current_val > upper_bound: return 0
+
+            if current_val >= optimal_val:
+                # 在 optimal 和 upper_bound 之间
+                range_size = upper_bound - optimal_val
+                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
+                score = 100 * (1 - (current_val - optimal_val) / range_size)
+            else:
+                # 在 lower_bound 和 optimal 之间
+                range_size = optimal_val - lower_bound
+                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
+                score = 100 * (1 - (optimal_val - current_val) / range_size)
+
+            return score
+
         if self.signal_day_index == -1: return 0, "N/A"
-        days_since_signal = (len(self.data) - 1) - self.signal_day_index
 
-        # --- 数据准备 ---
-        if len(self.data) < self.p.vcp_lookback + days_since_signal + 1:
-            return 0, "NoData"
+        # --- 维度1: 宏观环境分 (0-100分) ---
+        macro_score = 0
+        ma_value = self.vcp_macro_ma[0]
+        if ma_value > 0 and len(self.vcp_macro_ma) > self.p.vcp_macro_roc_period:
+            # a. 价格位置 vs MA (过高则危险)
+            price_pos_ratio = self.data.close[0] / ma_value
+            pos_score = _get_balanced_score(
+                price_pos_ratio,
+                self.p.vcp_optimal_price_pos,
+                1.0,  # lower bound: 价格至少要在MA之上
+                self.p.vcp_max_price_pos
+            )
 
-        # --- 维度1: 波动收缩分 (0-100分) ---
-        volatility_score = 0
-        volatility_periods = []
-        period_len = self.p.vcp_lookback // self.p.vcp_periods
-        try:
-            for i in range(self.p.vcp_periods):
-                start_offset = days_since_signal + 1 + (i * period_len)
-                end_offset = start_offset + period_len
-                period_highs = [self.data.high[-j] for j in range(start_offset, end_offset)]
-                period_lows = [self.data.low[-j] for j in range(start_offset, end_offset)]
+            # b. MA斜率 (Rate of Change) (过陡则危险)
+            ma_prev = self.vcp_macro_ma[-self.p.vcp_macro_roc_period]
+            ma_roc = ma_value / ma_prev if ma_prev > 0 else 1.0
+            trend_score = _get_balanced_score(
+                ma_roc,
+                self.p.vcp_optimal_ma_roc,
+                1.0,  # lower bound: 趋势至少要持平
+                self.p.vcp_max_ma_roc
+            )
 
-                if not period_highs or not period_lows: continue
+            # c. 结合位置和趋势
+            macro_score = pos_score * 0.5 + trend_score * 0.5
 
-                max_h = max(period_highs)
-                min_l = min(period_lows)
-                avg_price = (max_h + min_l) / 2
+        macro_str = f"Macro({int(macro_score)})"
 
-                # 归一化波动率
-                normalized_volatility = (max_h - min_l) / avg_price if avg_price > 1e-9 else 0
-                volatility_periods.append(normalized_volatility)
+        # --- 维度2: 波动状态分 (0-100分) ---
+        # 使用布林带宽度百分比排名(PctRank)指标
+        bbw_percentile = self.bbw_rank[0]  # 值在0.0到1.0之间
+        # 使用指数使曲线非线性，更奖励极端的压缩
+        squeeze_score = ((1.0 - bbw_percentile) ** self.p.vcp_squeeze_exponent) * 100
+        squeeze_score = max(0, min(100, squeeze_score))  # 确保在0-100范围内
+        squeeze_str = f"Sqz({int(squeeze_score)})"
 
-            # 必须是递减趋势
-            if len(volatility_periods) == self.p.vcp_periods and all(
-                    volatility_periods[i] > volatility_periods[i + 1] for i in range(len(volatility_periods) - 1)):
-                # 最后一个周期波动率必须显著降低
-                reduction_pct = (volatility_periods[0] - volatility_periods[-1]) / volatility_periods[0] if \
-                    volatility_periods[0] > 1e-9 else 0
-                if reduction_pct >= self.p.vcp_vol_reduction_min_pct:
-                    # 降低幅度越大，分数越高 (基础分50，最高到100)
-                    volatility_score = 50 + 50 * min(1, reduction_pct / 0.5)  # 假设降低50%以上就是满分
-        except (IndexError, ValueError):
-            volatility_score = 0
-
-        vola_str = f"Vola({int(volatility_score)})"
-
-        # --- 维度2: 供给吸收分 (0-100分) & 维度3: 突破邻近分 (0-100分) ---
+        # --- 维度3: 供给吸收分 (0-100分) - 逻辑保持不变 ---
         absorption_score = 50  # 中性分50
-        proximity_score = 0
-        absorp_str = "Abs(50)"
-        prox_str = "Prox(0)"
-
         try:
-            # 1. 定义供给区
+            days_since_signal = (len(self.data) - 1) - self.signal_day_index
             lookback = self.p.vcp_absorption_lookback
             start_offset = days_since_signal + 1
             end_offset = start_offset + lookback
+
+            if len(self.data) < end_offset:
+                raise IndexError
+
             recent_highs = [self.data.high[-j] for j in range(start_offset, end_offset)]
 
             if recent_highs:
                 high_water_mark = max(recent_highs)
                 absorption_zone_floor = high_water_mark * (1 - self.p.vcp_absorption_zone_pct)
 
-                # 2. 分析供给区的量价行为
                 test_events = []
                 for i in range(start_offset, end_offset):
-                    day_high = self.data.high[-i]
-                    if day_high >= absorption_zone_floor:
+                    if self.data.high[-i] >= absorption_zone_floor:
                         day_open = self.data.open[-i]
                         day_close = self.data.close[-i]
+                        day_high = self.data.high[-i]
                         day_low = self.data.low[-i]
                         day_vol = self.data.volume[-i]
                         vol_ma = self.volume_ma[-i]
 
-                        # K线质量: 收盘位置 (1:强, 0:中, -1:弱)
                         candle_range = day_high - day_low if (day_high - day_low) > 1e-9 else 1
                         close_pos = ((day_close - day_low) / candle_range) * 2 - 1
-
-                        # 量能质量: (<0.8x:缩量, 0.8-1.2:平量, >1.2:放量)
                         vol_ratio = day_vol / vol_ma if vol_ma > 0 else 1
 
                         event_score = 0
-                        if close_pos > 0.5:  # 强收盘
-                            event_score += 2 if vol_ratio < 0.8 else 1  # 缩量强收盘最佳
-                        elif close_pos < -0.5:  # 弱收盘
-                            event_score -= 2 if vol_ratio > 1.2 else 1  # 放量弱收盘最差
-                        # 中性收盘得0分
+                        if close_pos > 0.5:  # 收阳
+                            event_score += 2 if vol_ratio < 0.8 else 1  # 缩量收阳加分更多
+                        elif close_pos < -0.5:  # 收阴
+                            event_score -= 2 if vol_ratio > 1.2 else 1  # 放量收阴减分更多
                         test_events.append(event_score)
 
                 if test_events:
-                    # 将-2到+2的事件分映射到0-100分
-                    raw_score = sum(test_events) / len(test_events)  # 平均分
-                    absorption_score = 50 + (raw_score / 2) * 50  # 映射到0-100
-                    absorption_score = max(0, min(100, absorption_score))  # 确保在范围内
-
-                absorp_str = f"Abs({int(absorption_score)})"
-
-                # 3. 计算邻近度
-                current_close = self.data.close[0]
-                if current_close > absorption_zone_floor:
-                    # 价格已进入供给区，邻近度高
-                    distance_to_breakout = (
-                                                   high_water_mark - current_close) / high_water_mark if high_water_mark > 0 else 0
-                    # 距离越小，分数越高。-0.05(突破5%)到0.03(区内) => 0到100
-                    proximity_score = 100 * (1 - min(1, max(0, distance_to_breakout / self.p.vcp_absorption_zone_pct)))
-                prox_str = f"Prox({int(proximity_score)})"
+                    raw_score = sum(test_events) / len(test_events)
+                    # 将平均事件分(-2到+2)映射到0-100分
+                    absorption_score = 50 + (raw_score / 2) * 50
+                    absorption_score = max(0, min(100, absorption_score))
 
         except (IndexError, ValueError):
-            pass
+            absorption_score = 50  # 出错则给中性分
+
+        absorp_str = f"Abs({int(absorption_score)})"
 
         # --- 最终加权总分 ---
-        final_score = (volatility_score * self.p.vcp_weight_volatility +
-                       absorption_score * self.p.vcp_weight_absorption +
-                       proximity_score * self.p.vcp_weight_proximity)
+        final_score = (macro_score * self.p.vcp_weight_macro +
+                       squeeze_score * self.p.vcp_weight_squeeze +
+                       absorption_score * self.p.vcp_weight_absorption)
 
-        # 转换为0-5的范围，以便与旧版兼容
+        # 转换为0-5的范围，以便与旧版兼容和日志统一
         final_score_scaled = (final_score / 100) * 5
-        details_str = f"{vola_str},{absorp_str},{prox_str}"
+        details_str = f"{macro_str},{squeeze_str},{absorp_str}"
 
         if self.p.debug:
             self.log(
-                f"[vcp_debug] VCP Analysis: {details_str} | "
-                f"Scores: vol({volatility_score:.0f}), abs({absorption_score:.0f}), prox({proximity_score:.0f}) | "
+                f"[vcp_debug] VCP 4.1 Analysis: {details_str} | "
+                f"Scores: macro({macro_score:.0f}), sqz({squeeze_score:.0f}), abs({absorption_score:.0f}) | "
                 f"Weighted Final: {final_score:.2f} (Scaled: {final_score_scaled:.2f})"
             )
 
-        # 返回0-5范围的分数和一个更详细的评级字符串
         grade_map = {5: "A+", 4: "A", 3: "B", 2: "C", 1: "D"}
         grade = grade_map.get(round(final_score_scaled), "F")
 
-        return final_score_scaled, f"VCP-{grade}"
+        return final_score_scaled, f"VCP4.1-{grade}"
 
     # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):

@@ -87,7 +87,7 @@ def analyze_vcp_performance():
 
     # --- 生成报告 ---
     print("\n" + "=" * 60)
-    print(" VCP 3.0 模型表现分析报告")
+    print(" VCP 模型表现分析报告")
     print("=" * 60)
     print(f"\n[核心指标] VCP分数与交易盈亏的相关系数: {correlation:.4f}")
     if correlation > 0.3:
@@ -115,7 +115,7 @@ def analyze_vcp_performance():
         color_continuous_scale=px.colors.diverging.RdYlGn,  # 使用红-黄-绿发散色系
         template='plotly_white',  # 使用更清晰的白色背景模板
         title=f'VCP Score vs. PnL (Correlation: {correlation:.4f})',
-        labels={'PnL': 'Net Profit/Loss', 'VCP Score': 'VCP 3.0 Score'}
+        labels={'PnL': 'Net Profit/Loss', 'VCP Score': 'VCP Score'}
     )
     fig.add_hline(y=0, line_dash="dash", line_color="grey")
 
