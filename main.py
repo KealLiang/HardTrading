@@ -77,7 +77,7 @@ def strategy_scan():
     start_date = '20250530'
     end_date = '20250704'
     stock_pool = ['300581', '600475']
-    details_after_date = '20250703'  # 只看这个日期之后的
+    details_after_date = '20250709'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
