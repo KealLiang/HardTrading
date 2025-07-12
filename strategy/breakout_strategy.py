@@ -18,13 +18,16 @@ class BreakoutStrategy(bt.Strategy):
         ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
-        ('macro_ranging_pct', 0.15),  # 定义震荡市的均线上下浮动范围
+        # -- 环境分 V2.2 新增高位盘整识别 --
+        ('consolidation_lookback', 5),  # 短期均线盘整的回看期
+        ('consolidation_ma_proximity_pct', 0.02),  # 短期均线接近度的阈值 (2%)
+        ('consolidation_ma_max_slope', 1.05),  # 盘整期间MA最大斜率 (5日涨5%)
         ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
-        ('breakout_proximity_pct', 0.01),  # "准突破"价格接近上轨的容忍度(1%)
+        ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨的容忍度(3%)
         ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
         ('context_period', 7),  # PSQ 3.1: 情景定位的回看周期
         # -- PSQ 权重参数 --
@@ -292,15 +295,25 @@ class BreakoutStrategy(bt.Strategy):
             # 必须放量，且至少满足一种突破形态
             if is_volume_up and (is_strict_breakout or is_quasi_breakout):
 
-                # --- 信号评级系统 ---
-                upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
-                lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
-                if self.data.close[0] > upper_band_macro:
-                    env_grade, env_score = '牛市', 2
-                elif self.data.close[0] < lower_band_macro:
-                    env_grade, env_score = '熊市', 1
+                # --- 环境分 V3.0: 双路径评估 ---
+                # 路径一: 优先识别高质量的“盘整突破”
+                is_consolidation = self._check_short_term_consolidation()
+                if is_consolidation:
+                    # 识别为盘整突破，直接给予B级，认可其形态价值
+                    env_grade, env_score = 'B级(盘整突破)', 2
                 else:
-                    env_grade, env_score = '震荡市', 3
+                    # 路径二: 对于其他“动能突破”，沿用严格的距离评分
+                    # 价格相对长周期均线的比率
+                    price_pos_ratio = self.data.close[0] / self.ma_macro[0] if self.ma_macro[0] > 0 else 0
+
+                    if 1.0 < price_pos_ratio <= 1.10:
+                        env_grade, env_score = 'A级(理想)', 3
+                    elif 1.10 < price_pos_ratio <= 1.25:
+                        env_grade, env_score = 'B级(趋势)', 2
+                    elif 1.25 < price_pos_ratio <= 1.45:
+                        env_grade, env_score = 'C级(追高)', 1
+                    else:
+                        env_grade, env_score = 'D级(超限)', 0
 
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
@@ -530,6 +543,31 @@ class BreakoutStrategy(bt.Strategy):
 
         return self.data.volume[0] > highest_down_volume
 
+    def _check_short_term_consolidation(self):
+        """检查是否存在高位横盘/微升的“蓄势”形态。"""
+        lookback = self.p.consolidation_lookback
+
+        # 确保有足够的数据
+        if len(self.ma10) < lookback + 1 or len(self.ma5) < lookback + 1:
+            return False
+
+        # 检查1: 盘整期内，短期均线(ma10)不能过快上涨
+        if self.ma10[-lookback] <= 0:  # 避免除零
+            return False
+        ma_slope = self.ma10[0] / self.ma10[-lookback]
+        if ma_slope > self.p.consolidation_ma_max_slope:
+            return False
+
+        # 检查2: 盘整期内，5日线和10日线必须高度贴合
+        for i in range(1, lookback + 1):
+            if self.ma10[-i] <= 0:  # 避免除零
+                return False
+            proximity = abs(self.ma5[-i] - self.ma10[-i]) / self.ma10[-i]
+            if proximity > self.p.consolidation_ma_proximity_pct:
+                return False
+
+        return True
+
     def _calculate_vcp_score(self):
         """
         VCP 4.1 "中庸之道": 计算VCP分数。
@@ -658,7 +696,7 @@ class BreakoutStrategy(bt.Strategy):
 
         if self.p.debug:
             self.log(
-                f"[vcp_debug] VCP 4.1 Analysis: {details_str} | "
+                f"[vcp_debug] VCP Analysis: {details_str} | "
                 f"Scores: macro({macro_score:.0f}), sqz({squeeze_score:.0f}), abs({absorption_score:.0f}) | "
                 f"Weighted Final: {final_score:.2f} (Scaled: {final_score_scaled:.2f})"
             )
@@ -666,7 +704,7 @@ class BreakoutStrategy(bt.Strategy):
         grade_map = {5: "A+", 4: "A", 3: "B", 2: "C", 1: "D"}
         grade = grade_map.get(round(final_score_scaled), "F")
 
-        return final_score_scaled, f"VCP4.1-{grade}"
+        return final_score_scaled, f"VCP-{grade}"
 
     # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):

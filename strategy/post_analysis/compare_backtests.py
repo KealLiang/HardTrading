@@ -6,7 +6,7 @@ import pandas as pd
 # --- 用户配置 ---
 # 在这里直接修改您想要对比的两个文件名
 FILE1_NAME = 'backtest_summary.txt'
-FILE2_NAME = 'backtest_summary0.txt'
+FILE2_NAME = 'backtest_summary3.txt'
 
 
 # --- 配置结束 ---

@@ -18,8 +18,8 @@ class OriginBreakoutStrategy(bt.Strategy):
         ('volume_ma_period', 20),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
-        ('macro_ranging_pct', 0.05),  # 定义震荡市的均线上下浮动范围
-        ('squeeze_period', 90),  # 波动性压缩回顾期
+        ('macro_ranging_pct', 0.15),  # 定义震荡市的均线上下浮动范围
+        ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
@@ -33,6 +33,23 @@ class OriginBreakoutStrategy(bt.Strategy):
         ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
         # -- PSQ 分析参数 --
         ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
+        # -- VCP 4.1 "中庸之道" 评分参数 --
+        ('vcp_lookback', 60),  # VCP总回看期，用于确定波动率分位
+        ('vcp_macro_ma_period', 90),  # VCP宏观环境判断的均线周期
+        ('vcp_absorption_lookback', 20),  # VCP供给吸收分析的回看期
+        ('vcp_absorption_zone_pct', 0.07),  # 定义供给区的价格范围(7%)
+        # -- 新增: "平衡"评分参数 --
+        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
+        ('vcp_optimal_ma_roc', 1.03),  # 宏观MA最优斜率 (20日涨3%)
+        ('vcp_max_ma_roc', 1.15),  # 宏观MA斜率上限 (过热)
+        ('vcp_optimal_price_pos', 1.05),  # 价格与MA的最优位置 (高于MA 5%)
+        ('vcp_max_price_pos', 1.30),  # 价格与MA的位置上限 (过高)
+        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
+
+        # -- VCP 4.1 权重 --
+        ('vcp_weight_macro', 0.35),  # 宏观环境分权重
+        ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
+        ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
@@ -50,6 +67,9 @@ class OriginBreakoutStrategy(bt.Strategy):
         # 计算布林带宽度在过去N期的范围，用于判断"压缩"
         self.highest_bbw = bt.indicators.Highest(self.bb_width, period=self.p.squeeze_period)
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
+        # VCP 4.0: 布林带宽度历史值，用于计算分位
+        self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
+
         # PSQ 3.1 指标: 动态高低点通道
         self.recent_high = bt.indicators.Highest(self.data.high, period=self.p.context_period)
         self.recent_low = bt.indicators.Lowest(self.data.low, period=self.p.context_period)
@@ -61,6 +81,8 @@ class OriginBreakoutStrategy(bt.Strategy):
 
         # 新增：宏观环境判断均线
         self.ma_macro = bt.indicators.SMA(self.data, period=self.p.ma_macro_period)
+        # VCP 4.0: 宏观趋势判断的长期均线
+        self.vcp_macro_ma = bt.indicators.SMA(self.data, period=self.p.vcp_macro_ma_period)
 
         # 成交量均线
         self.volume_ma = bt.indicators.SMA(self.data.volume, period=self.p.volume_ma_period)
@@ -98,6 +120,8 @@ class OriginBreakoutStrategy(bt.Strategy):
         # 新增：价格接受度过滤器所需的状态
         self.sentry_base_price = 0
         self.sentry_highest_high = 0
+        # 新增：用于精确计算信号日偏移量的索引
+        self.signal_day_index = -1
         # 新增：蓄势待发信号的考察期状态
         self.coiled_spring_buy_pending = False
         self.in_coiled_spring_probation = False
@@ -269,15 +293,14 @@ class OriginBreakoutStrategy(bt.Strategy):
             if is_volume_up and (is_strict_breakout or is_quasi_breakout):
 
                 # --- 信号评级系统 ---
-                # (评级逻辑保持不变)
                 upper_band_macro = self.ma_macro[0] * (1 + self.p.macro_ranging_pct)
                 lower_band_macro = self.ma_macro[0] * (1 - self.p.macro_ranging_pct)
                 if self.data.close[0] > upper_band_macro:
-                    env_grade, env_score = '牛市', 3
+                    env_grade, env_score = '牛市', 2
                 elif self.data.close[0] < lower_band_macro:
                     env_grade, env_score = '熊市', 1
                 else:
-                    env_grade, env_score = '震荡市', 2
+                    env_grade, env_score = '震荡市', 3
 
                 bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
                 squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
@@ -285,13 +308,33 @@ class OriginBreakoutStrategy(bt.Strategy):
                     squeeze_grade, squeeze_score = 'A级', 3
                 elif squeeze_pct <= 0.05:
                     squeeze_grade, squeeze_score = 'B级', 2
-                elif 0.20 < squeeze_pct <= 0.60:
+                elif 0.20 < squeeze_pct <= 1.00:
                     squeeze_grade, squeeze_score = 'C级', 1
                 else:
                     squeeze_grade, squeeze_score = 'D级', 0
 
+                # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
+                # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
+                lookback = self.p.pocket_pivot_lookback
+                highest_down_volume = 0
+                is_pocket_pivot_volume = False
+                if len(self.data.close) > lookback + 1:
+                    for i in range(1, lookback + 1):
+                        if self.data.close[-i] < self.data.close[-i - 1]:
+                            highest_down_volume = max(highest_down_volume, self.data.volume[-i])
+                    if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
+                        is_pocket_pivot_volume = True
+
+                # 2. 基于传统量比和口袋支点特征进行综合评分
                 volume_ratio = self.data.volume[0] / self.volume_ma[0]
-                if 3.0 < volume_ratio <= 5.0:
+
+                if is_pocket_pivot_volume:
+                    # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
+                    if volume_ratio > 2.5:
+                        volume_grade, volume_score = 'A级(口袋支点+)', 3
+                    else:
+                        volume_grade, volume_score = 'B级(口袋支点)', 2
+                elif 3.0 < volume_ratio <= 5.0:
                     volume_grade, volume_score = 'A级(理想)', 3
                 elif 1.5 < volume_ratio <= 3.0:
                     volume_grade, volume_score = 'B级(优秀)', 2
@@ -351,68 +394,93 @@ class OriginBreakoutStrategy(bt.Strategy):
                     # 记录价格过滤器所需的状态
                     self.sentry_base_price = self.data.open[0]
                     self.sentry_highest_high = self.data.high[0]
+                    # 新增: 精确记录信号日的索引
+                    self.signal_day_index = len(self.data) - 1
                     # 开始PSQ评分 - 从信号日当天开始
                     self._start_psq_tracking('观察期', self.datas[0])
 
     def _check_confirmation_signals(self):
         """
-        统一检查所有二次确认信号。
+        统一检查所有二次确认信号。 V2.0 优化日志逻辑
+        1. 先找出当天所有满足条件的信号。
+        2. 再对这些信号统一应用过滤器。
+        3. 如果通过，则按优先级（coiled_spring > pocket_pivot）执行交易。
         """
-        for signal_name, check_function in self.confirmation_signals:
-            if check_function():
-                # --- 新增：动态价格接受窗口过滤器 (ATR自适应版) ---
-                # 价格上限：我们允许价格超过观察期高点一定ATR倍数，形成一个"动能区"
-                price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
-                # 价格下限：我们不允许价格从观察期高点回撤过深
-                price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
-                current_price = self.data.close[0]
+        # 步骤1: 找出当天所有活跃的信号
+        active_signals = [
+            signal_name for signal_name, check_function in self.confirmation_signals
+            if check_function()
+        ]
 
-                if current_price > price_ceiling_from_peak_atr:
-                    self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 过高, "
-                        f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
-                        f"({price_ceiling_from_peak_atr:.2f})"
-                    )
-                    continue
+        if not active_signals:
+            return
 
-                if current_price < price_floor_from_peak_pct:
-                    self.log(
-                        f"信号拒绝({signal_name}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
-                        f"< 止损线 {price_floor_from_peak_pct:.2f}"
-                    )
-                    continue
+        # 步骤2: 对活跃信号统一应用过滤器
+        signal_names_str = ", ".join(active_signals)
 
-                # --- 新增：过热分数过滤器 ---
-                if self.last_overheat_score > self.p.overheat_threshold:
-                    self.log(
-                        f"信号拒绝({signal_name}): 过热分数 {self.last_overheat_score:.2f} "
-                        f"> 阈值 {self.p.overheat_threshold}"
-                    )
-                    continue
+        # 过滤器1: 动态价格接受窗口
+        price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
+        price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
+        current_price = self.data.close[0]
 
-                log_msg_map = {
-                    'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
-                    'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
-                }
-                log_msg = log_msg_map.get(signal_name, '未知确认信号')
-                self.log(log_msg)
+        if current_price > price_ceiling_from_peak_atr:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 过高, "
+                f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
+                f"({price_ceiling_from_peak_atr:.2f})"
+            )
+            return
 
-                stake = self.broker.getvalue() * self.p.initial_stake_pct
-                size = int(stake / self.data.close[0])
-                if size > 0:
-                    # -- 新增：为PSQ分析报告捕获观察期分数 --
-                    self.current_observation_scores = self.psq_scores.copy()
-                    self.order = self.buy(size=size)
-                    # 只有"蓄势待发"信号需要进入考察期
-                    if signal_name == 'coiled_spring':
-                        self.coiled_spring_buy_pending = True
+        if current_price < price_floor_from_peak_pct:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
+                f"< 止损线 {price_floor_from_peak_pct:.2f}"
+            )
+            return
 
-                # 注意：此处不停止PSQ，因为买单可能不会立即成交。
-                # 评分的停止和切换将在notify_order中处理
-                self.observation_mode = False
-                log_suffix = "发出" if signal_name == 'coiled_spring' else "执行"
-                self.log(f'*** 二次确认信号已{log_suffix}，解除观察模式，当前过热分: {self.last_overheat_score:.2f} ***')
-                return  # 找到一个信号后就停止检查
+        # 过滤器2: 过热分数
+        if self.last_overheat_score > self.p.overheat_threshold:
+            self.log(
+                f"信号拒绝({signal_names_str}): 过热分数 {self.last_overheat_score:.2f} "
+                f"> 阈值 {self.p.overheat_threshold}"
+            )
+            return
+
+        # 所有前置过滤器通过，计算VCP分数作为参考，不作为决策依据
+        vcp_score, vcp_grade = self._calculate_vcp_score()
+
+        # 步骤3: 所有过滤器通过，按优先级执行交易
+        # active_signals中的顺序由self.confirmation_signals定义，默认coiled_spring优先
+        signal_to_execute = active_signals[0]
+
+        log_msg_map = {
+            'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
+            'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
+        }
+        log_msg_base = log_msg_map.get(signal_to_execute, '未知确认信号')
+        # 信号日志回归简洁，不再包含结构分
+        self.log(log_msg_base)
+
+        stake = self.broker.getvalue() * self.p.initial_stake_pct
+        size = int(stake / self.data.close[0])
+        if size > 0:
+            # -- 新增：为PSQ分析报告捕获观察期分数 --
+            self.current_observation_scores = self.psq_scores.copy()
+            self.order = self.buy(size=size)
+            # 只有"蓄势待发"信号需要进入考察期
+            if signal_to_execute == 'coiled_spring':
+                self.coiled_spring_buy_pending = True
+
+        # 注意：此处不停止PSQ，因为买单可能不会立即成交。
+        # 评分的停止和切换将在notify_order中处理
+        self.observation_mode = False
+        log_suffix = "发出" if signal_to_execute == 'coiled_spring' else "执行"
+        # 按要求将VCP信息添加到此日志行
+        self.log(
+            f'*** 二次确认信号已{log_suffix}，解除观察模式，'
+            f'当前过热分: {self.last_overheat_score:.2f} '
+            f'(VCP 参考: {vcp_grade}, Score: {vcp_score:.2f}) ***'
+        )
 
     def check_coiled_spring_conditions(self):
         """
@@ -461,6 +529,144 @@ class OriginBreakoutStrategy(bt.Strategy):
                 highest_down_volume = max(highest_down_volume, self.data.volume[-i])
 
         return self.data.volume[0] > highest_down_volume
+
+    def _calculate_vcp_score(self):
+        """
+        VCP 4.1 "中庸之道": 计算VCP分数。
+        - 核心逻辑: 引入"过犹不及"的平衡思想，对各维度进行非线性评分。
+          分数在"最优状态"达到顶峰，在过高或过低时均会衰减。
+        """
+
+        def _get_balanced_score(current_val, optimal_val, lower_bound, upper_bound):
+            """
+            计算一个0-100的平衡分数。
+            - 在 optimal_val 处得分为 100。
+            - 在 lower_bound 和 upper_bound 处得分为 0。
+            - 在区间之间线性递减。
+            """
+            if not (lower_bound <= optimal_val <= upper_bound): return 0
+            if current_val < lower_bound or current_val > upper_bound: return 0
+
+            if current_val >= optimal_val:
+                # 在 optimal 和 upper_bound 之间
+                range_size = upper_bound - optimal_val
+                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
+                score = 100 * (1 - (current_val - optimal_val) / range_size)
+            else:
+                # 在 lower_bound 和 optimal 之间
+                range_size = optimal_val - lower_bound
+                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
+                score = 100 * (1 - (optimal_val - current_val) / range_size)
+
+            return score
+
+        if self.signal_day_index == -1: return 0, "N/A"
+
+        # --- 维度1: 宏观环境分 (0-100分) ---
+        macro_score = 0
+        ma_value = self.vcp_macro_ma[0]
+        if ma_value > 0 and len(self.vcp_macro_ma) > self.p.vcp_macro_roc_period:
+            # a. 价格位置 vs MA (过高则危险)
+            price_pos_ratio = self.data.close[0] / ma_value
+            pos_score = _get_balanced_score(
+                price_pos_ratio,
+                self.p.vcp_optimal_price_pos,
+                1.0,  # lower bound: 价格至少要在MA之上
+                self.p.vcp_max_price_pos
+            )
+
+            # b. MA斜率 (Rate of Change) (过陡则危险)
+            ma_prev = self.vcp_macro_ma[-self.p.vcp_macro_roc_period]
+            ma_roc = ma_value / ma_prev if ma_prev > 0 else 1.0
+            trend_score = _get_balanced_score(
+                ma_roc,
+                self.p.vcp_optimal_ma_roc,
+                1.0,  # lower bound: 趋势至少要持平
+                self.p.vcp_max_ma_roc
+            )
+
+            # c. 结合位置和趋势
+            macro_score = pos_score * 0.5 + trend_score * 0.5
+
+        macro_str = f"Macro({int(macro_score)})"
+
+        # --- 维度2: 波动状态分 (0-100分) ---
+        # 使用布林带宽度百分比排名(PctRank)指标
+        bbw_percentile = self.bbw_rank[0]  # 值在0.0到1.0之间
+        # 使用指数使曲线非线性，更奖励极端的压缩
+        squeeze_score = ((1.0 - bbw_percentile) ** self.p.vcp_squeeze_exponent) * 100
+        squeeze_score = max(0, min(100, squeeze_score))  # 确保在0-100范围内
+        squeeze_str = f"Sqz({int(squeeze_score)})"
+
+        # --- 维度3: 供给吸收分 (0-100分) - 逻辑保持不变 ---
+        absorption_score = 50  # 中性分50
+        try:
+            days_since_signal = (len(self.data) - 1) - self.signal_day_index
+            lookback = self.p.vcp_absorption_lookback
+            start_offset = days_since_signal + 1
+            end_offset = start_offset + lookback
+
+            if len(self.data) < end_offset:
+                raise IndexError
+
+            recent_highs = [self.data.high[-j] for j in range(start_offset, end_offset)]
+
+            if recent_highs:
+                high_water_mark = max(recent_highs)
+                absorption_zone_floor = high_water_mark * (1 - self.p.vcp_absorption_zone_pct)
+
+                test_events = []
+                for i in range(start_offset, end_offset):
+                    if self.data.high[-i] >= absorption_zone_floor:
+                        day_open = self.data.open[-i]
+                        day_close = self.data.close[-i]
+                        day_high = self.data.high[-i]
+                        day_low = self.data.low[-i]
+                        day_vol = self.data.volume[-i]
+                        vol_ma = self.volume_ma[-i]
+
+                        candle_range = day_high - day_low if (day_high - day_low) > 1e-9 else 1
+                        close_pos = ((day_close - day_low) / candle_range) * 2 - 1
+                        vol_ratio = day_vol / vol_ma if vol_ma > 0 else 1
+
+                        event_score = 0
+                        if close_pos > 0.5:  # 收阳
+                            event_score += 2 if vol_ratio < 0.8 else 1  # 缩量收阳加分更多
+                        elif close_pos < -0.5:  # 收阴
+                            event_score -= 2 if vol_ratio > 1.2 else 1  # 放量收阴减分更多
+                        test_events.append(event_score)
+
+                if test_events:
+                    raw_score = sum(test_events) / len(test_events)
+                    # 将平均事件分(-2到+2)映射到0-100分
+                    absorption_score = 50 + (raw_score / 2) * 50
+                    absorption_score = max(0, min(100, absorption_score))
+
+        except (IndexError, ValueError):
+            absorption_score = 50  # 出错则给中性分
+
+        absorp_str = f"Abs({int(absorption_score)})"
+
+        # --- 最终加权总分 ---
+        final_score = (macro_score * self.p.vcp_weight_macro +
+                       squeeze_score * self.p.vcp_weight_squeeze +
+                       absorption_score * self.p.vcp_weight_absorption)
+
+        # 转换为0-5的范围，以便与旧版兼容和日志统一
+        final_score_scaled = (final_score / 100) * 5
+        details_str = f"{macro_str},{squeeze_str},{absorp_str}"
+
+        if self.p.debug:
+            self.log(
+                f"[vcp_debug] VCP 4.1 Analysis: {details_str} | "
+                f"Scores: macro({macro_score:.0f}), sqz({squeeze_score:.0f}), abs({absorption_score:.0f}) | "
+                f"Weighted Final: {final_score:.2f} (Scaled: {final_score_scaled:.2f})"
+            )
+
+        grade_map = {5: "A+", 4: "A", 3: "B", 2: "C", 1: "D"}
+        grade = grade_map.get(round(final_score_scaled), "F")
+
+        return final_score_scaled, f"VCP4.1-{grade}"
 
     # --- PSQ 评分系统 ---
     def _start_psq_tracking(self, reason, data):
@@ -621,7 +827,8 @@ class OriginBreakoutStrategy(bt.Strategy):
 
     def stop(self):
         """在回测结束时调用，用于最终的统计分析。"""
-        self._analyze_and_log_psq_summary()
+        if self.p.debug:
+            self._analyze_and_log_psq_summary()
 
     def _analyze_and_log_psq_summary(self):
         """
