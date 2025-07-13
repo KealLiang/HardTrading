@@ -52,7 +52,7 @@ def backtrade_simulate():
     batch_backtrade_simulate()
 
     # 单个回测
-    # stock_code = '300204'
+    # stock_code = '002104'
     # simulator.go_trade(
     #     code=stock_code,
     #     amount=100000,
@@ -69,8 +69,8 @@ def backtrade_simulate():
 def strategy_scan():
     # 使用更精确的信号模式列表
     signal_patterns = [
-        # '突破信号',
         # '*** 触发【突破观察哨】',
+        '突破信号',
         '*** 二次确认信号',
     ]
 
@@ -326,8 +326,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    backtrade_simulate()
-    # strategy_scan()
+    # backtrade_simulate()
+    strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
