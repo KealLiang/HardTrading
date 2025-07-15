@@ -70,7 +70,7 @@ def strategy_scan():
     # 使用更精确的信号模式列表
     signal_patterns = [
         # '*** 触发【突破观察哨】',
-        '突破信号',
+        # '突破信号',
         '*** 二次确认信号',
     ]
 
@@ -208,7 +208,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250615"
+    start_date = "20250630"
     # end_date = '20250512'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -216,7 +216,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250530'  # 开始日期
+    start_date = '20250610'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
