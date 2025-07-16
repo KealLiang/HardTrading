@@ -3,6 +3,7 @@ import warnings
 import os
 from contextlib import redirect_stdout
 
+from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from bin.simulator import batch_backtrade_simulate
 from strategy.breakout_strategy import BreakoutStrategy
@@ -88,6 +89,10 @@ def strategy_scan():
         signal_patterns=signal_patterns,
         details_after_date=details_after_date  # 只有此日期后信号才输出详情
     )
+
+
+def find_candidate_stocks():
+    run_filter()
 
 
 # 获取热点概念词云
@@ -327,6 +332,7 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # backtrade_simulate()
+    # find_candidate_stocks()
     strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
