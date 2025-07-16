@@ -108,7 +108,7 @@ def analyze_stock(df, code):
     return True, "符合“浴火重生”模型"
 
 
-def main():
+def run_filter():
     """
     主函数，执行扫描并输出结果。
     """
@@ -158,4 +158,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    run_filter()

@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 # --- Constants ---
 DEFAULT_DATA_PATH = './data/astocks'
 DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks.txt'
+# DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks_ready.txt'
 DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
 
 # 扫描最少需要的数据天数
