@@ -13,8 +13,7 @@ from data.reasons.origin_synonym_groups import synonym_groups
 
 # 排除列表 - 这些原因不会被选为热门原因
 EXCLUDED_REASONS = [
-    "业绩增长",
-    "扭亏为盈",
+    "预期改善",
     "国企",
 ]
 
