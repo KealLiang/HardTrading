@@ -333,10 +333,10 @@ def generate_ladder_chart():
 if __name__ == '__main__':
     # backtrade_simulate()
     # find_candidate_stocks()
-    strategy_scan()
+    # strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
