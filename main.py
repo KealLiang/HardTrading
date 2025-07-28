@@ -301,7 +301,7 @@ def update_synonym_groups():
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250630"
-    end_date = None
+    end_date = "20250728"
 
     process_zt_data(start_date, end_date, clean_output=True)
     # add_vba_for_excel()
@@ -312,7 +312,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20250501'  # 调整为Excel中有数据的日期范围
-    end_date = '20250624'  # 过了0点需指定日期
+    end_date = '20250728'  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -324,7 +324,7 @@ def generate_ladder_chart():
     ]
 
     # 构建梯队图
-    build_ladder_chart(start_date, None, min_board_level=min_board_level,
+    build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
                        priority_reasons=priority_reasons, enable_attention_criteria=True,
                        sheet_name=sheet_name)
@@ -333,10 +333,10 @@ def generate_ladder_chart():
 if __name__ == '__main__':
     # backtrade_simulate()
     # find_candidate_stocks()
-    # strategy_scan()
+    strategy_scan()
     # get_stock_datas()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
