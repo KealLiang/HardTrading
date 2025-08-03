@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 # --- Constants ---
 DEFAULT_DATA_PATH = './data/astocks'
 DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks.txt'
-# DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks_ready.txt'
+SHOUBAN_CANDIDATE_FILE = 'bin/candidate_stocks_ready.txt'
 DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
 
 # 扫描最少需要的数据天数
@@ -394,7 +394,7 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
 def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=None,
                                 stock_pool=None, strategy_params=None, signal_patterns=None,
                                 data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR,
-                                details_after_date=None):
+                                details_after_date=None, candidate_model='a'):
     """
     执行股票扫描并可视化结果的总调度函数。
 
@@ -418,7 +418,12 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
 
     # 如果未指定股票池, 默认使用候选文件
     if stock_pool is None:
-        stock_pool = DEFAULT_CANDIDATE_FILE
+        if candidate_model == 'a':
+            stock_pool = DEFAULT_CANDIDATE_FILE
+        elif candidate_model == 'b':
+            stock_pool = SHOUBAN_CANDIDATE_FILE
+        else:
+            raise ValueError(f"无法识别的候选模式: {candidate_model}")
 
     target_stock_list = get_stock_pool(
         source=stock_pool,

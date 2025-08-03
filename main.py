@@ -67,7 +67,7 @@ def backtrade_simulate():
     # )
 
 
-def strategy_scan():
+def strategy_scan(candidate_model='a'):
     # 使用更精确的信号模式列表
     signal_patterns = [
         # '*** 触发【突破观察哨】',
@@ -78,7 +78,7 @@ def strategy_scan():
     start_date = '20250530'
     end_date = '20250704'
     stock_pool = ['300581', '600475']
-    details_after_date = '20250709'  # 只看这个日期之后的
+    details_after_date = '20250715'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -87,7 +87,8 @@ def strategy_scan():
         scan_end_date=None,
         stock_pool=None,
         signal_patterns=signal_patterns,
-        details_after_date=details_after_date  # 只有此日期后信号才输出详情
+        details_after_date=details_after_date,  # 只有此日期后信号才输出详情
+        candidate_model=candidate_model
     )
 
 
@@ -333,7 +334,7 @@ def generate_ladder_chart():
 if __name__ == '__main__':
     # backtrade_simulate()
     # find_candidate_stocks()
-    strategy_scan()
+    strategy_scan('a')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
