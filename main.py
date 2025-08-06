@@ -1,6 +1,9 @@
 import logging
 import warnings
 import os
+import sys
+import io
+from datetime import datetime
 from contextlib import redirect_stdout
 
 from bin.resilience_scanner import run_filter
@@ -78,13 +81,13 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250530'
     end_date = '20250704'
     stock_pool = ['300581', '600475']
-    details_after_date = '20250715'  # 只看这个日期之后的
+    details_after_date = '20250620'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
         scan_start_date=start_date,
-        scan_end_date=None,
+        scan_end_date=end_date,
         stock_pool=None,
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
@@ -105,6 +108,97 @@ def get_index_data():
     # 指定保存目录
     save_directory = "data/indexes"
     fetch_indexes_data(save_directory)
+
+
+def execute_routine(steps, routine_name="自定义流程"):
+    """
+    通用的流程执行器
+    
+    Args:
+        steps: 步骤列表，每个元素是 (function, description) 或 function
+        routine_name: 流程名称，用于日志文件命名
+    """
+    import time
+    import threading
+    
+    # 获取当前日期用于日志文件命名
+    current_date = datetime.now().strftime('%Y%m%d')
+    routine_name_safe = routine_name.replace(" ", "_")
+    log_filename = f"logs/{routine_name_safe}_{current_date}_{datetime.now().strftime('%H%M%S')}.log"
+    
+    # 确保logs目录存在
+    os.makedirs("logs", exist_ok=True)
+    
+    # 创建日志文件处理器
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    
+    # 获取根日志记录器并添加文件处理器
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
+    
+    # 同时在控制台显示简化信息
+    print(f"=== 开始{routine_name} {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+    print(f"详细日志保存到: {log_filename}")
+    print(f"总共 {len(steps)} 个步骤")
+    
+    start_time = time.time()
+    
+    try:
+        for i, step in enumerate(steps, 1):
+            # 解析步骤配置
+            if isinstance(step, tuple):
+                func, description = step
+            else:
+                func = step
+                description = func.__name__
+            
+            step_start_time = time.time()
+            
+            print(f"\n[步骤{i}/{len(steps)}] 开始{description}...")
+            logging.info(f"=== 步骤{i}: 开始{description} ===")
+            logging.info(f"当前主线程: {threading.current_thread().name}")
+            logging.info(f"当前活跃线程数: {threading.active_count()}")
+            
+            # 执行步骤
+            func()
+            
+            step_duration = time.time() - step_start_time
+            logging.info(f"=== 步骤{i}: {description}完成 (耗时: {step_duration:.2f}秒) ===")
+            logging.info(f"步骤完成后活跃线程数: {threading.active_count()}")
+            print(f"✓ {description}完成 (耗时: {step_duration:.2f}秒)")
+        
+        total_duration = time.time() - start_time
+        print(f"\n=== 所有步骤执行完成！总耗时: {total_duration:.2f}秒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+        logging.info(f"=== {routine_name}全部完成 (总耗时: {total_duration:.2f}秒) ===")
+        
+    except Exception as e:
+        error_msg = f"执行过程中发生错误: {str(e)}"
+        print(f"\n❌ {error_msg}")
+        logging.error(error_msg, exc_info=True)
+        raise
+    finally:
+        # 移除文件处理器，避免重复添加
+        root_logger.removeHandler(file_handler)
+        file_handler.close()
+        print(f"\n详细日志已保存到: {log_filename}")
+
+
+def daily_routine():
+    """
+    日常量化交易数据处理流程
+    """
+    # 定义日常流程步骤
+    daily_steps = [
+        (get_stock_datas, "拉取A股交易数据"),
+        (fetch_ths_fupan, "拉取热门个股数据"), 
+        (whimsical_fupan_analyze, "执行题材分析"),
+        (generate_ladder_chart, "生成热门股天梯")
+    ]
+    
+    execute_routine(daily_steps, "日常量化交易数据处理")
 
 
 # 拉a股历史数据
@@ -332,9 +426,10 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
+    daily_routine()
     # backtrade_simulate()
     # find_candidate_stocks()
-    strategy_scan('a')
+    # strategy_scan('a')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
