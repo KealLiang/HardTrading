@@ -198,7 +198,7 @@ def daily_routine():
         (generate_ladder_chart, "生成热门股天梯")
     ]
     
-    execute_routine(daily_steps, "日常量化交易数据处理")
+    execute_routine(daily_steps, "daily_routine")
 
 
 # 拉a股历史数据
