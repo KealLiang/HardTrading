@@ -9,7 +9,6 @@ from contextlib import redirect_stdout
 from bin.resilience_scanner import run_filter
 from utils.logging_util import PrintToLoggingHandler, redirect_print_to_logger
 from bin.scanner_analyzer import scan_and_visualize_analyzer
-from bin.simulator import batch_backtrade_simulate
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.scannable_strategy import ScannableBreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
@@ -46,6 +45,7 @@ from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
 from bin.scanner import scan_and_visualize
+from bin.experiment_runner import run_comparison_experiment
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -53,9 +53,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %
 
 # 回溯交易
 def backtrade_simulate():
-    # 批量回测
-    batch_backtrade_simulate()
-
+    # 批量回测并对比
+    run_comparison_experiment()
+    
     # 单个回测
     # stock_code = '002104'
     # simulator.go_trade(
@@ -435,8 +435,8 @@ def generate_ladder_chart():
 
 
 if __name__ == '__main__':
-    daily_routine()
-    # backtrade_simulate()
+    # daily_routine()
+    backtrade_simulate()
     # find_candidate_stocks()
     # strategy_scan('a')
     # get_stock_datas()
