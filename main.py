@@ -7,6 +7,7 @@ from datetime import datetime
 from contextlib import redirect_stdout
 
 from bin.resilience_scanner import run_filter
+from utils.logging_util import PrintToLoggingHandler, redirect_print_to_logger
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from bin.simulator import batch_backtrade_simulate
 from strategy.breakout_strategy import BreakoutStrategy
@@ -110,6 +111,7 @@ def get_index_data():
     fetch_indexes_data(save_directory)
 
 
+
 def execute_routine(steps, routine_name="自定义流程"):
     """
     通用的流程执行器
@@ -139,6 +141,10 @@ def execute_routine(steps, routine_name="自定义流程"):
     root_logger = logging.getLogger()
     root_logger.addHandler(file_handler)
     
+    # 创建print输出重定向的logger
+    print_logger = logging.getLogger('print_capture')
+    print_logger.addHandler(file_handler)
+    
     # 同时在控制台显示简化信息
     print(f"=== 开始{routine_name} {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     print(f"详细日志保存到: {log_filename}")
@@ -162,8 +168,10 @@ def execute_routine(steps, routine_name="自定义流程"):
             logging.info(f"当前主线程: {threading.current_thread().name}")
             logging.info(f"当前活跃线程数: {threading.active_count()}")
             
-            # 执行步骤
-            func()
+            # 使用上下文管理器重定向print到日志文件（只在步骤执行期间）
+            with redirect_print_to_logger(print_logger):
+                # 执行步骤
+                func()
             
             step_duration = time.time() - step_start_time
             logging.info(f"=== 步骤{i}: {description}完成 (耗时: {step_duration:.2f}秒) ===")
@@ -182,6 +190,7 @@ def execute_routine(steps, routine_name="自定义流程"):
     finally:
         # 移除文件处理器，避免重复添加
         root_logger.removeHandler(file_handler)
+        print_logger.removeHandler(file_handler)
         file_handler.close()
         print(f"\n详细日志已保存到: {log_filename}")
 
