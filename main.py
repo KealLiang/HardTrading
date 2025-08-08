@@ -1,13 +1,8 @@
 import logging
-import warnings
 import os
-import sys
-import io
-from datetime import datetime
-from contextlib import redirect_stdout
+import warnings
 
 from bin.resilience_scanner import run_filter
-from utils.logging_util import PrintToLoggingHandler, redirect_print_to_logger
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.scannable_strategy import ScannableBreakoutStrategy
@@ -16,6 +11,8 @@ from strategy.market_regime import MarketRegimeStrategy
 from strategy.origin_breakout_strategy import OriginBreakoutStrategy
 from strategy.panic_rebound_strategy import PanicReboundStrategy
 from strategy.regime_classifier_strategy import RegimeClassifierStrategy
+
+from utils.logging_util import redirect_print_to_logger
 
 # 忽略jieba库中的pkg_resources警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -29,11 +26,10 @@ from analysis.fupan_statistics_plot import plot_all
 from analysis.seek_historical_similar import find_other_similar_trends
 from analysis.stock_price_plotter import plot_multiple_stocks
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
-from analysis.whimsical import process_zt_data, add_vba_for_excel
+from analysis.whimsical import process_zt_data
 from analysis.ladder_chart import build_ladder_chart
-from bin import simulator
 from fetch.astock_concept import fetch_and_save_stock_concept
-from fetch.astock_data import StockDataFetcher, StockDataBroker
+from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
 from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
@@ -44,7 +40,6 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
-from bin.scanner import scan_and_visualize
 from bin.experiment_runner import run_comparison_experiment
 from bin.psq_analyzer import run_psq_analysis_report
 
@@ -150,7 +145,9 @@ def execute_routine(steps, routine_name="自定义流程"):
     root_logger.addHandler(file_handler)
     
     # 创建print输出重定向的logger
+    # 设置propagate=False防止日志向上传播到root logger，避免重复记录
     print_logger = logging.getLogger('print_capture')
+    print_logger.propagate = False
     print_logger.addHandler(file_handler)
     
     # 同时在控制台显示简化信息
