@@ -46,29 +46,37 @@ from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
 from bin.scanner import scan_and_visualize
 from bin.experiment_runner import run_comparison_experiment
+from bin.psq_analyzer import run_psq_analysis_report
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
 
 
+def run_psq_analysis():
+    """
+    一键化PSQ综合分析报告的新入口
+    """
+    run_psq_analysis_report()
+
+
 # 回溯交易
 def backtrade_simulate():
     # 批量回测并对比
-    run_comparison_experiment()
+    # run_comparison_experiment()
     
     # 单个回测
-    # stock_code = '002104'
-    # simulator.go_trade(
-    #     code=stock_code,
-    #     amount=100000,
-    #     startdate=datetime(2022, 1, 1),
-    #     enddate=datetime(2025, 7, 4),
-    #     strategy=BreakoutStrategy,
-    #     strategy_params={'debug': True},  # 开启详细日志
-    #     log_trades=True,
-    #     visualize=True,
-    #     interactive_plot=True,  # 弹出交互图
-    # )
+    stock_code = '000014'
+    simulator.go_trade(
+        code=stock_code,
+        amount=100000,
+        startdate=datetime(2022, 1, 1),
+        enddate=datetime(2025, 7, 4),
+        strategy=BreakoutStrategy,
+        strategy_params={'debug': True},  # 开启详细日志
+        log_trades=True,
+        visualize=True,
+        interactive_plot=True,  # 弹出交互图
+    )
 
 
 def strategy_scan(candidate_model='a'):
@@ -436,7 +444,8 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # daily_routine()
-    backtrade_simulate()
+    run_psq_analysis()
+    # backtrade_simulate()
     # find_candidate_stocks()
     # strategy_scan('a')
     # get_stock_datas()

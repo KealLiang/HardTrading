@@ -234,6 +234,12 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
     if interactive_plot:
         cerebro.plot()
 
+    # --- 返回PSQ分析数据 ---
+    # 确保策略对象存在且包含all_trades_data属性
+    if strat and hasattr(strat, 'all_trades_data'):
+        return strat.all_trades_data
+    return None
+
 
 if __name__ == '__main__':
     stock_code = '301357'
