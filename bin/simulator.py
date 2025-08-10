@@ -235,10 +235,8 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
         cerebro.plot()
 
     # --- 返回PSQ分析数据 ---
-    # 确保策略对象存在且包含all_trades_data属性
-    if strat and hasattr(strat, 'all_trades_data'):
-        return strat.all_trades_data
-    return None
+    # 直接用getattr避免Backtrader对象在布尔上下文触发内部逻辑
+    return getattr(strat, 'all_trades_data', None)
 
 
 if __name__ == '__main__':
