@@ -2,6 +2,7 @@ import logging
 import os
 import warnings
 
+from bin import simulator
 from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from strategy.breakout_strategy import BreakoutStrategy
@@ -60,7 +61,7 @@ def backtrade_simulate():
     # run_comparison_experiment()
     
     # 单个回测
-    stock_code = '000014'
+    stock_code = '300059'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
@@ -82,10 +83,10 @@ def strategy_scan(candidate_model='a'):
         '*** 二次确认信号',
     ]
 
-    start_date = '20250530'
-    end_date = '20250704'
+    start_date = '20250630'
+    end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250620'  # 只看这个日期之后的
+    details_after_date = '20250725'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -409,7 +410,7 @@ def update_synonym_groups():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250630"
+    start_date = "20250720"
     end_date = None
 
     process_zt_data(start_date, end_date, clean_output=True)
@@ -420,8 +421,8 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20250501'  # 调整为Excel中有数据的日期范围
-    end_date = None  # 过了0点需指定日期
+    start_date = '20250701'  # 调整为Excel中有数据的日期范围
+    end_date = '20250808'  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -441,7 +442,7 @@ def generate_ladder_chart():
 
 if __name__ == '__main__':
     # daily_routine()
-    run_psq_analysis()
+    # run_psq_analysis()
     # backtrade_simulate()
     # find_candidate_stocks()
     # strategy_scan('a')
@@ -449,7 +450,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
