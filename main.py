@@ -59,7 +59,7 @@ def run_psq_analysis():
 def backtrade_simulate():
     # 批量回测并对比
     # run_comparison_experiment()
-    
+
     # 单个回测
     stock_code = '300059'
     simulator.go_trade(
@@ -115,7 +115,6 @@ def get_index_data():
     fetch_indexes_data(save_directory)
 
 
-
 def execute_routine(steps, routine_name="自定义流程"):
     """
     通用的流程执行器
@@ -126,38 +125,38 @@ def execute_routine(steps, routine_name="自定义流程"):
     """
     import time
     import threading
-    
+
     # 获取当前日期用于日志文件命名
     current_date = datetime.now().strftime('%Y%m%d')
     routine_name_safe = routine_name.replace(" ", "_")
     log_filename = f"logs/{routine_name_safe}_{current_date}_{datetime.now().strftime('%H%M%S')}.log"
-    
+
     # 确保logs目录存在
     os.makedirs("logs", exist_ok=True)
-    
+
     # 创建日志文件处理器
     file_handler = logging.FileHandler(log_filename, encoding='utf-8')
     file_handler.setLevel(logging.INFO)
     file_formatter = logging.Formatter('%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
-    
+
     # 获取根日志记录器并添加文件处理器
     root_logger = logging.getLogger()
     root_logger.addHandler(file_handler)
-    
+
     # 创建print输出重定向的logger
     # 设置propagate=False防止日志向上传播到root logger，避免重复记录
     print_logger = logging.getLogger('print_capture')
     print_logger.propagate = False
     print_logger.addHandler(file_handler)
-    
+
     # 同时在控制台显示简化信息
     print(f"=== 开始{routine_name} {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
     print(f"详细日志保存到: {log_filename}")
     print(f"总共 {len(steps)} 个步骤")
-    
+
     start_time = time.time()
-    
+
     try:
         for i, step in enumerate(steps, 1):
             # 解析步骤配置
@@ -166,28 +165,29 @@ def execute_routine(steps, routine_name="自定义流程"):
             else:
                 func = step
                 description = func.__name__
-            
+
             step_start_time = time.time()
-            
+
             print(f"\n[步骤{i}/{len(steps)}] 开始{description}...")
             logging.info(f"=== 步骤{i}: 开始{description} ===")
             logging.info(f"当前主线程: {threading.current_thread().name}")
             logging.info(f"当前活跃线程数: {threading.active_count()}")
-            
+
             # 使用上下文管理器重定向print到日志文件（只在步骤执行期间）
             with redirect_print_to_logger(print_logger):
                 # 执行步骤
                 func()
-            
+
             step_duration = time.time() - step_start_time
             logging.info(f"=== 步骤{i}: {description}完成 (耗时: {step_duration:.2f}秒) ===")
             logging.info(f"步骤完成后活跃线程数: {threading.active_count()}")
             print(f"✓ {description}完成 (耗时: {step_duration:.2f}秒)")
-        
+
         total_duration = time.time() - start_time
-        print(f"\n=== 所有步骤执行完成！总耗时: {total_duration:.2f}秒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+        print(
+            f"\n=== 所有步骤执行完成！总耗时: {total_duration:.2f}秒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
         logging.info(f"=== {routine_name}全部完成 (总耗时: {total_duration:.2f}秒) ===")
-        
+
     except Exception as e:
         error_msg = f"执行过程中发生错误: {str(e)}"
         print(f"\n❌ {error_msg}")
@@ -208,11 +208,11 @@ def daily_routine():
     # 定义日常流程步骤
     daily_steps = [
         (get_stock_datas, "拉取A股交易数据"),
-        (fetch_ths_fupan, "拉取热门个股数据"), 
+        (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
         (generate_ladder_chart, "生成热门股天梯")
     ]
-    
+
     execute_routine(daily_steps, "daily_routine")
 
 
@@ -422,7 +422,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20250701'  # 调整为Excel中有数据的日期范围
-    end_date = '20250808'  # 过了0点需指定日期
+    end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -440,17 +440,52 @@ def generate_ladder_chart():
                        sheet_name=sheet_name)
 
 
+def generate_comparison_charts():
+    """
+    生成股票信号对比图 - 根据信号日期分组，便于对比查看
+    """
+    from bin.comparison_chart_generator import ComparisonChartGenerator
+
+    # 自动查找最新的scan_summary文件
+    base_dir = 'bin/candidate_stocks_result'
+    summary_files = [f for f in os.listdir(base_dir) if f.startswith('scan_summary_') and f.endswith('.txt')]
+
+    if not summary_files:
+        print("没有找到scan_summary文件，请先运行strategy_scan()生成扫描结果")
+        return
+
+    # 选择最新的summary文件
+    latest_summary = sorted(summary_files)[-1]
+    summary_path = os.path.join(base_dir, latest_summary)
+
+    print(f"使用summary文件: {summary_path}")
+
+    # 创建生成器并生成对比图
+    generator = ComparisonChartGenerator(base_dir)
+    generated_files = generator.generate_recent_comparisons(summary_path, recent_days=10)
+
+    if generated_files:
+        print(f"\n✅ 成功生成 {len(generated_files)} 张对比图")
+        print(f"📁 对比图保存位置: {generator.comparison_dir}")
+        print("\n生成的对比图:")
+        for file in generated_files:
+            print(f"  📊 {os.path.basename(file)}")
+    else:
+        print("❌ 没有生成任何对比图，请检查数据完整性")
+
+
 if __name__ == '__main__':
     # daily_routine()
     # run_psq_analysis()
     # backtrade_simulate()
     # find_candidate_stocks()
     # strategy_scan('a')
+    generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()

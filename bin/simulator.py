@@ -151,7 +151,7 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
 
     if log_trades:
         log_csv_path = os.path.join(output_dir, 'trade_log.csv')
-        cerebro.addanalyzer(OrderLogger, log_path=log_csv_path, _name='orderlogger')
+        cerebro.addanalyzer(OrderLogger, log_path=log_csv_path, signal_info=signal_info, _name='orderlogger')
 
     cerebro.broker.set_cash(amount)
     cerebro.broker.setcommission(commission=0.00015)
@@ -201,11 +201,14 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
         # 检查交易日志中是否有实际成交
         trade_log_has_trades = False
         try:
-            # 更可靠地检查: 读取log文件并查看是否为空
+            # 更可靠地检查: 读取log文件并查看是否为空，且要区分SIGNAL和真正的交易
             if os.path.exists(log_csv_path):
                 log_df = pd.read_csv(log_csv_path)
                 if not log_df.empty:
-                    trade_log_has_trades = True
+                    # 只有包含BUY或SELL记录才算真正的交易
+                    actual_trades = log_df[log_df['type'].isin(['BUY', 'SELL'])]
+                    if not actual_trades.empty:
+                        trade_log_has_trades = True
         except (OSError, FileNotFoundError, pd.errors.EmptyDataError):
             pass  # 文件不存在、无法访问或为空(只有头)，则认为无成交
 
@@ -221,6 +224,36 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
                 include_open_trades=visualize_open_trades,
                 stock_name=stock_name
             )
+
+            # 检查是否有当前信号日期的纯信号（没有对应交易的信号）
+            if signal_info:
+                try:
+                    log_df = pd.read_csv(log_csv_path)
+                    # 获取主要信号日期
+                    main_signal_date = pd.to_datetime(signal_info[0]['date']).strftime('%Y-%m-%d')
+
+                    # 检查这个信号日期是否有对应的交易
+                    signal_has_trades = False
+                    if not log_df.empty:
+                        main_signal_trades = log_df[
+                            (log_df['signal_date'] == main_signal_date) &
+                            (log_df['type'].isin(['BUY', 'SELL']))
+                            ]
+                        signal_has_trades = not main_signal_trades.empty
+
+                    # 如果主要信号没有对应的交易，生成signal_chart
+                    if not signal_has_trades:
+                        print(f"检测到信号日期 {main_signal_date} 无对应交易，生成信号分析图...")
+                        plot_signal_chart(
+                            code=code,
+                            data_dir=filepath,
+                            output_dir=output_dir,
+                            signal_info=signal_info,
+                            stock_name=stock_name
+                        )
+                except Exception as e:
+                    print(f"检查信号交易匹配时出错: {e}")
+
         elif signal_info:  # 无成交，但有信号（扫描模式）
             print("未执行任何交易，但检测到信号。生成信号分析图...")
             plot_signal_chart(
