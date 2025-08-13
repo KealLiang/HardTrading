@@ -14,7 +14,8 @@ from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
 from decorators.practical import timer
-from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before
+from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
+    get_valid_trading_date_pair
 from utils.file_util import read_stock_data
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
@@ -817,41 +818,66 @@ def calculate_stock_period_change(stock_code, start_date_yyyymmdd, end_date_yyyy
         # 获取股票数据
         df = get_stock_data_df(stock_code)
 
-        # 格式化日期
-        start_date_fmt = f"{start_date_yyyymmdd[:4]}-{start_date_yyyymmdd[4:6]}-{start_date_yyyymmdd[6:8]}"
-        end_date_fmt = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+        if df is None or df.empty:
+            return None
 
-        # 查找开始日期和结束日期的收盘价
+        # 计算原始的交易日间隔
+        original_trading_days = count_trading_days_between(start_date_yyyymmdd, end_date_yyyymmdd)
+        if original_trading_days <= 0:
+            return None
+
+        # 使用新的函数获取有效的日期对
+        valid_start_date, valid_end_date = get_valid_trading_date_pair(
+            end_date_yyyymmdd, original_trading_days, df
+        )
+
+        if valid_start_date is None or valid_end_date is None:
+            return None
+
+        # 格式化日期进行查询
+        start_date_fmt = f"{valid_start_date[:4]}-{valid_start_date[4:6]}-{valid_start_date[6:8]}"
+        end_date_fmt = f"{valid_end_date[:4]}-{valid_end_date[4:6]}-{valid_end_date[6:8]}"
+
+        # 查找数据
         start_row = df[df['日期'] == start_date_fmt]
         end_row = df[df['日期'] == end_date_fmt]
 
+        # 如果还是找不到，使用最接近的日期
         if start_row.empty or end_row.empty:
-            # 如果没有找到对应日期的数据，尝试查找最接近的日期
             all_dates = pd.to_datetime(df['日期'])
             start_date_dt = pd.to_datetime(start_date_fmt)
             end_date_dt = pd.to_datetime(end_date_fmt)
 
-            # 找到不晚于开始日期的最近日期
-            valid_dates = all_dates[all_dates <= start_date_dt]
-            if not valid_dates.empty:
-                closest_start_date = valid_dates.max()
-                start_row = df[df['日期'] == closest_start_date.strftime('%Y-%m-%d')]
+            if start_row.empty:
+                valid_dates = all_dates[all_dates <= start_date_dt]
+                if not valid_dates.empty:
+                    closest_start_date = valid_dates.max()
+                    start_row = df[df['日期'] == closest_start_date.strftime('%Y-%m-%d')]
 
-            # 找到不早于结束日期的最近日期
-            valid_dates = all_dates[all_dates >= end_date_dt]
-            if not valid_dates.empty:
-                closest_end_date = valid_dates.min()
-                end_row = df[df['日期'] == closest_end_date.strftime('%Y-%m-%d')]
+            if end_row.empty:
+                valid_dates = all_dates[all_dates >= end_date_dt]
+                if not valid_dates.empty:
+                    closest_end_date = valid_dates.min()
+                    end_row = df[df['日期'] == closest_end_date.strftime('%Y-%m-%d')]
 
         if start_row.empty or end_row.empty:
             return None
 
-        # 获取区间首尾价
+        # 获取价格数据
         start_price = start_row['开盘'].values[0]
         end_price = end_row['收盘'].values[0]
 
+        # 检查价格数据是否有效
+        if pd.isna(start_price) or pd.isna(end_price) or start_price <= 0 or end_price <= 0:
+            return None
+
         # 计算涨跌幅
         period_change = ((end_price / start_price) - 1) * 100
+
+        # 如果使用了调整后的日期，输出调试信息
+        if valid_start_date != start_date_yyyymmdd or valid_end_date != end_date_yyyymmdd:
+            print(
+                f"股票 {stock_code} 日期范围调整: {start_date_yyyymmdd}->{valid_start_date}, {end_date_yyyymmdd}->{valid_end_date}")
 
         return period_change
 

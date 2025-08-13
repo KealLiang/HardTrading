@@ -202,13 +202,13 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     else:
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=2 * n), end_date=date_dt)
+    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=2 * n + 1), end_date=date_dt)
     # 统一为带时区的Timestamp
     date_dt_tz = pd.Timestamp(date_dt, tz='UTC')
     prev_days = [d for d in prev_days if d <= date_dt_tz]
     prev_days = sorted(prev_days)
     if len(prev_days) < n + 1:
-        raise ValueError("历史交易日数量不足")
+        raise ValueError(f"历史交易日数量不足: len={len(prev_days)}, n+1={n + 1}")
     return prev_days[-(n + 1)].strftime('%Y-%m-%d')
 
 
@@ -297,3 +297,108 @@ def count_trading_days_between(start_date, end_date):
     except Exception as e:
         print(f"计算交易日数量时出错: {str(e)}")
         return 0
+
+
+def get_valid_trading_date_pair(end_date: str, n_days: int, stock_df=None, max_shift_days: int = 5) -> tuple:
+    """
+    获取有效的交易日期对，确保起点和终点都有数据
+    
+    Args:
+        end_date: 结束日期，格式为 'YYYYMMDD'
+        n_days: 向前推的交易日数量
+        stock_df: 股票数据DataFrame，用于验证数据有效性
+        max_shift_days: 最大向前调整的天数，默认为5
+        
+    Returns:
+        tuple: (起点日期, 终点日期) 都是 'YYYYMMDD' 格式，如果找不到则返回 (None, None)
+    """
+    try:
+        # 从基础日期开始，逐步向前调整，寻找有效的日期对
+        for shift in range(max_shift_days + 1):
+            # 计算调整后的终点日期
+            if shift == 0:
+                current_end_date = end_date
+            else:
+                # 向前调整终点日期
+                current_end_date = get_n_trading_days_before(end_date, shift)
+                if '-' in current_end_date:
+                    current_end_date = current_end_date.replace('-', '')
+
+            # 计算对应的起点日期，保持间隔不变
+            current_start_date = get_n_trading_days_before(current_end_date, n_days)
+            if '-' in current_start_date:
+                current_start_date = current_start_date.replace('-', '')
+
+            # 如果没有提供股票数据，直接返回日期对
+            if stock_df is None:
+                return current_start_date, current_end_date
+
+            # 验证这对日期的数据是否有效
+            if _validate_date_pair_data(stock_df, current_start_date, current_end_date):
+                return current_start_date, current_end_date
+
+        # 如果所有调整都无效，返回None
+        return None, None
+
+    except Exception as e:
+        print(f"获取有效交易日期对时出错: {str(e)}")
+        return None, None
+
+
+def _validate_date_pair_data(stock_df, start_date_str, end_date_str):
+    """
+    验证指定日期对的股票数据是否有效
+    
+    Args:
+        stock_df: 股票数据DataFrame
+        start_date_str: 开始日期 (YYYYMMDD)
+        end_date_str: 结束日期 (YYYYMMDD)
+        
+    Returns:
+        bool: 数据是否有效
+    """
+    try:
+        # 格式化日期
+        start_date_fmt = f"{start_date_str[:4]}-{start_date_str[4:6]}-{start_date_str[6:8]}"
+        end_date_fmt = f"{end_date_str[:4]}-{end_date_str[4:6]}-{end_date_str[6:8]}"
+
+        # 查找开始日期和结束日期的数据
+        start_row = stock_df[stock_df['日期'] == start_date_fmt]
+        end_row = stock_df[stock_df['日期'] == end_date_fmt]
+
+        # 如果没有找到对应日期的数据，尝试查找最接近的日期
+        if start_row.empty or end_row.empty:
+            all_dates = pd.to_datetime(stock_df['日期'])
+            start_date_dt = pd.to_datetime(start_date_fmt)
+            end_date_dt = pd.to_datetime(end_date_fmt)
+
+            # 找到不晚于开始日期的最近日期
+            if start_row.empty:
+                valid_dates = all_dates[all_dates <= start_date_dt]
+                if not valid_dates.empty:
+                    closest_start_date = valid_dates.max()
+                    start_row = stock_df[stock_df['日期'] == closest_start_date.strftime('%Y-%m-%d')]
+
+            # 找到不早于结束日期的最近日期
+            if end_row.empty:
+                valid_dates = all_dates[all_dates >= end_date_dt]
+                if not valid_dates.empty:
+                    closest_end_date = valid_dates.min()
+                    end_row = stock_df[stock_df['日期'] == closest_end_date.strftime('%Y-%m-%d')]
+
+        # 检查是否找到了数据
+        if start_row.empty or end_row.empty:
+            return False
+
+        # 获取价格数据
+        start_price = start_row['开盘'].values[0]
+        end_price = end_row['收盘'].values[0]
+
+        # 检查价格数据是否有效
+        if pd.isna(start_price) or pd.isna(end_price) or start_price <= 0 or end_price <= 0:
+            return False
+
+        return True
+
+    except Exception:
+        return False
