@@ -1258,7 +1258,7 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                        pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
-                       max_tracking_days_before):
+                       max_tracking_days_before, zaban_df):
     """
     处理每日单元格
 
@@ -1275,6 +1275,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         date_mapping: 日期映射
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
+        zaban_df: 炸板数据DataFrame
 
     Returns:
         更新后的股票数据
@@ -1284,6 +1285,9 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     # 解析当前日期对象
     current_date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日') if '年' in formatted_day else datetime.strptime(
         formatted_day, '%Y/%m/%d')
+
+    # 检查是否为炸板股票
+    is_zaban = check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day)
 
     # 处理连板数据
     if pd.notna(board_days) and board_days:
@@ -1308,6 +1312,10 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
                 format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
         except Exception as e:
             print(f"处理日期时出错: {e}, 日期: {formatted_day}")
+
+    # 如果是炸板股票，添加下划线标记
+    if is_zaban:
+        add_zaban_underline(cell)
 
     return stock
 
@@ -1361,6 +1369,71 @@ def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_be
 
     # 如果在入选前跟踪天数范围内，显示涨跌幅
     return 1 <= days_before_entry <= max_tracking_days_before
+
+
+def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
+    """
+    检查股票在炸板数据中是否有记录
+    
+    Args:
+        zaban_df: 炸板数据DataFrame
+        pure_stock_code: 纯股票代码
+        formatted_day: 格式化的日期
+        
+    Returns:
+        bool: 是否在炸板数据中有记录
+    """
+    if zaban_df is None or zaban_df.empty:
+        return False
+
+    # 将日期格式转换为YYYYMMDD格式
+    try:
+        if '年' in formatted_day:
+            # 中文格式: YYYY年MM月DD日
+            date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
+        else:
+            # 标准格式: YYYY/MM/DD
+            date_obj = datetime.strptime(formatted_day, '%Y/%m/%d')
+
+        date_yyyymmdd = date_obj.strftime('%Y%m%d')
+
+        # 查找该股票在该日期是否有炸板记录
+        zaban_records = zaban_df[
+            (zaban_df['date'] == date_yyyymmdd) &
+            (zaban_df['stock_code'].str.contains(pure_stock_code, na=False))
+            ]
+
+        return not zaban_records.empty
+
+    except Exception as e:
+        print(f"检查炸板数据时出错: {e}")
+        return False
+
+
+def add_zaban_underline(cell):
+    """
+    为炸板股票的单元格添加下划线（更显眼）：
+    - 保持原有字体样式，添加单下划线
+    - 在单元格底部添加深灰色双线边框，增强可见性
+    """
+    # 保持原有的字体设置，只添加下划线
+    current_font = cell.font
+    cell.font = Font(
+        color=current_font.color,
+        bold=current_font.bold,
+        size=current_font.size,
+        underline='single'
+    )
+
+    # 在不破坏原有边框的前提下，增强底边样式
+    existing_border = cell.border
+    new_border = Border(
+        left=existing_border.left,
+        right=existing_border.right,
+        top=existing_border.top,
+        bottom=Side(style='double', color="000000")
+    )
+    cell.border = new_border
 
 
 def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
@@ -1614,7 +1687,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     formatted_trading_days, date_mapping = format_trading_days(trading_days)
 
     # 加载股票数据
-    lianban_df, shouban_df, attention_data = load_stock_data(start_date, end_date, enable_attention_criteria)
+    lianban_df, shouban_df, attention_data, zaban_df = load_stock_data(start_date, end_date, enable_attention_criteria)
     if lianban_df.empty:
         print("未获取到有效的连板数据")
         return
@@ -1656,7 +1729,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     fill_data_rows(ws, result_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                    stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                    period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before)
+                   max_tracking_days_before, zaban_df)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
@@ -1765,7 +1838,7 @@ def count_stock_entries(result_df):
 def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                    formatted_trading_days, date_column_start, show_period_change, period_column,
                    period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before):
+                   max_tracking_days_before, zaban_df):
     """
     填充数据行
 
@@ -1785,6 +1858,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         date_mapping: 日期映射
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
+        zaban_df: 炸板数据DataFrame
     """
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
@@ -1829,7 +1903,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                        max_tracking_days, max_tracking_days_before)
+                        max_tracking_days, max_tracking_days_before, zaban_df)
 
 
 def extract_pure_stock_code(stock_code):
@@ -1886,7 +1960,7 @@ def calculate_max_board_level(all_board_data):
 
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before):
+                    max_tracking_days, max_tracking_days_before, zaban_df):
     """
     填充每日数据
 
@@ -1903,6 +1977,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         date_mapping: 日期映射
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
+        zaban_df: 炸板数据DataFrame
     """
     for j, formatted_day in enumerate(formatted_trading_days):
         col_idx = j + date_column_start  # 列索引，从date_column_start开始
@@ -1916,7 +1991,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                                    pure_stock_code, stock_details, stock, date_mapping,
-                                   max_tracking_days, max_tracking_days_before)
+                                   max_tracking_days, max_tracking_days_before, zaban_df)
 
 
 def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change):

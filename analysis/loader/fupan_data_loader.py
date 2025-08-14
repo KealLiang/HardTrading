@@ -403,6 +403,112 @@ def load_lianban_data(start_date, end_date):
         return pd.DataFrame()
 
 
+def load_zaban_data(start_date, end_date):
+    """
+    从Excel中加载炸板数据
+    
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+        
+    Returns:
+        pandas.DataFrame: 处理后的炸板数据
+    """
+    try:
+        # 读取炸板数据sheet
+        try:
+            df = pd.read_excel(FUPAN_FILE, sheet_name="炸板数据")
+            print(f"成功读取炸板数据sheet，共有{len(df)}行，{len(df.columns)}列")
+        except Exception as e:
+            print(f"读取炸板数据sheet失败: {e}")
+            return pd.DataFrame()
+
+        # 将日期列转换为datetime格式
+        date_columns = []
+
+        # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
+        for col in df.columns:
+            if isinstance(col, str):
+                if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
+                    date_columns.append(col)
+                elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
+                    date_columns.append(col)
+
+        if not date_columns:
+            print("炸板数据中未找到有效的日期列")
+            return pd.DataFrame()
+
+        # 过滤日期范围
+        filtered_date_columns = []
+        for col in date_columns:
+            # 将两种格式的日期都转换为datetime
+            if '年' in col:
+                # 中文格式: YYYY年MM月DD日
+                date_parts = re.findall(r'\d+', col)
+                if len(date_parts) == 3:
+                    date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
+                else:
+                    continue
+            else:
+                # 标准格式: YYYY/MM/DD
+                date_obj = pd.to_datetime(col)
+
+            date_str = date_obj.strftime('%Y%m%d')
+            if date_str >= start_date and date_str <= end_date:
+                filtered_date_columns.append(col)
+
+        if not filtered_date_columns:
+            print(f"炸板数据中未找到日期范围 {start_date} 至 {end_date} 内的数据")
+            return pd.DataFrame()
+
+        # 提取炸板股票信息
+        zaban_stocks = []
+
+        for date_col in filtered_date_columns:
+            date_obj = datetime.strptime(date_col, '%Y年%m月%d日') if '年' in date_col else pd.to_datetime(date_col)
+            date_str = date_obj.strftime('%Y%m%d')
+
+            # 遍历该日期列中的每个单元格
+            for _, cell_value in df[date_col].items():
+                if pd.isna(cell_value):
+                    continue
+
+                # 解析单元格内容，格式通常是股票代码和股票简称
+                cell_text = str(cell_value)
+                parts = cell_text.split(';')
+
+                if len(parts) < 2:
+                    continue
+
+                # 提取股票代码和股票简称
+                stock_code = parts[0].strip()
+                stock_name = parts[1].strip()
+
+                # 记录炸板股票
+                zaban_stocks.append({
+                    'date': date_str,
+                    'stock_code': stock_code,
+                    'stock_name': stock_name,
+                    'formatted_date': date_col
+                })
+
+        # 转换为DataFrame
+        result_df = pd.DataFrame(zaban_stocks)
+
+        if not result_df.empty:
+            print(f"成功加载炸板数据，共有{len(result_df)}条记录")
+        else:
+            print("未找到炸板数据记录")
+
+        return result_df
+
+    except Exception as e:
+        print(f"加载炸板数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
+
 def load_attention_data(start_date, end_date, is_main_board=True):
     """
     从Excel中加载关注度榜数据
@@ -545,7 +651,7 @@ def load_stock_data(start_date, end_date, enable_attention_criteria):
         enable_attention_criteria: 是否启用关注度榜入选条件
 
     Returns:
-        tuple: (连板数据, 首板数据, 关注度数据)
+        tuple: (连板数据, 首板数据, 关注度数据, 炸板数据)
     """
     # 加载连板数据
     lianban_df = load_lianban_data(start_date, end_date)
@@ -553,6 +659,10 @@ def load_stock_data(start_date, end_date, enable_attention_criteria):
     # 加载首板数据
     shouban_df = load_shouban_data(start_date, end_date)
     print(f"加载首板数据完成，共有{len(shouban_df)}只股票")
+
+    # 加载炸板数据
+    zaban_df = load_zaban_data(start_date, end_date)
+    print(f"加载炸板数据完成，共有{len(zaban_df)}条记录")
 
     # 如果启用关注度榜入选条件，加载关注度榜数据
     attention_data = {'main': None, 'non_main': None}
@@ -570,4 +680,4 @@ def load_stock_data(start_date, end_date, enable_attention_criteria):
     # 调试输出连板数据
     debug_print_lianban_data(lianban_df)
 
-    return lianban_df, shouban_df, attention_data
+    return lianban_df, shouban_df, attention_data, zaban_df
