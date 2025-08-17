@@ -86,7 +86,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250630'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250725'  # 只看这个日期之后的
+    details_after_date = '20250801'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(

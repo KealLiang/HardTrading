@@ -445,16 +445,27 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         print("扫描完成，没有发现符合条件的信号。")
         return
 
-    # --- 4. 使用原始信号生成完整的摘要日志 ---
+    # --- 4. 使用原始信号生成完整的摘要日志（先去重） ---
     summary_path = os.path.join(output_path, f"scan_summary_{scan_start_date}-{end_date_str}.txt")
     raw_signals.sort(key=lambda x: x['datetime'], reverse=True)
-
+    
+    # 对原始信号进行去重，确保同一只股票在同一天只出现一次
+    unique_signals = []
+    seen = set()
+    for signal in raw_signals:
+        key = (signal['code'], signal['datetime'].strftime('%Y-%m-%d'))
+        if key not in seen:
+            seen.add(key)
+            unique_signals.append(signal)
+    
+    logging.info(f"去重后，信号数量从 {len(raw_signals)} 减少到 {len(unique_signals)}")
+    
     with open(summary_path, 'w', encoding='utf-8') as f:
         f.write(f"扫描策略: {scan_strategy.__name__}\n")
         f.write(f"扫描范围: {start_date_fmt} to {end_date_fmt}\n")
-        f.write(f"总计发现 {len(raw_signals)} 个原始信号，涉及 {len(set(s['code'] for s in raw_signals))} 只股票。\n")
+        f.write(f"总计发现 {len(unique_signals)} 个去重后信号，涉及 {len(set(s['code'] for s in unique_signals))} 只股票。\n")
         f.write("-" * 50 + "\n")
-        for signal in raw_signals:
+        for signal in unique_signals:
             code = signal['code']
             name = name_map.get(code, '')
             stock_display = f"{code} {name}" if name else code
