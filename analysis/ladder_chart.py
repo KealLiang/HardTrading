@@ -1737,6 +1737,13 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
+    # 创建按概念分组的工作表
+    concept_grouped_sheet_name = f"{sheet_name_used}_按概念分组"
+    create_concept_grouped_sheet(wb, concept_grouped_sheet_name, result_df, shouban_df, stock_data,
+                                 stock_entry_count, formatted_trading_days, date_column_start,
+                                 show_period_change, period_column, period_days, period_days_long,
+                                 stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
+
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
                         stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
@@ -2018,6 +2025,184 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
 
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
+
+
+def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
+                                formatted_trading_days, date_column_start, show_period_change, period_column,
+                                period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                max_tracking_days_before, zaban_df):
+    """
+    创建按概念分组的工作表
+
+    Args:
+        wb: Excel工作簿
+        sheet_name: 工作表名称
+        result_df: 显著连板股票DataFrame
+        shouban_df: 首板数据DataFrame
+        stock_data: 股票数据字典
+        stock_entry_count: 股票入选次数映射
+        formatted_trading_days: 格式化的交易日列表
+        date_column_start: 日期列开始位置
+        show_period_change: 是否显示周期涨跌幅
+        period_column: 周期涨跌幅列索引
+        period_days: 周期天数
+        period_days_long: 长周期天数
+        stock_details: 股票详细信息映射
+        date_mapping: 日期映射
+        max_tracking_days: 断板后跟踪的最大天数
+        max_tracking_days_before: 入选前跟踪的最大天数
+        zaban_df: 炸板数据DataFrame
+    """
+    print(f"创建按概念分组的工作表: {sheet_name}")
+
+    # 创建新的工作表
+    ws = wb.create_sheet(title=sheet_name)
+
+    # 按概念分组重新排序数据
+    concept_grouped_df = result_df.copy()
+    concept_grouped_df = concept_grouped_df.sort_values(
+        by=['concept_group', 'first_significant_date', 'board_level_at_first'],
+        ascending=[True, True, False]
+    )
+
+    # 设置Excel表头和日期列
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
+
+    # 添加大盘指标行
+    add_market_indicators(ws, date_columns, label_col=2)
+
+    # 填充数据行，使用重新排序的数据
+    fill_data_rows_with_concept_groups(ws, concept_grouped_df, shouban_df, stock_data['stock_reason_group'],
+                                       stock_data['reason_colors'], stock_entry_count, formatted_trading_days,
+                                       date_column_start, show_period_change, period_column, period_days,
+                                       period_days_long, stock_details, date_mapping, max_tracking_days,
+                                       max_tracking_days_before, zaban_df)
+
+    # 调整列宽
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
+
+    # 冻结前三列和前三行
+    ws.freeze_panes = ws.cell(row=4, column=date_column_start)
+
+
+def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
+                                       stock_entry_count, formatted_trading_days, date_column_start,
+                                       show_period_change, period_column, period_days, period_days_long,
+                                       stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df):
+    """
+    填充数据行，按概念分组并在组间添加分隔行
+
+    Args:
+        ws: Excel工作表
+        result_df: 按概念分组排序的显著连板股票DataFrame
+        其他参数与fill_data_rows相同
+    """
+    current_row = 4  # 从第4行开始（第1行是日期标题，第2-3行是大盘指标）
+    current_concept_group = None
+
+    for _, stock in result_df.iterrows():
+        stock_concept_group = stock.get('concept_group', '其他')
+
+        # 如果概念组发生变化，添加分隔行
+        if current_concept_group is not None and current_concept_group != stock_concept_group:
+            # 添加空行作为分隔
+            current_row += 1
+
+            # 添加概念组标题行
+            concept_title_cell = ws.cell(row=current_row, column=2, value=f"=== {stock_concept_group} ===")
+            concept_title_cell.font = Font(bold=True, size=12)
+            concept_title_cell.alignment = Alignment(horizontal='center')
+            concept_title_cell.border = BORDER_STYLE
+
+            # 为概念组标题行设置背景色
+            if stock_concept_group in reason_colors:
+                concept_title_cell.fill = PatternFill(start_color=reason_colors[stock_concept_group], fill_type="solid")
+                # 如果背景色较深，使用白色字体
+                if reason_colors[stock_concept_group] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
+                    concept_title_cell.font = Font(bold=True, size=12, color="FFFFFF")
+
+            current_row += 1
+        elif current_concept_group is None:
+            # 第一个概念组，添加标题行
+            concept_title_cell = ws.cell(row=current_row, column=2, value=f"=== {stock_concept_group} ===")
+            concept_title_cell.font = Font(bold=True, size=12)
+            concept_title_cell.alignment = Alignment(horizontal='center')
+            concept_title_cell.border = BORDER_STYLE
+
+            # 为概念组标题行设置背景色
+            if stock_concept_group in reason_colors:
+                concept_title_cell.fill = PatternFill(start_color=reason_colors[stock_concept_group], fill_type="solid")
+                # 如果背景色较深，使用白色字体
+                if reason_colors[stock_concept_group] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
+                    concept_title_cell.font = Font(bold=True, size=12, color="FFFFFF")
+
+            current_row += 1
+
+        current_concept_group = stock_concept_group
+
+        # 填充股票数据行（复用原有逻辑）
+        fill_single_stock_row(ws, current_row, stock, shouban_df, stock_reason_group, reason_colors,
+                              stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
+                              period_column, period_days, period_days_long, stock_details, date_mapping,
+                              max_tracking_days, max_tracking_days_before, zaban_df)
+
+        current_row += 1
+
+
+def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
+                          formatted_trading_days, date_column_start, show_period_change, period_column,
+                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                          max_tracking_days_before, zaban_df):
+    """
+    填充单个股票的数据行
+
+    Args:
+        ws: Excel工作表
+        row_idx: 行索引
+        stock: 股票数据
+        其他参数与fill_data_rows相同
+    """
+    # 提取基本股票信息
+    stock_code = stock['stock_code']
+    stock_name = stock['stock_name']
+    all_board_data = stock['all_board_data']
+
+    # 提取纯代码
+    pure_stock_code = extract_pure_stock_code(stock_code)
+
+    # 设置股票代码列（第一列）
+    format_stock_code_cell(ws, row_idx, 1, pure_stock_code)
+
+    # 获取概念
+    concept = get_stock_concept(stock)
+
+    # 设置概念列（第二列）
+    stock_key = f"{stock_code}_{stock_name}"
+    format_concept_cell(ws, row_idx, 2, concept, stock_key, stock_reason_group, reason_colors)
+
+    # 计算股票的最高板数
+    max_board_level = calculate_max_board_level(all_board_data)
+
+    # 根据股票代码确定市场类型
+    market_type = get_market_marker(pure_stock_code)
+
+    # 设置股票简称列（第三列）
+    apply_high_board_color = False
+    _, apply_high_board_color = format_stock_name_cell(ws, row_idx, 3, stock_name, market_type,
+                                                       max_board_level, apply_high_board_color,
+                                                       pure_stock_code, stock_entry_count)
+
+    # 填充周期涨跌幅列
+    if show_period_change:
+        # 使用最后一个交易日作为结束日期
+        end_date = date_mapping.get(formatted_trading_days[-1])
+        format_period_change_cell(ws, row_idx, period_column, stock_code, stock_name,
+                                  stock['first_significant_date'], period_days, period_days_long, end_date)
+
+    # 填充每个交易日的数据
+    fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
+                    shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                    max_tracking_days, max_tracking_days_before, zaban_df)
 
 
 def save_excel_file(wb, output_file):
