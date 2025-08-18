@@ -479,21 +479,73 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
     print(f"找到{len(result_df)}只达到显著连板的股票")
 
-    # 添加概念组信息用于排序
-    result_df['concept_group'] = result_df.apply(
-        lambda row: get_cached_concept_group(
-            row['stock_code'],
-            row['stock_name'],
-            row.get('concept', '其他'),
-            ','.join(priority_reasons) if priority_reasons else None
-        ),
-        axis=1
-    )
+    # 计算全局热门概念用于分组
+    all_concepts = []
+    for _, row in result_df.iterrows():
+        concept_str = row.get('concept', '')
+        if pd.notna(concept_str) and concept_str:
+            concepts = extract_reasons(concept_str)
+            all_concepts.extend(concepts)
 
-    # 按首次显著连板日期、概念组和连板天数排序
+    # 获取全局热门概念的顺序
+    global_reason_colors, global_top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+
+    # 创建概念优先级映射（热门概念排在前面）
+    concept_priority = {}
+    for i, concept in enumerate(global_top_reasons):
+        concept_priority[concept] = i
+    concept_priority["其他"] = len(global_top_reasons)  # "其他"排在最后
+
+    # 添加概念组信息用于排序，使用全局热门概念
+    def get_global_concept_group(row):
+        concept_str = row.get('concept', '')
+        if pd.isna(concept_str) or not concept_str:
+            return "其他"
+
+        concepts = extract_reasons(concept_str)
+        if not concepts:
+            return "其他"
+
+        # 找到第一个在热门概念中的概念
+        for concept in concepts:
+            if concept in global_top_reasons:
+                return concept
+
+        # 如果没有热门概念，返回第一个概念
+        return concepts[0] if concepts else "其他"
+
+    result_df['concept_group'] = result_df.apply(get_global_concept_group, axis=1)
+
+    # 计算每个概念组的股票数量，用于非热门概念的排序
+    concept_counts = result_df['concept_group'].value_counts().to_dict()
+
+    # 为非热门概念（不在global_top_reasons中的概念）按股票数量重新分配优先级
+    non_hot_concepts = [concept for concept in concept_counts.keys()
+                       if concept not in global_top_reasons and concept != "其他"]
+    # 按股票数量倒序排列非热门概念
+    non_hot_concepts_sorted = sorted(non_hot_concepts, key=lambda x: concept_counts[x], reverse=True)
+
+    # 重新构建概念优先级映射
+    concept_priority = {}
+    # 热门概念保持原有优先级
+    for i, concept in enumerate(global_top_reasons):
+        concept_priority[concept] = i
+
+    # 非热门概念按股票数量倒序排列，优先级在热门概念之后
+    start_priority = len(global_top_reasons)
+    for i, concept in enumerate(non_hot_concepts_sorted):
+        concept_priority[concept] = start_priority + i
+
+    # "其他"排在最后
+    concept_priority["其他"] = start_priority + len(non_hot_concepts_sorted)
+
+    # 添加概念优先级列用于排序
+    result_df['concept_priority'] = result_df['concept_group'].map(lambda x: concept_priority.get(x, 999))
+
+    # 按首次显著连板日期、概念优先级、概念组和连板天数排序
     result_df = result_df.sort_values(
-        by=['first_significant_date', 'board_level_at_first', 'concept_group'],
-        ascending=[True, False, True]
+        by=['first_significant_date', 'concept_priority', 'concept_group', 'board_level_at_first'],
+        ascending=[True, True, True, False]
     )
 
     return result_df
@@ -1739,10 +1791,34 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 创建按概念分组的工作表
     concept_grouped_sheet_name = f"{sheet_name_used}_按概念分组"
-    create_concept_grouped_sheet(wb, concept_grouped_sheet_name, result_df, shouban_df, stock_data,
-                                 stock_entry_count, formatted_trading_days, date_column_start,
-                                 show_period_change, period_column, period_days, period_days_long,
-                                 stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
+
+    # 检查是否需要创建或更新按概念分组的工作表
+    is_default_pattern = "涨停梯队" in concept_grouped_sheet_name
+    sheet_exists = concept_grouped_sheet_name in wb.sheetnames
+
+    # 决定是否需要创建/更新工作表
+    should_create_sheet = False
+
+    if not sheet_exists:
+        # 工作表不存在，需要创建
+        should_create_sheet = True
+        print(f"在现有工作簿中创建新工作表: {concept_grouped_sheet_name}")
+    elif is_default_pattern:
+        # 默认模式工作表已存在，需要更新
+        wb.remove(wb[concept_grouped_sheet_name])
+        should_create_sheet = True
+        print(f"已更新默认模式工作表: {concept_grouped_sheet_name}")
+    else:
+        # 用户自定义工作表已存在，保留原样
+        print(f"保留用户自定义工作表: {concept_grouped_sheet_name}")
+
+    # 只有当需要创建工作表时才创建内容
+    if should_create_sheet:
+        concept_ws = wb.create_sheet(title=concept_grouped_sheet_name)
+        create_concept_grouped_sheet_content(concept_ws, result_df, shouban_df, stock_data,
+                                           stock_entry_count, formatted_trading_days, date_column_start,
+                                           show_period_change, period_column, period_days, period_days_long,
+                                           stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
 
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
@@ -2027,16 +2103,15 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
     ws.row_dimensions[1].height = 30
 
 
-def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
-                                formatted_trading_days, date_column_start, show_period_change, period_column,
-                                period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                max_tracking_days_before, zaban_df):
+def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
+                                       formatted_trading_days, date_column_start, show_period_change, period_column,
+                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                       max_tracking_days_before, zaban_df):
     """
-    创建按概念分组的工作表
+    创建按概念分组的工作表内容
 
     Args:
-        wb: Excel工作簿
-        sheet_name: 工作表名称
+        ws: Excel工作表
         result_df: 显著连板股票DataFrame
         shouban_df: 首板数据DataFrame
         stock_data: 股票数据字典
@@ -2053,16 +2128,38 @@ def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_da
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
     """
-    print(f"创建按概念分组的工作表: {sheet_name}")
+    print(f"填充按概念分组的工作表内容")
 
-    # 创建新的工作表
-    ws = wb.create_sheet(title=sheet_name)
-
-    # 按概念分组重新排序数据
+    # 按概念分组重新排序数据，添加长周期涨跌幅计算
     concept_grouped_df = result_df.copy()
+
+    # 计算长周期涨跌幅用于排序
+    def calculate_long_period_change(row):
+        try:
+            stock_code = row['stock_code']
+
+            # 使用最后一个交易日作为结束日期
+            end_date = date_mapping.get(formatted_trading_days[-1])
+            if not end_date:
+                return 0.0
+
+            # 计算长周期前的开始日期
+            start_date = get_n_trading_days_before(end_date, period_days_long)
+            if '-' in start_date:
+                start_date = start_date.replace('-', '')
+
+            # 使用已有的函数计算涨跌幅
+            long_change = calculate_stock_period_change(stock_code, start_date, end_date)
+            return long_change if long_change is not None else 0.0
+        except:
+            return 0.0
+
+    concept_grouped_df['long_period_change'] = concept_grouped_df.apply(calculate_long_period_change, axis=1)
+
+    # 按新的优先级排序：首次显著连板日期、长周期涨跌幅倒序、首次显著连板时的连板天数倒序
     concept_grouped_df = concept_grouped_df.sort_values(
-        by=['concept_group', 'first_significant_date', 'board_level_at_first'],
-        ascending=[True, True, False]
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+        ascending=[True, True, True, False, False]
     )
 
     # 设置Excel表头和日期列
@@ -2083,6 +2180,30 @@ def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_da
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
+
+
+def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
+                                formatted_trading_days, date_column_start, show_period_change, period_column,
+                                period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                max_tracking_days_before, zaban_df):
+    """
+    创建按概念分组的工作表（保持向后兼容）
+
+    Args:
+        wb: Excel工作簿
+        sheet_name: 工作表名称
+        其他参数与create_concept_grouped_sheet_content相同
+    """
+    print(f"创建按概念分组的工作表: {sheet_name}")
+
+    # 创建新的工作表
+    ws = wb.create_sheet(title=sheet_name)
+
+    # 填充内容
+    create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
+                                       formatted_trading_days, date_column_start, show_period_change, period_column,
+                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                       max_tracking_days_before, zaban_df)
 
 
 def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
@@ -2109,7 +2230,7 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
             current_row += 1
 
             # 添加概念组标题行
-            concept_title_cell = ws.cell(row=current_row, column=2, value=f"=== {stock_concept_group} ===")
+            concept_title_cell = ws.cell(row=current_row, column=2, value=f"【{stock_concept_group}】")
             concept_title_cell.font = Font(bold=True, size=12)
             concept_title_cell.alignment = Alignment(horizontal='center')
             concept_title_cell.border = BORDER_STYLE
@@ -2124,7 +2245,7 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
             current_row += 1
         elif current_concept_group is None:
             # 第一个概念组，添加标题行
-            concept_title_cell = ws.cell(row=current_row, column=2, value=f"=== {stock_concept_group} ===")
+            concept_title_cell = ws.cell(row=current_row, column=2, value=f"【{stock_concept_group}】")
             concept_title_cell.font = Font(bold=True, size=12)
             concept_title_cell.alignment = Alignment(horizontal='center')
             concept_title_cell.border = BORDER_STYLE
