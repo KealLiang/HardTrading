@@ -50,6 +50,12 @@ PERIOD_DAYS_LONG = 30
 # 例如设置为15，表示如果股票在最近10天内涨幅超过15%，即便没有涨停也会继续跟踪
 HIGH_GAIN_TRACKING_THRESHOLD = 20.0
 
+# ==================== 关注度榜入选条件常量 ====================
+# 关注度榜入选条件：在(board_level-1)连板后X天内两次入选关注度榜前20
+ATTENTION_CRITERIA_DAYS = 5
+# 关注度榜入选条件：需要入选的最少次数
+ATTENTION_CRITERIA_MIN_COUNT = 2
+
 # 高涨幅计算缓存，避免重复计算
 _high_gain_cache = {}
 
@@ -295,27 +301,30 @@ def check_stock_attention(stock_code, current_date, attention_data, log_prefix):
         att_date = datetime.strptime(att_date_str, '%Y年%m月%d日') if '年' in att_date_str else pd.to_datetime(
             att_date_str)
         days_diff = count_trading_days_between(current_date, att_date)
-        # 当天之前2个或之后的3个交易日
+        # 当天之前2个或之后的3个交易日（总共5个交易日范围）
         if -2 <= days_diff <= 3:  # 负值表示之前的交易日，正值表示之后的交易日
             attention_dates.append(att_date)
 
-    # 如果在指定交易日范围内出现了至少两次，则认为符合条件
-    if len(attention_dates) >= 2:
+    # 如果在指定交易日范围内出现了至少N次，则认为符合条件
+    if len(attention_dates) >= ATTENTION_CRITERIA_MIN_COUNT:
         print(f"    {log_prefix}指定交易日范围内两次入选关注度榜前20，符合额外入选条件")
         return True, 'attention'
 
     return False, 'normal'
 
 
+# calculate_stock_score 函数已移除，回到传统连板数逻辑
+
+
 def is_stock_significant(board_days, market, min_board_level, non_main_board_level):
     """
-    判断股票是否达到显著连板条件
+    判断股票是否达到显著连板条件（传统连板数逻辑）
 
     Args:
         board_days: 连板天数
         market: 市场类型
-        min_board_level: 主板股票最小显著连板天数
-        non_main_board_level: 非主板股票最小显著连板天数
+        min_board_level: 主板股票最小显著连板天数阈值
+        non_main_board_level: 非主板股票最小显著连板天数阈值
 
     Returns:
         bool: 是否达到显著连板条件
@@ -323,6 +332,7 @@ def is_stock_significant(board_days, market, min_board_level, non_main_board_lev
     if not board_days:
         return False
 
+    # 传统连板天数判断逻辑
     if market == 'main':
         return board_days >= min_board_level
     elif market in ['gem', 'star', 'bse']:
@@ -373,7 +383,7 @@ def check_reentry_condition(current_date, continuous_board_dates, reentry_days_t
 
     # 判断是否满足再次入选条件
     if days_since_last_board > reentry_days_threshold:
-        # 首先检查是否达到基本的显著连板条件
+        # 首先检查是否达到基本的显著连板条件（暂时使用传统方式，因为这里没有完整的board_data）
         is_significant_reentry = is_stock_significant(board_days, market, min_board_level, non_main_board_level)
 
         # 如果不满足基本条件，但启用了关注度榜入选条件，则检查是否满足关注度榜条件
@@ -408,7 +418,6 @@ def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reaso
 
     # 创建简化版的股票概念数据结构
     stock_key = f"{stock_code}_{stock_name}"
-    stock_concepts = {stock_key: reasons}
     all_concepts = reasons.copy()
 
     # 获取热门概念的颜色映射
@@ -440,9 +449,9 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
     Args:
         df: 连板数据DataFrame，已透视处理，每行一只股票，每列一个日期
         shouban_df: 首板数据DataFrame，已透视处理，每行一只股票，每列一个日期
-        min_board_level: 主板股票最小显著连板天数，默认为2
+        min_board_level: 主板股票最小显著连板天数阈值，默认为2
         reentry_days_threshold: 断板后再次上榜的天数阈值，超过这个天数再次达到入选条件会作为新记录
-        non_main_board_level: 非主板股票最小显著连板天数，默认为1
+        non_main_board_level: 非主板股票最小显著连板天数阈值，默认为1
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
         attention_data_main: 主板关注度榜数据，当enable_attention_criteria=True时需要提供
         attention_data_non_main: 非主板关注度榜数据，当enable_attention_criteria=True时需要提供
@@ -495,7 +504,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
             all_concepts.extend(concepts)
 
     # 获取全局热门概念的顺序
-    global_reason_colors, global_top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+    _, global_top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
 
     # 创建概念优先级映射（热门概念排在前面）
     concept_priority = {}
@@ -528,7 +537,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
     # 为非热门概念（不在global_top_reasons中的概念）按股票数量重新分配优先级
     non_hot_concepts = [concept for concept in concept_counts.keys()
-                       if concept not in global_top_reasons and concept != "其他"]
+                        if concept not in global_top_reasons and concept != "其他"]
     # 按股票数量倒序排列非热门概念
     non_hot_concepts_sorted = sorted(non_hot_concepts, key=lambda x: concept_counts[x], reverse=True)
 
@@ -574,7 +583,7 @@ def get_all_stocks(df, date_columns, shouban_df=None):
 
     # 1. 处理连板数据
     print(f"处理连板数据，共有{len(df)}只股票")
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         stock_code = row['纯代码']
         stock_name = row['股票名称']
 
@@ -605,7 +614,7 @@ def get_all_stocks(df, date_columns, shouban_df=None):
                                 col not in ['纯代码', '股票名称', '股票代码', '概念']]
         shouban_date_columns.sort()
 
-        for idx, row in shouban_df.iterrows():
+        for _, row in shouban_df.iterrows():
             stock_code = row['纯代码']
             stock_name = row['股票名称']
 
@@ -664,9 +673,9 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
         all_stocks: 股票池字典
         date_columns: 日期列列表
         result: 结果列表，用于存储入选的股票记录
-        min_board_level: 主板股票最小显著连板天数
+        min_board_level: 主板股票最小显著连板天数阈值
         reentry_days_threshold: 断板后再次上榜的天数阈值
-        non_main_board_level: 非主板股票最小显著连板天数
+        non_main_board_level: 非主板股票最小显著连板天数阈值
         enable_attention_criteria: 是否启用关注度榜入选条件
         attention_data_main: 主板关注度榜数据
         attention_data_non_main: 非主板关注度榜数据
@@ -695,7 +704,7 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
             is_significant = False
             entry_type = 'normal'  # 默认入选类型
 
-            # 首先检查是否满足基本的显著连板条件
+            # 首先检查是否满足基本的显著连板条件（传统连板数逻辑）
             is_significant = is_stock_significant(board_days, market, min_board_level, non_main_board_level)
 
             # 如果不满足基本条件，但启用了关注度榜入选条件，则检查是否满足关注度榜条件
@@ -1108,7 +1117,7 @@ def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, 
                               period_days_long=PERIOD_DAYS_LONG, end_date_str=None):
     """
     格式化周期涨跌幅单元格
-    
+
     Args:
         ws: Excel工作表
         row: 行索引
@@ -1316,7 +1325,7 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
-                       pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
+                       pure_stock_code, stock_details, stock, max_tracking_days,
                        max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
     """
     处理每日单元格
@@ -1482,6 +1491,15 @@ def clear_high_gain_cache():
     _high_gain_cache.clear()
 
 
+def clear_all_caches():
+    """
+    清理所有缓存，释放内存
+    """
+    clear_high_gain_cache()
+    get_cached_concept_group.cache_clear()
+    get_stock_data.cache_clear()
+
+
 def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_before):
     """
     判断是否应该跟踪入选前的股票
@@ -1508,12 +1526,12 @@ def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_be
 def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
     """
     检查股票在炸板数据中是否有记录
-    
+
     Args:
         zaban_df: 炸板数据DataFrame
         pure_stock_code: 纯股票代码
         formatted_day: 格式化的日期
-        
+
     Returns:
         bool: 是否在炸板数据中有记录
     """
@@ -1546,9 +1564,9 @@ def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
 
 def add_zaban_underline(cell):
     """
-    为炸板股票的单元格添加下划线（更显眼）：
+    为炸板股票的单元格添加下划线和浅橙棕色背景：
     - 保持原有字体样式，添加单下划线
-    - 在单元格底部添加深灰色双线边框，增强可见性
+    - 设置浅橙棕色背景
     """
     # 保持原有的字体设置，只添加下划线
     current_font = cell.font
@@ -1559,15 +1577,9 @@ def add_zaban_underline(cell):
         underline='single'
     )
 
-    # 在不破坏原有边框的前提下，增强底边样式
-    existing_border = cell.border
-    new_border = Border(
-        left=existing_border.left,
-        right=existing_border.right,
-        top=existing_border.top,
-        bottom=Side(style='double', color="000000")
-    )
-    cell.border = new_border
+    # 设置浅橙棕色背景
+    from openpyxl.styles import PatternFill
+    cell.fill = PatternFill(start_color="D2B69D", end_color="D2B69D", fill_type="solid")
 
 
 def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
@@ -1801,10 +1813,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
         sheet_name: 工作表名称，默认为None，表示使用"涨停梯队{start_date[:6]}"；如果指定，则使用指定的名称
     """
-    # 清除缓存
-    get_stock_data.cache_clear()
-    # 清理高涨幅计算缓存
-    clear_high_gain_cache()
+    # 清除所有缓存
+    clear_all_caches()
 
     # 设置结束日期，如果未指定则使用当前日期
     if end_date is None:
@@ -1900,9 +1910,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if should_create_sheet:
         concept_ws = wb.create_sheet(title=concept_grouped_sheet_name)
         create_concept_grouped_sheet_content(concept_ws, result_df, shouban_df, stock_data,
-                                           stock_entry_count, formatted_trading_days, date_column_start,
-                                           show_period_change, period_column, period_days, period_days_long,
-                                           stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
+                                             stock_entry_count, formatted_trading_days, date_column_start,
+                                             show_period_change, period_column, period_days, period_days_long,
+                                             stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                             zaban_df)
 
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
@@ -1956,9 +1967,9 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
     Args:
         lianban_df: 连板数据DataFrame
         shouban_df: 首板数据DataFrame
-        min_board_level: 主板股票最小显著连板天数
+        min_board_level: 主板股票最小显著连板天数阈值
         reentry_days: 断板后再次上榜的天数阈值
-        non_main_board_level: 非主板股票最小显著连板天数
+        non_main_board_level: 非主板股票最小显著连板天数阈值
         enable_attention_criteria: 是否启用关注度榜入选条件
         attention_data: 关注度榜数据
         priority_reasons: 优先选择的原因列表
@@ -2069,7 +2080,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
 
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
-                        shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                        shouban_df, pure_stock_code, stock_details, stock,
                         max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
@@ -2126,7 +2137,7 @@ def calculate_max_board_level(all_board_data):
 
 
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
-                    shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                    shouban_df, pure_stock_code, stock_details, stock,
                     max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
     """
     填充每日数据
@@ -2159,7 +2170,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
 
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
-                                   pure_stock_code, stock_details, stock, date_mapping,
+                                   pure_stock_code, stock_details, stock,
                                    max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
@@ -2190,9 +2201,9 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
 
 
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
-                                       formatted_trading_days, date_column_start, show_period_change, period_column,
-                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df):
+                                         formatted_trading_days, date_column_start, show_period_change, period_column,
+                                         period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                         max_tracking_days_before, zaban_df):
     """
     创建按概念分组的工作表内容
 
@@ -2244,7 +2255,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
     # 按新的优先级排序：首次显著连板日期、长周期涨跌幅倒序、首次显著连板时的连板天数倒序
     concept_grouped_df = concept_grouped_df.sort_values(
-        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
+            'board_level_at_first'],
         ascending=[True, True, True, False, False]
     )
 
@@ -2269,9 +2281,9 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
 
 def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
-                                formatted_trading_days, date_column_start, show_period_change, period_column,
-                                period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                max_tracking_days_before, zaban_df):
+                                 formatted_trading_days, date_column_start, show_period_change, period_column,
+                                 period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                 max_tracking_days_before, zaban_df):
     """
     创建按概念分组的工作表（保持向后兼容）
 
@@ -2287,15 +2299,16 @@ def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_da
 
     # 填充内容
     create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
-                                       formatted_trading_days, date_column_start, show_period_change, period_column,
-                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df)
+                                         formatted_trading_days, date_column_start, show_period_change, period_column,
+                                         period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                         max_tracking_days_before, zaban_df)
 
 
 def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                                        stock_entry_count, formatted_trading_days, date_column_start,
                                        show_period_change, period_column, period_days, period_days_long,
-                                       stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df):
+                                       stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                       zaban_df):
     """
     填充数据行，按概念分组并在组间添加分隔行
 
@@ -2408,7 +2421,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
 
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
-                    shouban_df, pure_stock_code, stock_details, stock, date_mapping,
+                    shouban_df, pure_stock_code, stock_details, stock,
                     max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
@@ -2438,14 +2451,14 @@ if __name__ == "__main__":
                         help='结束日期 (格式: YYYYMMDD)')
     parser.add_argument('--output', type=str, default=OUTPUT_FILE,
                         help=f'输出文件路径 (默认: {OUTPUT_FILE})')
-    parser.add_argument('--min_board', type=int, default=2,
-                        help='主板股票最小显著连板天数 (默认: 2)')
+    parser.add_argument('--min_board', type=float, default=2,
+                        help='主板股票最小显著连板分数 (默认: 2，支持小数如2.5)')
     parser.add_argument('--max_tracking', type=int, default=MAX_TRACKING_DAYS_AFTER_BREAK,
                         help=f'断板后跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_AFTER_BREAK}，设为-1表示一直跟踪)')
     parser.add_argument('--reentry_days', type=int, default=REENTRY_DAYS_THRESHOLD,
-                        help=f'断板后再次达到2板作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
-    parser.add_argument('--non_main_board', type=int, default=1,
-                        help='非主板股票最小显著连板天数 (默认: 1)')
+                        help=f'断板后再次达到入选分数作为新行的天数阈值 (默认: {REENTRY_DAYS_THRESHOLD})')
+    parser.add_argument('--non_main_board', type=float, default=1,
+                        help='非主板股票最小显著连板分数 (默认: 1，支持小数如1.5)')
     parser.add_argument('--max_tracking_before', type=int, default=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                         help=f'入选前跟踪的最大天数 (默认: {MAX_TRACKING_DAYS_BEFORE_ENTRY}，设为0表示不显示入选前走势)')
     parser.add_argument('--period_days', type=int, default=PERIOD_DAYS_CHANGE,
@@ -2485,6 +2498,7 @@ if __name__ == "__main__":
 
     # 更新全局高涨幅跟踪阈值
     import analysis.ladder_chart as ladder_chart_module
+
     ladder_chart_module.HIGH_GAIN_TRACKING_THRESHOLD = args.high_gain_threshold
 
     # 构建梯队图
