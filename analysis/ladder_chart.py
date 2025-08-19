@@ -46,6 +46,13 @@ PERIOD_DAYS_CHANGE = 10
 # 计算最近30天的涨跌幅
 PERIOD_DAYS_LONG = 30
 
+# 持续跟踪的涨幅阈值，如果股票在PERIOD_DAYS_CHANGE天内涨幅超过此值，即便没有涨停也会继续跟踪
+# 例如设置为15，表示如果股票在最近10天内涨幅超过15%，即便没有涨停也会继续跟踪
+HIGH_GAIN_TRACKING_THRESHOLD = 20.0
+
+# 高涨幅计算缓存，避免重复计算
+_high_gain_cache = {}
+
 # 成交量分析相关参数
 # 计算成交量比的天数，当天成交量与前X天平均成交量的比值
 VOLUME_DAYS = 4
@@ -1310,7 +1317,7 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                        pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df):
+                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
     """
     处理每日单元格
 
@@ -1328,6 +1335,8 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
+        period_days: 计算涨跌幅的周期天数
+        high_gain_threshold: 高涨幅跟踪阈值
 
     Returns:
         更新后的股票数据
@@ -1357,7 +1366,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
             # 检查当日日期是否在首次显著连板日期之后
             if current_date_obj >= stock['first_significant_date']:
                 # 处理断板后的跟踪
-                if should_track_after_break(stock, current_date_obj, max_tracking_days):
+                if should_track_after_break(stock, current_date_obj, max_tracking_days, period_days):
                     format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
             # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
             elif should_track_before_entry(current_date_obj, stock['first_significant_date'], max_tracking_days_before):
@@ -1372,14 +1381,22 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     return stock
 
 
-def should_track_after_break(stock, current_date_obj, max_tracking_days):
+def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE):
     """
     判断是否应该跟踪断板后的股票
+
+    现在不仅跟踪断板后的连板股，也跟踪持续高涨幅的非涨停股票
+
+    优化策略：
+    1. 优先检查传统连板跟踪逻辑
+    2. 只有在传统逻辑返回False时才检查高涨幅
+    3. 使用缓存避免重复计算
 
     Args:
         stock: 股票数据
         current_date_obj: 当前日期对象
         max_tracking_days: 断板后跟踪的最大天数
+        period_days: 计算涨跌幅的周期天数
 
     Returns:
         bool: 是否应该跟踪
@@ -1388,16 +1405,81 @@ def should_track_after_break(stock, current_date_obj, max_tracking_days):
     if max_tracking_days is None:
         return True
 
-    # 如果有最后连板日期记录，判断是否超过跟踪期限
+    # 优先检查传统的连板跟踪逻辑
     last_board_date = stock.get('last_board_date')
     if last_board_date:
         # 计算当前日期与最后连板日期的交易日天数差
         days_after_break = count_trading_days_between(last_board_date, current_date_obj)
-        # 如果断板后的交易日天数超过跟踪天数，不显示涨跌幅
-        if days_after_break > max_tracking_days:
+        # 如果在跟踪期限内，直接返回True，无需计算涨跌幅
+        if days_after_break <= max_tracking_days:
+            return True
+        # 如果超过跟踪期限，检查是否为高涨幅股票
+        elif should_track_high_gain_stock(stock['stock_code'], current_date_obj, period_days):
+            return True
+        else:
             return False
 
-    return True
+    # 如果没有连板记录，检查是否为高涨幅股票
+    return should_track_high_gain_stock(stock['stock_code'], current_date_obj, period_days)
+
+
+def should_track_high_gain_stock(stock_code, current_date_obj, period_days):
+    """
+    判断是否应该跟踪高涨幅股票（即便没有涨停）
+
+    优化策略：
+    1. 使用缓存避免重复计算
+    2. 缓存键包含股票代码、日期和周期天数
+
+    Args:
+        stock_code: 股票代码
+        current_date_obj: 当前日期对象
+        period_days: 计算涨跌幅的周期天数
+
+    Returns:
+        bool: 是否应该跟踪
+    """
+    global _high_gain_cache
+
+    try:
+        current_date_str = current_date_obj.strftime('%Y%m%d')
+
+        # 创建缓存键
+        cache_key = f"{stock_code}_{current_date_str}_{period_days}"
+
+        # 检查缓存
+        if cache_key in _high_gain_cache:
+            return _high_gain_cache[cache_key]
+
+        # 计算当前日期前period_days个交易日的开始日期
+        start_date = get_n_trading_days_before(current_date_str, period_days)
+
+        if '-' in start_date:
+            start_date = start_date.replace('-', '')
+
+        # 计算期间涨跌幅
+        period_change = calculate_stock_period_change(stock_code, start_date, current_date_str)
+
+        # 判断是否超过阈值
+        result = period_change is not None and period_change >= HIGH_GAIN_TRACKING_THRESHOLD
+
+        # 缓存结果
+        _high_gain_cache[cache_key] = result
+
+        return result
+
+    except Exception:
+        # 如果计算出错，缓存False结果，不影响正常跟踪逻辑
+        _high_gain_cache[cache_key] = False
+        return False
+
+
+def clear_high_gain_cache():
+    """
+    清理高涨幅计算缓存，释放内存
+    """
+    global _high_gain_cache
+    _high_gain_cache.clear()
 
 
 def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_before):
@@ -1721,6 +1803,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     """
     # 清除缓存
     get_stock_data.cache_clear()
+    # 清理高涨幅计算缓存
+    clear_high_gain_cache()
 
     # 设置结束日期，如果未指定则使用当前日期
     if end_date is None:
@@ -1986,7 +2070,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                        max_tracking_days, max_tracking_days_before, zaban_df)
+                        max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
 def extract_pure_stock_code(stock_code):
@@ -2043,7 +2127,7 @@ def calculate_max_board_level(all_board_data):
 
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df):
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
     """
     填充每日数据
 
@@ -2061,6 +2145,8 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
+        period_days: 计算涨跌幅的周期天数
+        high_gain_threshold: 高涨幅跟踪阈值
     """
     for j, formatted_day in enumerate(formatted_trading_days):
         col_idx = j + date_column_start  # 列索引，从date_column_start开始
@@ -2074,7 +2160,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                                    pure_stock_code, stock_details, stock, date_mapping,
-                                   max_tracking_days, max_tracking_days_before, zaban_df)
+                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
 def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change):
@@ -2323,7 +2409,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df)
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days)
 
 
 def save_excel_file(wb, output_file):
@@ -2380,6 +2466,8 @@ if __name__ == "__main__":
                         help=f'成交量比高阈值，超过该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_THRESHOLD})')
     parser.add_argument('--volume_ratio_low', type=float, default=VOLUME_RATIO_LOW_THRESHOLD,
                         help=f'成交量比低阈值，低于该值则在单元格中显示成交量比 (默认: {VOLUME_RATIO_LOW_THRESHOLD})')
+    parser.add_argument('--high_gain_threshold', type=float, default=HIGH_GAIN_TRACKING_THRESHOLD,
+                        help=f'持续跟踪的涨幅阈值，如果股票在period_days天内涨幅超过此值，即便没有涨停也会继续跟踪 (默认: {HIGH_GAIN_TRACKING_THRESHOLD}%)')
 
     args = parser.parse_args()
 
@@ -2394,6 +2482,10 @@ if __name__ == "__main__":
     VOLUME_DAYS = args.volume_days
     VOLUME_RATIO_THRESHOLD = args.volume_ratio
     VOLUME_RATIO_LOW_THRESHOLD = args.volume_ratio_low
+
+    # 更新全局高涨幅跟踪阈值
+    import analysis.ladder_chart as ladder_chart_module
+    ladder_chart_module.HIGH_GAIN_TRACKING_THRESHOLD = args.high_gain_threshold
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,

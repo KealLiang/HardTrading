@@ -47,7 +47,7 @@ COLORS = [
 ]
 
 # 多次上榜但无热门原因的颜色
-MULTI_COLOR = "2C3E50"
+MULTI_COLOR = "1abc9c"
 
 # 表头颜色
 HEADER_COLOR = "E0E0E0"  # 浅灰色
@@ -432,7 +432,6 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
     # 添加多次上榜图例
     multi_cell = legend_ws.cell(row=current_row, column=1, value="多次上榜")
     multi_cell.fill = PatternFill(start_color=MULTI_COLOR, fill_type="solid")
-    multi_cell.font = Font(color="FFFFFF")
     current_row += 1
 
     # 添加板数颜色图例（如果提供）
