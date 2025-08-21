@@ -53,6 +53,9 @@ HIGH_GAIN_TRACKING_THRESHOLD = 20.0
 # 高涨幅计算缓存，避免重复计算
 _high_gain_cache = {}
 
+# 新高标记缓存，避免重复计算
+_new_high_markers_cache = None
+
 # 成交量分析相关参数
 # 计算成交量比的天数，当天成交量与前X天平均成交量的比值
 VOLUME_DAYS = 4
@@ -60,6 +63,12 @@ VOLUME_DAYS = 4
 VOLUME_RATIO_THRESHOLD = 2.2
 # 成交量比低阈值，低于该值则在单元格中显示成交量比
 VOLUME_RATIO_LOW_THRESHOLD = 0.4
+
+# 新高分析相关参数
+# 计算新高的天数，当天收盘价与前X天最高价的比较
+NEW_HIGH_DAYS = 200
+# 新高标记符号
+NEW_HIGH_MARKER = '!!'
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -81,6 +90,14 @@ PERIOD_CHANGE_COLORS = {
     "MODERATE_NEGATIVE": "A3B86C",  # 中橄榄绿 - 较弱势 (≥-60%)
     "STRONG_NEGATIVE": "7D994D",  # 深橄榄绿 - 弱势 (<-60%)
 }
+
+
+def clear_caches():
+    """清理所有缓存"""
+    global _high_gain_cache, _new_high_markers_cache
+    _high_gain_cache.clear()
+    _new_high_markers_cache = None
+    print("已清理所有缓存")
 
 
 @lru_cache(maxsize=1000)
@@ -212,6 +229,246 @@ def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd):
         return f"{text}[{volume_ratio:.1f}]"
 
     return text
+
+
+def is_new_high(stock_code, date_str_yyyymmdd, days=NEW_HIGH_DAYS):
+    """
+    检查指定股票在特定日期是否突破新高
+
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
+        days: 检查新高的天数，默认为NEW_HIGH_DAYS
+
+    Returns:
+        bool: 是否突破新高
+    """
+    try:
+        # 读取股票数据
+        stock_data = get_stock_data_df(stock_code)
+        if stock_data is None or stock_data.empty:
+            return False
+
+        # 将日期字符串转换为datetime格式，然后转为字符串格式匹配数据
+        target_date_str = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
+
+        # 找到目标日期的数据
+        target_row = stock_data[stock_data['日期'] == target_date_str]
+        if target_row.empty:
+            return False
+
+        target_idx = target_row.index[0]
+        current_close = target_row['收盘'].values[0]
+
+        # 确保有足够的历史数据
+        if target_idx < days:
+            # 如果历史数据不足，使用所有可用的历史数据
+            historical_data = stock_data.iloc[:target_idx]
+        else:
+            # 获取前days天的数据
+            historical_data = stock_data.iloc[target_idx - days:target_idx]
+
+        if historical_data.empty:
+            return False
+
+        # 获取历史最高价
+        historical_high = historical_data['最高'].max()
+
+        # 判断是否突破新高（当前收盘价大于历史最高价）
+        return current_close > historical_high
+
+    except Exception as e:
+        print(f"检查股票 {stock_code} 在 {date_str_yyyymmdd} 是否突破新高时出错: {e}")
+        return False
+
+
+def is_new_high_cached(stock_data, date_str_yyyymmdd, days=NEW_HIGH_DAYS):
+    """
+    使用缓存的股票数据检查是否突破新高（性能优化版）
+
+    Args:
+        stock_data: 已缓存的股票数据DataFrame
+        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
+        days: 检查新高的天数，默认为NEW_HIGH_DAYS
+
+    Returns:
+        bool: 是否突破新高
+    """
+    try:
+        if stock_data is None or stock_data.empty:
+            return False
+
+        # 将日期字符串转换为匹配格式
+        target_date_str = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
+
+        # 找到目标日期的数据
+        target_row = stock_data[stock_data['日期'] == target_date_str]
+        if target_row.empty:
+            return False
+
+        target_idx = target_row.index[0]
+        current_close = target_row['收盘'].values[0]
+
+        # 确保有足够的历史数据
+        if target_idx < days:
+            # 如果历史数据不足，使用所有可用的历史数据
+            historical_data = stock_data.iloc[:target_idx]
+        else:
+            # 获取前days天的数据
+            historical_data = stock_data.iloc[target_idx - days:target_idx]
+
+        if historical_data.empty:
+            return False
+
+        # 获取历史最高价
+        historical_high = historical_data['最高'].max()
+
+        # 判断是否突破新高（当前收盘价大于历史最高价）
+        return current_close > historical_high
+
+    except Exception:
+        # 静默处理错误，避免大量错误输出影响性能
+        return False
+
+
+def calculate_new_high_markers(result_df, formatted_trading_days, date_mapping):
+    """
+    计算每只股票的新高标记日期（优化版）
+
+    Args:
+        result_df: 显著连板股票DataFrame
+        formatted_trading_days: 格式化的交易日列表
+        date_mapping: 日期映射
+
+    Returns:
+        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
+    """
+    new_high_markers = {}
+    stock_data_cache = {}  # 缓存股票数据，避免重复读取
+
+    print(f"开始计算{len(result_df)}只股票的新高标记...")
+
+    for idx, (_, stock) in enumerate(result_df.iterrows()):
+        if idx % 50 == 0:  # 每50只股票打印一次进度
+            print(f"新高标记计算进度: {idx}/{len(result_df)}")
+
+        stock_code = stock['stock_code']
+        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+            pure_stock_code = pure_stock_code[2:]
+
+        # 缓存股票数据
+        if pure_stock_code not in stock_data_cache:
+            stock_data_cache[pure_stock_code] = get_stock_data_df(pure_stock_code)
+
+        stock_data = stock_data_cache[pure_stock_code]
+        if stock_data is None or stock_data.empty:
+            continue
+
+        latest_new_high_date = None
+
+        # 只检查跟踪期内的交易日，避免非跟踪日出现标记
+        for formatted_day in formatted_trading_days:
+            date_yyyymmdd = date_mapping.get(formatted_day)
+            if date_yyyymmdd and is_new_high_cached(stock_data, date_yyyymmdd):
+                latest_new_high_date = formatted_day
+
+        if latest_new_high_date:
+            new_high_markers[stock_code] = latest_new_high_date
+
+    print(f"新高标记计算完成，共找到{len(new_high_markers)}只股票有新高标记")
+    return new_high_markers
+
+
+def calculate_new_high_markers_fast(result_df, formatted_trading_days, date_mapping):
+    """
+    快速计算新高标记（进一步优化版）
+
+    Args:
+        result_df: 显著连板股票DataFrame
+        formatted_trading_days: 格式化的交易日列表
+        date_mapping: 日期映射
+
+    Returns:
+        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
+    """
+    new_high_markers = {}
+
+    # 预处理：提取所有需要的股票代码
+    stock_codes = set()
+    stock_code_mapping = {}  # 完整代码到纯代码的映射
+
+    for _, stock in result_df.iterrows():
+        stock_code = stock['stock_code']
+        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+            pure_stock_code = pure_stock_code[2:]
+
+        stock_codes.add(pure_stock_code)
+        stock_code_mapping[stock_code] = pure_stock_code
+
+    print(f"开始批量加载{len(stock_codes)}只股票的数据...")
+
+    # 批量加载股票数据
+    stock_data_cache = {}
+    loaded_count = 0
+    for pure_code in stock_codes:
+        stock_data_cache[pure_code] = get_stock_data_df(pure_code)
+        loaded_count += 1
+        if loaded_count % 100 == 0:
+            print(f"数据加载进度: {loaded_count}/{len(stock_codes)}")
+
+    print(f"开始计算{len(result_df)}只股票的新高标记...")
+
+    # 批量计算新高标记
+    for idx, (_, stock) in enumerate(result_df.iterrows()):
+        if idx % 100 == 0:  # 每100只股票打印一次进度
+            print(f"新高标记计算进度: {idx}/{len(result_df)}")
+
+        stock_code = stock['stock_code']
+        pure_stock_code = stock_code_mapping[stock_code]
+
+        stock_data = stock_data_cache.get(pure_stock_code)
+        if stock_data is None or stock_data.empty:
+            continue
+
+        latest_new_high_date = None
+
+        # 只检查跟踪期内的交易日
+        for formatted_day in formatted_trading_days:
+            date_yyyymmdd = date_mapping.get(formatted_day)
+            if date_yyyymmdd and is_new_high_cached(stock_data, date_yyyymmdd):
+                latest_new_high_date = formatted_day
+
+        if latest_new_high_date:
+            new_high_markers[stock_code] = latest_new_high_date
+
+    print(f"新高标记计算完成，共找到{len(new_high_markers)}只股票有新高标记")
+    return new_high_markers
+
+
+def get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping):
+    """
+    获取缓存的新高标记，避免重复计算
+
+    Args:
+        result_df: 显著连板股票DataFrame
+        formatted_trading_days: 格式化的交易日列表
+        date_mapping: 日期映射
+
+    Returns:
+        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
+    """
+    global _new_high_markers_cache
+
+    # 如果缓存为空，则计算新高标记
+    if _new_high_markers_cache is None:
+        print("首次计算新高标记...")
+        _new_high_markers_cache = calculate_new_high_markers_fast(result_df, formatted_trading_days, date_mapping)
+    else:
+        print(f"使用缓存的新高标记，共{len(_new_high_markers_cache)}只股票有新高标记")
+
+    return _new_high_markers_cache
 
 
 def get_loose_board_level(board_level):
@@ -1317,7 +1574,7 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                        pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
+                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE, new_high_markers=None):
     """
     处理每日单元格
 
@@ -1336,7 +1593,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
-        high_gain_threshold: 高涨幅跟踪阈值
+        new_high_markers: 新高标记映射
 
     Returns:
         更新后的股票数据
@@ -1377,6 +1634,14 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     # 如果是炸板股票，添加下划线标记
     if is_zaban:
         add_zaban_underline(cell)
+
+    # 检查是否需要添加新高标记
+    if new_high_markers and stock.get('stock_code') in new_high_markers:
+        marked_date = new_high_markers[stock['stock_code']]
+        if formatted_day == marked_date:
+            # 在当前单元格内容后添加新高标记
+            current_value = cell.value if cell.value else ""
+            cell.value = f"{current_value}{NEW_HIGH_MARKER}"
 
     return stock
 
@@ -1813,6 +2078,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     print(f"开始构建梯队形态涨停复盘图 ({start_date} 至 {end_date})...")
 
+    # 清理缓存，确保每次运行都是全新计算
+    clear_caches()
+
     # 获取并处理交易日数据
     trading_days = get_trading_days(start_date, end_date)
     if not trading_days:
@@ -2027,6 +2295,8 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
     """
+    # 计算所有股票的新高标记（使用缓存版本）
+    new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
@@ -2070,7 +2340,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                        max_tracking_days, max_tracking_days_before, zaban_df, period_days)
+                        max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
 
 
 def extract_pure_stock_code(stock_code):
@@ -2127,7 +2397,8 @@ def calculate_max_board_level(all_board_data):
 
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE):
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE,
+                    new_high_markers=None):
     """
     填充每日数据
 
@@ -2146,7 +2417,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
-        high_gain_threshold: 高涨幅跟踪阈值
+        new_high_markers: 新高标记映射
     """
     for j, formatted_day in enumerate(formatted_trading_days):
         col_idx = j + date_column_start  # 列索引，从date_column_start开始
@@ -2160,7 +2431,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                                    pure_stock_code, stock_details, stock, date_mapping,
-                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days)
+                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
 
 
 def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change):
@@ -2304,6 +2575,9 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         result_df: 按概念分组排序的显著连板股票DataFrame
         其他参数与fill_data_rows相同
     """
+    # 计算所有股票的新高标记（使用缓存版本）
+    new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
+
     current_row = 4  # 从第4行开始（第1行是日期标题，第2-3行是大盘指标）
     current_concept_group = None
 
@@ -2351,7 +2625,7 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         fill_single_stock_row(ws, current_row, stock, shouban_df, stock_reason_group, reason_colors,
                               stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                               period_column, period_days, period_days_long, stock_details, date_mapping,
-                              max_tracking_days, max_tracking_days_before, zaban_df)
+                              max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers)
 
         current_row += 1
 
@@ -2359,7 +2633,7 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
 def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                           formatted_trading_days, date_column_start, show_period_change, period_column,
                           period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                          max_tracking_days_before, zaban_df):
+                          max_tracking_days_before, zaban_df, new_high_markers=None):
     """
     填充单个股票的数据行
 
@@ -2367,6 +2641,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
         ws: Excel工作表
         row_idx: 行索引
         stock: 股票数据
+        new_high_markers: 新高标记映射
         其他参数与fill_data_rows相同
     """
     # 提取基本股票信息
@@ -2409,7 +2684,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df, period_days)
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
 
 
 def save_excel_file(wb, output_file):
