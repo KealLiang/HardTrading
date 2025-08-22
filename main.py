@@ -43,6 +43,7 @@ from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
 from bin.experiment_runner import run_comparison_experiment
 from bin.psq_analyzer import run_psq_analysis_report
+from bin.parameter_optimizer import ParameterOptimizer
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -53,6 +54,62 @@ def run_psq_analysis():
     一键化PSQ综合分析报告的新入口
     """
     run_psq_analysis_report()
+
+
+def run_parameter_optimization(config_name=None):
+    """
+    运行参数优化
+
+    Args:
+        config_name: 配置文件名称，如果为None则使用默认配置
+    """
+    optimizer = ParameterOptimizer()
+
+    if config_name is None:
+        # 生成默认配置模板
+        print("未指定配置文件，生成默认配置模板...")
+        template_path = optimizer.generate_config_template("default")
+        print(f"默认配置模板已生成: {template_path}")
+        print("请编辑配置文件后重新运行")
+        return template_path
+    else:
+        # 运行优化
+        config_path = f"bin/optimization_configs/{config_name}"
+        if not config_name.endswith('.yaml'):
+            config_path += '.yaml'
+
+        if not os.path.exists(config_path):
+            print(f"配置文件不存在: {config_path}")
+            return None
+
+        print(f"开始运行参数优化，配置文件: {config_path}")
+        report_path = optimizer.run_optimization(config_path)
+        print(f"参数优化完成！报告保存在: {report_path}")
+        return report_path
+
+
+def generate_optimization_templates():
+    """
+    生成各种类型的优化配置模板
+    """
+    optimizer = ParameterOptimizer()
+
+    templates = {
+        "default": "默认配置模板",
+        "quick": "快速测试模板",
+        "grid": "网格搜索模板"
+    }
+
+    generated_files = []
+    for template_type, description in templates.items():
+        template_path = optimizer.generate_config_template(template_type)
+        generated_files.append(template_path)
+        print(f"{description}已生成: {template_path}")
+
+    print(f"\n总共生成了 {len(generated_files)} 个配置模板")
+    print("请根据需要编辑配置文件，然后运行参数优化")
+
+    return generated_files
 
 
 # 回溯交易
@@ -475,9 +532,20 @@ def generate_comparison_charts():
 
 
 if __name__ == '__main__':
+    # === 参数优化功能 ===
+    # 1. 生成配置模板
+    # generate_optimization_templates()
+
+    # 2. 运行参数优化（需要先生成并编辑配置文件）
+    # run_parameter_optimization("default_config.yaml")
+
+    # 3. 运行演示
+    # exec(open('参数优化演示.py', encoding='utf-8').read())
+
+    # === 原有功能 ===
     # daily_routine()
+    backtrade_simulate()
     # run_psq_analysis()
-    # backtrade_simulate()
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
@@ -485,7 +553,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
