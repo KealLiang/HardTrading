@@ -48,7 +48,7 @@ PERIOD_DAYS_LONG = 30
 
 # 持续跟踪的涨幅阈值，如果股票在PERIOD_DAYS_CHANGE天内涨幅超过此值，即便没有涨停也会继续跟踪
 # 例如设置为15，表示如果股票在最近10天内涨幅超过15%，即便没有涨停也会继续跟踪
-HIGH_GAIN_TRACKING_THRESHOLD = 20.0
+HIGH_GAIN_TRACKING_THRESHOLD = 15.0
 
 # 高涨幅计算缓存，避免重复计算
 _high_gain_cache = {}
