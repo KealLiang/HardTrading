@@ -12,7 +12,8 @@ from strategy.breakout_strategy import BreakoutStrategy
 
 # --- Core Backtesting Function (moved and adapted from simulator.py) ---
 
-def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_filepath):
+def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_filepath,
+                      startdate=None, enddate=None, amount=100000):
     """
     对预设的股票池进行批量回测，并将所有控制台输出汇总到指定的日志文件中。
     这是从 simulator.py 中移动并改造的。
@@ -22,7 +23,16 @@ def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_fil
         strategy_params: 策略的参数字典。
         stock_codes: 要回测的股票代码列表。
         summary_filepath: 结果汇总文件的完整路径。
+        startdate: 回测开始日期，默认为datetime(2022, 1, 1)。
+        enddate: 回测结束日期，默认为datetime(2025, 7, 4)。
+        amount: 初始资金，默认为100000。
     """
+    # 设置默认日期
+    if startdate is None:
+        startdate = datetime(2022, 1, 1)
+    if enddate is None:
+        enddate = datetime(2025, 7, 4)
+
     output_dir = os.path.dirname(summary_filepath)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -33,6 +43,8 @@ def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_fil
             print(f"===== 批量回测报告 =====")
             print(f"策略: {strategy_class.__name__}")
             print(f"参数: {strategy_params}")
+            print(f"回测时间范围: {startdate.strftime('%Y-%m-%d')} 至 {enddate.strftime('%Y-%m-%d')}")
+            print(f"初始资金: {amount:,}")
             print(f"回测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             print("=" * 80)
 
@@ -42,9 +54,9 @@ def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_fil
                     # 注意：批量回测时，关闭交互式绘图以避免阻塞
                     simulator.go_trade(
                         code=code,
-                        amount=100000,
-                        startdate=datetime(2022, 1, 1),
-                        enddate=datetime(2025, 7, 4),
+                        amount=amount,
+                        startdate=startdate,
+                        enddate=enddate,
                         strategy=strategy_class,
                         strategy_params=strategy_params,
                         log_trades=True,

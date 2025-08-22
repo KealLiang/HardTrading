@@ -1,0 +1,53 @@
+analysis_config:
+  enable_risk_analysis: true
+  enable_sensitivity_analysis: true
+  enable_stability_analysis: true
+backtest_config:
+  initial_amount: 100000
+  stock_pool:
+  - '300033'
+  - '300059'
+  - '000062'
+  - '300204'
+  - '600610'
+  time_range:
+    end_date: '2025-07-04'
+    start_date: '2022-01-01'
+description: BreakoutStrategy参数优化实验
+experiment_name: breakout_strategy_grid_search
+output_config:
+  generate_charts: false
+  generate_excel_report: false
+  generate_markdown_report: true
+parameter_sets:
+  grid_search:
+    atr_multiplier:
+    - 1.5
+    - 2.0
+    - 2.5
+    bband_period:
+    - 15
+    - 20
+    - 25
+    volume_ma_period:
+    - 15
+    - 20
+    - 25
+  manual_sets:
+  - description: 基准参数
+    name: baseline
+    params:
+      atr_multiplier: 2.0
+      bband_period: 20
+      debug: false
+      volume_ma_period: 20
+  - description: 激进参数
+    name: aggressive
+    params:
+      atr_multiplier: 2.5
+      bband_period: 15
+      debug: false
+      volume_ma_period: 15
+parameter_strategy:
+  max_combinations: 27
+  type: grid_search
