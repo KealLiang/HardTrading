@@ -101,8 +101,37 @@ class ConfigManager:
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
+        # 读取原始文件内容并预处理，避免YAML八进制解析问题
         with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+            raw_content = f.read()
+
+        # 预处理：在stock_pool部分的数字前后加引号，避免YAML八进制解析
+        import re
+
+        # 只在stock_pool部分进行替换
+        lines = raw_content.split('\n')
+        in_stock_pool = False
+        processed_lines = []
+
+        for line in lines:
+            if 'stock_pool:' in line:
+                in_stock_pool = True
+                processed_lines.append(line)
+            elif in_stock_pool and line.strip() and not line.startswith(' ') and not line.startswith('-'):
+                # 离开stock_pool部分
+                in_stock_pool = False
+                processed_lines.append(line)
+            elif in_stock_pool and re.match(r'^\s*-\s*\d+\s*$', line):
+                # 在stock_pool中的数字项，添加引号
+                processed_line = re.sub(r'(\s*-\s*)(\d+)(\s*)$', r'\1"\2"\3', line)
+                processed_lines.append(processed_line)
+            else:
+                processed_lines.append(line)
+
+        processed_content = '\n'.join(processed_lines)
+
+        # 解析处理后的YAML内容
+        config = yaml.safe_load(processed_content)
 
         # 规范化/合并股票池配置，支持列表和逗号分隔字符串两种形式
         self._normalize_backtest_config(config)
@@ -122,10 +151,12 @@ class ConfigManager:
         list_part = bt.get('stock_pool', [])
         inline1 = bt.get('stock_pool_inline')
         inline2 = None
+
         # 兼容旧字段名：如果用户直接把字符串给到 stock_pool，我们也能识别
         if isinstance(list_part, str):
             inline2 = list_part
             list_part = []
+
         # 收集所有来源
         parts: List[str] = []
         if isinstance(list_part, list):
@@ -134,12 +165,15 @@ class ConfigManager:
             parts.extend([p.strip() for p in inline1.split(',') if p.strip()])
         if isinstance(inline2, str) and inline2.strip():
             parts.extend([p.strip() for p in inline2.split(',') if p.strip()])
+
         # 规范化：只保留数字，左侧补零到6位
         def norm(code: str) -> str:
             c = ''.join(ch for ch in code if ch.isdigit())
             return c.zfill(6) if c else ''
+
         normalized = [norm(p) for p in parts]
         normalized = [p for p in normalized if p]
+
         # 去重且保持首次出现顺序
         seen = set()
         deduped: List[str] = []
@@ -147,6 +181,7 @@ class ConfigManager:
             if c not in seen:
                 seen.add(c)
                 deduped.append(c)
+
         bt['stock_pool'] = deduped
         config['backtest_config'] = bt
 

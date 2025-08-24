@@ -102,7 +102,10 @@ def generate_optimization_templates():
 
     generated_files = []
     for template_type, description in templates.items():
-        template_path = optimizer.generate_config_template(template_type)
+        template_path = optimizer.generate_config_template(template_type=template_type, strategy_class=BreakoutStrategy,
+                                                           test_params=['consolidation_lookback',
+                                                                        'consolidation_ma_proximity_pct',
+                                                                        'consolidation_ma_max_slope'])
         generated_files.append(template_path)
         print(f"{description}已生成: {template_path}")
 
@@ -537,7 +540,7 @@ if __name__ == '__main__':
     # generate_optimization_templates()
 
     # 2. 运行参数优化（需要先生成并编辑配置文件）
-    run_parameter_optimization("quick_test_config.yaml")
+    run_parameter_optimization("grid_search_config.yaml")
 
     # 3. 运行演示
     # exec(open('tests/参数优化演示.py', encoding='utf-8').read())
