@@ -100,6 +100,22 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
         print("数据加载失败，程序退出。")
         return
 
+    # 尝试从数据文件名提取股票名称（形如 000001_平安银行.csv）
+    stock_display_name = ''
+    try:
+        for filename in os.listdir(filepath):
+            if filename.startswith(str(code)) and filename.endswith('.csv'):
+                # 取下划线后的部分去掉扩展名
+                parts = filename.split('_', 1)
+                if len(parts) == 2:
+                    stock_display_name = parts[1].rsplit('.', 1)[0]
+                break
+    except Exception:
+        pass
+
+    if stock_display_name:
+        print(f"股票名称: {stock_display_name}")
+
     # 计算实际需要的数据起点
     data_start_date = startdate - timedelta(days=warm_up_days) if startdate else None
 
@@ -192,6 +208,47 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
     print(f"基准年化收益率: {benchmark_results['benchmark_annual_return']:.2f}%")
     print(f"策略总收益率: {benchmark_results['strategy_return']:.2f}%")
     print(f"超额收益: {benchmark_results['excess_return']:.2f}%")
+
+    # --- 汇总并输出交易统计（用于参数优化报告解析） ---
+    try:
+        if log_trades and os.path.exists(log_csv_path):
+            import pandas as pd
+            df = pd.read_csv(log_csv_path)
+            # 只保留真实成交
+            trades = df[df['type'].isin(['BUY', 'SELL'])].copy()
+            # 没有交易
+            if trades.empty:
+                print("总交易次数: 0")
+                print("盈利交易数: 0")
+                print("胜率: 0.00%")
+                print("最大单笔收益率: N/A")
+                print("最小单笔收益率: N/A")
+            else:
+                # 按 trade_num 分组配对 BUY/SELL，计算每笔收益率
+                returns = []
+                for tnum, grp in trades.groupby('trade_num'):
+                    buy_rows = grp[grp['type'] == 'BUY'].sort_values('datetime')
+                    sell_rows = grp[grp['type'] == 'SELL'].sort_values('datetime')
+                    if buy_rows.empty or sell_rows.empty:
+                        continue
+                    buy_price = float(buy_rows.iloc[0]['price'])
+                    sell_price = float(sell_rows.iloc[-1]['price'])
+                    if buy_price > 0:
+                        ret = (sell_price / buy_price - 1.0) * 100.0
+                        returns.append(ret)
+                total_trades = len(returns)
+                win_trades = sum(1 for r in returns if r > 0)
+                win_rate = (win_trades / total_trades * 100.0) if total_trades > 0 else 0.0
+                max_ret = max(returns) if returns else None
+                min_ret = min(returns) if returns else None
+
+                print(f"总交易次数: {total_trades}")
+                print(f"盈利交易数: {win_trades}")
+                print(f"胜率: {win_rate:.2f}%")
+                print(f"最大单笔收益率: {max_ret:.2f}%" if max_ret is not None else "最大单笔收益率: N/A")
+                print(f"最小单笔收益率: {min_ret:.2f}%" if min_ret is not None else "最小单笔收益率: N/A")
+    except Exception as e:
+        print(f"交易统计计算失败: {e}")
 
     if visualize and log_trades and output_dir:
         print("=" * 50)

@@ -25,56 +25,62 @@ class ParameterOptimizer:
         self.config_manager = ConfigManager(os.path.join(base_dir, "optimization_configs"))
         self.results_base_dir = os.path.join(base_dir, "optimization_results")
         self.cache_dir = os.path.join(base_dir, "optimization_cache")
-        
+
         # 确保目录存在
         os.makedirs(self.results_base_dir, exist_ok=True)
         os.makedirs(self.cache_dir, exist_ok=True)
-        
-        # 设置日志
-        self._setup_logging()
-        
+
+        # 延迟日志初始化，避免无意义的空日志文件
+        self.logger = logging.getLogger(__name__)
+        self._file_handler = None
+
     def _setup_logging(self):
-        """设置日志配置"""
+        """设置日志配置（在真正运行优化时再初始化文件日志）。"""
+        if self._file_handler is not None:
+            # 已经设置过文件日志
+            return
         log_dir = os.path.join(self.base_dir, "logs")
         os.makedirs(log_dir, exist_ok=True)
-        
+
         log_file = os.path.join(log_dir, f"parameter_optimization_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-        
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
-        
-        self.logger = logging.getLogger(__name__)
-        
+
+        # 使用 delay=True，只有首次写入日志时才创建文件，避免空日志
+        file_handler = logging.FileHandler(log_file, encoding='utf-8', delay=True)
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+
+        self.logger.addHandler(file_handler)
+        self.logger.setLevel(logging.INFO)
+        self._file_handler = file_handler
+
     def run_optimization(self, config_path: str) -> str:
         """运行完整的参数优化流程"""
         self.logger.info(f"开始参数优化流程，配置文件: {config_path}")
         
         try:
+            # 初始化日志（延迟到真正运行时）
+            self._setup_logging()
+
             # 1. 加载配置
             config = self.config_manager.load_config(config_path)
             self.logger.info(f"配置加载成功: {config['experiment_name']}")
-            
+
             # 2. 生成参数组合
             parameter_combinations = self.config_manager.generate_parameter_combinations(config)
             self.logger.info(f"生成了 {len(parameter_combinations)} 个参数组合")
-            
+
             # 3. 创建结果目录
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             experiment_dir = os.path.join(self.results_base_dir, f"{config['experiment_name']}_{timestamp}")
             os.makedirs(experiment_dir, exist_ok=True)
-            
+
             # 4. 批量回测
             result_files = self._run_batch_backtests(config, parameter_combinations, experiment_dir)
-            
+
             # 5. 生成对比报告
             report_path = self._generate_comparison_report(config, parameter_combinations, result_files, experiment_dir)
-            
+
             self.logger.info(f"参数优化完成！报告保存在: {report_path}")
             return report_path
             
@@ -105,17 +111,20 @@ class ParameterOptimizer:
             # 检查缓存
             cache_key = self._generate_cache_key(combo, stock_pool, time_range)
             cached_result = self._get_cached_result(cache_key)
-            
+
+            # 生成结果文件路径
+            result_file = os.path.join(experiment_dir, f"backtest_{combo['name']}.txt")
+
             if cached_result:
                 self.logger.info(f"使用缓存结果: {combo['name']}")
-                result_files.append(cached_result)
+                # 复制缓存文件到当前实验目录，使用正确的文件名
+                import shutil
+                shutil.copy2(cached_result, result_file)
+                result_files.append(result_file)
                 continue
             
             # 合并参数（自定义参数 + 默认参数）
             merged_params = self.config_manager.merge_with_defaults(combo['params'])
-            
-            # 生成结果文件路径
-            result_file = os.path.join(experiment_dir, f"backtest_{combo['name']}.txt")
             
             try:
                 # 运行回测
@@ -128,12 +137,12 @@ class ParameterOptimizer:
                     enddate=end_date,
                     amount=initial_amount
                 )
-                
+
                 result_files.append(result_file)
-                
+
                 # 缓存结果
                 self._cache_result(cache_key, result_file)
-                
+
                 self.logger.info(f"参数组合 {combo['name']} 回测完成")
                 
             except Exception as e:
@@ -180,10 +189,10 @@ class ParameterOptimizer:
         
         # 创建分析器
         analyzer = MultiComparisonAnalyzer(experiment_dir)
-        
-        # 解析所有结果
-        analyzer.parse_all_results(result_files)
-        
+
+        # 解析所有结果，并传递参数组合信息以便正确映射名称
+        analyzer.parse_all_results(result_files, parameter_combinations)
+
         # 生成综合报告
         report_content = analyzer.generate_comprehensive_report(config, parameter_combinations)
         
@@ -289,9 +298,11 @@ class ParameterOptimizer:
         
         # 修改为快速测试配置
         config['experiment_name'] = 'breakout_strategy_quick_test'
-        config['backtest_config']['stock_pool'] = ['300033', '300059']  # 只测试2只股票
+        # 只测试2只股票；为保证新老两种stock_pool格式一致，这里同步设置两者
+        config['backtest_config']['stock_pool'] = ['300033', '300059']
+        config['backtest_config']['stock_pool_inline'] = '300033,300059'
         config['backtest_config']['time_range']['start_date'] = '2024-01-01'  # 缩短时间范围
-        
+
         with open(template_path, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True, indent=2)
     

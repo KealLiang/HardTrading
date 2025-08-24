@@ -10,6 +10,7 @@ backtest_config:
   - '000062'
   - '300204'
   - '600610'
+  stock_pool_inline: 300033,300059,000062,300204,600610
   time_range:
     end_date: '2025-07-04'
     start_date: '2022-01-01'

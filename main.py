@@ -537,10 +537,10 @@ if __name__ == '__main__':
     # generate_optimization_templates()
 
     # 2. 运行参数优化（需要先生成并编辑配置文件）
-    # run_parameter_optimization("quick_test_config.yaml")
+    run_parameter_optimization("quick_test_config.yaml")
 
     # 3. 运行演示
-    exec(open('tests/参数优化演示.py', encoding='utf-8').read())
+    # exec(open('tests/参数优化演示.py', encoding='utf-8').read())
 
     # === 原有功能 ===
     # daily_routine()

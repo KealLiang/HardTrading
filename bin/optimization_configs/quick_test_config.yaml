@@ -4,10 +4,7 @@ analysis_config:
   enable_stability_analysis: true
 backtest_config:
   initial_amount: 100000
-  stock_pool:
-  - '300033'
-  - '300059'
-  - '000062'
+  stock_pool: ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640', '002104', '002658']
   time_range:
     end_date: '2025-08-22'
     start_date: '2024-01-01'
