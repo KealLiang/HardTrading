@@ -7,7 +7,7 @@ BreakoutStrategy 参数优化系统演示
 import sys
 import os
 import yaml
-sys.path.append('.')
+sys.path.append('..')
 
 def create_demo_config():
     """创建演示配置"""
@@ -74,8 +74,8 @@ def create_demo_config():
         }
     }
     
-    os.makedirs('bin/optimization_configs', exist_ok=True)
-    config_path = 'bin/optimization_configs/demo_config.yaml'
+    os.makedirs('../bin/optimization_configs', exist_ok=True)
+    config_path = '../bin/optimization_configs/demo_config.yaml'
     
     with open(config_path, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True, indent=2)

@@ -478,7 +478,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20250701'  # 调整为Excel中有数据的日期范围
+    start_date = '20250715'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
@@ -537,14 +537,14 @@ if __name__ == '__main__':
     # generate_optimization_templates()
 
     # 2. 运行参数优化（需要先生成并编辑配置文件）
-    # run_parameter_optimization("default_config.yaml")
+    # run_parameter_optimization("quick_test_config.yaml")
 
     # 3. 运行演示
-    # exec(open('参数优化演示.py', encoding='utf-8').read())
+    exec(open('tests/参数优化演示.py', encoding='utf-8').read())
 
     # === 原有功能 ===
     # daily_routine()
-    backtrade_simulate()
+    # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')

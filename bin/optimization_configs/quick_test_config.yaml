@@ -7,8 +7,9 @@ backtest_config:
   stock_pool:
   - '300033'
   - '300059'
+  - '000062'
   time_range:
-    end_date: '2025-07-04'
+    end_date: '2025-08-22'
     start_date: '2024-01-01'
 description: BreakoutStrategy参数优化实验
 experiment_name: breakout_strategy_quick_test
