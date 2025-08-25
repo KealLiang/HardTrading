@@ -11,6 +11,34 @@ from data.reasons.origin_synonym_groups import synonym_groups
 
 # from data.reasons.updated_synonym_groups import synonym_groups
 
+# 概念正统度分层配置（可选）
+try:
+    from analysis.group_config.concept_tiers import (
+        GROUP_TIER,
+        GROUP_ROLE,
+        TIER_WEIGHT,
+        ROLE_WEIGHT,
+        CORE_KEYWORDS,
+        CORE_KEYWORD_BONUS,
+        FREQ_WEIGHT,
+        HOT_WEIGHT,
+        REASON_OVERRIDES,
+    )
+    CONCEPT_TIERING_AVAILABLE = True
+except Exception:
+    # 安全降级：无配置时，打分功能禁用
+    CONCEPT_TIERING_AVAILABLE = False
+    GROUP_TIER = {}
+    GROUP_ROLE = {}
+    TIER_WEIGHT = {1: 1.0, 2: 0.6, 3: 0.3}
+    ROLE_WEIGHT = {"brand": 0.2, "event": 0.2, "chain": 0.4, "industry": 0.3, "generic": 0.1}
+    CORE_KEYWORDS = {}
+    CORE_KEYWORD_BONUS = 0.5
+    FREQ_WEIGHT = 0.2
+    HOT_WEIGHT = 0.1
+    REASON_OVERRIDES = {}
+
+
 # 排除列表 - 这些原因不会被选为热门原因
 EXCLUDED_REASONS = [
     "预期改善",
@@ -150,6 +178,141 @@ def normalize_reason(reason):
 
     return f"未分类_{original_reason}"
 
+def extract_reasons_with_original(reason_text):
+    """
+    与 extract_reasons 相同，但保留原始短语与归并后的主类。
+    Returns: list of tuples (original_reason, grouped_reason)
+    """
+    if not reason_text or isinstance(reason_text, float):
+        return []
+
+    parts = [p.strip() for p in reason_text.split('+') if p and p.strip()]
+    result = []
+    for p in parts:
+        grouped = normalize_reason(p)
+        result.append((p, grouped))
+    return result
+
+
+def _get_group_meta(group_name):
+    """读取分组的 tier/role 元数据，若无配置返回默认。"""
+    tier = GROUP_TIER.get(group_name)
+    role = GROUP_ROLE.get(group_name)
+    # 默认：未知组视为 industry+tier2
+    if tier is None:
+        tier = 2
+    if role is None:
+        role = "industry"
+    return tier, role
+
+
+def _has_core_keyword(group_name, original_reason):
+    kws = CORE_KEYWORDS.get(group_name, [])
+    return any(k in original_reason for k in kws)
+
+
+def _top_reason_rank(reason, top_reasons):
+    if not top_reasons or reason not in top_reasons:
+        return None
+    # top_reasons[0] 最热门，我们希望越热门加分越多
+    idx = top_reasons.index(reason)
+    # 映射为分值：前排更大
+    return max(0, len(top_reasons) - idx)
+
+
+def score_reason(original_reason, grouped_reason, group_count_in_stock=1, top_reasons=None):
+    """
+    计算单个原因的正统分。
+    参数:
+      - original_reason: 原始短语（如 "AI服务器电源"）
+      - grouped_reason: 归并后的主类（如 "算力半导体"）
+      - group_count_in_stock: 该股票内该主类出现次数
+      - top_reasons: 全局热门主类顺序
+    返回:
+      - float 分数
+    """
+    tier, role = _get_group_meta(grouped_reason)
+    base = TIER_WEIGHT.get(tier, 0.0) + ROLE_WEIGHT.get(role, 0.0)
+
+    bonus_core = CORE_KEYWORD_BONUS if _has_core_keyword(grouped_reason, original_reason) else 0.0
+    bonus_freq = FREQ_WEIGHT * max(0, group_count_in_stock)
+
+    hot_rank = _top_reason_rank(grouped_reason, top_reasons)
+    bonus_hot = HOT_WEIGHT * hot_rank if hot_rank else 0.0
+
+    # overrides（按原始短语或分组名进行匹配）
+    override_bonus = 0.0
+    if REASON_OVERRIDES:
+        # 精确匹配原始短语或包含匹配
+        for key, cfg in REASON_OVERRIDES.items():
+            if key in original_reason or key == grouped_reason:
+                override_bonus += float(cfg.get("bonus", 0.0))
+
+    return base + bonus_core + bonus_freq + bonus_hot + override_bonus
+
+
+def get_stock_reason_labels(all_stocks, top_reasons, k=2):
+    """
+    为每只股票计算主+次标签（默认最多2个标签）。
+    返回: { stock_key: {"primary": str, "secondaries": [str], "details": [(original, grouped, score)]} }
+    说明: details 为“按主类去重后”的明细（每个分组只保留最高分的一条），便于用于批注展示，避免重复。
+    """
+    labels = {}
+    if not CONCEPT_TIERING_AVAILABLE:
+        return labels
+
+    for stock_key, data in all_stocks.items():
+        reasons = data.get("reason_details") or []  # [(original, grouped)]
+        if not reasons:
+            # 若上游未提供细节，则尝试从简化列表构造
+            grouped_only = data.get("reasons", [])
+            reasons = [(g, g) for g in grouped_only]
+
+        if not reasons:
+            continue
+
+        # 统计组内频次
+        group_counts = Counter([g for _, g in reasons])
+
+        # 逐条打分
+        scored = []
+        for original, grouped in reasons:
+            cnt = group_counts.get(grouped, 1)
+            s = score_reason(original, grouped, cnt, top_reasons)
+            scored.append((original, grouped, s))
+
+        # 汇总到主类维度，取每组最高分
+        group_best = {}
+        for original, grouped, s in scored:
+            if grouped not in group_best or s > group_best[grouped][1]:
+                group_best[grouped] = (original, s)
+
+        # 排序（分数降序，tier升序，热度优先）
+        def sort_key(item):
+            grouped, (original, s) = item
+            tier, _role = _get_group_meta(grouped)
+            hot_rank = _top_reason_rank(grouped, top_reasons) or 0
+            return (-s, tier, -hot_rank, -group_counts.get(grouped, 0))
+
+        sorted_groups = sorted(group_best.items(), key=sort_key)
+        if not sorted_groups:
+            continue
+
+        primary = sorted_groups[0][0]
+        secondaries = [g for g, _ in sorted_groups[1:k]] if k > 1 else []
+
+        # 构造“按组去重”的明细，顺序与排序一致
+        unique_details = [(group_best[g][0], g, group_best[g][1]) for g, _ in sorted_groups]
+
+        labels[stock_key] = {
+            "primary": primary,
+            "secondaries": secondaries,
+            "details": unique_details,
+        }
+
+    return labels
+
+
 
 def extract_reasons(reason_text):
     """
@@ -166,12 +329,12 @@ def extract_reasons(reason_text):
 def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
     """
     根据原因出现频率，为热门原因分配颜色
-    
+
     Args:
         all_reasons: 所有原因的列表
         top_n: 选取的热门原因数量
         priority_reasons: 优先选择的原因列表，默认为None时使用全局PRIORITY_REASONS
-        
+
     Returns:
         tuple: (reason_colors, top_reasons) - 原因到颜色的映射字典和热门原因列表
     """
@@ -220,11 +383,11 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
 def get_stock_reason_group(all_stocks, top_reasons):
     """
     确定每支股票主要属于哪个原因组
-    
+
     Args:
         all_stocks: 股票信息字典，包含每只股票的原因列表
         top_reasons: 热门原因列表
-        
+
     Returns:
         dict: 股票到主要原因的映射字典
     """
@@ -256,7 +419,7 @@ def get_stock_reason_group(all_stocks, top_reasons):
 def get_color_by_pct_change(pct_change):
     """
     根据涨跌幅返回对应的颜色代码
-    
+
     :param pct_change: 涨跌幅百分比
     :return: 颜色代码
     """
@@ -335,7 +498,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
                         reentry_colors=None, source_sheet_name=None):
     """
     创建颜色图例工作表
-    
+
     Args:
         wb: openpyxl工作簿对象
         reason_counter: 原因计数器(Counter对象)
@@ -344,7 +507,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
         high_board_colors: 高板数颜色映射字典，默认为None
         reentry_colors: 重复入选颜色映射字典，默认为None
         source_sheet_name: 源数据工作表名称，用于生成图例工作表名称，默认为None
-    
+
     Returns:
         openpyxl.worksheet.worksheet.Worksheet: 创建的图例工作表对象
     """
@@ -516,10 +679,10 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
 def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
     """
     加载创业板指数数据
-    
+
     Args:
         index_file: 指数数据文件路径，默认为创业板指数
-        
+
     Returns:
         dict: 以日期为键的字典，包含涨跌幅和成交量信息
     """
@@ -561,14 +724,14 @@ def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/
                           label_col=1):
     """
     在Excel表格中添加大盘指标行（创业指和成交量）
-    
+
     Args:
         ws: openpyxl工作表对象
         date_columns: 日期列映射字典，键为日期字符串，值为列索引
         index_data: 已加载的指数数据，如果为None则会尝试加载
         index_file: 指数数据文件路径，默认为创业板指数
         label_col: 标签列索引，默认为1
-        
+
     Returns:
         bool: 是否成功添加指标
     """
@@ -623,11 +786,11 @@ def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/
 def save_unique_reasons(all_reasons, output_file="./data/reasons/unique_reasons.json"):
     """
     将所有涨停原因去重并保存为JSON文件
-    
+
     Args:
         all_reasons: 所有原因的列表
         output_file: 输出文件路径
-        
+
     Returns:
         tuple: (success, message) - 是否成功保存和相关信息
     """

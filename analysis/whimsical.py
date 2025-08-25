@@ -12,8 +12,9 @@ from openpyxl.utils import get_column_letter
 from utils.date_util import get_trading_days
 from utils.excel_vba_util import add_vba_to_sheet
 from utils.theme_color_util import (
-    extract_reasons, get_reason_colors,
-    get_stock_reason_group, synonym_groups, EXCLUDED_REASONS, TOP_N,
+    extract_reasons, get_reason_colors, extract_reasons_with_original,
+    get_stock_reason_group, get_stock_reason_labels,
+    synonym_groups, EXCLUDED_REASONS, TOP_N,
     create_legend_sheet, MULTI_COLOR, HEADER_COLOR,
     load_index_data, add_market_indicators, save_unique_reasons
 )
@@ -256,6 +257,13 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
                            if not r.startswith('未分类_')]
                 all_stocks[stock_key]['reasons'].extend(reasons)
 
+                # 附加保留原始短语的明细，供主/次标签与打分使用
+                reason_details = []
+                for orig, grouped in extract_reasons_with_original(stock['info']['涨停原因类别']):
+                    if not grouped.startswith('未分类_'):
+                        reason_details.append((orig, grouped))
+                all_stocks[stock_key]['reason_details'] = all_stocks[stock_key].get('reason_details', []) + reason_details
+
     # 获取每只股票的主要概念组
     stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
 
@@ -388,7 +396,7 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
                 # 设置单元格样式
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-                # 创建备注
+                # 创建备注（附加主/次标签与分数）
                 comment_text = ""
                 if '几天几板' in stock['info']:
                     comment_text += f"{stock['info']['几天几板']} "
@@ -397,7 +405,20 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
                 if '涨停开板次数' in stock['info']:
                     comment_text += f"{stock['info']['涨停开板次数']}\n"
                 if '涨停原因类别' in stock['info']:
-                    comment_text += f"{stock['info']['涨停原因类别']}"
+                    comment_text += f"{stock['info']['涨停原因类别']}\n"
+
+                # 追加主/次标签
+                try:
+                    labels = get_stock_reason_labels(all_stocks, top_reasons, k=2)
+                    if stock_key in labels:
+                        lab = labels[stock_key]
+                        comment_text += f"主:{lab['primary']} 次:{'/'.join(lab['secondaries']) if lab['secondaries'] else '-'}\n"
+                        # 附上最高分详情（前2条）
+                        details_sorted = sorted(lab['details'], key=lambda x: x[2], reverse=True)[:2]
+                        for o, g, s in details_sorted:
+                            comment_text += f"[{g}] {o}: {s:.2f}\n"
+                except Exception:
+                    pass
 
                 cell.comment = Comment(comment_text, "分析系统")
 
