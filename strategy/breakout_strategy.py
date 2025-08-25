@@ -14,8 +14,8 @@ class BreakoutStrategy(bt.Strategy):
         ('debug', False),  # 是否开启信号评级的详细日志
         # -- 核心指标 --
         ('bband_period', 20),  # 布林带周期
-        ('bband_devfactor', 2.0),  # 布林带标准差
-        ('volume_ma_period', 20),  # 成交量移动平均周期
+        ('bband_devfactor', 1.8),  # 布林带标准差
+        ('volume_ma_period', 22),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
         # -- 环境分 V2.2 新增高位盘整识别 --
@@ -26,9 +26,9 @@ class BreakoutStrategy(bt.Strategy):
         ('observation_period', 15),  # 触发观察模式后的持续天数
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
-        ('pocket_pivot_lookback', 10),  # 口袋支点信号的回看期
+        ('pocket_pivot_lookback', 11),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨的容忍度(3%)
-        ('pullback_from_peak_pct', 0.07),  # 从观察期高点可接受的最大回撤(7%)
+        ('pullback_from_peak_pct', 0.09),  # 从观察期高点可接受的最大回撤(7%)
         ('context_period', 7),  # PSQ 3.1: 情景定位的回看周期
         # -- PSQ 权重参数 --
         ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
@@ -56,8 +56,8 @@ class BreakoutStrategy(bt.Strategy):
         # -- 风险管理 --
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
-        ('atr_multiplier', 2.0),  # ATR止损乘数
-        ('atr_ceiling_multiplier', 4.0),  # 新增：基于ATR的价格窗口乘数
+        ('atr_multiplier', 2.2),  # ATR止损乘数
+        ('atr_ceiling_multiplier', 3.6),  # 新增：基于ATR的价格窗口乘数
     )
 
     def __init__(self):

@@ -538,10 +538,8 @@ if __name__ == '__main__':
     # === 参数优化功能 ===
     # 1. 生成配置模板
     # generate_optimization_templates()
-
     # 2. 运行参数优化（需要先生成并编辑配置文件）
     run_parameter_optimization("grid_search_config.yaml")
-
     # 3. 运行演示
     # exec(open('tests/参数优化演示.py', encoding='utf-8').read())
 

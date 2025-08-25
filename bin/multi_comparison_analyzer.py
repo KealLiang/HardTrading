@@ -21,6 +21,15 @@ class MultiComparisonAnalyzer:
         self.results_data = {}
         self.parameter_combinations = []
 
+
+    def _safe_format(self, value, default='N/A'):
+        """安全格式化数值，避免字符串格式化错误"""
+        if value is None or value == 'N/A' or value == default:
+            return default
+        try:
+            return f"{float(value):.2f}"
+        except (ValueError, TypeError):
+            return default
     def parse_all_results(self, result_files: List[str], parameter_combinations: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """解析所有回测结果文件"""
         all_results = {}
@@ -206,9 +215,9 @@ class MultiComparisonAnalyzer:
             'name': best_combo_name,
             'reason': f"综合评分最高 ({combo_scores[best_combo_name]['score']:.2f})",
             'key_metrics': {
-                '年化收益率': f"{best_metrics.get('annualized_return', 'N/A'):.2f}%" if best_metrics.get('annualized_return') != 'N/A' else 'N/A',
-                '夏普比率': f"{best_metrics.get('sharpe_ratio', 'N/A'):.2f}" if best_metrics.get('sharpe_ratio') != 'N/A' else 'N/A',
-                '最大回撤': f"{best_metrics.get('max_drawdown', 'N/A'):.2f}%" if best_metrics.get('max_drawdown') != 'N/A' else 'N/A'
+                '年化收益率': self._safe_format(best_metrics.get('annualized_return')) + '%' if self._safe_format(best_metrics.get('annualized_return')) != 'N/A' else 'N/A',
+                '夏普比率': self._safe_format(best_metrics.get('sharpe_ratio')),
+                '最大回撤': self._safe_format(best_metrics.get('max_drawdown')) + '%' if self._safe_format(best_metrics.get('max_drawdown')) != 'N/A' else 'N/A'
             }
         }
 
@@ -249,11 +258,11 @@ class MultiComparisonAnalyzer:
 
             row = {
                 '参数组合': combo_name,
-                '年化收益率(%)': f"{avg_metrics.get('annualized_return', 'N/A'):.2f}" if avg_metrics.get('annualized_return') != 'N/A' else 'N/A',
-                '夏普比率': f"{avg_metrics.get('sharpe_ratio', 'N/A'):.2f}" if avg_metrics.get('sharpe_ratio') != 'N/A' else 'N/A',
-                '最大回撤(%)': f"{avg_metrics.get('max_drawdown', 'N/A'):.2f}" if avg_metrics.get('max_drawdown') != 'N/A' else 'N/A',
-                '总收益率(%)': f"{avg_metrics.get('total_return', 'N/A'):.2f}" if avg_metrics.get('total_return') != 'N/A' else 'N/A',
-                '超额收益(%)': f"{avg_metrics.get('alpha', 'N/A'):.2f}" if avg_metrics.get('alpha') != 'N/A' else 'N/A'
+                '年化收益率(%)': self._safe_format(avg_metrics.get('annualized_return')),
+                '夏普比率': self._safe_format(avg_metrics.get('sharpe_ratio')),
+                '最大回撤(%)': self._safe_format(avg_metrics.get('max_drawdown')),
+                '总收益率(%)': self._safe_format(avg_metrics.get('total_return')),
+                '超额收益(%)': self._safe_format(avg_metrics.get('alpha'))
             }
             table_data.append(row)
 
@@ -322,14 +331,14 @@ class MultiComparisonAnalyzer:
             avg_dd = np.mean(agg['max_drawdown_list']) if agg['max_drawdown_list'] else None
             rows.append({
                 '股票代码': stock,
-                '最大单笔收益(%)': f"{max_ret:.2f}" if max_ret is not None else 'N/A',
-                '最小单笔收益(%)': f"{min_ret:.2f}" if min_ret is not None else 'N/A',
+                '最大单笔收益(%)': self._safe_format(max_ret),
+                '最小单笔收益(%)': self._safe_format(min_ret),
                 '盈利交易数': win,
                 '总交易数': total,
-                '成功率(%)': f"{win_rate:.2f}" if win_rate is not None else 'N/A',
-                '平均超额收益(%)': f"{avg_alpha:.2f}" if avg_alpha is not None else 'N/A',
-                '平均年化收益(%)': f"{avg_ann:.2f}" if avg_ann is not None else 'N/A',
-                '平均最大回撤(%)': f"{avg_dd:.2f}" if avg_dd is not None else 'N/A',
+                '成功率(%)': self._safe_format(win_rate),
+                '平均超额收益(%)': self._safe_format(avg_alpha),
+                '平均年化收益(%)': self._safe_format(avg_ann),
+                '平均最大回撤(%)': self._safe_format(avg_dd),
             })
 
         import pandas as pd
@@ -346,6 +355,7 @@ class MultiComparisonAnalyzer:
     def _generate_per_stock_stats_by_combo(self, config: Dict[str, Any]) -> str:
         """按参数组合分别生成每只股票统计表，追加股票名称列。
         输出结构：为每个参数组合生成一个小节和表格。
+        如果组合数超过10个，只显示收益最好的5个和最差的5个。
         """
         if not self.results_data:
             return "无可用数据生成附录"
@@ -353,8 +363,52 @@ class MultiComparisonAnalyzer:
         lines = []
         import pandas as pd
 
-        # 遍历每个参数组合
-        for combo_name, combo_results in self.results_data.items():
+        # 如果组合数超过10个，进行筛选
+        combo_items = list(self.results_data.items())
+        if len(combo_items) > 10:
+            # 计算每个组合的平均年化收益率用于排序
+            combo_scores = []
+            for combo_name, combo_results in combo_items:
+                avg_metrics = self._calculate_average_metrics(combo_results)
+                annual_return = avg_metrics.get('annualized_return', 0)
+                # 尝试转换为数字，失败则使用0
+                try:
+                    annual_return = float(annual_return) if annual_return != 'N/A' else 0
+                except (ValueError, TypeError):
+                    annual_return = 0
+                combo_scores.append((combo_name, combo_results, annual_return))
+
+            # 按年化收益率排序
+            combo_scores.sort(key=lambda x: x[2], reverse=True)
+
+            # 取前5个和后5个，但要避免重复
+            top_5 = combo_scores[:5]
+            bottom_5 = combo_scores[-5:]
+
+            # 如果有重叠（比如总数少于10个），去重
+            selected_combos = []
+            selected_names = set()
+
+            # 先添加前5个
+            for item in top_5:
+                if item[0] not in selected_names:
+                    selected_combos.append(item)
+                    selected_names.add(item[0])
+
+            # 再添加后5个（避免重复）
+            for item in bottom_5:
+                if item[0] not in selected_names:
+                    selected_combos.append(item)
+                    selected_names.add(item[0])
+
+            lines.append(f"\n> **说明**: 共有 {len(combo_items)} 个参数组合，为便于查看，仅显示年化收益率最高的5个和最低的5个组合。")
+            lines.append("")
+
+            # 重新组织为 (combo_name, combo_results) 格式
+            combo_items = [(name, results) for name, results, _ in selected_combos]
+
+        # 遍历每个参数组合（已筛选）
+        for combo_name, combo_results in combo_items:
             rows = []
             for stock_code, metrics in combo_results.items():
                 # 尝试从本地CSV文件名中解析股票名称
