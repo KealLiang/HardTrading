@@ -524,7 +524,7 @@ class MultiComparisonAnalyzer:
             if len(value_return_pairs) < 2:
                 continue
 
-            returns = [pair[1] for pair in value_return_pairs]
+            returns = [pair[1] for pair in value_return_pairs if pair[1] is not None]
             impact = np.std(returns) if len(returns) > 1 else 0
             param_impact[param_name] = impact
 
@@ -576,10 +576,18 @@ class MultiComparisonAnalyzer:
             annual_return = avg_metrics.get('annualized_return')
             max_drawdown = avg_metrics.get('max_drawdown')
 
-            if annual_return != 'N/A' and max_drawdown != 'N/A':
-                # 简单的风险调整收益 = 年化收益率 / 最大回撤
-                risk_adjusted_return = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
-                risk_adjusted_scores[combo_name] = risk_adjusted_return
+            # 确保数据有效且为数字类型
+            try:
+                if (annual_return is not None and annual_return != 'N/A' and
+                    max_drawdown is not None and max_drawdown != 'N/A'):
+                    annual_return = float(annual_return)
+                    max_drawdown = float(max_drawdown)
+                    # 简单的风险调整收益 = 年化收益率 / 最大回撤
+                    risk_adjusted_return = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
+                    risk_adjusted_scores[combo_name] = risk_adjusted_return
+            except (ValueError, TypeError):
+                print("数据类型转换失败，跳过这个组合！")
+                continue
 
         if risk_adjusted_scores:
             # 找到风险调整后收益最高的组合

@@ -97,15 +97,21 @@ def generate_optimization_templates():
     templates = {
         "default": "默认配置模板",
         "quick": "快速测试模板",
-        "grid": "网格搜索模板"
+        "grid": "网格搜索模板",
+        "compare": "参数文件对比模板"
     }
 
     generated_files = []
     for template_type, description in templates.items():
-        template_path = optimizer.generate_config_template(template_type=template_type, strategy_class=BreakoutStrategy,
-                                                           test_params=['consolidation_lookback',
-                                                                        'consolidation_ma_proximity_pct',
-                                                                        'consolidation_ma_max_slope'])
+        if template_type == "compare":
+            # compare模板不需要额外参数
+            template_path = optimizer.generate_config_template(template_type=template_type)
+        else:
+            template_path = optimizer.generate_config_template(template_type=template_type,
+                                                               strategy_class=BreakoutStrategy,
+                                                               test_params=['consolidation_lookback',
+                                                                            'consolidation_ma_proximity_pct',
+                                                                            'consolidation_ma_max_slope'])
         generated_files.append(template_path)
         print(f"{description}已生成: {template_path}")
 
@@ -178,7 +184,7 @@ def get_index_data():
 def execute_routine(steps, routine_name="自定义流程"):
     """
     通用的流程执行器
-    
+
     Args:
         steps: 步骤列表，每个元素是 (function, description) 或 function
         routine_name: 流程名称，用于日志文件命名
@@ -539,9 +545,7 @@ if __name__ == '__main__':
     # 1. 生成配置模板
     # generate_optimization_templates()
     # 2. 运行参数优化（需要先生成并编辑配置文件）
-    run_parameter_optimization("grid_search_config.yaml")
-    # 3. 运行演示
-    # exec(open('tests/参数优化演示.py', encoding='utf-8').read())
+    run_parameter_optimization("compare_config.yaml")
 
     # === 原有功能 ===
     # daily_routine()

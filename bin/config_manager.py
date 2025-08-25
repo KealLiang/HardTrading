@@ -188,7 +188,8 @@ class ConfigManager:
 
     def _validate_config(self, config: Dict[str, Any]):
         """验证配置文件格式"""
-        required_keys = ['experiment_name', 'backtest_config', 'parameter_sets']
+        # 基础必需字段
+        required_keys = ['experiment_name', 'backtest_config']
         for key in required_keys:
             if key not in config:
                 raise ValueError(f"配置文件缺少必需字段: {key}")
@@ -201,14 +202,23 @@ class ConfigManager:
         if 'time_range' not in backtest_config:
             raise ValueError("缺少time_range配置")
 
-        # 验证参数集配置
-        param_sets = config['parameter_sets']
+        # 验证参数策略配置
         strategy_type = config.get('parameter_strategy', {}).get('type', 'manual')
 
-        if strategy_type == 'manual' and 'manual_sets' not in param_sets:
-            raise ValueError("manual策略需要manual_sets配置")
-        elif strategy_type == 'grid_search' and 'grid_search' not in param_sets:
-            raise ValueError("grid_search策略需要grid_search配置")
+        if strategy_type == 'param_files':
+            # param_files 类型需要 param_files 字段
+            if 'param_files' not in config.get('parameter_strategy', {}):
+                raise ValueError("param_files策略需要param_files配置")
+        else:
+            # 其他类型需要 parameter_sets 字段
+            if 'parameter_sets' not in config:
+                raise ValueError(f"配置文件缺少必需字段: parameter_sets")
+
+            param_sets = config['parameter_sets']
+            if strategy_type == 'manual' and 'manual_sets' not in param_sets:
+                raise ValueError("manual策略需要manual_sets配置")
+            elif strategy_type == 'grid_search' and 'grid_search' not in param_sets:
+                raise ValueError("grid_search策略需要grid_search配置")
 
     def generate_parameter_combinations(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """根据配置生成参数组合"""
@@ -219,6 +229,8 @@ class ConfigManager:
             return self._generate_manual_combinations(config)
         elif strategy_type == 'grid_search':
             return self._generate_grid_combinations(config, max_combinations)
+        elif strategy_type == 'param_files':
+            return self._generate_param_files_combinations(config)
         else:
             raise ValueError(f"不支持的参数策略: {strategy_type}")
 
@@ -234,6 +246,50 @@ class ConfigManager:
                 'params': param_set['params']
             }
             combinations.append(combination)
+
+        return combinations
+
+    def _generate_param_files_combinations(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """从参数文件生成参数组合"""
+        import importlib.util
+        import os
+
+        param_files = config['parameter_strategy']['param_files']
+        combinations = []
+
+        for i, param_file in enumerate(param_files):
+            if not os.path.exists(param_file):
+                raise FileNotFoundError(f"参数文件不存在: {param_file}")
+
+            # 动态导入参数文件
+            spec = importlib.util.spec_from_file_location(f"params_{i}", param_file)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            # 提取参数
+            if hasattr(module, 'params'):
+                params_tuple = module.params
+                # 将元组转换为字典
+                params_dict = dict(params_tuple)
+
+                # 生成参数组合名称
+                file_name = os.path.splitext(os.path.basename(param_file))[0]
+                # 简化名称生成逻辑
+                if 'v2' in file_name.lower():
+                    combo_name = 'params_v2'
+                elif 'v3' in file_name.lower():
+                    combo_name = 'params_v3'
+                else:
+                    combo_name = file_name.replace('breakout_strategy_param', 'params').replace('_param', '')
+
+                combination = {
+                    'name': combo_name,
+                    'description': f'从文件 {param_file} 加载的参数',
+                    'params': params_dict
+                }
+                combinations.append(combination)
+            else:
+                raise ValueError(f"参数文件 {param_file} 中未找到 'params' 变量")
 
         return combinations
 

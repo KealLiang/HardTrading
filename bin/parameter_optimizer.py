@@ -263,7 +263,7 @@ class ParameterOptimizer:
         """生成配置模板
 
         Args:
-            template_type: 模板类型 ("default", "quick", "grid")
+            template_type: 模板类型 ("default", "quick", "grid", "compare")
             strategy_class: 策略类，用于提取默认参数值（grid模式时使用）
             test_params: 要测试的参数名列表（grid模式时使用）
             step_percent: 步长百分比，默认0.1（10%）
@@ -274,6 +274,10 @@ class ParameterOptimizer:
             actual_num_points = 2  # quick固定2个参数组合
         else:
             actual_num_points = num_points
+
+        # 如果是compare模式，生成基础模板
+        if template_type == "compare":
+            return self._generate_compare_template()
 
         # 如果提供了策略类和参数，使用自动生成（grid和quick都支持）
         if template_type in ["grid", "quick"] and strategy_class and test_params:
@@ -294,6 +298,56 @@ class ParameterOptimizer:
             self._customize_grid_template(template_path)
         elif template_type == "quick":
             self._customize_quick_template(template_path)
+
+        return template_path
+    def _generate_compare_template(self) -> str:
+        """生成参数文件对比配置模板"""
+        import yaml
+        import os
+
+        # 生成配置内容，包含示例参数文件路径
+        config_content = {
+            'experiment_name': 'parameter_files_comparison',
+            'description': '对比多个参数文件的完整参数配置',
+
+            'backtest_config': {
+                'stock_pool': ['300033', '300059'],
+                'stock_pool_inline': '300033,300059',
+                'time_range': {
+                    'start_date': '2024-01-01',
+                    'end_date': '2025-08-22'
+                },
+                'initial_amount': 100000
+            },
+
+            'parameter_strategy': {
+                'type': 'param_files',  # 新的类型，表示从参数文件加载
+                'param_files': [
+                    # 在这里指定要对比的参数文件路径
+                    'strategy/strategy_params/breakout_strategy_param.py',
+                    # 'strategy/strategy_params/breakout_strategy_param_v2.py',  # 添加更多文件进行对比
+                ]
+            },
+
+            'analysis_config': {
+                'enable_sensitivity_analysis': True,
+                'enable_stability_analysis': True,
+                'enable_risk_analysis': True
+            },
+
+            'output_config': {
+                'generate_markdown_report': True,
+                'generate_excel_report': False,
+                'generate_charts': False
+            }
+        }
+
+        # 保存配置文件
+        template_name = "compare_config.yaml"
+        template_path = os.path.join(self.config_manager.config_dir, template_name)
+
+        with open(template_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config_content, f, default_flow_style=False, allow_unicode=True, indent=2)
 
         return template_path
 
