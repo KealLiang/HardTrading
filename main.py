@@ -152,7 +152,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250630'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250801'  # 只看这个日期之后的
+    details_after_date = '20250815'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -545,7 +545,7 @@ if __name__ == '__main__':
     # 1. 生成配置模板
     # generate_optimization_templates()
     # 2. 运行参数优化（需要先生成并编辑配置文件）
-    run_parameter_optimization("compare_config.yaml")
+    # run_parameter_optimization("compare_config.yaml")
 
     # === 原有功能 ===
     # daily_routine()
@@ -553,7 +553,7 @@ if __name__ == '__main__':
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
-    # generate_comparison_charts()
+    generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()

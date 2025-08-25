@@ -212,7 +212,6 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
     # --- 汇总并输出交易统计（用于参数优化报告解析） ---
     try:
         if log_trades and os.path.exists(log_csv_path):
-            import pandas as pd
             df = pd.read_csv(log_csv_path)
             # 只保留真实成交
             trades = df[df['type'].isin(['BUY', 'SELL'])].copy()
