@@ -14,6 +14,14 @@ from tqdm import tqdm
 from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
 
+import sys
+import os
+# 添加项目根目录到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log_frequency = 5  # 日志输出频率
 
@@ -536,11 +544,11 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-03-10 09:30"
-    backtest_end = "2025-03-14 15:00"
+    backtest_start = "2025-08-26 09:30"
+    backtest_end = "2025-08-27 15:00"
 
     # 监控标的
-    symbols = ['300068']  # 监控多只股票
+    symbols = ['002536','600111']  # 监控多只股票
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
