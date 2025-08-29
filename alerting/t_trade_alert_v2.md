@@ -44,6 +44,16 @@
   - 触发：BUY-背离
 
 ### 5. 输出
+- 输出：日志+蜂鸣，支持飞书推送
+  - 日志模板：
+    - 默认（DIAG=False）：
+      【T警告】[股票名 代码] BUY/SELL信号！ 价格变动：x% MACD变动：y% 现价：p [时间]
+    - 调试（DIAG=True）：
+      【T警告】[股票名 代码] BUY/SELL-背离 价格变动：x% MACD变动：y% 现价：p [时间] | path=…
+      其中 path 含义：
+      - path=immediate MACD@t1->@t2：背离与KDJ确认在同一根/容忍回溯内即时满足（无待确认）；
+      - path=pending MACD@t1 KDJ@t2 lag=n：t1 为检测到 MACD 背离的候选时刻，t2 为 KDJ 补确认时刻；n 为 (t2−t1) 的分钟数，且 0 ≤ n ≤ ALIGN_TOLERANCE。
+
 - 统一格式日志：
   - 【T警告】[股票名 代码] BUY/SELL-背离 价格变动:xx% MACD变动:xx% 现价:xx.xx [时间]
 - 蜂鸣：BUY=1500Hz，SELL=500Hz
@@ -77,6 +87,7 @@
 - KD_HIGH=80，KD_LOW=20（KDJ 高/低位判定；提高 KD_HIGH/降低 KD_LOW → 收紧；反之→宽松）
 - KD_CROSS_LOOKBACK=3（允许叉在近 N 根内出现；减小→收紧，增大→宽松）
 - ALIGN_TOLERANCE=2（KDJ 与 MACD 背离对齐的容忍度；减小→收紧，增大→宽松；为0表示必须同K线）
+- MAX_PEAK_LOOKBACK=60（仅在最近 M 个峰/谷内寻找参照；减小→收紧，增大→宽松；可按标的波动调节）
 - REPEAT_PRICE_CHANGE=0.05（重复信号最小价格偏移；增大→更少重复，更收紧；减小→更频繁，更宽松）
 - MACD/KDJ 基本参数（12/26/9、9/3/3）按你习惯即可，不在此赘述
 

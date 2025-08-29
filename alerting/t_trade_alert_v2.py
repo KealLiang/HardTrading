@@ -41,6 +41,8 @@ class TMonitorConfigV2:
     KD_CROSS_LOOKBACK = 3
     # 信号对齐容忍（单位：根K线）。允许 KDJ 与 MACD 背离在 ±N 根内完成配对
     ALIGN_TOLERANCE = 2
+    # 峰/谷配对的最大回溯峰数量（仅在最近 M 个局部峰/谷内寻找参照）
+    MAX_PEAK_LOOKBACK = 60
 
     # 极值与数据窗口
     EXTREME_WINDOW = 120
@@ -54,6 +56,11 @@ class TMonitorConfigV2:
 
     # 防重复
     REPEAT_PRICE_CHANGE = 0.05
+
+    # 诊断日志（按需开启）
+    DIAG = False  # 打开后会输出调试信息
+    # 关注的时间点
+    DIAG_TICKS: set[str] = {"2025-08-28 09:33:00", "2025-08-28 09:44:00"}
 
 
 def is_duplicated(new_node, triggered_signals):
@@ -173,11 +180,16 @@ class TMonitorV2:
 
     @staticmethod
     def _is_local_peak(df, i, window):
+        # 优先使用预计算的滚动最大，避免每步切片 max 的高开销
+        if '_rh' in df.columns:
+            return df['high'].iloc[i] >= df['_rh'].iloc[i]
         start = max(0, i - window + 1)
         return df['high'].iloc[i] >= df['high'].iloc[start:i + 1].max()
 
     @staticmethod
     def _is_local_trough(df, i, window):
+        if '_rl' in df.columns:
+            return df['low'].iloc[i] <= df['_rl'].iloc[i]
         start = max(0, i - window + 1)
         return df['low'].iloc[i] <= df['low'].iloc[start:i + 1].min()
 
@@ -222,8 +234,12 @@ class TMonitorV2:
                     return True
     def _enqueue_pending(self, side, node, i, price_diff, macd_diff):
         tol = TMonitorConfigV2.ALIGN_TOLERANCE
-        deadline = i + tol
-        item = {'node': node, 'deadline_idx': deadline, 'price_diff': price_diff, 'macd_diff': macd_diff}
+        try:
+            import pandas as _pd
+            deadline_ts = node['time'] + _pd.Timedelta(minutes=tol)
+        except Exception:
+            deadline_ts = node['time']
+        item = {'node': node, 'deadline_ts': deadline_ts, 'price_diff': price_diff, 'macd_diff': macd_diff}
         if side == 'SELL':
             self.pending_sell.append(item)
         else:
@@ -236,20 +252,37 @@ class TMonitorV2:
             keep = []
             for it in queue:
                 node = it['node']
-                if i > it['deadline_idx']:
-                    continue  # 过期
+                # 时间方向与窗口：只允许 MACD→KDJ 的前向确认，并限定在 ALIGN_TOLERANCE 分钟内
+                ts_confirm = df['datetime'].iloc[i]
+                try:
+                    bar_diff = int(round((ts_confirm - node['time']).total_seconds() / 60))
+                except Exception:
+                    bar_diff = 0
+                if bar_diff < 0:
+                    # KDJ 尚未出现，保留等待
+                    keep.append(it)
+                    continue
+                if bar_diff > TMonitorConfigV2.ALIGN_TOLERANCE:
+                    # 超窗过期，丢弃
+                    continue
                 if confirm_fn(df, i):
                     if side == 'SELL':
                         if not is_duplicated(node, self.triggered_sell_signals):
                             lastp = self.last_signal_price.get('SELL')
                             if lastp is None or abs(node['price'] - lastp) / lastp >= TMonitorConfigV2.REPEAT_PRICE_CHANGE:
-                                self._trigger_signal('SELL', it['price_diff'], it['macd_diff'], node['price'], node['time'])
+                                extra = None
+                                if TMonitorConfigV2.DIAG:
+                                    extra = f"path=pending MACD@{node['time']} KDJ@{ts_confirm} lag={bar_diff}"
+                                self._trigger_signal('SELL', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, extra)
                                 self.triggered_sell_signals.append(node)
                     else:
                         if not is_duplicated(node, self.triggered_buy_signals):
                             lastp = self.last_signal_price.get('BUY')
                             if lastp is None or abs(node['price'] - lastp) / lastp >= TMonitorConfigV2.REPEAT_PRICE_CHANGE:
-                                self._trigger_signal('BUY', it['price_diff'], it['macd_diff'], node['price'], node['time'])
+                                extra = None
+                                if TMonitorConfigV2.DIAG:
+                                    extra = f"path=pending MACD@{node['time']} KDJ@{ts_confirm} lag={bar_diff}"
+                                self._trigger_signal('BUY', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, extra)
                                 self.triggered_buy_signals.append(node)
                 else:
                     keep.append(it)
@@ -258,8 +291,13 @@ class TMonitorV2:
         self.pending_sell = _consume(self.pending_sell, 'SELL', self._confirm_top_by_kdj)
         self.pending_buy = _consume(self.pending_buy, 'BUY', self._confirm_bottom_by_kdj)
 
-    def _trigger_signal(self, side, price_diff, macd_diff, price, ts):
-        msg = f"【T警告】[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}]"
+    def _trigger_signal(self, side, price_diff, macd_diff, price, ts, extra_info: str | None = None):
+        # 标准模板（与 v1 对齐）：仅在非 DIAG 或无 extra_info 时使用
+        if not TMonitorConfigV2.DIAG or not extra_info:
+            msg = f"【T警告】[{self.stock_name} {self.symbol}] {side}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}]"
+        else:
+            # 诊断模板（包含路径信息）
+            msg = f"【T警告】[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}] | {extra_info}"
         if self.is_backtest:
             tqdm.write(msg)
         else:
@@ -271,10 +309,37 @@ class TMonitorV2:
 
     def _detect_signals(self, df):
         window = TMonitorConfigV2.EXTREME_WINDOW
+        # 预计算滚动高/低，显著减少局部峰/谷判定的复杂度
+        if '_rh' not in df.columns:
+            df['_rh'] = df['high'].rolling(window, min_periods=1).max()
+        if '_rl' not in df.columns:
+            df['_rl'] = df['low'].rolling(window, min_periods=1).min()
+
         peaks, troughs = [], []
+        # 记录已输出的诊断时间，避免重复刷屏（跨回测全程仅输出一次）
+        if not hasattr(self, '_diag_printed'):
+            self._diag_printed: set[str] = set()
+
         for i in range(window, len(df)):
             # 先处理待确认队列中过期项
             self._flush_pending(df, i)
+
+            # 诊断钩子：关注时间点输出关键指标（仅输出一次）
+            if TMonitorConfigV2.DIAG:
+                ts = str(df['datetime'].iloc[i])
+                if ts in TMonitorConfigV2.DIAG_TICKS and ts not in self._diag_printed:
+                    k, d, j = df['k'].iloc[i], df['d'].iloc[i], df['j'].iloc[i]
+                    logging.info(
+                        f"[DIAG {self.symbol}] ts={ts} close={df['close'].iloc[i]:.2f} "
+                        f"macd={df['macd'].iloc[i]:.4f} dif={df['dif'].iloc[i]:.4f} dea={df['dea'].iloc[i]:.4f} "
+                        f"K={k:.2f} D={d:.2f} J={j:.2f}"
+                    )
+                    try:
+                        self._diag_probe(df, i)
+                    except Exception:
+                        pass
+                    self._diag_printed.add(ts)
+
             # 局部峰
             if self._is_local_peak(df, i, window):
                 new_peak = {
@@ -283,8 +348,9 @@ class TMonitorV2:
                     'macd': df['macd'].iloc[i],
                     'time': df['datetime'].iloc[i],
                 }
-                # 与历史峰比较 -> 顶背离
-                for p in peaks:
+                # 与历史峰比较 -> 顶背离（仅在最近 MAX_PEAK_LOOKBACK 个峰内配对）
+                recent_peaks = peaks[-TMonitorConfigV2.MAX_PEAK_LOOKBACK:] if TMonitorConfigV2.MAX_PEAK_LOOKBACK > 0 else peaks
+                for p in recent_peaks:
                     price_diff = (new_peak['price'] - p['price']) / max(p['price'], 1e-6)
                     macd_diff = (p['macd'] - new_peak['macd']) / max(abs(p['macd']), 1e-6)
                     if price_diff > TMonitorConfigV2.PRICE_DIFF_SELL_THR and \
@@ -295,7 +361,10 @@ class TMonitorV2:
                             if not is_duplicated(new_peak, self.triggered_sell_signals):
                                 lastp = self.last_signal_price.get('SELL')
                                 if lastp is None or abs(new_peak['price'] - lastp) / lastp >= TMonitorConfigV2.REPEAT_PRICE_CHANGE:
-                                    self._trigger_signal('SELL', price_diff, macd_diff, new_peak['price'], new_peak['time'])
+                                    extra = None
+                                    if TMonitorConfigV2.DIAG:
+                                        extra = f"path=immediate MACD@{p.get('time','?')}->@{new_peak['time']}"
+                                    self._trigger_signal('SELL', price_diff, macd_diff, new_peak['price'], new_peak['time'], extra)
                                     self.triggered_sell_signals.append(new_peak)
                         else:
                             # 2) 先记录待确认，等待后续 KDJ 在容忍窗口内补确认
@@ -310,7 +379,8 @@ class TMonitorV2:
                     'macd': df['macd'].iloc[i],
                     'time': df['datetime'].iloc[i],
                 }
-                for t in troughs:
+                recent_troughs = troughs[-TMonitorConfigV2.MAX_PEAK_LOOKBACK:] if TMonitorConfigV2.MAX_PEAK_LOOKBACK > 0 else troughs
+                for t in recent_troughs:
                     price_diff = (t['price'] - new_trough['price']) / max(t['price'], 1e-6)
                     macd_diff = (new_trough['macd'] - t['macd']) / max(abs(t['macd']), 1e-6)
                     if price_diff > TMonitorConfigV2.PRICE_DIFF_BUY_THR and \
@@ -319,7 +389,10 @@ class TMonitorV2:
                             if not is_duplicated(new_trough, self.triggered_buy_signals):
                                 lastp = self.last_signal_price.get('BUY')
                                 if lastp is None or abs(new_trough['price'] - lastp) / lastp >= TMonitorConfigV2.REPEAT_PRICE_CHANGE:
-                                    self._trigger_signal('BUY', price_diff, macd_diff, new_trough['price'], new_trough['time'])
+                                    extra = None
+                                    if TMonitorConfigV2.DIAG:
+                                        extra = f"path=immediate MACD@{t.get('time','?')}->@{new_trough['time']}"
+                                    self._trigger_signal('BUY', price_diff, macd_diff, new_trough['price'], new_trough['time'], extra)
                                     self.triggered_buy_signals.append(new_trough)
                         else:
                             self._enqueue_pending('BUY', new_trough, i, price_diff, macd_diff)
@@ -366,17 +439,18 @@ class TMonitorV2:
         if df is None or df.empty:
             logging.error("指定时间段内没有数据")
             return
+        # 单次准备 + 单次扫描，避免 O(n^2) 重复计算造成卡顿
         df = df.sort_values('datetime').reset_index(drop=True)
-        for cur_idx in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
-            if self.stop_event.is_set():
-                break
-            start = max(0, cur_idx + 1 - TMonitorConfigV2.MAX_HISTORY_BARS)
-            df_win = df.iloc[start:cur_idx + 1].copy()
-            if len(df_win) < TMonitorConfigV2.EXTREME_WINDOW:
-                continue
-            df_win = self._prepare_indicators(df_win)
-            self._detect_signals(df_win)
-            sys_time.sleep(0.001)
+        if len(df) < TMonitorConfigV2.EXTREME_WINDOW:
+            logging.warning("样本不足，跳过回测")
+            return
+        df = self._prepare_indicators(df)
+        # 预计算滚动极值，供局部峰/谷判定
+        window = TMonitorConfigV2.EXTREME_WINDOW
+        df['_rh'] = df['high'].rolling(window, min_periods=1).max()
+        df['_rl'] = df['low'].rolling(window, min_periods=1).min()
+        # 单次检测（流式逻辑不看未来，等价于逐根推进）
+        self._detect_signals(df)
         logging.info(f"[回测 {self.symbol}] 回测结束")
 
     def run(self):
@@ -424,8 +498,8 @@ class MonitorManagerV2:
 if __name__ == "__main__":
     IS_BACKTEST = True
     backtest_start = "2025-08-25 09:30"
-    backtest_end = "2025-08-28 15:00"
-    symbols = ['600111','600410']
+    backtest_end = "2025-08-29 15:00"
+    symbols = ['600111', '603516']
 
     manager = MonitorManagerV2(symbols,
                                is_backtest=IS_BACKTEST,
