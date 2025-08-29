@@ -57,6 +57,13 @@ class TMonitorConfigV2:
     # 防重复
     REPEAT_PRICE_CHANGE = 0.05
 
+    # 可选增强开关
+    ENABLE_WEAK_HINTS = False
+    ENABLE_POSITION_SCORE = False
+    # 弱提示参数
+    WEAK_COOLDOWN_BARS = 10
+    WEAK_MIN_PRICE_CHANGE = 0.005
+
     # 诊断日志（按需开启）
     DIAG = False  # 打开后会输出调试信息
     # 关注的时间点
@@ -306,6 +313,95 @@ class TMonitorV2:
             winsound.Beep(1500 if side == 'BUY' else 500, 500)
             send_alert(msg)
         self.last_signal_price[side] = price
+
+    def _calc_position_score(self, df, i, side):
+        import numpy as np
+        close = float(df['close'].iloc[i])
+        # EMA5/EMA20
+        ema5 = df['close'].ewm(span=5, adjust=False).mean().iloc[i]
+        ema20 = df['close'].ewm(span=20, adjust=False).mean().iloc[i]
+        trend = 1.0 if (close > ema5 > ema20) else (-1.0 if (close < ema5 < ema20) else 0.0)
+        # Bollinger 20,2
+        mid = df['close'].rolling(20, min_periods=1).mean().iloc[i]
+        std = df['close'].rolling(20, min_periods=1).std(ddof=0).iloc[i]
+        upper = mid + 2 * std
+        # bb_pos ∈ [-1,1]
+        bb_pos = 0.0
+        if upper > mid:
+            bb_pos = (close - mid) / (upper - mid)
+            bb_pos = float(np.clip(bb_pos, -1.0, 1.0))
+        # 方向化
+        if side == 'BUY':
+            bb = -bb_pos
+        else:
+            bb = +bb_pos
+        # VOL（可选）
+        vol_score = 0.0
+        if 'vol' in df.columns:
+            v = df['vol'].iloc[max(0, i-30):i+1]
+            if len(v) >= 5:
+                ratio = float(v.iloc[-1]) / (float(v.mean()) + 1e-9)
+                vol_score = float(np.clip((ratio - 1.0) / (1.5 - 1.0), 0.0, 1.0))
+        # ATR14 抑制
+        tr = (df['high'] - df['low']).abs()
+        tr1 = (df['high'] - df['close'].shift(1)).abs()
+        tr2 = (df['low'] - df['close'].shift(1)).abs()
+        tr = pd.concat([tr, tr1, tr2], axis=1).max(axis=1)
+        atr = tr.rolling(14, min_periods=1).mean().iloc[i]
+        atr_pct = float(atr) / (close + 1e-9)
+        atr_factor = float(np.clip(1.0 - atr_pct / 0.02, 0.0, 1.0))  # 2%
+        # 汇总
+        W_TREND, W_BB, W_VOL = 0.4, 0.3, 0.2
+        score = (W_TREND * trend + W_BB * bb + W_VOL * vol_score) * atr_factor
+        score = float(np.clip(score, -1.0, 1.0))
+        return score
+
+    def _maybe_weak_hint(self, df, i, side):
+        if not TMonitorConfigV2.ENABLE_WEAK_HINTS:
+            return
+        # 冷却与最小变动去重
+        cache = getattr(self, '_weak_cache', {'BUY': {'last_i': -9999, 'last_p': None}, 'SELL': {'last_i': -9999, 'last_p': None}})
+        last_i = cache[side]['last_i']
+        last_p = cache[side]['last_p']
+        price = float(df['close'].iloc[i])
+        if i - last_i < TMonitorConfigV2.WEAK_COOLDOWN_BARS:
+            if last_p is not None and abs(price - last_p) / last_p < TMonitorConfigV2.WEAK_MIN_PRICE_CHANGE:
+                return
+        # 条件：高位/低位减速但未达背离
+        k, d = df['k'].iloc[i], df['d'].iloc[i]
+        macd_now = df['macd'].iloc[i]
+        macd_prev = df['macd'].iloc[i-1] if i >= 1 else macd_now
+        dif_now = df['dif'].iloc[i]
+        dea_now = df['dea'].iloc[i]
+        is_peak = self._is_local_peak(df, i, TMonitorConfigV2.EXTREME_WINDOW)
+        is_trough = self._is_local_trough(df, i, TMonitorConfigV2.EXTREME_WINDOW)
+        hinted = False
+        if side == 'SELL':
+            if k > TMonitorConfigV2.KD_HIGH and d > TMonitorConfigV2.KD_HIGH and is_peak:
+                if (macd_now < macd_prev) or (dif_now <= dea_now):
+                    hinted = True
+        else:
+            if k < TMonitorConfigV2.KD_LOW and d < TMonitorConfigV2.KD_LOW and is_trough:
+                if (macd_now > macd_prev) or (dif_now >= dea_now):
+                    hinted = True
+        if not hinted:
+            return
+        # 计算仓位建议（可选）
+        pos_text = ''
+        if TMonitorConfigV2.ENABLE_POSITION_SCORE:
+            score = self._calc_position_score(df, i, side)
+            pct = 10 if score <= 0.2 else (60 if score <= 0.5 else 100)
+            pos_text = f" 建议仓位:{pct}% (pos={score:.2f})"
+        # 输出弱提示日志
+        ts = df['datetime'].iloc[i]
+        if TMonitorConfigV2.DIAG:
+            logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]" + pos_text)
+        else:
+            logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]" + pos_text)
+        # 更新缓存
+        cache[side]['last_i'] = i
+        cache[side]['last_p'] = price
+        self._weak_cache = cache
 
     def _detect_signals(self, df):
         window = TMonitorConfigV2.EXTREME_WINDOW

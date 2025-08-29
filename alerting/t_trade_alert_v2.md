@@ -114,6 +114,27 @@
   - 布林带（20,2）：BUY 且 close 接近下轨（或下穿后回到轨内）加 +0.2；SELL 且 close 接近上轨加 +0.2。
   - 波动与风险（ATR14，1分钟）：用 ATR 做“单位风险”，仓位 ≈ 目标风险/ATR，波动大则减仓，波动小则可加仓。
   - 成交额加权：使用前述 ratio 或 z-score(amount)；ratio>1.5 则 +0.1～+0.2，1.0～1.5 则 +0.05。
+
+### 11. 可选增强：弱提示与仓位建议（Position Score）
+- 开关
+  - ENABLE_WEAK_HINTS（默认 False）：开启“高位/低位减速无背离”的弱提示
+  - ENABLE_POSITION_SCORE（默认 False）：开启仓位建议（-1~1 映射到 10%~100% 区间）
+- 弱提示逻辑（简要）
+  - SELL-减速：K、D 均处于高位区(K>D>KD_HIGH)，且 MACD 柱连续走弱或 DIF 接近/下穿 DEA；当根为局部峰但未满足背离阈值时提示
+  - BUY-减速：K、D 均处于低位区(K<D<KD_LOW)，且 MACD 柱连续走强或 DIF 接近/上穿 DEA；当根为局部谷但未满足背离阈值时提示
+  - 去重：WEAK_COOLDOWN_BARS（默认10根）+ WEAK_MIN_PRICE_CHANGE（默认0.5%）
+  - 日志：
+    - 默认（DIAG=False）：【弱提示】[股票名 代码] SELL/BUY-减速 现价：p [时间]（若开启仓位建议，会追加“ 建议仓位:x%”）
+    - 调试（DIAG=True）：同上并附加评分细节（pos=score; comps=…）
+- 仓位建议 Position Score（在强信号与弱提示触发时计算）
+  - 组成（默认权重，可在代码内修改）：
+    - 趋势（EMA5/EMA20）：trend=+1(多头阶梯 close>EMA5>EMA20)，-1(空头阶梯)，否则0；W_TREND=0.4
+    - 布林带位置（20,2）：bb_pos=(close−mid)/(upper−mid)，BUY取 −bb_pos，SELL取 +bb_pos；W_BB=0.3
+    - 量能（可选）：若有 vol，则 vol_ratio=vol/mean(vol,30)，vol_score≈clip((ratio−1)/(1.5−1),0,1)，BUY取 +，SELL取 +（趋势跟随口径）；W_VOL=0.2
+    - 波动抑制（ATR14）：atr_pct=ATR/close，atr_factor=clip(1−atr_pct/ATR_REF,0,1)，ATR_REF=2%
+  - 汇总：score = clip((W_TREND*trend + W_BB*bb + W_VOL*vol) * atr_factor, −1, 1)
+  - 映射：score≤0.2→低仓(10~30%)；0.2~0.5→中仓(30~60%)；>0.5→高仓(60~100%)
+
   - 价格接近涨跌停时的保护：BUY 且距离涨停<0.3% 时将权重×0.5；SELL 且距离跌停<0.3% 时同理，避免不可成交或滑点异常。
   - 最终得出 position_score∈[-1,1]，映射到建议仓位：
     - score≤0.2：低仓（10%～30%）；0.2<score≤0.5：中仓（30%～60%）；score>0.5：高仓（60%～100%）。
