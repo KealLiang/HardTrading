@@ -2167,7 +2167,22 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 只有当需要创建工作表时才创建内容
     if should_create_sheet:
         concept_ws = wb.create_sheet(title=concept_grouped_sheet_name)
-        create_concept_grouped_sheet_content(concept_ws, result_df, shouban_df, stock_data,
+
+        # 为“涨停梯队 按概念分组”sheet去重，但保留重入标记色
+        if not result_df.empty:
+            grouped_df = result_df.copy()
+            # 检查 is_reentry 列是否存在
+            if 'is_reentry' in grouped_df.columns:
+                is_reentry_map = grouped_df.groupby('stock_code')['is_reentry'].any()
+                grouped_df = grouped_df.drop_duplicates(subset='stock_code', keep='first').copy()
+                grouped_df['is_reentry'] = grouped_df['stock_code'].map(is_reentry_map)
+            else:
+                # 如果 is_reentry 列不存在，直接去重
+                grouped_df = grouped_df.drop_duplicates(subset='stock_code', keep='first').copy()
+        else:
+            grouped_df = result_df
+        
+        create_concept_grouped_sheet_content(concept_ws, grouped_df, shouban_df, stock_data,
                                            stock_entry_count, formatted_trading_days, date_column_start,
                                            show_period_change, period_column, period_days, period_days_long,
                                            stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
