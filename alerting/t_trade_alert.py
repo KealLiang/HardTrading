@@ -463,7 +463,8 @@ class TMonitor:
         df = df.sort_values('datetime').reset_index(drop=True)
 
         # 模拟实时模式的滚动窗口
-        for current_index in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
+        # for current_index in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
+        for current_index in range(len(df)):
             if self.stop_event.is_set():
                 break
 
@@ -544,11 +545,9 @@ if __name__ == "__main__":
     IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-08-26 09:30"
-    backtest_end = "2025-08-27 15:00"
-
-    # 监控标的
-    symbols = ['002536','600111']  # 监控多只股票
+    backtest_start = "2025-08-25 09:30"
+    backtest_end = "2025-08-29 15:00"
+    symbols = ['600111', '603516', '603757']
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
