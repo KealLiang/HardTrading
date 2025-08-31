@@ -488,7 +488,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20250715'  # 调整为Excel中有数据的日期范围
-    end_date = None  # 过了0点需指定日期
+    end_date = '20250831'  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -503,7 +503,7 @@ def generate_ladder_chart():
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
                        priority_reasons=priority_reasons, enable_attention_criteria=True,
-                       sheet_name=sheet_name)
+                       sheet_name=sheet_name, create_leader_sheet=True)
 
 
 def generate_comparison_charts():
@@ -552,13 +552,13 @@ if __name__ == '__main__':
     # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
-    strategy_scan('a')
-    generate_comparison_charts()
+    # strategy_scan('a')
+    # generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
