@@ -547,7 +547,7 @@ if __name__ == "__main__":
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['600111', '603516', '603757']
+    symbols = ['000977', '300631', '688135']
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,
