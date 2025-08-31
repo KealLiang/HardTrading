@@ -16,11 +16,11 @@ from utils.stock_util import convert_stock_code
 
 import sys
 import os
+
 # 添加项目根目录到 Python 路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
-
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log_frequency = 5  # 日志输出频率
@@ -80,7 +80,8 @@ def is_duplicated(new_node, triggered_signals):
 class TMonitor:
     """做T监控器核心类"""
 
-    def __init__(self, symbol, stop_event, is_calc_trend, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbol, stop_event, is_calc_trend, push_msg=True, is_backtest=False, backtest_start=None,
+                 backtest_end=None):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
@@ -228,16 +229,20 @@ class TMonitor:
           但MACD指标有明显背离时，也触发信号。
         """
         window = TMonitorConfig.EXTREME_WINDOW
+
+        # 预计算滚动高/低，显著减少局部峰/谷判定的复杂度
+        if '_rh' not in df.columns:
+            df['_rh'] = df['high'].rolling(window, min_periods=1).max()
+        if '_rl' not in df.columns:
+            df['_rl'] = df['low'].rolling(window, min_periods=1).min()
+
         peaks = []  # 每个元素格式：{'idx': i, 'price': high, 'macd': macd}
         troughs = []  # 每个元素格式：{'idx': i, 'price': low, 'macd': macd}
 
         # 从window开始，确保有足够的历史数据用于判断局部极值
         for i in range(window, len(df)):
-            start = max(0, i - window + 1)
-
-            # 判断局部峰
-            local_max = df['high'].iloc[start:i + 1].max()
-            if df['high'].iloc[i] >= local_max:
+            # 判断局部峰 - 使用预计算的滚动最大值
+            if df['high'].iloc[i] >= df['_rh'].iloc[i]:
                 new_peak = {
                     'idx': i,
                     'price': df['high'].iloc[i],
@@ -267,7 +272,8 @@ class TMonitor:
                                 self.triggered_sell_signals.append(new_peak)  # 记录已触发
 
                         # 双顶判断 - 价格接近但未创新高，MACD明显下降
-                        elif (abs(new_peak['price'] - p['price']) / p['price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
+                        elif (abs(new_peak['price'] - p['price']) / p[
+                            'price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
                               TMonitorConfig.DOUBLE_EXTREME_MIN_TIME_WINDOW <= time_diff <= TMonitorConfig.DOUBLE_EXTREME_MAX_TIME_WINDOW and
                               new_peak['macd'] < p['macd'] * (1 - TMonitorConfig.MACD_DIFF_THRESHOLD)):
 
@@ -280,9 +286,8 @@ class TMonitor:
                 if self.is_calc_trend:
                     self._check_trend_strength(new_peak, peaks, direction='up')  # 新增趋势检测
 
-            # 判断局部谷
-            local_min = df['low'].iloc[start:i + 1].min()
-            if df['low'].iloc[i] <= local_min:
+            # 判断局部谷 - 使用预计算的滚动最小值
+            if df['low'].iloc[i] <= df['_rl'].iloc[i]:
                 new_trough = {
                     'idx': i,
                     'price': df['low'].iloc[i],
@@ -312,7 +317,8 @@ class TMonitor:
                                 self.triggered_buy_signals.append(new_trough)  # 记录已触发
 
                         # 双底判断 - 价格接近但未创新低，MACD明显上升
-                        elif (abs(new_trough['price'] - t['price']) / t['price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
+                        elif (abs(new_trough['price'] - t['price']) / t[
+                            'price'] < TMonitorConfig.DOUBLE_EXTREME_PRICE_THRESHOLD and
                               TMonitorConfig.DOUBLE_EXTREME_MIN_TIME_WINDOW <= time_diff <= TMonitorConfig.DOUBLE_EXTREME_MAX_TIME_WINDOW and
                               new_trough['macd'] > t['macd'] * (1 + TMonitorConfig.MACD_DIFF_THRESHOLD)):
 
@@ -449,7 +455,7 @@ class TMonitor:
         logging.info(f"{self.symbol} 监控已安全退出")
 
     def _run_backtest(self):
-        """回测模式：模拟实时数据窗口滑动"""
+        """回测模式：优化版本，单次计算指标避免重复计算"""
         if self.backtest_start is None or self.backtest_end is None:
             print("回测模式下必须指定backtest_start和backtest_end")
             return
@@ -462,24 +468,28 @@ class TMonitor:
         # 确保数据按时间升序排列
         df = df.sort_values('datetime').reset_index(drop=True)
 
-        # 模拟实时模式的滚动窗口
-        # for current_index in tqdm(range(len(df)), desc=f"{self.stock_name} 回测"):
+        # 一次性计算全部指标，避免重复计算
+        df['dif'], df['dea'], df['macd'] = self._calculate_macd(df)
+
+        # 预计算滚动极值，供局部峰/谷判定使用
+        window = TMonitorConfig.EXTREME_WINDOW
+        df['_rh'] = df['high'].rolling(window, min_periods=1).max()
+        df['_rl'] = df['low'].rolling(window, min_periods=1).min()
+
+        # 模拟实时模式的滚动窗口处理
         for current_index in range(len(df)):
             if self.stop_event.is_set():
                 break
 
-            # 关键修改点：始终截取最近 MAX_HISTORY_BARS 的数据
+            # 始终截取最近 MAX_HISTORY_BARS 的数据，保持与实时模式一致
             window_start = max(0, current_index + 1 - TMonitorConfig.MAX_HISTORY_BARS)
-            df_current = df.iloc[window_start:current_index + 1].copy()  # 与实时模式相同的窗口长度
+            df_current = df.iloc[window_start:current_index + 1].copy()
 
             # 提前跳过不足计算窗口的阶段
             if len(df_current) < TMonitorConfig.EXTREME_WINDOW:
                 continue
 
-            # 指标计算（使用与实时模式完全相同的数据量）
-            df_current['dif'], df_current['dea'], df_current['macd'] = self._calculate_macd(df_current)
-
-            # 模拟实时模式检测逻辑
+            # 使用已计算的指标进行背离检测（避免重复计算）
             self._detect_divergence(df_current)
 
             # 模拟实时模式的处理间隔
