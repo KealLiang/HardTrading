@@ -11,9 +11,6 @@ import winsound
 from pytdx.hq import TdxHq_API
 from tqdm import tqdm
 
-from alerting.push.feishu_msg import send_alert
-from utils.stock_util import convert_stock_code
-
 import sys
 import os
 
@@ -21,6 +18,9 @@ import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
+
+from push.feishu_msg import send_alert
+from utils.stock_util import convert_stock_code
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log_frequency = 5  # 日志输出频率
@@ -552,12 +552,12 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['000977', '300631', '688135']
+    symbols = ['300394', '300308', '300502']
 
     manager = MonitorManager(symbols,
                              is_backtest=IS_BACKTEST,

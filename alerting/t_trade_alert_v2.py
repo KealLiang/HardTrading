@@ -103,6 +103,9 @@ class TMonitorV2:
         self.pending_sell = []  # [{'node': new_peak, 'deadline_idx': i+tol, 'price_diff':..., 'macd_diff':...}, ...]
         self.pending_buy = []   # 同上
 
+        # 实时监控：跟踪已处理的信号，避免重复触发
+        self._processed_signals = set()  # 存储已触发信号的唯一标识
+
     def _get_stock_name(self):
         try:
             df = ak.stock_individual_info_em(symbol=self.symbol)
@@ -299,12 +302,34 @@ class TMonitorV2:
         self.pending_buy = _consume(self.pending_buy, 'BUY', self._confirm_bottom_by_kdj)
 
     def _trigger_signal(self, side, price_diff, macd_diff, price, ts, extra_info: str | None = None):
+        # 实时监控模式下，避免重复触发相同的信号
+        if not self.is_backtest:
+            signal_key = f"{side}_{ts}_{price:.2f}"
+            if signal_key in self._processed_signals:
+                return  # 已处理过，跳过
+            self._processed_signals.add(signal_key)
+
+        # 判断是否为历史信号（用于标识）
+        from datetime import datetime
+        is_historical = False
+        if not self.is_backtest:
+            try:
+                signal_time = pd.to_datetime(ts) if isinstance(ts, str) else ts
+                today = datetime.now().date()
+                if signal_time.date() < today:
+                    is_historical = True
+            except Exception:
+                pass
+
         # 标准模板（与 v1 对齐）：仅在非 DIAG 或无 extra_info 时使用
         if not TMonitorConfigV2.DIAG or not extra_info:
-            msg = f"【T警告】[{self.stock_name} {self.symbol}] {side}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}]"
+            prefix = "【历史信号】" if is_historical else "【T警告】"
+            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}]"
         else:
             # 诊断模板（包含路径信息）
-            msg = f"【T警告】[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}] | {extra_info}"
+            prefix = "【历史信号】" if is_historical else "【T警告】"
+            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}] | {extra_info}"
+
         if self.is_backtest:
             tqdm.write(msg)
         else:
@@ -505,6 +530,7 @@ class TMonitorV2:
             logging.error(f"{self.symbol} 连接服务器失败")
             return
         count = 0
+        last_data_time = None
         try:
             while not self.stop_event.is_set():
                 df = self._get_realtime_bars()
@@ -512,7 +538,13 @@ class TMonitorV2:
                     sys_time.sleep(60)
                     continue
                 df = self._prepare_indicators(df)
-                self._detect_signals(df)
+
+                # 只在数据有更新时才检测信号
+                current_data_time = df['datetime'].iloc[-1]
+                if last_data_time is None or current_data_time > last_data_time:
+                    self._detect_signals(df)
+                    last_data_time = current_data_time
+
                 if count % 5 == 0:
                     latest_close = df['close'].iloc[-1]
                     logging.info(f"[{self.stock_name} {self.symbol}] 最新价:{latest_close:.2f}")
@@ -592,10 +624,10 @@ class MonitorManagerV2:
 
 
 if __name__ == "__main__":
-    IS_BACKTEST = True
+    IS_BACKTEST = False
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['000977', '300631', '688135']
+    symbols = ['300394', '300308', '300502']
 
     manager = MonitorManagerV2(symbols,
                                is_backtest=IS_BACKTEST,
