@@ -74,11 +74,21 @@ NEW_HIGH_MARKER = '!!'
 # 龙头股最低连板数门槛
 MIN_BOARD_LEVEL_FOR_LEADER = 2
 # 龙头股最低短周期涨幅门槛（%）
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 10.0
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0
 # 龙头股最低长周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0
 # 每个概念选出的龙头股数量
 TOP_N_LEADERS_PER_CONCEPT = 2
+
+# 均线斜率分析相关参数
+# 计算均线斜率的天数
+MA_SLOPE_DAYS = 5
+# 均线斜率显示阈值，只有相对变化超过此阈值才显示趋势标记
+MA_SLOPE_THRESHOLD_PCT = 2  # 单位：%，均线日变化率阈值
+# 均线斜率缓存
+_ma_slope_cache = {}
+# 斜率统计信息（用于分析和调试）
+_slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -104,9 +114,11 @@ PERIOD_CHANGE_COLORS = {
 
 def clear_caches():
     """清理所有缓存"""
-    global _high_gain_cache, _new_high_markers_cache
+    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats
     _high_gain_cache.clear()
     _new_high_markers_cache = None
+    _ma_slope_cache.clear()
+    _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
     print("已清理所有缓存")
 
 
@@ -1318,7 +1330,7 @@ def format_concept_cell(ws, row, col, concept, stock_key, stock_reason_group, re
 
 
 def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_level, apply_high_board_color,
-                           stock_code, stock_entry_count):
+                           stock_code, stock_entry_count, end_date_yyyymmdd=None):
     """
     格式化股票名称单元格
 
@@ -1332,9 +1344,15 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
         apply_high_board_color: 是否应用高板颜色
         stock_code: 股票代码
         stock_entry_count: 股票入选次数映射
+        end_date_yyyymmdd: 结束日期，用于计算均线斜率标记
     """
-    # 设置股票简称列，添加市场标记
-    stock_display_name = f"{stock_name}{market_type}"
+    # 添加均线斜率标记
+    ma_slope_indicator = ''
+    if end_date_yyyymmdd:
+        ma_slope_indicator = get_ma_slope_indicator(stock_code, end_date_yyyymmdd)
+    
+    # 设置股票简称列，添加市场标记和均线斜率标记
+    stock_display_name = f"{stock_name}{market_type}{ma_slope_indicator}"
     name_cell = ws.cell(row=row, column=col, value=stock_display_name)
     name_cell.alignment = Alignment(horizontal='left')
     name_cell.border = BORDER_STYLE
@@ -1757,6 +1775,165 @@ def clear_high_gain_cache():
     _high_gain_cache.clear()
 
 
+def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
+    """
+    计算股票N日均线的斜率（百分比变化率）
+    
+    Args:
+        stock_code: 股票代码
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+        
+    Returns:
+        float: 均线日变化率（%），正数表示上升，负数表示下降，None表示数据不足
+    """
+    global _ma_slope_cache
+    
+    try:
+        # 创建缓存键
+        cache_key = f"{stock_code}_{end_date_yyyymmdd}_{ma_days}"
+        
+        # 检查缓存
+        if cache_key in _ma_slope_cache:
+            return _ma_slope_cache[cache_key]
+        
+        # 获取股票数据
+        df = get_stock_data_df(stock_code)
+        if df is None or df.empty:
+            _ma_slope_cache[cache_key] = None
+            return None
+        
+        # 转换结束日期格式
+        end_date_str = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+        
+        # 找到结束日期的位置
+        end_row = df[df['日期'] == end_date_str]
+        if end_row.empty:
+            # 如果找不到确切日期，找最接近的日期
+            all_dates = pd.to_datetime(df['日期'])
+            end_date_dt = pd.to_datetime(end_date_str)
+            valid_dates = all_dates[all_dates <= end_date_dt]
+            if valid_dates.empty:
+                _ma_slope_cache[cache_key] = None
+                return None
+            closest_date = valid_dates.max()
+            end_idx = df[df['日期'] == closest_date.strftime('%Y-%m-%d')].index[0]
+        else:
+            end_idx = end_row.index[0]
+        
+        # 确保有足够的数据计算均线和斜率
+        # 需要至少ma_days + 2天的数据来计算斜率（至少需要2个均线点）
+        min_required_days = ma_days + 2
+        if end_idx < min_required_days - 1:
+            _ma_slope_cache[cache_key] = None
+            return None
+        
+        # 获取用于计算的数据段
+        data_segment = df.iloc[end_idx - min_required_days + 1:end_idx + 1]
+        
+        # 计算均线
+        data_segment = data_segment.copy()
+        data_segment['ma'] = data_segment['收盘'].rolling(window=ma_days).mean()
+        
+        # 获取有效的均线数据（去除NaN）
+        ma_data = data_segment['ma'].dropna()
+        if len(ma_data) < 2:
+            _ma_slope_cache[cache_key] = None
+            return None
+        
+        # 计算斜率：使用最后两个均线值的相对变化率
+        current_ma = ma_data.iloc[-1]
+        previous_ma = ma_data.iloc[-2]
+        
+        # 斜率 = (最新均线值 - 前一个均线值) / 前一个均线值 * 100，转换为百分比
+        if previous_ma != 0:
+            slope_pct = ((current_ma - previous_ma) / previous_ma) * 100
+        else:
+            slope_pct = 0.0  # 避免除零错误
+        
+        # 更新斜率统计信息
+        global _slope_stats
+        _slope_stats['min'] = min(_slope_stats['min'], slope_pct)
+        _slope_stats['max'] = max(_slope_stats['max'], slope_pct)
+        _slope_stats['count'] += 1
+        _slope_stats['sum'] += slope_pct
+        
+        # 调试信息：记录斜率范围（可选，用于分析实际取值范围）
+        # print(f"DEBUG: {stock_code} 斜率={slope_pct:.4f}%, 均线值={current_ma:.2f}->{previous_ma:.2f}")
+        
+        # 缓存结果
+        _ma_slope_cache[cache_key] = slope_pct
+        return slope_pct
+        
+    except Exception as e:
+        print(f"计算股票 {stock_code} 在 {end_date_yyyymmdd} 的均线斜率时出错: {e}")
+        _ma_slope_cache[cache_key] = None
+        return None
+
+
+def get_ma_slope_indicator(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
+    """
+    获取均线斜率指示符
+    
+    Args:
+        stock_code: 股票代码
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+        
+    Returns:
+        str: '↑' 表示明显上升趋势，'↓' 表示明显下降趋势，'' 表示数据不足或趋势不明显
+    """
+    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+    
+    if slope_pct is None:
+        return ''  # 数据不足时不显示标记
+    
+    # 只有当斜率的绝对值超过百分比阈值时才显示标记
+    if abs(slope_pct) < MA_SLOPE_THRESHOLD_PCT:
+        return ''  # 趋势不够明显，不显示标记
+    elif slope_pct > 0:
+        return '↑'  # 明显上升趋势
+    else:
+        return '↓'  # 明显下降趋势
+
+
+def clear_ma_slope_cache():
+    """
+    清理均线斜率计算缓存，释放内存
+    """
+    global _ma_slope_cache
+    _ma_slope_cache.clear()
+
+
+def print_slope_statistics():
+    """
+    打印均线斜率的统计信息，帮助分析合适的阈值
+    """
+    global _slope_stats
+    
+    if _slope_stats['count'] == 0:
+        print("📊 均线斜率统计：无数据")
+        return
+    
+    avg_slope = _slope_stats['sum'] / _slope_stats['count']
+    
+    print(f"📊 均线斜率统计信息 (基于{_slope_stats['count']}个样本):")
+    print(f"   最小值: {_slope_stats['min']:.4f}%")
+    print(f"   最大值: {_slope_stats['max']:.4f}%")
+    print(f"   平均值: {avg_slope:.4f}%")
+    print(f"   当前阈值: ±{MA_SLOPE_THRESHOLD_PCT:.2f}% (绝对值小于此值不显示标记)")
+    
+    # 计算在当前阈值下会显示标记的比例
+    if _slope_stats['count'] > 0:
+        # 这里只是估算，实际需要遍历所有计算过的斜率值
+        range_width = _slope_stats['max'] - _slope_stats['min']
+        threshold_range = 2 * MA_SLOPE_THRESHOLD_PCT  # 上下阈值范围
+        estimated_filtered_ratio = max(0, (range_width - threshold_range) / range_width) if range_width > 0 else 0
+        print(f"   预估显示标记比例: {estimated_filtered_ratio:.1%}")
+    
+    print(f"   💡 建议：如果希望过滤更多噪音，可增大MA_SLOPE_THRESHOLD_PCT值")
+
+
 def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_before):
     """
     判断是否应该跟踪入选前的股票
@@ -2081,6 +2258,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     get_stock_data.cache_clear()
     # 清理高涨幅计算缓存
     clear_high_gain_cache()
+    # 清理均线斜率计算缓存
+    clear_ma_slope_cache()
 
     # 设置结束日期，如果未指定则使用当前日期
     if end_date is None:
@@ -2262,6 +2441,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 保存Excel文件
     try:
         save_excel_file(wb, output_file)
+        
+        # 显示均线斜率统计信息
+        print_slope_statistics()
+        
         return True
     except Exception as e:
         print(f"保存Excel文件时出错: {e}")
@@ -2379,6 +2562,10 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
+    
+    # 获取结束日期用于均线斜率计算
+    end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
+    
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
@@ -2410,7 +2597,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         apply_high_board_color = False
         _, apply_high_board_color = format_stock_name_cell(ws, row_idx, 3, stock_name, market_type,
                                                            max_board_level, apply_high_board_color,
-                                                           pure_stock_code, stock_entry_count)
+                                                           pure_stock_code, stock_entry_count, end_date_for_ma)
 
         # 填充周期涨跌幅列
         if show_period_change:
@@ -2731,6 +2918,9 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     stock_name = stock['stock_name']
     all_board_data = stock['all_board_data']
 
+    # 获取结束日期用于均线斜率计算
+    end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
+
     # 提取纯代码
     pure_stock_code = extract_pure_stock_code(stock_code)
 
@@ -2754,7 +2944,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     apply_high_board_color = False
     _, apply_high_board_color = format_stock_name_cell(ws, row_idx, 3, stock_name, market_type,
                                                        max_board_level, apply_high_board_color,
-                                                       pure_stock_code, stock_entry_count)
+                                                       pure_stock_code, stock_entry_count, end_date_for_ma)
 
     # 填充周期涨跌幅列
     if show_period_change:
@@ -2985,6 +3175,8 @@ if __name__ == "__main__":
                         help=f'持续跟踪的涨幅阈值，如果股票在period_days天内涨幅超过此值，即便没有涨停也会继续跟踪 (默认: {HIGH_GAIN_TRACKING_THRESHOLD}%)')
     parser.add_argument('--create_leader_sheet', action='store_true',
                         help='是否创建龙头股工作表，从每个概念分组中筛选出最强的股票 (默认: 不创建)')
+    parser.add_argument('--ma_slope_days', type=int, default=MA_SLOPE_DAYS,
+                        help=f'计算均线斜率的天数，用于在股票简称后显示趋势标记 (默认: {MA_SLOPE_DAYS})')
 
     args = parser.parse_args()
 
@@ -3003,6 +3195,9 @@ if __name__ == "__main__":
     # 更新全局高涨幅跟踪阈值
     import analysis.ladder_chart as ladder_chart_module
     ladder_chart_module.HIGH_GAIN_TRACKING_THRESHOLD = args.high_gain_threshold
+
+    # 更新全局均线斜率天数
+    ladder_chart_module.MA_SLOPE_DAYS = args.ma_slope_days
 
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
