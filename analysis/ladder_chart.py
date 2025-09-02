@@ -807,7 +807,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
     # 为非热门概念（不在global_top_reasons中的概念）按股票数量重新分配优先级
     non_hot_concepts = [concept for concept in concept_counts.keys()
-                       if concept not in global_top_reasons and concept != "其他"]
+                        if concept not in global_top_reasons and concept != "其他"]
     # 按股票数量倒序排列非热门概念
     non_hot_concepts_sorted = sorted(non_hot_concepts, key=lambda x: concept_counts[x], reverse=True)
 
@@ -1350,7 +1350,7 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
     ma_slope_indicator = ''
     if end_date_yyyymmdd:
         ma_slope_indicator = get_ma_slope_indicator(stock_code, end_date_yyyymmdd)
-    
+
     # 设置股票简称列，添加市场标记和均线斜率标记
     stock_display_name = f"{stock_name}{market_type}{ma_slope_indicator}"
     name_cell = ws.cell(row=row, column=col, value=stock_display_name)
@@ -1788,24 +1788,24 @@ def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
         float: 均线日变化率（%），正数表示上升，负数表示下降，None表示数据不足
     """
     global _ma_slope_cache
-    
+
     try:
         # 创建缓存键
         cache_key = f"{stock_code}_{end_date_yyyymmdd}_{ma_days}"
-        
+
         # 检查缓存
         if cache_key in _ma_slope_cache:
             return _ma_slope_cache[cache_key]
-        
+
         # 获取股票数据
         df = get_stock_data_df(stock_code)
         if df is None or df.empty:
             _ma_slope_cache[cache_key] = None
             return None
-        
+
         # 转换结束日期格式
         end_date_str = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
-        
+
         # 找到结束日期的位置
         end_row = df[df['日期'] == end_date_str]
         if end_row.empty:
@@ -1820,51 +1820,51 @@ def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
             end_idx = df[df['日期'] == closest_date.strftime('%Y-%m-%d')].index[0]
         else:
             end_idx = end_row.index[0]
-        
+
         # 确保有足够的数据计算均线和斜率
         # 需要至少ma_days + 2天的数据来计算斜率（至少需要2个均线点）
         min_required_days = ma_days + 2
         if end_idx < min_required_days - 1:
             _ma_slope_cache[cache_key] = None
             return None
-        
+
         # 获取用于计算的数据段
         data_segment = df.iloc[end_idx - min_required_days + 1:end_idx + 1]
-        
+
         # 计算均线
         data_segment = data_segment.copy()
         data_segment['ma'] = data_segment['收盘'].rolling(window=ma_days).mean()
-        
+
         # 获取有效的均线数据（去除NaN）
         ma_data = data_segment['ma'].dropna()
         if len(ma_data) < 2:
             _ma_slope_cache[cache_key] = None
             return None
-        
+
         # 计算斜率：使用最后两个均线值的相对变化率
         current_ma = ma_data.iloc[-1]
         previous_ma = ma_data.iloc[-2]
-        
+
         # 斜率 = (最新均线值 - 前一个均线值) / 前一个均线值 * 100，转换为百分比
         if previous_ma != 0:
             slope_pct = ((current_ma - previous_ma) / previous_ma) * 100
         else:
             slope_pct = 0.0  # 避免除零错误
-        
+
         # 更新斜率统计信息
         global _slope_stats
         _slope_stats['min'] = min(_slope_stats['min'], slope_pct)
         _slope_stats['max'] = max(_slope_stats['max'], slope_pct)
         _slope_stats['count'] += 1
         _slope_stats['sum'] += slope_pct
-        
+
         # 调试信息：记录斜率范围（可选，用于分析实际取值范围）
         # print(f"DEBUG: {stock_code} 斜率={slope_pct:.4f}%, 均线值={current_ma:.2f}->{previous_ma:.2f}")
-        
+
         # 缓存结果
         _ma_slope_cache[cache_key] = slope_pct
         return slope_pct
-        
+
     except Exception as e:
         print(f"计算股票 {stock_code} 在 {end_date_yyyymmdd} 的均线斜率时出错: {e}")
         _ma_slope_cache[cache_key] = None
@@ -1884,10 +1884,10 @@ def get_ma_slope_indicator(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS)
         str: '↑' 表示明显上升趋势，'↓' 表示明显下降趋势，'' 表示数据不足或趋势不明显
     """
     slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
-    
+
     if slope_pct is None:
         return ''  # 数据不足时不显示标记
-    
+
     # 只有当斜率的绝对值超过百分比阈值时才显示标记
     if abs(slope_pct) < MA_SLOPE_THRESHOLD_PCT:
         return ''  # 趋势不够明显，不显示标记
@@ -1910,19 +1910,19 @@ def print_slope_statistics():
     打印均线斜率的统计信息，帮助分析合适的阈值
     """
     global _slope_stats
-    
+
     if _slope_stats['count'] == 0:
         print("📊 均线斜率统计：无数据")
         return
-    
+
     avg_slope = _slope_stats['sum'] / _slope_stats['count']
-    
+
     print(f"📊 均线斜率统计信息 (基于{_slope_stats['count']}个样本):")
     print(f"   最小值: {_slope_stats['min']:.4f}%")
     print(f"   最大值: {_slope_stats['max']:.4f}%")
     print(f"   平均值: {avg_slope:.4f}%")
     print(f"   当前阈值: ±{MA_SLOPE_THRESHOLD_PCT:.2f}% (绝对值小于此值不显示标记)")
-    
+
     # 计算在当前阈值下会显示标记的比例
     if _slope_stats['count'] > 0:
         # 这里只是估算，实际需要遍历所有计算过的斜率值
@@ -1930,7 +1930,7 @@ def print_slope_statistics():
         threshold_range = 2 * MA_SLOPE_THRESHOLD_PCT  # 上下阈值范围
         estimated_filtered_ratio = max(0, (range_width - threshold_range) / range_width) if range_width > 0 else 0
         print(f"   预估显示标记比例: {estimated_filtered_ratio:.1%}")
-    
+
     print(f"   💡 建议：如果希望过滤更多噪音，可增大MA_SLOPE_THRESHOLD_PCT值")
 
 
@@ -2233,7 +2233,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, period_days_long=PERIOD_DAYS_LONG, show_period_change=False,
-                       priority_reasons=None, enable_attention_criteria=False, sheet_name=None, create_leader_sheet=False):
+                       priority_reasons=None, enable_attention_criteria=False, sheet_name=None,
+                       create_leader_sheet=False):
     """
     构建梯队形态的涨停复盘图
 
@@ -2371,40 +2372,55 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 grouped_df = grouped_df.drop_duplicates(subset='stock_code', keep='first').copy()
         else:
             grouped_df = result_df
-        
+
         create_concept_grouped_sheet_content(concept_ws, grouped_df, shouban_df, stock_data,
-                                           stock_entry_count, formatted_trading_days, date_column_start,
-                                           show_period_change, period_column, period_days, period_days_long,
-                                           stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
+                                             stock_entry_count, formatted_trading_days, date_column_start,
+                                             show_period_change, period_column, period_days, period_days_long,
+                                             stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                             zaban_df)
 
     # 创建龙头股工作表（如果启用）
     if create_leader_sheet:
-        leader_sheet_name = f"{sheet_name_used}_龙头股"
-        
+        # 从最后一个交易日提取MMDD格式的日期作为sheet名称
+        last_trading_day = formatted_trading_days[-1] if formatted_trading_days else ""
+        if last_trading_day:
+            # 解析日期并格式化为MMDD
+            try:
+                if '年' in last_trading_day:
+                    # 中文格式: YYYY年MM月DD日
+                    date_obj = datetime.strptime(last_trading_day, '%Y年%m月%d日')
+                else:
+                    # 标准格式: YYYY/MM/DD
+                    date_obj = datetime.strptime(last_trading_day, '%Y/%m/%d')
+
+                date_suffix = date_obj.strftime('%m%d')  # MMDD格式
+                leader_sheet_name = f"龙头{date_suffix}"
+            except Exception as e:
+                print(f"解析日期时出错: {e}，使用默认命名")
+                leader_sheet_name = f"{sheet_name_used}_龙头股"
+        else:
+            leader_sheet_name = f"{sheet_name_used}_龙头股"
+
         # 检查是否需要创建或更新龙头股工作表
-        is_default_pattern = "涨停梯队" in leader_sheet_name
         sheet_exists = leader_sheet_name in wb.sheetnames
-        
+
         # 决定是否需要创建/更新工作表
         should_create_leader_sheet = False
-        
+
         if not sheet_exists:
             # 工作表不存在，需要创建
             should_create_leader_sheet = True
             print(f"在现有工作簿中创建新的龙头股工作表: {leader_sheet_name}")
-        elif is_default_pattern:
-            # 默认模式工作表已存在，需要更新
+        else:
+            # 龙头股工作表已存在，直接覆盖更新（每日独立保存）
             wb.remove(wb[leader_sheet_name])
             should_create_leader_sheet = True
-            print(f"已更新默认模式龙头股工作表: {leader_sheet_name}")
-        else:
-            # 用户自定义工作表已存在，保留原样
-            print(f"保留用户自定义龙头股工作表: {leader_sheet_name}")
-        
+            print(f"已更新龙头股工作表: {leader_sheet_name}")
+
         # 只有当需要创建工作表时才创建内容
         if should_create_leader_sheet:
             leader_ws = wb.create_sheet(title=leader_sheet_name)
-            
+
             # 使用按概念分组的数据作为输入，这样可以复用已经计算好的long_period_change
             if 'concept_ws' in locals() and 'grouped_df' in locals():
                 # 如果前面创建了概念分组工作表，则复用其数据
@@ -2412,6 +2428,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             else:
                 # 否则基于result_df重新计算概念分组数据
                 concept_data_for_leader = result_df.copy()
+
                 # 计算长周期涨跌幅
                 def calculate_long_period_change(row):
                     try:
@@ -2426,12 +2443,15 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                         return long_change if long_change is not None else 0.0
                     except:
                         return 0.0
-                concept_data_for_leader['long_period_change'] = concept_data_for_leader.apply(calculate_long_period_change, axis=1)
-            
+
+                concept_data_for_leader['long_period_change'] = concept_data_for_leader.apply(
+                    calculate_long_period_change, axis=1)
+
             create_leader_stocks_sheet_content(leader_ws, concept_data_for_leader, shouban_df, stock_data,
-                                             stock_entry_count, formatted_trading_days, date_column_start,
-                                             show_period_change, period_column, period_days, period_days_long,
-                                             stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)
+                                               stock_entry_count, formatted_trading_days, date_column_start,
+                                               show_period_change, period_column, period_days, period_days_long,
+                                               stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                               zaban_df)
 
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
@@ -2441,10 +2461,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 保存Excel文件
     try:
         save_excel_file(wb, output_file)
-        
+
         # 显示均线斜率统计信息
         print_slope_statistics()
-        
+
         return True
     except Exception as e:
         print(f"保存Excel文件时出错: {e}")
@@ -2562,10 +2582,10 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
-    
+
     # 获取结束日期用于均线斜率计算
     end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
-    
+
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
@@ -2730,9 +2750,9 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
 
 
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
-                                       formatted_trading_days, date_column_start, show_period_change, period_column,
-                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df):
+                                         formatted_trading_days, date_column_start, show_period_change, period_column,
+                                         period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                         max_tracking_days_before, zaban_df):
     """
     创建按概念分组的工作表内容
 
@@ -2784,7 +2804,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
     # 按新的优先级排序：首次显著连板日期、长周期涨跌幅倒序、首次显著连板时的连板天数倒序
     concept_grouped_df = concept_grouped_df.sort_values(
-        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
+            'board_level_at_first'],
         ascending=[True, True, True, False, False]
     )
 
@@ -2809,9 +2830,9 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
 
 def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
-                                formatted_trading_days, date_column_start, show_period_change, period_column,
-                                period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                max_tracking_days_before, zaban_df):
+                                 formatted_trading_days, date_column_start, show_period_change, period_column,
+                                 period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                 max_tracking_days_before, zaban_df):
     """
     创建按概念分组的工作表（保持向后兼容）
 
@@ -2827,15 +2848,16 @@ def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_da
 
     # 填充内容
     create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
-                                       formatted_trading_days, date_column_start, show_period_change, period_column,
-                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df)
+                                         formatted_trading_days, date_column_start, show_period_change, period_column,
+                                         period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                         max_tracking_days_before, zaban_df)
 
 
 def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                                        stock_entry_count, formatted_trading_days, date_column_start,
                                        show_period_change, period_column, period_days, period_days_long,
-                                       stock_details, date_mapping, max_tracking_days, max_tracking_days_before, zaban_df):
+                                       stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                       zaban_df):
     """
     填充数据行，按概念分组并在组间添加分隔行
 
@@ -2974,8 +2996,8 @@ def save_excel_file(wb, output_file):
     print(f"梯队形态涨停复盘图已生成: {output_file}")
 
 
-def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, formatted_trading_days, 
-                                           period_days, period_days_long):
+def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, formatted_trading_days,
+                                             period_days, period_days_long):
     """
     从按概念分组的数据中选出龙头股
     
@@ -2990,20 +3012,20 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         pandas.DataFrame: 筛选出的龙头股DataFrame
     """
     print(f"开始从概念分组中筛选龙头股...")
-    
+
     leader_stocks = []
     total_concepts = 0
     qualified_concepts = 0
-    
+
     # 补充计算短周期涨跌幅和最高连板数（如果还没有的话）
     def calculate_additional_metrics(row):
         """计算额外的指标用于筛选"""
         try:
             stock_code = row['stock_code']
-            
+
             # 计算最高连板数
             max_board_level = calculate_max_board_level(row['all_board_data'])
-            
+
             # 计算短周期涨跌幅
             end_date = date_mapping.get(formatted_trading_days[-1])
             if end_date:
@@ -3013,83 +3035,84 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
                 short_change = calculate_stock_period_change(stock_code, start_date, end_date)
             else:
                 short_change = 0.0
-                
+
             return max_board_level, short_change if short_change is not None else 0.0
         except:
             return 0, 0.0
-    
+
     # 为DataFrame添加必要的指标
     temp_df = concept_grouped_df.copy()
-    
+
     # 确保long_period_change列存在，如果不存在则填充默认值
     if 'long_period_change' not in temp_df.columns:
         print("  long_period_change列不存在，将使用默认值0.0")
         temp_df['long_period_change'] = 0.0
-    
+
     # 计算额外的指标
     metrics = temp_df.apply(calculate_additional_metrics, axis=1, result_type='expand')
     temp_df['max_board_level'] = metrics[0]
     temp_df['short_period_change'] = metrics[1]
-    
+
     # 按概念分组筛选龙头股
     for concept_group, group_df in temp_df.groupby('concept_group'):
         total_concepts += 1
         print(f"  处理概念组: {concept_group} (共{len(group_df)}只股票)")
-        
+
         # 直接在DataFrame上进行筛选
         # 1. 连板数门槛筛选
         board_mask = group_df['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
-        
+
         # 2. 涨幅门槛筛选（短周期或长周期满足一个即可）
         short_mask = group_df['short_period_change'] >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
         long_mask = group_df['long_period_change'] >= MIN_LONG_PERIOD_CHANGE_FOR_LEADER
         change_mask = short_mask | long_mask
-        
+
         # 3. 组合筛选条件
         qualified_df = group_df[board_mask & change_mask]
-        
+
         if qualified_df.empty:
             print(f"    概念组 {concept_group} 无符合条件的股票")
             continue
-            
+
         qualified_concepts += 1
         print(f"    概念组 {concept_group} 有{len(qualified_df)}只符合条件的股票")
-        
-        # 排序逻辑：优先按最高连板数，再按长周期涨跌幅，最后按短周期涨跌幅
+
+        # 排序逻辑：优先按长周期涨跌幅，再按最高连板数，最后按短周期涨跌幅
         qualified_df = qualified_df.sort_values(
-            by=['max_board_level', 'long_period_change', 'short_period_change'], 
+            by=['long_period_change', 'max_board_level', 'short_period_change'],
             ascending=[False, False, False]
         )
-        
+
         # 选出前N只作为龙头
         leaders = qualified_df.head(TOP_N_LEADERS_PER_CONCEPT)
         print(f"    从概念组 {concept_group} 选出{len(leaders)}只龙头股")
-        
+
         # 添加到龙头股列表
         for _, leader in leaders.iterrows():
             leader_stocks.append(leader.to_dict())
-    
-    print(f"龙头股筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票，共选出{len(leader_stocks)}只龙头股")
-    
+
+    print(
+        f"龙头股筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票，共选出{len(leader_stocks)}只龙头股")
+
     if not leader_stocks:
         return pd.DataFrame()
-    
+
     # 转换为DataFrame
     leader_df = pd.DataFrame(leader_stocks)
-    
+
     # 按原始排序逻辑重新排序（不再按概念分组）
     leader_df = leader_df.sort_values(
         by=['first_significant_date', 'concept_priority', 'board_level_at_first'],
         ascending=[True, True, False]
     )
-    
+
     return leader_df
 
 
 def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock_data, stock_entry_count,
-                                     formatted_trading_days, date_column_start, show_period_change, period_column,
-                                     period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                     max_tracking_days_before, zaban_df):
+                                       formatted_trading_days, date_column_start, show_period_change, period_column,
+                                       period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                       max_tracking_days_before, zaban_df):
     """
     创建龙头股工作表内容
     
@@ -3099,36 +3122,36 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
         其他参数与create_concept_grouped_sheet_content相同
     """
     print(f"开始创建龙头股工作表内容")
-    
+
     # 选出龙头股
     leader_df = select_leader_stocks_from_concept_groups(
         concept_grouped_df, date_mapping, formatted_trading_days, period_days, period_days_long
     )
-    
+
     if leader_df.empty:
         print("未找到符合条件的龙头股，跳过龙头股工作表创建")
         return
-    
+
     print(f"成功筛选出{len(leader_df)}只龙头股，开始填充工作表内容")
-    
+
     # 复用现有的表头和数据填充逻辑
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
-    
+
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
-    
+
     # 填充龙头股数据行
     fill_data_rows(ws, leader_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                    stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                    period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
                    max_tracking_days_before, zaban_df)
-    
+
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
-    
+
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
-    
+
     print(f"龙头股工作表内容创建完成")
 
 
@@ -3194,6 +3217,7 @@ if __name__ == "__main__":
 
     # 更新全局高涨幅跟踪阈值
     import analysis.ladder_chart as ladder_chart_module
+
     ladder_chart_module.HIGH_GAIN_TRACKING_THRESHOLD = args.high_gain_threshold
 
     # 更新全局均线斜率天数
