@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BreakoutStrategy V2 工作流程</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f8f9fa;
+            color: #343a40;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .workflow-container { display: flex; align-items: flex-start; }
+        .main-flow { display: flex; flex-direction: column; align-items: center; }
+        .state {
+            background-color: #ffffff;
+            border: 2px solid;
+            border-radius: 8px;
+            padding: 12px 20px;
+            margin: 10px;
+            min-width: 220px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        .start { border-color: #4CAF50; background-color: #e8f5e9; }
+        .decision { border-color: #FFC107; background-color: #fff8e1; }
+        .action { border-color: #2196F3; background-color: #e3f2fd; }
+        .end { border-color: #f44336; background-color: #ffebee; }
+        .arrow {
+            font-size: 24px; color: #555; margin: 2px 0; position: relative;
+            width: 100%; text-align: center;
+        }
+        .arrow::after {
+            content: attr(data-label);
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #f8f9fa;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            color: #555;
+            z-index: 1;
+        }
+        .position-management {
+            border: 2px dashed #9e9e9e;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            position: relative;
+            background-color: rgba(255, 255, 255, 0.7);
+        }
+        .position-management::before {
+            content: '持仓期动态管理循环';
+            position: absolute;
+            top: -12px; left: 15px;
+            background-color: #f8f9fa;
+            padding: 0 10px;
+            font-weight: bold;
+            color: #616161;
+            font-size: 14px;
+        }
+        .dynamic-actions {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .dynamic-action {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 120px;
+        }
+        .final-stop {
+            margin-top: 15px;
+            border-top: 2px solid #f44336;
+            padding-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-flow">
+        <div class="state start"><strong>开始 (空仓)</strong></div>
+        <div class="arrow" data-label="每日扫描">↓</div>
+        <div class="state decision"><strong>1. 初始信号识别 & 评级</strong></div>
+        <div class="arrow" data-label="高分信号">↓</div>
+        <div class="state action"><strong>2. 进入观察哨模式</strong></div>
+        <div class="arrow" data-label="期内等待">↓</div>
+        <div class="state decision"><strong>3. 二次确认信号 & VCP评估</strong></div>
+        <div class="arrow" data-label="信号通过">↓</div>
+        <div class="state action">
+            <strong>4. 动态初始开仓</strong>
+            <div style="font-size:12px; color:#555;">(基于VCP分数, 20%-80%仓位)</div>
+        </div>
+        <div class="arrow">↓</div>
+
+        <div class="position-management">
+            <div class="state action" style="margin-top:10px;"><strong>进入持仓状态</strong></div>
+            <div class="arrow" data-label="每日评估PSQ">↓</div>
+            <div class="dynamic-actions">
+                <div class="dynamic-action">
+                    <div class="state decision" style="min-width:unset; width:100%; border-color:#4CAF50;"><strong>加仓?</strong></div>
+                    <div class="arrow" data-label="趋势健康&回调企稳">↓</div>
+                     <div class="state action" style="min-width:unset; width:100%;"><strong>执行加仓</strong></div>
+                </div>
+                <div class="dynamic-action">
+                     <div class="state decision" style="min-width:unset; width:100%; border-color:#FF9800;"><strong>止盈?</strong></div>
+                     <div class="arrow" data-label="浮盈&PSQ过热">↓</div>
+                     <div class="state action" style="min-width:unset; width:100%;"><strong>部分卖出</strong></div>
+                </div>
+            </div>
+            <div class="final-stop">
+                <div class="state end">
+                    <strong>最终风控：ATR跟踪止损</strong>
+                    <div style="font-size:12px; color:#555;">(所有决策的最终防线)</div>
+                </div>
+            </div>
+        </div>
+        <div class="arrow" data-label="触发止损或清仓">↓</div>
+        <div class="state end"><strong>结束交易，返回空仓</strong></div>
+    </div>
+</body>
+</html> 

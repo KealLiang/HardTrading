@@ -6,6 +6,7 @@ from bin import simulator
 from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from strategy.breakout_strategy import BreakoutStrategy
+from strategy.breakout_strategy_v2 import BreakoutStrategyV2
 from strategy.scannable_strategy import ScannableBreakoutStrategy
 from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
@@ -132,8 +133,8 @@ def backtrade_simulate():
         code=stock_code,
         amount=100000,
         startdate=datetime(2022, 1, 1),
-        enddate=datetime(2025, 7, 4),
-        strategy=BreakoutStrategy,
+        enddate=datetime(2025, 8, 22),
+        strategy=BreakoutStrategyV2,
         strategy_params={'debug': True},  # 开启详细日志
         log_trades=True,
         visualize=True,
@@ -549,7 +550,7 @@ if __name__ == '__main__':
 
     # === 原有功能 ===
     # daily_routine()
-    # backtrade_simulate()
+    backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
@@ -558,7 +559,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
