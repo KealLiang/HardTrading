@@ -550,14 +550,14 @@ if __name__ == '__main__':
 
     # === 原有功能 ===
     # daily_routine()
-    backtrade_simulate()
+    # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
