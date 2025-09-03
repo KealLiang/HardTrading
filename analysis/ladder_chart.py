@@ -80,6 +80,9 @@ MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0
 # 每个概念选出的龙头股数量
 TOP_N_LEADERS_PER_CONCEPT = 2
 
+# 最大龙头股工作表保留数量
+MAX_LEADER_SHEETS = 3
+
 # 均线斜率分析相关参数
 # 计算均线斜率的天数
 MA_SLOPE_DAYS = 5
@@ -2228,6 +2231,122 @@ def prepare_stock_concept_data(stock_concepts):
     return all_stocks
 
 
+def _get_leader_sheet_info(wb, last_trading_day_in_run):
+    """
+    获取所有龙头工作表及其对应的日期
+    """
+    leader_sheets_info = []
+    current_year = last_trading_day_in_run.year
+    # 用于处理跨年时的情况
+    current_month = last_trading_day_in_run.month
+
+    for sheet_name in wb.sheetnames:
+        if sheet_name.startswith("龙头"):
+            match = re.search(r'龙头(\d{4})', sheet_name)
+            if not match:
+                continue
+
+            sheet_mmdd = match.group(1)
+            sheet_month = int(sheet_mmdd[:2])
+
+            # 跨年处理：如果当前月份是早期（如1-3月），而sheet的月份是晚期（如10-12月），
+            # 则认为该sheet属于上一年
+            year_to_use = current_year
+            if current_month <= 3 and sheet_month >= 10:
+                year_to_use = current_year - 1
+
+            try:
+                sheet_date = datetime.strptime(f"{year_to_use}{sheet_mmdd}", "%Y%m%d")
+                leader_sheets_info.append({'name': sheet_name, 'date': sheet_date})
+            except ValueError:
+                print(f"警告: 无法从工作表名 '{sheet_name}' 解析有效日期")
+    return leader_sheets_info
+
+
+def manage_leader_sheets(wb, last_trading_day_in_run):
+    """
+    管理龙头工作表数量，删除超过数量限制的最旧的工作表
+    """
+    leader_sheets_info = _get_leader_sheet_info(wb, last_trading_day_in_run)
+
+    if len(leader_sheets_info) > MAX_LEADER_SHEETS:
+        # 按日期排序，旧的在前
+        leader_sheets_info.sort(key=lambda x: x['date'])
+        # 确定要删除的工作表
+        sheets_to_delete = leader_sheets_info[:len(leader_sheets_info) - MAX_LEADER_SHEETS]
+        for sheet_info in sheets_to_delete:
+            if sheet_info['name'] in wb.sheetnames:
+                wb.remove(wb[sheet_info['name']])
+                print(f"已删除旧的龙头工作表: {sheet_info['name']}")
+
+
+def backfill_historical_leader_sheets(wb, last_trading_day_in_run, all_formatted_trading_days, date_mapping):
+    """
+    回填历史龙头股工作表的最新数据
+    """
+    leader_sheets_info = _get_leader_sheet_info(wb, last_trading_day_in_run)
+
+    if not leader_sheets_info:
+        return
+
+    # 按日期倒序，最新的在前
+    leader_sheets_info.sort(key=lambda x: x['date'], reverse=True)
+
+    # 当前运行的所有交易日 (datetime 对象)
+    run_dates = [datetime.strptime(date_mapping[d], '%Y%m%d') for d in all_formatted_trading_days]
+
+    # 遍历历史龙头工作表进行回填 (跳过最新的一个，即当前运行生成的)
+    for sheet_info in leader_sheets_info[1:MAX_LEADER_SHEETS]:
+        ws = wb[sheet_info['name']]
+        sheet_date = sheet_info['date']
+        print(f"检查历史龙头工作表: {sheet_info['name']} (日期: {sheet_date.strftime('%Y-%m-%d')})")
+
+        # 找出该工作表现有的所有日期列
+        existing_dates_in_sheet = set()
+        for col_idx in range(4, ws.max_column + 1):
+            header_val = ws.cell(row=1, column=col_idx).value
+            if header_val and isinstance(header_val, str) and '\n' in header_val:
+                date_part = header_val.split('\n')[0]
+                try:
+                    existing_dates_in_sheet.add(datetime.strptime(date_part, '%Y-%m-%d').date())
+                except ValueError:
+                    continue
+
+        # 找出当前运行中、比该工作表最后日期新、且尚未存在于该工作表中的日期
+        dates_to_add = [d for d in run_dates if d > sheet_date and d.date() not in existing_dates_in_sheet]
+        dates_to_add.sort()  # 按时间顺序添加
+
+        if not dates_to_add:
+            print(f"工作表 {sheet_info['name']} 数据已是最新，无需回填。")
+            continue
+
+        print(f"为 {sheet_info['name']} 回填 {len(dates_to_add)} 天的数据...")
+
+        # 在表头添加新日期列
+        start_col = ws.max_column + 1
+        for i, date_obj in enumerate(dates_to_add):
+            col_idx = start_col + i
+            weekday = date_obj.weekday()
+            weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
+            date_with_weekday = f"{date_obj.strftime('%Y-%m-%d')}\n{weekday_map[weekday]}"
+
+            date_cell = ws.cell(row=1, column=col_idx, value=date_with_weekday)
+            date_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            date_cell.border = BORDER_STYLE
+            date_cell.font = Font(bold=True)
+            ws.column_dimensions[get_column_letter(col_idx)].width = 12
+
+        # 填充新日期列的数据
+        for row_idx in range(4, ws.max_row + 1):  # 数据从第4行开始
+            stock_code = ws.cell(row=row_idx, column=1).value
+            if not stock_code or not isinstance(stock_code, (str, int)):
+                continue
+
+            for i, date_obj in enumerate(dates_to_add):
+                col_idx = start_col + i
+                format_daily_pct_change_cell(ws, row_idx, col_idx, date_obj, str(stock_code))
+
+
 @timer
 def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_level=2,
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
@@ -2452,6 +2571,12 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                                show_period_change, period_column, period_days, period_days_long,
                                                stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
                                                zaban_df)
+
+        # 管理龙头sheet并回填历史数据
+        last_day_str = date_mapping[formatted_trading_days[-1]]
+        last_trading_day_obj = datetime.strptime(last_day_str, '%Y%m%d')
+        manage_leader_sheets(wb, last_trading_day_obj)
+        backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
 
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],

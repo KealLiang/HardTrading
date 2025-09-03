@@ -61,7 +61,7 @@ class BreakoutStrategyV2(bt.Strategy):
         ('psq_profit_taking_score', 6.0),  # 触发部分止盈的PSQ分数阈值
         ('profit_taking_pct', 0.3),  # 部分止盈卖出的仓位比例
         ('min_profit_for_taking', 0.15),  # 触发部分止盈所需的最小浮盈
-        ('psq_add_on_threshold', 1.5),  # 考虑加仓的PSQ平均分阈值
+        ('psq_add_on_threshold', 0.5),  # 考虑加仓的PSQ分数阈值 (原为1.5)
         ('add_on_pullback_atr', 0.5),  # 加仓时要求的最小回调ATR倍数
         ('add_on_size_pct', 0.25),  # 每次加仓的头寸（占初始仓位）
 
@@ -152,7 +152,7 @@ class BreakoutStrategyV2(bt.Strategy):
         self.current_observation_scores = []
         # -- V2 新增：动态仓位管理状态 --
         self.initial_size = 0  # 初始仓位数量，用于加仓和部分止盈计算
-        self.last_add_on_day = 0 # 上次加仓的bar索引 - V2修订版中已废弃
+        self.entry_stake_pct = 0.0 # V2.1: 记录初始建仓时的仓位比例
 
     def log(self, txt, dt=None):
         # ... (log, notify_order, notify_trade 保持不变) ...
@@ -236,6 +236,7 @@ class BreakoutStrategyV2(bt.Strategy):
             self.probation_counter = 0
             self.initial_size = 0
             self.last_add_on_day = 0
+            self.entry_stake_pct = 0.0 # V2.1: 重置
 
     def next(self):
         # ... (PSQ 评分逻辑保持不变) ...
@@ -486,8 +487,10 @@ class BreakoutStrategyV2(bt.Strategy):
                 return # 执行操作后，本轮结束
 
         # --- 2. 加仓逻辑 ---
-        # 检查1：仓位空间
-        max_plan_size = self.initial_size / (self.p.vcp_min_stake_pct) # 反算出计划投入的总股数
+        # 检查1：仓位空间 (V2.1 Bug Fix)
+        if self.entry_stake_pct < 1e-9: # 安全检查
+            return
+        max_plan_size = self.initial_size / self.entry_stake_pct
         if self.position.size >= max_plan_size:
             return
 
@@ -500,14 +503,8 @@ class BreakoutStrategyV2(bt.Strategy):
         if pullback_from_high < self.p.add_on_pullback_atr * self.atr[0]:
             return
         
-        # 检查4：动能企稳 (Momentum Confirmation)
-        # a. 近期PSQ均分
-        if len(self.psq_scores) < 3: return
-        avg_psq = np.mean(self.psq_scores[-3:])
-        if avg_psq < self.p.psq_add_on_threshold:
-            return
-        # b. 当日企稳
-        if psq_score <= 0:
+        # 检查4：动能企稳 (Momentum Confirmation) - V2.1逻辑简化
+        if psq_score < self.p.psq_add_on_threshold:
             return
             
         # 所有条件满足，执行加仓
@@ -574,6 +571,7 @@ class BreakoutStrategyV2(bt.Strategy):
         scaling_factor = vcp_score / 5.0
         actual_stake_pct = self.p.vcp_min_stake_pct + \
                            (self.p.vcp_max_stake_pct - self.p.vcp_min_stake_pct) * scaling_factor
+        self.entry_stake_pct = actual_stake_pct # V2.1: 记录仓位比例，用于后续加仓计算
         
         # 步骤3: 所有过滤器通过，按优先级执行交易
         signal_to_execute = active_signals[0]
