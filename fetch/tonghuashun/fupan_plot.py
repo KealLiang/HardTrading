@@ -496,15 +496,32 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     ax.legend(loc='upper left')  # 主 y 轴图例
     ax2.legend(loc='upper right')  # 副 y 轴图例
     plt.tight_layout()
-    plt.show()
-    # plt.savefig("fupan_lb.png", format='png')
-    # plt.close()
+    
+    # 生成文件名
+    date_range = ""
+    if start_date and end_date:
+        date_range = f"{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}"
+    elif start_date:
+        date_range = f"from_{start_date.strftime('%Y%m%d')}"
+    elif end_date:
+        date_range = f"to_{end_date.strftime('%Y%m%d')}"
+    else:
+        date_range = datetime.now().strftime('%Y%m%d')
+        
+    filename = f"images/fupan/fupan_lb_{date_range}.png"
+    
+    # 保存图片
+    plt.savefig(filename, format='png', dpi=300)
+    plt.close()
+    
+    print(f"图表已保存到: {filename}")
+    return filename
 
 
 def draw_fupan_lb(start_date=None, end_date=None, label_config=None):
     # 示例调用
     fupan_file = "./excel/fupan_stocks.xlsx"
-    read_and_plot_data(fupan_file, start_date, end_date, label_config)
+    return read_and_plot_data(fupan_file, start_date, end_date, label_config)
 
 
 if __name__ == '__main__':
