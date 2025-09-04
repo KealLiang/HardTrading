@@ -16,7 +16,7 @@ from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trad
 from utils.file_util import read_stock_data
 
 os.environ['NODE_OPTIONS'] = '--no-deprecation'
-default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板', '曾涨停']
+default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板'] # 移除'曾涨停'
 
 
 def init_tushare():
@@ -58,6 +58,9 @@ def get_tushare_dapan_statistics(pro, target_date):
         # 计算涨跌幅超过 7% 的数量
         up_over_7 = len(data[data['pct_chg'] >= 7])
         down_over_7 = len(data[data['pct_chg'] <= -7])
+        # 计算涨跌幅超过 9% 的数量
+        up_over_9 = len(data[data['pct_chg'] >= 9])
+        down_over_9 = len(data[data['pct_chg'] <= -9])
 
         # 返回统计数据
         return {
@@ -68,7 +71,9 @@ def get_tushare_dapan_statistics(pro, target_date):
             '涨幅超过5%家数': up_over_5,
             '跌幅超过5%家数': down_over_5,
             '涨幅超过7%家数': up_over_7,
-            '跌幅超过7%家数': down_over_7
+            '跌幅超过7%家数': down_over_7,
+            '涨幅超过9%家数': up_over_9,
+            '跌幅超过9%家数': down_over_9
         }
 
     except Exception as e:
@@ -239,36 +244,37 @@ def get_local_data(base_date, next_date, stock_code, stock_name, data_path='data
     return local_data
 
 
-def merge_zt_and_zaban_stocks(date):
-    """
-    合并涨停和炸板的股票数据
-    Args:
-        date: 日期，格式为 'YYYYMMDD'
-    Returns:
-        pd.DataFrame: 合并后的DataFrame
-    """
-    try:
-        # 获取涨停和炸板数据
-        zt_df = get_zt_stocks(date)
-        zb_df = get_zaban_stocks(date)
-
-        if zt_df is None or zb_df is None:
-            return None
-
-        # 获取两个DataFrame的共同列
-        common_columns = list(set(zt_df.columns) & set(zb_df.columns))
-
-        # 使用共同列合并数据
-        zt_df = zt_df[common_columns]
-        zb_df = zb_df[common_columns]
-
-        # 合并并去重
-        merged_df = pd.concat([zt_df, zb_df]).drop_duplicates(subset=['股票代码'])
-
-        return merged_df
-    except Exception as e:
-        print(f"合并数据时出错: {str(e)}")
-        return None
+# 注释掉不再使用的函数
+# def merge_zt_and_zaban_stocks(date):
+#     """
+#     合并涨停和炸板的股票数据
+#     Args:
+#         date: 日期，格式为 'YYYYMMDD'
+#     Returns:
+#         pd.DataFrame: 合并后的DataFrame
+#     """
+#     try:
+#         # 获取涨停和炸板数据
+#         zt_df = get_zt_stocks(date)
+#         zb_df = get_zaban_stocks(date)
+#
+#         if zt_df is None or zb_df is None:
+#             return None
+#
+#         # 获取两个DataFrame的共同列
+#         common_columns = list(set(zt_df.columns) & set(zb_df.columns))
+#
+#         # 使用共同列合并数据
+#         zt_df = zt_df[common_columns]
+#         zb_df = zb_df[common_columns]
+#
+#         # 合并并去重
+#         merged_df = pd.concat([zt_df, zb_df]).drop_duplicates(subset=['股票代码'])
+#
+#         return merged_df
+#     except Exception as e:
+#         print(f"合并数据时出错: {str(e)}")
+#         return None
 
 
 def analyze_zt_stocks_performance(date, analysis_type='涨停'):
@@ -292,8 +298,10 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             stock_df = get_dieting_stocks(date)
         elif analysis_type == '炸板':
             stock_df = get_zaban_stocks(date)
-        else:  # '曾涨停'
-            stock_df = merge_zt_and_zaban_stocks(date)
+        # 移除对'曾涨停'的处理
+        else:
+            print(f"未知的分析类型: {analysis_type}")
+            return None
 
         if stock_df is None or stock_df.empty:
             print(f"未获取到 {date} 的{analysis_type}股票数据")
@@ -340,6 +348,8 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
 
         return stats
     except Exception as e:
+        import traceback
+        error_info = traceback.format_exc()
         print(f"分析{analysis_type}股票表现时出错: {str(e)}")
         return None
 
