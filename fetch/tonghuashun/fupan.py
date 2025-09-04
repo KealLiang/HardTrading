@@ -220,6 +220,86 @@ def get_top_attention_stocks(date, board_suffix=""):
     return sorted_top_df
 
 
+def get_large_increase_stocks(date, board_suffix=""):
+    """
+    获取指定日期的大涨（涨幅>9%）个股数据。
+    :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
+    :return: 大涨个股的DataFrame。
+    """
+    param = f"{date}涨幅大于9%，非ST{board_suffix}"
+    df = query_wencai(param)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    all_possible_columns = [
+        '股票代码', '股票简称', '最新价', '最新涨跌幅',
+        f'涨跌幅:前复权[{date}]', f'振幅[{date}]'
+    ]
+    selected_columns = [col for col in all_possible_columns if col in df.columns]
+
+    if not selected_columns:
+        return pd.DataFrame()
+
+    increase_df = df[selected_columns].copy()
+
+    if '最新涨跌幅' in increase_df.columns:
+        increase_df = increase_df.sort_values(
+            by='最新涨跌幅', ascending=False, key=lambda x: pd.to_numeric(x, errors='coerce')
+        ).reset_index(drop=True)
+        increase_df['最新涨跌幅'] = increase_df['最新涨跌幅'].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    date_specific_col = f'涨跌幅:前复权[{date}]'
+    if date_specific_col in increase_df.columns:
+        increase_df[date_specific_col] = increase_df[date_specific_col].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    return increase_df
+
+
+def get_large_decrease_stocks(date, board_suffix=""):
+    """
+    获取指定日期的大跌（跌幅>9%）个股数据。
+    :param date: 查询日期，格式为'YYYYMMDD'。
+    :param board_suffix: 板块筛选后缀
+    :return: 大跌个股的DataFrame。
+    """
+    param = f"{date}跌幅大于9%，非ST{board_suffix}"
+    df = query_wencai(param)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    all_possible_columns = [
+        '股票代码', '股票简称', '最新价', '最新涨跌幅',
+        f'涨跌幅:前复权[{date}]', f'振幅[{date}]'
+    ]
+    selected_columns = [col for col in all_possible_columns if col in df.columns]
+
+    if not selected_columns:
+        return pd.DataFrame()
+
+    decrease_df = df[selected_columns].copy()
+
+    if '最新涨跌幅' in decrease_df.columns:
+        decrease_df = decrease_df.sort_values(
+            by='最新涨跌幅', ascending=True, key=lambda x: pd.to_numeric(x, errors='coerce')
+        ).reset_index(drop=True)
+        decrease_df['最新涨跌幅'] = decrease_df['最新涨跌幅'].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    date_specific_col = f'涨跌幅:前复权[{date}]'
+    if date_specific_col in decrease_df.columns:
+        decrease_df[date_specific_col] = decrease_df[date_specific_col].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    return decrease_df
+
+
 def save_to_excel(dataframes, dates, fupan_type, target_excel_file):
     """
     将多个日期的DataFrame保存到一个Excel文件中，日期作为列名。
@@ -296,7 +376,9 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         '首板数据': get_shouban_stocks,
         '反包数据': get_fanbao_stocks,
         '关注度榜': get_top_attention_stocks,
-        '非主关注度榜': get_top_attention_stocks  # 添加对非主关注度榜的支持
+        '非主关注度榜': get_top_attention_stocks,  # 添加对非主关注度榜的支持
+        '大涨数据': get_large_increase_stocks,
+        '大跌数据': get_large_decrease_stocks
     }
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
@@ -342,7 +424,7 @@ def all_fupan(start_date=None, end_date=None, types='all'):
         board_suffix = config_item["suffix"]
         target_excel_file = config_item["file"]
         print(f"\nProcessing for: {board_suffix}, output to: {target_excel_file}")
-        for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜']:
+        for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜', '大涨数据', '大跌数据']:
             print(f"--- Starting fupan type: {fupan_type} ---")
             daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file)
 
