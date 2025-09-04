@@ -508,7 +508,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     else:
         date_range = datetime.now().strftime('%Y%m%d')
         
-    filename = f"images/fupan/fupan_lb_{date_range}.png"
+    filename = f"images/fupan_lb_{date_range}.png"
     
     # 保存图片
     plt.savefig(filename, format='png', dpi=300)
