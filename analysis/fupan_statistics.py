@@ -10,13 +10,229 @@ import tushare as ts
 
 from config.holder import config
 from decorators.practical import timer
-from fetch.tonghuashun.fupan import get_open_dieting_stocks, get_zt_stocks, get_zaban_stocks, get_lianban_stocks, \
-    get_dieting_stocks
+from fetch.tonghuashun.fupan import get_zt_stocks, get_zaban_stocks, get_lianban_stocks, get_dieting_stocks
 from utils.date_util import get_next_trading_day, get_prev_trading_day, get_trading_days
 from utils.file_util import read_stock_data
 
 os.environ['NODE_OPTIONS'] = '--no-deprecation'
-default_analysis_type = ['涨停', '连板', '开盘跌停', '跌停', '炸板'] # 移除'曾涨停'
+
+# 向后兼容的全局变量
+default_analysis_type = ['涨停', '连板', '跌停', '炸板']
+ENABLE_API_FALLBACK = False
+FORCE_SINGLE_THREAD_WHEN_API = True
+FUPAN_EXCEL_PATH = 'excel/fupan_stocks.xlsx'
+
+
+class FupanConfig:
+    """复盘分析配置类"""
+
+    # 开关配置
+    ENABLE_API_FALLBACK = False  # 是否启用API兜底查询，默认关闭
+    FORCE_SINGLE_THREAD_WHEN_API = True  # 当启用API时强制单线程
+
+    # 文件路径
+    FUPAN_EXCEL_PATH = 'excel/fupan_stocks.xlsx'
+    ASTOCKS_DATA_PATH = 'data/astocks'
+
+    # 分析类型
+    DEFAULT_ANALYSIS_TYPES = ['涨停', '连板', '跌停', '炸板']
+
+    # 数据类型到sheet名称的映射
+    SHEET_MAPPING = {
+        '涨停': ['首板数据', '连板数据'],  # 涨停包含首板和连板
+        '连板': '连板数据',
+        '跌停': '跌停数据',
+        '炸板': '炸板数据'
+    }
+
+    # 各数据类型的列名定义
+    COLUMN_DEFINITIONS = {
+        '涨停': ['股票代码', '股票简称', '涨停开板次数', '最终涨停时间', '几天几板', '最新价', '首次涨停时间',
+                 '最新涨跌幅', '连续涨停天数', '涨停原因类别'],
+        '连板': ['股票代码', '股票简称', '涨停开板次数', '最终涨停时间', '几天几板', '最新价', '首次涨停时间',
+                 '最新涨跌幅', '连续涨停天数', '涨停原因类别'],
+        '跌停': ['股票代码', '股票简称', '跌停开板次数', '首次跌停时间', '跌停类型', '最新价', '最新涨跌幅',
+                 '连续跌停天数', '跌停原因类型'],
+        '炸板': ['股票代码', '股票简称', '涨停开板次数', '首次涨停时间', '最新价', '曾涨停', '最新涨跌幅',
+                 '涨停封板时长', '涨停时间明细']
+    }
+
+
+class FupanDataAccess:
+    """复盘数据访问类"""
+
+    def __init__(self, config=None):
+        self.config = config or FupanConfig()
+        self._excel_cache = {}  # Excel数据缓存
+
+    def get_fupan_data(self, date, analysis_type):
+        """
+        统一的复盘数据获取接口
+
+        Args:
+            date: 日期，格式为 'YYYYMMDD'
+            analysis_type: 分析类型
+
+        Returns:
+            DataFrame: 股票数据
+        """
+        try:
+            # 检查Excel文件是否存在
+            if not os.path.exists(self.config.FUPAN_EXCEL_PATH):
+                print(f"Excel文件不存在: {self.config.FUPAN_EXCEL_PATH}")
+                return pd.DataFrame()
+
+            # 格式化日期
+            excel_date = self._format_date_for_excel(date)
+            if not excel_date:
+                return pd.DataFrame()
+
+            # 获取对应的sheet名称
+            sheet_names = self.config.SHEET_MAPPING.get(analysis_type)
+            if not sheet_names:
+                print(f"未知的分析类型: {analysis_type}")
+                return pd.DataFrame()
+
+            # 如果是涨停数据，需要合并首板和连板数据
+            if analysis_type == '涨停':
+                all_data = []
+                for sheet_name in sheet_names:
+                    df_data = self._read_sheet_data(sheet_name, excel_date, date, analysis_type)
+                    if not df_data.empty:
+                        all_data.append(df_data)
+
+                if all_data:
+                    return pd.concat(all_data, ignore_index=True)
+                else:
+                    return pd.DataFrame()
+            else:
+                # 单个sheet的数据
+                return self._read_sheet_data(sheet_names, excel_date, date, analysis_type)
+
+        except Exception as e:
+            print(f"从Excel读取数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _format_date_for_excel(self, date_str):
+        """将YYYYMMDD格式的日期转换为Excel中的格式：YYYY年MM月DD日"""
+        try:
+            date_obj = datetime.strptime(date_str, '%Y%m%d')
+            return date_obj.strftime('%Y年%m月%d日')
+        except ValueError:
+            print(f"日期格式错误: {date_str}")
+            return None
+
+    def _read_sheet_data(self, sheet_name, excel_date, date, analysis_type):
+        """从指定sheet读取数据（带缓存）"""
+        try:
+            # 检查缓存
+            cache_key = f"{sheet_name}_{excel_date}"
+            if cache_key in self._excel_cache:
+                date_data = self._excel_cache[cache_key]
+            else:
+                # 读取Excel数据
+                df = pd.read_excel(self.config.FUPAN_EXCEL_PATH, sheet_name=sheet_name, index_col=0)
+
+                # 检查日期列是否存在
+                if excel_date not in df.columns:
+                    print(f"在sheet '{sheet_name}' 中未找到日期列: {excel_date}")
+                    return pd.DataFrame()
+
+                # 获取该日期的数据并缓存
+                date_data = df[excel_date].dropna()
+                self._excel_cache[cache_key] = date_data
+
+            if date_data.empty:
+                print(f"在sheet '{sheet_name}' 的 {excel_date} 列中没有数据")
+                return pd.DataFrame()
+
+            # 解析数据
+            columns = self.config.COLUMN_DEFINITIONS[analysis_type]
+            parsed_data = []
+
+            for cell_value in date_data:
+                row_data = self._parse_excel_cell_data(cell_value, columns, date)
+                if row_data:
+                    parsed_data.append(row_data)
+
+            if not parsed_data:
+                return pd.DataFrame()
+
+            # 创建DataFrame
+            result_df = pd.DataFrame(parsed_data)
+
+            # 数据后处理，确保格式与原接口一致
+            if '最新涨跌幅' in result_df.columns:
+                # 确保涨跌幅格式正确
+                result_df['最新涨跌幅'] = result_df['最新涨跌幅'].apply(
+                    lambda x: f"{float(x):.1f}%" if x and str(x).replace('.', '').replace('-', '').isdigit() else x
+                )
+
+            return result_df
+
+        except Exception as e:
+            print(f"读取sheet '{sheet_name}' 数据失败: {str(e)}")
+            return pd.DataFrame()
+
+    def _parse_excel_cell_data(self, cell_value, columns, date):
+        """解析Excel单元格中的分号分隔数据"""
+        if pd.isna(cell_value) or not str(cell_value).strip():
+            return None
+
+        parts = str(cell_value).split(';')
+        if len(parts) < len(columns):
+            # 如果数据不完整，补充空值
+            parts.extend([''] * (len(columns) - len(parts)))
+
+        # 创建数据字典，并添加日期相关的列名
+        data = {}
+        for i, col in enumerate(columns):
+            if i < len(parts):
+                value = parts[i].strip()
+                # 为包含日期的列名添加日期后缀
+                if col in ['涨停开板次数', '最终涨停时间', '几天几板', '首次涨停时间', '连续涨停天数', '涨停原因类别',
+                           '跌停开板次数', '首次跌停时间', '跌停类型', '连续跌停天数', '跌停原因类型',
+                           '曾涨停', '涨停封板时长', '涨停时间明细']:
+                    data[f'{col}[{date}]'] = value
+                else:
+                    data[col] = value
+            else:
+                data[col] = ''
+
+        return data
+
+
+# 向后兼容的全局变量和函数
+SHEET_MAPPING = FupanConfig.SHEET_MAPPING
+COLUMN_DEFINITIONS = FupanConfig.COLUMN_DEFINITIONS
+
+# 创建全局数据访问实例
+_global_data_access = FupanDataAccess()
+
+
+def get_local_fupan_data(date, analysis_type):
+    """
+    从本地Excel文件读取复盘数据（向后兼容函数）
+
+    Args:
+        date: 日期，格式为 'YYYYMMDD'
+        analysis_type: 分析类型，'涨停'、'连板'、'跌停'、'炸板'
+
+    Returns:
+        DataFrame: 股票数据，格式与原接口函数一致
+    """
+    return _global_data_access.get_fupan_data(date, analysis_type)
+
+
+# 向后兼容的工具函数
+def format_date_for_excel(date_str):
+    """将YYYYMMDD格式的日期转换为Excel中的格式：YYYY年MM月DD日"""
+    return _global_data_access._format_date_for_excel(date_str)
+
+
+def parse_excel_cell_data(cell_value, columns, date):
+    """解析Excel单元格中的分号分隔数据"""
+    return _global_data_access._parse_excel_cell_data(cell_value, columns, date)
 
 
 def init_tushare():
@@ -139,7 +355,7 @@ def get_stock_next_day_performance(pre_df, base_date):
                 logging.debug(f"开始处理股票: {stock_code} ({stock_name})")
 
                 # 尝试从本地文件读取数据
-                local_data = get_local_data(base_date, next_date, stock_code, stock_name)
+                local_data = get_local_data(base_date, next_date, stock_code)
 
                 # 如果本地数据获取成功，使用本地数据；否则通过API获取
                 stock_data = get_stock_data(base_date, next_date, stock_code, local_data)
@@ -198,21 +414,37 @@ def get_stock_data(base_date, next_date, stock_code, local_data):
             '开盘': 'open', '收盘': 'close', '最高': 'high', '最低': 'low'
         })
     else:
-        logging.info(f"从本地读取[{stock_code}]数据失败，从API获取")
-        # 处理股票代码格式
-        if stock_code.startswith('6'):
-            formatted_code = f"sh{stock_code}"
-        else:
-            formatted_code = f"sz{stock_code}"
+        # 检查是否启用API兜底
+        if not FupanConfig.ENABLE_API_FALLBACK:
+            logging.warning(f"本地数据不足且API兜底已关闭，跳过股票 {stock_code}")
+            return pd.DataFrame()
 
-        # 通过API获取数据
-        stock_data = ak.stock_zh_a_daily(symbol=formatted_code,
-                                         start_date=base_date,
-                                         end_date=next_date)
+        logging.info(f"从本地读取[{stock_code}]数据失败，从API获取")
+        try:
+            # 处理股票代码格式
+            if stock_code.startswith('6'):
+                formatted_code = f"sh{stock_code}"
+            else:
+                formatted_code = f"sz{stock_code}"
+
+            # 通过API获取数据
+            stock_data = ak.stock_zh_a_daily(symbol=formatted_code,
+                                             start_date=base_date,
+                                             end_date=next_date)
+
+            # 检查API返回的数据是否有效
+            if stock_data is None or stock_data.empty:
+                logging.warning(f"API也未能获取到股票 {stock_code} 的数据")
+                return pd.DataFrame()
+
+        except Exception as e:
+            logging.error(f"处理股票 {stock_code} 时出错: {str(e)}")
+            return pd.DataFrame()
+
     return stock_data
 
 
-def get_local_data(base_date, next_date, stock_code, stock_name, data_path='data/astocks'):
+def get_local_data(base_date, next_date, stock_code, data_path='data/astocks'):
     local_data = None
     try:
         # 读取股票数据
@@ -287,21 +519,30 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
         dict: 包含统计信息的字典
     """
     try:
-        # 根据分析类型获取不同的数据
-        if analysis_type == '涨停':
-            stock_df = get_zt_stocks(date)
-        elif analysis_type == '连板':
-            stock_df = get_lianban_stocks(date)
-        elif analysis_type == '开盘跌停':
-            stock_df = get_open_dieting_stocks(date)
-        elif analysis_type == '跌停':
-            stock_df = get_dieting_stocks(date)
-        elif analysis_type == '炸板':
-            stock_df = get_zaban_stocks(date)
-        # 移除对'曾涨停'的处理
+        # 优先从本地Excel获取数据
+        print(f"尝试从本地Excel获取 {date} 的{analysis_type}数据...")
+        stock_df = get_local_fupan_data(date, analysis_type)
+
+        # 如果本地数据为空，根据开关决定是否从接口获取
+        if stock_df is None or stock_df.empty:
+            if FupanConfig.ENABLE_API_FALLBACK:
+                print(f"本地数据为空，从接口获取 {date} 的{analysis_type}数据...")
+                if analysis_type == '涨停':
+                    stock_df = get_zt_stocks(date)
+                elif analysis_type == '连板':
+                    stock_df = get_lianban_stocks(date)
+                elif analysis_type == '跌停':
+                    stock_df = get_dieting_stocks(date)
+                elif analysis_type == '炸板':
+                    stock_df = get_zaban_stocks(date)
+                else:
+                    print(f"未知的分析类型: {analysis_type}")
+                    return None
+            else:
+                print(f"本地数据为空且API兜底已关闭，跳过 {date} 的{analysis_type}数据分析")
+                return None
         else:
-            print(f"未知的分析类型: {analysis_type}")
-            return None
+            print(f"成功从本地Excel获取到 {len(stock_df)} 条{analysis_type}数据")
 
         if stock_df is None or stock_df.empty:
             print(f"未获取到 {date} 的{analysis_type}股票数据")
@@ -312,44 +553,53 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
         if not performance:
             return None
 
-        # 统计数据
-        close_open_profit = [data['t+1收入开盘盈利'] for data in performance.values()]
-        close_close_profit = [data['t+1收入收盘盈利'] for data in performance.values()]
-        close_high_profit = [data['t+1收入高价盈利'] for data in performance.values()]
-        close_low_profit = [data['t+1收入低价盈利'] for data in performance.values()]
-        today_changes = [data['t+1实体涨跌幅'] for data in performance.values()]
-        open_open_profit = [data['t+1开入开盘盈利'] for data in performance.values()]
-        open_close_profit = [data['t+1开入收盘盈利'] for data in performance.values()]
-        high_open_profit = [data['t+1高入开盘盈利'] for data in performance.values()]
-        high_close_profit = [data['t+1高入收盘盈利'] for data in performance.values()]
+        # 统计数据（过滤掉nan值）
+        import math
 
-        # 计算统计指标
+        def filter_nan(values):
+            return [x for x in values if not (isinstance(x, float) and math.isnan(x))]
+
+        close_open_profit = filter_nan([data['t+1收入开盘盈利'] for data in performance.values()])
+        close_close_profit = filter_nan([data['t+1收入收盘盈利'] for data in performance.values()])
+        close_high_profit = filter_nan([data['t+1收入高价盈利'] for data in performance.values()])
+        close_low_profit = filter_nan([data['t+1收入低价盈利'] for data in performance.values()])
+        today_changes = filter_nan([data['t+1实体涨跌幅'] for data in performance.values()])
+        open_open_profit = filter_nan([data['t+1开入开盘盈利'] for data in performance.values()])
+        open_close_profit = filter_nan([data['t+1开入收盘盈利'] for data in performance.values()])
+        high_open_profit = filter_nan([data['t+1高入开盘盈利'] for data in performance.values()])
+        high_close_profit = filter_nan([data['t+1高入收盘盈利'] for data in performance.values()])
+
+        # 计算统计指标（安全计算，避免除零错误）
+        def safe_mean(values):
+            return round(sum(values) / len(values), 2) if values else 0
+
+        def safe_ratio(values):
+            return round(len([x for x in values if x > 0]) / len(values) * 100, 2) if values else 0
+
         stats = {
             '分析类型': analysis_type,
             '样本数量': len(performance),
-            '次日收入开盘': round(sum(close_open_profit) / len(close_open_profit), 2),
-            '次日收入收盘': round(sum(close_close_profit) / len(close_close_profit), 2),
-            '次日收入高价': round(sum(close_high_profit) / len(close_high_profit), 2),
-            '次日收入低价': round(sum(close_low_profit) / len(close_low_profit), 2),
-            '次日实体': round(sum(today_changes) / len(today_changes), 2),
-            '次日开入开盘': round(sum(open_open_profit) / len(open_open_profit), 2),
-            '次日开入收盘': round(sum(open_close_profit) / len(open_close_profit), 2),
-            '次日高入开盘': round(sum(high_open_profit) / len(high_open_profit), 2),
-            '次日高入收盘': round(sum(high_close_profit) / len(high_close_profit), 2),
-            '次日收入开盘涨比': round(len([x for x in close_open_profit if x > 0]) / len(close_open_profit) * 100, 2),
-            '次日收入收盘涨比': round(len([x for x in close_close_profit if x > 0]) / len(close_close_profit) * 100, 2),
-            '次日实体上涨比例': round(len([x for x in today_changes if x > 0]) / len(today_changes) * 100, 2),
-            '次日开入开盘涨比': round(len([x for x in open_open_profit if x > 0]) / len(open_open_profit) * 100, 2),
-            '次日开入收盘涨比': round(len([x for x in open_close_profit if x > 0]) / len(open_close_profit) * 100, 2),
-            '次日高入开盘涨比': round(len([x for x in high_open_profit if x > 0]) / len(high_open_profit) * 100, 2),
-            '次日高入收盘涨比': round(len([x for x in high_close_profit if x > 0]) / len(high_close_profit) * 100, 2),
+            '次日收入开盘': safe_mean(close_open_profit),
+            '次日收入收盘': safe_mean(close_close_profit),
+            '次日收入高价': safe_mean(close_high_profit),
+            '次日收入低价': safe_mean(close_low_profit),
+            '次日实体': safe_mean(today_changes),
+            '次日开入开盘': safe_mean(open_open_profit),
+            '次日开入收盘': safe_mean(open_close_profit),
+            '次日高入开盘': safe_mean(high_open_profit),
+            '次日高入收盘': safe_mean(high_close_profit),
+            '次日收入开盘涨比': safe_ratio(close_open_profit),
+            '次日收入收盘涨比': safe_ratio(close_close_profit),
+            '次日实体上涨比例': safe_ratio(today_changes),
+            '次日开入开盘涨比': safe_ratio(open_open_profit),
+            '次日开入收盘涨比': safe_ratio(open_close_profit),
+            '次日高入开盘涨比': safe_ratio(high_open_profit),
+            '次日高入收盘涨比': safe_ratio(high_close_profit),
             '详细数据': performance
         }
 
         return stats
     except Exception as e:
-        import traceback
-        error_info = traceback.format_exc()
         print(f"分析{analysis_type}股票表现时出错: {str(e)}")
         return None
 
@@ -378,10 +628,18 @@ def zt_analysis(start_date=None, end_date=None, max_workers=5):
     # 创建任务列表
     tasks = []
     for date in trading_days:
-        for analysis_type in default_analysis_type:
+        for analysis_type in FupanConfig.DEFAULT_ANALYSIS_TYPES:
             tasks.append((date, analysis_type))
 
-    # 使用线程池并行处理任务
+    # 根据API开关决定是否使用多线程
+    config = FupanConfig()
+    if config.ENABLE_API_FALLBACK and config.FORCE_SINGLE_THREAD_WHEN_API:
+        print("启用API兜底且强制单线程模式")
+        max_workers = 1
+    elif not config.ENABLE_API_FALLBACK:
+        print("API兜底已关闭，使用多线程处理本地数据")
+
+    # 使用线程池处理任务
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任务
         future_to_task = {
@@ -409,6 +667,8 @@ def zt_analysis(start_date=None, end_date=None, max_workers=5):
                     print(f"次日开入收盘涨比: {stats['次日开入收盘涨比']}%")
                     print(f"次日收入收盘涨比: {stats['次日收入收盘涨比']}%")
                     print(f"次日高入收盘涨比: {stats['次日高入收盘涨比']}%")
+                else:
+                    print(f"\n{date} {analysis_type}股票分析失败，跳过")
             except Exception as e:
                 print(f"处理 {date} 的 {analysis_type} 分析时出错: {str(e)}")
 
@@ -439,43 +699,64 @@ def merge_and_save_analysis(dapan_stats, zt_stats, excel_path='./excel/market_an
 
             # 添加涨停分析数据
             if date in zt_stats:
-                # 获取涨停数据
-                zt_df = get_zt_stocks(date)
+                # 获取涨停数据（优先从本地）
+                zt_df = get_local_fupan_data(date, '涨停')
+                if zt_df.empty and FupanConfig.ENABLE_API_FALLBACK:
+                    zt_df = get_zt_stocks(date)
                 zt_count = len(zt_df) if zt_df is not None else 0
                 record['涨停数'] = zt_count
 
-                # 获取跌停数据
-                dt_df = get_dieting_stocks(date)
+                # 获取跌停数据（优先从本地）
+                dt_df = get_local_fupan_data(date, '跌停')
+                if dt_df.empty and FupanConfig.ENABLE_API_FALLBACK:
+                    dt_df = get_dieting_stocks(date)
                 dt_count = len(dt_df) if dt_df is not None else 0
                 record['跌停数'] = dt_count
 
-                # 获取连板数据
-                lb_df = get_lianban_stocks(date)
+                # 获取连板数据（优先从本地）
+                lb_df = get_local_fupan_data(date, '连板')
+                if lb_df.empty and FupanConfig.ENABLE_API_FALLBACK:
+                    lb_df = get_lianban_stocks(date)
                 lb_count = len(lb_df) if lb_df is not None else 0
                 record['连板数'] = lb_count
 
-                # 获取炸板数据
-                zb_df = get_zaban_stocks(date)
+                # 获取炸板数据（优先从本地）
+                zb_df = get_local_fupan_data(date, '炸板')
+                if zb_df.empty and FupanConfig.ENABLE_API_FALLBACK:
+                    zb_df = get_zaban_stocks(date)
                 zb_count = len(zb_df) if zb_df is not None else 0
                 record['炸板数'] = zb_count
 
                 # 添加前一日分析结果
-                for analysis_type in default_analysis_type:
+                for analysis_type in FupanConfig.DEFAULT_ANALYSIS_TYPES:
                     if analysis_type in zt_stats[date]:
                         stats = zt_stats[date][analysis_type]
-                        stats_copy = stats.copy()
-                        stats_copy.pop('详细数据', None)
-                        stats_copy.pop('分析类型', None)
+                        # 检查stats是否为None
+                        if stats is not None:
+                            stats_copy = stats.copy()
+                            stats_copy.pop('详细数据', None)
+                            stats_copy.pop('分析类型', None)
 
-                        # 为每个指标添加分析类型前缀
-                        for key, value in stats_copy.items():
-                            record[f'{analysis_type}_{key}'] = value
+                            # 为每个指标添加分析类型前缀
+                            for key, value in stats_copy.items():
+                                record[f'{analysis_type}_{key}'] = value
 
             new_records.append(record)
 
-        # 创建新数据的DataFrame并合并
+        # 创建新数据的DataFrame
         new_df = pd.DataFrame(new_records)
-        final_df = pd.concat([existing_df, new_df], ignore_index=True) if not existing_df.empty else new_df
+
+        if not existing_df.empty:
+            # 删除现有数据中与新数据日期重复的行
+            new_dates = new_df['日期'].astype(str).tolist()
+            existing_df = existing_df[~existing_df['日期'].astype(str).isin(new_dates)]
+            # 合并数据
+            final_df = pd.concat([existing_df, new_df], ignore_index=True)
+            # 统一日期列的数据类型后排序
+            final_df['日期'] = final_df['日期'].astype(str)
+            final_df = final_df.sort_values('日期').reset_index(drop=True)
+        else:
+            final_df = new_df
 
         # 确保excel目录存在并保存
         os.makedirs(os.path.dirname(excel_path), exist_ok=True)
@@ -509,11 +790,37 @@ def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_a
 
         # 获取需要分析的交易日列表
         trading_days = get_trading_days(start_date, end_date)
-        new_dates = [date for date in trading_days if date not in existing_dates]
+
+        # 检查哪些日期需要更新（新日期或数据不完整的日期）
+        new_dates = []
+        incomplete_dates = []
+
+        for date in trading_days:
+            if date not in existing_dates:
+                new_dates.append(date)
+            else:
+                # 检查现有数据是否完整（涨停分析数据是否为空）
+                date_row = existing_df[existing_df['日期'].astype(str) == date]
+                if not date_row.empty:
+                    # 检查关键的涨停分析列是否为空
+                    key_cols = ['涨停_次日收入开盘', '涨停_次日收入收盘', '连板_次日收入开盘']
+                    is_incomplete = False
+                    for col in key_cols:
+                        if col in date_row.columns:
+                            if pd.isna(date_row[col].iloc[0]):
+                                is_incomplete = True
+                                break
+
+                    if is_incomplete:
+                        incomplete_dates.append(date)
+                        new_dates.append(date)
 
         if not new_dates:
-            print("所有日期的数据都已存在，无需更新")
+            print("所有日期的数据都已存在且完整，无需更新")
             return
+
+        if incomplete_dates:
+            print(f"发现数据不完整的日期: {incomplete_dates}")
 
         print(f"需要分析的日期: {new_dates}")
 
