@@ -2,6 +2,9 @@ import os
 import warnings
 from datetime import datetime
 
+import matplotlib
+# 设置matplotlib使用非交互式后端，避免多线程问题
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd

@@ -192,6 +192,10 @@ def execute_routine(steps, routine_name="自定义流程"):
     """
     import time
     import threading
+    import matplotlib
+
+    # 设置matplotlib使用非交互式后端，避免Tkinter线程问题
+    matplotlib.use('Agg')
 
     # 获取当前日期用于日志文件命名
     current_date = datetime.now().strftime('%Y%m%d')
@@ -277,7 +281,10 @@ def daily_routine():
         (get_stock_datas, "拉取A股交易数据"),
         (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
-        (generate_ladder_chart, "生成热门股天梯")
+        (generate_ladder_chart, "生成热门股天梯"),
+        (draw_ths_fupan, "绘制涨跌高度图"),
+        (fupan_statistics_to_excel, "生成统计数据"),
+        (fupan_statistics_excel_plot, "生成统计图表"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -398,7 +405,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250610'  # 开始日期
+    start_date = '20250620'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -406,14 +413,15 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250530'
+    start_date = '20250810'
     # end_date = '20250228'
     end_date = None
-    fupan_all_statistics(start_date, end_date, max_workers=4)
+    # 在daily_routine中强制使用单线程，避免多线程冲突
+    fupan_all_statistics(start_date, end_date, max_workers=1)
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250525'
+    start_date = '20250810'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -549,7 +557,7 @@ if __name__ == '__main__':
     # run_parameter_optimization("compare_config.yaml")
 
     # === 原有功能 ===
-    # daily_routine()
+    daily_routine()
     # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
@@ -557,7 +565,7 @@ if __name__ == '__main__':
     # generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
