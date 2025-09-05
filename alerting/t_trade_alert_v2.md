@@ -47,9 +47,9 @@
 - 输出：日志+蜂鸣，支持飞书推送
   - 日志模板：
     - 默认（DIAG=False）：
-      【T警告】[股票名 代码] BUY/SELL信号！ 价格变动：x% MACD变动：y% 现价：p [时间]
+      【T警告】[股票名 代码] BUY/SELL信号！ 价格变动：x% MACD变动：y% KDJ(K,D,J) 现价：p [时间]
     - 调试（DIAG=True）：
-      【T警告】[股票名 代码] BUY/SELL-背离 价格变动：x% MACD变动：y% 现价：p [时间] | path=…
+      【T警告】[股票名 代码] BUY/SELL-背离 价格变动：x% MACD变动：y% KDJ(K,D,J) 现价：p [时间] | path=…
       其中 path 含义：
       - path=immediate MACD@t1->@t2：背离与KDJ确认在同一根/容忍回溯内即时满足（无待确认）；
       - path=pending MACD@t1 KDJ@t2 lag=n：t1 为检测到 MACD 背离的候选时刻，t2 为 KDJ 补确认时刻；n 为 (t2−t1) 的分钟数，且 0 ≤ n ≤ ALIGN_TOLERANCE。
@@ -122,16 +122,23 @@
 - 弱提示逻辑（简要）
   - SELL-减速：K、D 均处于高位区(K>D>KD_HIGH)，且 MACD 柱连续走弱或 DIF 接近/下穿 DEA；当根为局部峰但未满足背离阈值时提示
   - BUY-减速：K、D 均处于低位区(K<D<KD_LOW)，且 MACD 柱连续走强或 DIF 接近/上穿 DEA；当根为局部谷但未满足背离阈值时提示
-  - 去重：WEAK_COOLDOWN_BARS（默认10根）+ WEAK_MIN_PRICE_CHANGE（默认0.5%）
-  - 日志：
-    - 默认（DIAG=False）：【弱提示】[股票名 代码] SELL/BUY-减速 现价：p [时间]（若开启仓位建议，会追加“ 建议仓位:x%”）
-    - 调试（DIAG=True）：同上并附加评分细节（pos=score; comps=…）
-- 仓位建议 Position Score（在强信号与弱提示触发时计算）
+  - 去重：为防止信号刷屏，增加动态冷却：在 N 根K线（WEAK_COOLDOWN_BARS，建议值5）的冷却期内，若价格重新触及短期均线（如反穿EMA5），则允许再次提示，否则将屏蔽。
+  - 日志：【弱提示】[股票名 代码] SELL/BUY-减速 现价：p [时间]
+- 仓位建议 Position Score（仅在强信号触发时计算）
+  - `clip` 函数说明：这是一个来自Numpy库的函数，`clip(值, 最小值, 最大值)` 的作用是限制一个值在指定的范围内。如果值小于最小值，则返回最小值；如果值大于最大值，则返回最大值。在我们的评分计算中，它确保了最终的评分和因子值不会超出预设的边界（例如 -1 到 1）。
+  - 评分释义与仓位映射
+    - 最终信号会附加一个基于评分的仓位建议，该评分 `score` 的范围是 -1 到 1，综合评估了信号的“质量”，分值越高代表信号越强、环境越有利。
+    - 评分会按 `score≤0.2 → 10%`、`0.2<score≤0.5 → 60%`、`score>0.5 → 100%` 的规则映射为一个百分比，其含义需要根据信号方向来解读：
+    - **BUY 信号**: 百分比代表 **建议投入的仓位**。
+      - *示例*: `【T警告】... BUY信号 ... 建议仓位:60% (pos=0.4)`
+      - *解读*: 这是一个中等强度的买入信号，建议投入计划仓位的60%。
+    - **SELL 信号**: 百分比代表 **建议卖出的现有仓位比例**。
+      - *示例*: `【T警告】... SELL信号 ... 建议仓位:100% (pos=0.7)`
+      - *解读*: 这是一个非常强的卖出信号，建议卖出当前所持仓位的100%（即清仓）。
   - 组成（默认权重，可在代码内修改）：
     - 趋势（EMA5/EMA20）：trend=+1(多头阶梯 close>EMA5>EMA20)，-1(空头阶梯)，否则0；W_TREND=0.4
     - 布林带位置（20,2）：bb_pos=(close−mid)/(upper−mid)，BUY取 −bb_pos，SELL取 +bb_pos；W_BB=0.3
     - 量能（可选）：若有 vol，则 vol_ratio=vol/mean(vol,30)，vol_score≈clip((ratio−1)/(1.5−1),0,1)，BUY取 +，SELL取 +（趋势跟随口径）；W_VOL=0.2
-    - 波动抑制（ATR14）：atr_pct=ATR/close，atr_factor=clip(1−atr_pct/ATR_REF,0,1)，ATR_REF=2%
   - 汇总：score = clip((W_TREND*trend + W_BB*bb + W_VOL*vol) * atr_factor, −1, 1)
   - 映射：score≤0.2→低仓(10~30%)；0.2~0.5→中仓(30~60%)；>0.5→高仓(60~100%)
 

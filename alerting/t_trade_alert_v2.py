@@ -58,8 +58,8 @@ class TMonitorConfigV2:
     REPEAT_PRICE_CHANGE = 0.05
 
     # 可选增强开关
-    ENABLE_WEAK_HINTS = False
-    ENABLE_POSITION_SCORE = False
+    ENABLE_WEAK_HINTS = True
+    ENABLE_POSITION_SCORE = True
     # 弱提示参数
     WEAK_COOLDOWN_BARS = 10
     WEAK_MIN_PRICE_CHANGE = 0.005
@@ -276,6 +276,7 @@ class TMonitorV2:
                     # 超窗过期，丢弃
                     continue
                 if confirm_fn(df, i):
+                    k, d, j = df['k'].iloc[i], df['d'].iloc[i], df['j'].iloc[i]
                     if side == 'SELL':
                         if not is_duplicated(node, self.triggered_sell_signals):
                             lastp = self.last_signal_price.get('SELL')
@@ -283,7 +284,7 @@ class TMonitorV2:
                                 extra = None
                                 if TMonitorConfigV2.DIAG:
                                     extra = f"path=pending MACD@{node['time']} KDJ@{ts_confirm} lag={bar_diff}"
-                                self._trigger_signal('SELL', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, extra)
+                                self._trigger_signal('SELL', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, k, d, j, df, i, extra)
                                 self.triggered_sell_signals.append(node)
                     else:
                         if not is_duplicated(node, self.triggered_buy_signals):
@@ -292,7 +293,7 @@ class TMonitorV2:
                                 extra = None
                                 if TMonitorConfigV2.DIAG:
                                     extra = f"path=pending MACD@{node['time']} KDJ@{ts_confirm} lag={bar_diff}"
-                                self._trigger_signal('BUY', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, extra)
+                                self._trigger_signal('BUY', it['price_diff'], it['macd_diff'], node['price'], ts_confirm, k, d, j, df, i, extra)
                                 self.triggered_buy_signals.append(node)
                 else:
                     keep.append(it)
@@ -301,13 +302,20 @@ class TMonitorV2:
         self.pending_sell = _consume(self.pending_sell, 'SELL', self._confirm_top_by_kdj)
         self.pending_buy = _consume(self.pending_buy, 'BUY', self._confirm_bottom_by_kdj)
 
-    def _trigger_signal(self, side, price_diff, macd_diff, price, ts, extra_info: str | None = None):
+    def _trigger_signal(self, side, price_diff, macd_diff, price, ts, k, d, j, df, i, extra_info: str | None = None):
         # 实时监控模式下，避免重复触发相同的信号
         if not self.is_backtest:
             signal_key = f"{side}_{ts}_{price:.2f}"
             if signal_key in self._processed_signals:
                 return  # 已处理过，跳过
             self._processed_signals.add(signal_key)
+
+        # 仓位建议（仅强信号）
+        pos_text = ''
+        if TMonitorConfigV2.ENABLE_POSITION_SCORE:
+            score = self._calc_position_score(df, i, side)
+            pct = 10 if score <= 0.2 else (60 if score <= 0.5 else 100)
+            pos_text = f" 建议仓位:{pct}% (pos={score:.2f})"
 
         # 判断是否为历史信号（用于标识）
         from datetime import datetime
@@ -324,12 +332,13 @@ class TMonitorV2:
         # 标准模板（与 v1 对齐）：仅在非 DIAG 或无 extra_info 时使用
         if not TMonitorConfigV2.DIAG or not extra_info:
             prefix = "【历史信号】" if is_historical else "【T警告】"
-            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}]"
+            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}信号！ 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} KDJ({k:.1f},{d:.1f},{j:.1f}) 现价：{price:.2f} [{ts}]"
         else:
             # 诊断模板（包含路径信息）
             prefix = "【历史信号】" if is_historical else "【T警告】"
-            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} 现价：{price:.2f} [{ts}] | {extra_info}"
+            msg = f"{prefix}[{self.stock_name} {self.symbol}] {side}-背离 价格变动：{price_diff:.2%} MACD变动：{macd_diff:.2%} KDJ({k:.1f},{d:.1f},{j:.1f}) 现价：{price:.2f} [{ts}] | {extra_info}"
 
+        msg += pos_text
         if self.is_backtest:
             tqdm.write(msg)
         else:
@@ -389,9 +398,19 @@ class TMonitorV2:
         last_i = cache[side]['last_i']
         last_p = cache[side]['last_p']
         price = float(df['close'].iloc[i])
+
+        # 新版动态去重/冷却
         if i - last_i < TMonitorConfigV2.WEAK_COOLDOWN_BARS:
-            if last_p is not None and abs(price - last_p) / last_p < TMonitorConfigV2.WEAK_MIN_PRICE_CHANGE:
+            ema5 = df['ema5'].iloc[i]
+            if side == 'BUY' and price > ema5:
+                return  # 冷却期内，如果价格已经反弹到均线之上，则不再提示新的底部信号
+            if side == 'SELL' and price < ema5:
+                return  # 冷却期内，如果价格已经回落到均线之下，则不再提示新的顶部信号
+
+        if last_p is not None and abs(price - last_p) / last_p < TMonitorConfigV2.WEAK_MIN_PRICE_CHANGE:
+            if i - last_i < TMonitorConfigV2.WEAK_COOLDOWN_BARS * 2:
                 return
+
         # 条件：高位/低位减速但未达背离
         k, d = df['k'].iloc[i], df['d'].iloc[i]
         macd_now = df['macd'].iloc[i]
@@ -404,25 +423,18 @@ class TMonitorV2:
         if side == 'SELL':
             if k > TMonitorConfigV2.KD_HIGH and d > TMonitorConfigV2.KD_HIGH and is_peak:
                 if (macd_now < macd_prev) or (dif_now <= dea_now):
-                    hinted = True
+                    if df['close'].iloc[i] > df['ema5'].iloc[i]:
+                        hinted = True
         else:
             if k < TMonitorConfigV2.KD_LOW and d < TMonitorConfigV2.KD_LOW and is_trough:
                 if (macd_now > macd_prev) or (dif_now >= dea_now):
-                    hinted = True
+                    if df['close'].iloc[i] < df['ema5'].iloc[i]:
+                        hinted = True
         if not hinted:
             return
-        # 计算仓位建议（可选）
-        pos_text = ''
-        if TMonitorConfigV2.ENABLE_POSITION_SCORE:
-            score = self._calc_position_score(df, i, side)
-            pct = 10 if score <= 0.2 else (60 if score <= 0.5 else 100)
-            pos_text = f" 建议仓位:{pct}% (pos={score:.2f})"
         # 输出弱提示日志
         ts = df['datetime'].iloc[i]
-        if TMonitorConfigV2.DIAG:
-            logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]" + pos_text)
-        else:
-            logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]" + pos_text)
+        logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]")
         # 更新缓存
         cache[side]['last_i'] = i
         cache[side]['last_p'] = price
@@ -444,6 +456,10 @@ class TMonitorV2:
         for i in range(window, len(df)):
             # 先处理待确认队列中过期项
             self._flush_pending(df, i)
+
+            # 弱提示（新增）
+            self._maybe_weak_hint(df, i, 'SELL')
+            self._maybe_weak_hint(df, i, 'BUY')
 
             # 诊断钩子：关注时间点输出关键指标（仅输出一次）
             if TMonitorConfigV2.DIAG:
@@ -485,7 +501,8 @@ class TMonitorV2:
                                     extra = None
                                     if TMonitorConfigV2.DIAG:
                                         extra = f"path=immediate MACD@{p.get('time','?')}->@{new_peak['time']}"
-                                    self._trigger_signal('SELL', price_diff, macd_diff, new_peak['price'], new_peak['time'], extra)
+                                    k, d, j = df['k'].iloc[i], df['d'].iloc[i], df['j'].iloc[i]
+                                    self._trigger_signal('SELL', price_diff, macd_diff, new_peak['price'], new_peak['time'], k, d, j, df, i, extra)
                                     self.triggered_sell_signals.append(new_peak)
                         else:
                             # 2) 先记录待确认，等待后续 KDJ 在容忍窗口内补确认
@@ -513,7 +530,8 @@ class TMonitorV2:
                                     extra = None
                                     if TMonitorConfigV2.DIAG:
                                         extra = f"path=immediate MACD@{t.get('time','?')}->@{new_trough['time']}"
-                                    self._trigger_signal('BUY', price_diff, macd_diff, new_trough['price'], new_trough['time'], extra)
+                                    k, d, j = df['k'].iloc[i], df['d'].iloc[i], df['j'].iloc[i]
+                                    self._trigger_signal('BUY', price_diff, macd_diff, new_trough['price'], new_trough['time'], k, d, j, df, i, extra)
                                     self.triggered_buy_signals.append(new_trough)
                         else:
                             self._enqueue_pending('BUY', new_trough, i, price_diff, macd_diff)
@@ -523,6 +541,7 @@ class TMonitorV2:
         df = df.copy()
         df['dif'], df['dea'], df['macd'] = self._calc_macd(df)
         df['k'], df['d'], df['j'] = self._calc_kdj(df)
+        df['ema5'] = df['close'].ewm(span=5, adjust=False).mean()
         return df
 
     def _run_live(self):
@@ -627,7 +646,7 @@ if __name__ == "__main__":
     IS_BACKTEST = False
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['300394', '300308', '300502']
+    symbols = ['600869', '603948', '688096']
 
     manager = MonitorManagerV2(symbols,
                                is_backtest=IS_BACKTEST,
