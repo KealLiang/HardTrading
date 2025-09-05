@@ -397,7 +397,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250630"
+    start_date = "20250830"
     # end_date = '20250512'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -557,14 +557,14 @@ if __name__ == '__main__':
     # run_parameter_optimization("compare_config.yaml")
 
     # === 原有功能 ===
-    daily_routine()
+    # daily_routine()
     # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
     # get_stock_datas()
-    # fetch_ths_fupan()
+    fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()

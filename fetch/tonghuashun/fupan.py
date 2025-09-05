@@ -1,12 +1,12 @@
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, time
 
 import pandas as pd
 import pywencai
 
 from config.holder import config
-from utils.date_util import get_trading_days
+from utils.date_util import get_trading_days, get_prev_trading_day, is_trading_day
 
 # fupan_file = "./excel/fupan_stocks.xlsx" # Removed global variable
 # 涨停缓存
@@ -300,6 +300,91 @@ def get_large_decrease_stocks(date, board_suffix=""):
     return decrease_df
 
 
+def get_silently_increase_stocks():
+    """
+    获取"默默上涨"个股数据：30天涨幅大于等于55%；30天无涨停；非ST；非近新股
+    注意：此查询不能查历史数据，只能查当前数据
+
+    :return: 默默上涨个股的DataFrame。
+    """
+    # 查询语句：30天涨幅大于等于55%；30天无涨停；非ST；非近新股
+    param = "30天涨幅大于等于55%，30天无涨停，非ST，非近新股"
+    df = query_wencai(param)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # 基础列
+    base_columns = ['股票代码', '股票简称', '最新价', '最新涨跌幅']
+
+    # 动态查找其他列
+    zhangfu_cols = [col for col in df.columns if '区间涨跌幅:前复权' in col]
+    chengjiao_cols = [col for col in df.columns if '区间成交额' in col]
+    zhenfu_cols = [col for col in df.columns if '区间振幅' in col]
+    shangshi_cols = [col for col in df.columns if '上市交易日天数' in col]
+
+    # 组合所有需要的列
+    all_columns = base_columns + zhangfu_cols + chengjiao_cols + zhenfu_cols + shangshi_cols
+    selected_columns = [col for col in all_columns if col in df.columns]
+
+    if not selected_columns:
+        return pd.DataFrame()
+
+    result_df = df[selected_columns].copy()
+
+    # 按区间涨跌幅降序排列
+    if zhangfu_cols:
+        sort_col = zhangfu_cols[0]
+        result_df = result_df.sort_values(
+            by=sort_col, ascending=False, key=lambda x: pd.to_numeric(x, errors='coerce')
+        ).reset_index(drop=True)
+
+        # 格式化区间涨跌幅
+        result_df[sort_col] = result_df[sort_col].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    # 格式化最新涨跌幅
+    if '最新涨跌幅' in result_df.columns:
+        result_df['最新涨跌幅'] = result_df['最新涨跌幅'].apply(
+            lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+        )
+
+    # 格式化区间成交额（转换为亿元）
+    for col in chengjiao_cols:
+        if col in result_df.columns:
+            result_df[col] = result_df[col].apply(
+                lambda x: f"{float(x) / 100000000:.2f}亿" if pd.notna(x) and x != 0 else ""
+            )
+
+    # 格式化区间振幅
+    for col in zhenfu_cols:
+        if col in result_df.columns:
+            result_df[col] = result_df[col].apply(
+                lambda x: f"{float(x):.1f}%" if pd.notna(x) else ""
+            )
+
+    return result_df
+
+
+def get_current_trading_date():
+    """
+    获取当前应该使用的交易日期
+    如果当前时间是0点~9点30，或当前是非交易日，则使用前一个交易日日期
+
+    :return: 交易日期，格式为'YYYYMMDD'
+    """
+    now = datetime.now()
+    current_time = now.time()
+    current_date_str = now.strftime('%Y%m%d')
+
+    # 如果当前时间在0点到9点30分之间，或当前不是交易日，使用前一个交易日
+    if current_time <= time(9, 30) or not is_trading_day(current_date_str):
+        return get_prev_trading_day(current_date_str)
+    else:
+        # 否则使用当前日期
+        return current_date_str
+
+
 def save_to_excel(dataframes, dates, fupan_type, target_excel_file):
     """
     将多个日期的DataFrame保存到一个Excel文件中，日期作为列名。
@@ -378,8 +463,34 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         '关注度榜': get_top_attention_stocks,
         '非主关注度榜': get_top_attention_stocks,  # 添加对非主关注度榜的支持
         '大涨数据': get_large_increase_stocks,
-        '大跌数据': get_large_decrease_stocks
+        '大跌数据': get_large_decrease_stocks,
+        '默默上涨': get_silently_increase_stocks
     }
+    # 特殊处理"默默上涨"类型，因为它不能查历史数据
+    if fupan_type == '默默上涨':
+        # 获取当前应该使用的交易日期
+        current_trade_date = get_current_trading_date()
+        date_formatted = datetime.strptime(current_trade_date, '%Y%m%d').strftime('%Y年%m月%d日')
+
+        # 检查数据是否已存在
+        if sheet_exists(target_excel_file, fupan_type):
+            existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
+            if date_formatted in existing_data.columns:
+                print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过获取。")
+                return
+
+        print(f"正在获取 {current_trade_date} 的 {fupan_type} 数据...")
+        # 调用默默上涨函数，不需要任何参数
+        stock_data_df = get_silently_increase_stocks()
+
+        # 保存数据
+        if not stock_data_df.empty:
+            dataframes = {current_trade_date: stock_data_df}
+            save_to_excel(dataframes, [current_trade_date], fupan_type, target_excel_file)
+        else:
+            print(f"未获取到 {fupan_type} 数据")
+        return
+
     # 获取交易日列表
     trading_days = get_trading_days(start_date, end_date)
     print(f"交易日列表：{trading_days} for {board_suffix}")
@@ -424,7 +535,17 @@ def all_fupan(start_date=None, end_date=None, types='all'):
         board_suffix = config_item["suffix"]
         target_excel_file = config_item["file"]
         print(f"\nProcessing for: {board_suffix}, output to: {target_excel_file}")
-        for fupan_type in ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜', '大涨数据', '大跌数据']:
+
+        # 基础复盘类型
+        base_fupan_types = ['连板数据', '跌停数据', '炸板数据', '首板数据', '反包数据', '关注度榜', '大涨数据',
+                            '大跌数据']
+
+        # 默默上涨只在主板配置中运行
+        fupan_types = base_fupan_types.copy()
+        if board_suffix == "":  # 主板配置
+            fupan_types.append('默默上涨')
+
+        for fupan_type in fupan_types:
             print(f"--- Starting fupan type: {fupan_type} ---")
             daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_file)
 

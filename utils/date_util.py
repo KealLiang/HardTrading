@@ -212,6 +212,29 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     return prev_days[-(n + 1)].strftime('%Y-%m-%d')
 
 
+def is_trading_day(date: str) -> bool:
+    """
+    判断指定日期是否为交易日
+    Args:
+        date: 日期字符串，格式为 'YYYYMMDD'
+    Returns:
+        bool: 如果是交易日返回True，否则返回False
+    """
+    try:
+        # 将输入日期转换为datetime对象
+        date_dt = datetime.strptime(date, '%Y%m%d')
+
+        # 检查输入日期是否为交易日
+        check_days = SSE_CALENDAR.valid_days(start_date=date_dt, end_date=date_dt)
+        check_days = remove_holidays(check_days)
+
+        return len(check_days) > 0
+
+    except Exception as e:
+        logging.error(f"判断是否为交易日时出错: {str(e)}")
+        return False
+
+
 def get_current_or_prev_trading_day(date: str) -> str:
     """
     获取指定日期，如果是交易日则直接返回，否则返回前一个交易日
@@ -221,18 +244,8 @@ def get_current_or_prev_trading_day(date: str) -> str:
         str: 交易日，格式为 'YYYYMMDD'，如果没有找到则返回None
     """
     try:
-        # 将输入日期转换为datetime对象
-        date_dt = datetime.strptime(date, '%Y%m%d')
-
-        # 获取A股市场日历
-        sse = mcal.get_calendar('SSE')
-
-        # 检查输入日期是否为交易日
-        check_days = sse.valid_days(start_date=date_dt, end_date=date_dt)
-        check_days = remove_holidays(check_days)
-
         # 如果是交易日，直接返回
-        if len(check_days) > 0:
+        if is_trading_day(date):
             return date
 
         # 如果不是交易日，则获取前一个交易日
