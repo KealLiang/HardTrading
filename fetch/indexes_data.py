@@ -51,6 +51,8 @@ def fetch_indexes_data(save_dir):
         "sh000001": os.path.join(save_dir, "sh000001_上证指数.csv"),
         "sz399001": os.path.join(save_dir, "sz399001_深证成指.csv"),
         "sz399006": os.path.join(save_dir, "sz399006_创业板指.csv"),
+        "sh000688": os.path.join(save_dir, "sh000688_科创50.csv"),
+        "bj899050": os.path.join(save_dir, "bj899050_北证50.csv"),
         "sh000905": os.path.join(save_dir, "sh000905_中证500.csv"),
         "sz399405": os.path.join(save_dir, "sz399405_大盘高贝.csv"),
         "sz399409": os.path.join(save_dir, "sz399409_小盘高贝.csv")
