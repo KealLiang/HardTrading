@@ -959,7 +959,7 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
         market = stock_data['market']
         board_data = stock_data['board_data']
 
-        print(f"\n分析股票: {stock_code}_{stock_name} (市场: {market})")
+        print(f"分析股票: {stock_code}_{stock_name} (市场: {market})")
 
         # 按日期排序的板块数据
         sorted_dates = sorted(board_data.keys())
@@ -2050,7 +2050,7 @@ def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
     return False
 
 
-def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start):
+def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column=True):
     """
     设置Excel表头
 
@@ -2060,6 +2060,7 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
         show_period_change: 是否显示周期涨跌幅
         period_days: 周期天数
         date_column_start: 日期列开始位置
+        show_warning_column: 是否显示异动预警列
 
     Returns:
         dict: 日期到列索引的映射
@@ -2092,6 +2093,15 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
         date_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
         date_cell.border = BORDER_STYLE
         date_cell.font = Font(bold=True)
+
+    # 添加异动预警列（在最后一个日期列之后）
+    if show_warning_column and formatted_trading_days:
+        warning_col = len(formatted_trading_days) + date_column_start
+        warning_header = "异动预警"
+        warning_cell = format_header_cell(ws, 1, warning_col, warning_header, font_size=10)
+        warning_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        # 设置预警列的背景色为浅黄色
+        warning_cell.fill = PatternFill(start_color="FFFACD", fill_type="solid")
 
     return date_columns
 
@@ -2431,7 +2441,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 设置Excel表头和日期列
     period_column = 4
     date_column_start = 4 if not show_period_change else 5
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
+    show_warning_column = True  # 默认显示异动预警列
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -2443,10 +2454,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     fill_data_rows(ws, result_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                    stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                    period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df)
+                   max_tracking_days_before, zaban_df, show_warning_column)
 
     # 调整列宽
-    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
@@ -2683,7 +2694,7 @@ def count_stock_entries(result_df):
 def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                    formatted_trading_days, date_column_start, show_period_change, period_column,
                    period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df):
+                   max_tracking_days_before, zaban_df, show_warning_column=True):
     """
     填充数据行
 
@@ -2704,12 +2715,24 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
+        show_warning_column: 是否显示异动预警列
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
 
     # 获取结束日期用于均线斜率计算
     end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
+
+    # 初始化异动检测器（如果需要显示预警列）
+    abnormal_detector = None
+    if show_warning_column:
+        try:
+            from analysis.abnormal_movement_detector import AbnormalMovementDetector
+            abnormal_detector = AbnormalMovementDetector()
+            print("异动检测器初始化成功")
+        except Exception as e:
+            print(f"异动检测器初始化失败: {e}")
+            abnormal_detector = None
 
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
@@ -2755,6 +2778,70 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
                         max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
+
+        # 填充异动预警列
+        if show_warning_column and abnormal_detector and formatted_trading_days:
+            warning_col = len(formatted_trading_days) + date_column_start
+            warning_message = ""
+
+            try:
+                # 使用最后一个交易日作为检查日期
+                check_date = date_mapping.get(formatted_trading_days[-1])
+                if check_date:
+                    # 准备周期数据用于性能优化
+                    period_data = None
+                    try:
+                        from analysis.ladder_chart import calculate_stock_period_change
+                        from utils.date_util import get_n_trading_days_before
+
+                        end_date_str = check_date.strftime('%Y%m%d')
+
+                        # 计算5日、10日、30日涨幅
+                        prev_5d = get_n_trading_days_before(end_date_str, 5).replace('-', '')
+                        prev_10d = get_n_trading_days_before(end_date_str, 10).replace('-', '')
+                        prev_30d = get_n_trading_days_before(end_date_str, 30).replace('-', '')
+
+                        change_5d = calculate_stock_period_change(stock_code, prev_5d, end_date_str, stock_name)
+                        change_10d = calculate_stock_period_change(stock_code, prev_10d, end_date_str, stock_name)
+                        change_30d = calculate_stock_period_change(stock_code, prev_30d, end_date_str, stock_name)
+
+                        if change_5d is not None and change_10d is not None and change_30d is not None:
+                            period_data = {
+                                '5d': change_5d / 100.0,  # 转换为小数
+                                '10d': change_10d / 100.0,
+                                '30d': change_30d / 100.0
+                            }
+                    except Exception:
+                        period_data = None
+
+                    warning_message = abnormal_detector.get_warning_message(pure_stock_code, check_date, period_data)
+            except Exception as e:
+                print(f"获取股票{pure_stock_code}预警信息时出错: {e}")
+                warning_message = ""
+
+            # 设置预警单元格
+            warning_cell = ws.cell(row=row_idx, column=warning_col, value=warning_message if warning_message else "")
+            warning_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+            warning_cell.border = BORDER_STYLE
+            warning_cell.font = Font(size=9)
+
+            # 设置固定行高（与默认行高一致）
+            ws.row_dimensions[row_idx].height = 14
+
+            # 根据预警类型设置背景色（使用浅色方案）
+            if warning_message:
+                if "已触发严重异常波动" in warning_message:
+                    warning_cell.fill = PatternFill(start_color="FFCCCB", fill_type="solid")  # 浅红色
+                    warning_cell.font = Font(color="8B0000", size=9, bold=True)  # 深红色字体
+                elif "已触发异常波动" in warning_message:
+                    warning_cell.fill = PatternFill(start_color="FFE4B5", fill_type="solid")  # 浅橙色
+                    warning_cell.font = Font(color="FF4500", size=9, bold=True)  # 橙红色字体
+                elif "将触发严重异动" in warning_message:
+                    warning_cell.fill = PatternFill(start_color="FFB6C1", fill_type="solid")  # 浅粉红色
+                    warning_cell.font = Font(color="8B008B", size=9)  # 深紫色字体
+                elif "将触发异常波动" in warning_message:
+                    # 异动预警和正常状态都不设置背景色
+                    pass
 
 
 def extract_pure_stock_code(stock_code):
@@ -2848,7 +2935,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
                                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
 
 
-def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change):
+def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column=True):
     """
     调整列宽
 
@@ -2857,6 +2944,7 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
         formatted_trading_days: 格式化的交易日列表
         date_column_start: 日期列开始位置
         show_period_change: 是否显示周期涨跌幅
+        show_warning_column: 是否显示异动预警列
     """
     # 调整列宽
     ws.column_dimensions['A'].width = 8  # 股票代码列宽度设置窄一些
@@ -2869,6 +2957,12 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
     for i in range(len(formatted_trading_days)):
         col_letter = get_column_letter(i + date_column_start)
         ws.column_dimensions[col_letter].width = 12
+
+    # 调整异动预警列宽度
+    if show_warning_column and formatted_trading_days:
+        warning_col = len(formatted_trading_days) + date_column_start
+        warning_col_letter = get_column_letter(warning_col)
+        ws.column_dimensions[warning_col_letter].width = 20  # 预警列需要更宽一些
 
     # 调整行高，确保日期和星期能完整显示
     ws.row_dimensions[1].height = 30
@@ -2935,7 +3029,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     )
 
     # 设置Excel表头和日期列
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
+    show_warning_column = True  # 默认显示异动预警列
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -2945,10 +3040,10 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
                                        stock_data['reason_colors'], stock_entry_count, formatted_trading_days,
                                        date_column_start, show_period_change, period_column, period_days,
                                        period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df)
+                                       max_tracking_days_before, zaban_df, show_warning_column)
 
     # 调整列宽
-    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
@@ -2982,17 +3077,29 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
                                        stock_entry_count, formatted_trading_days, date_column_start,
                                        show_period_change, period_column, period_days, period_days_long,
                                        stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                       zaban_df):
+                                       zaban_df, show_warning_column=True):
     """
     填充数据行，按概念分组并在组间添加分隔行
 
     Args:
         ws: Excel工作表
         result_df: 按概念分组排序的显著连板股票DataFrame
+        show_warning_column: 是否显示异动预警列
         其他参数与fill_data_rows相同
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
+
+    # 初始化异动检测器（如果需要显示预警列）
+    abnormal_detector = None
+    if show_warning_column:
+        try:
+            from analysis.abnormal_movement_detector import AbnormalMovementDetector
+            abnormal_detector = AbnormalMovementDetector()
+            print("按概念分组工作表：异动检测器初始化成功")
+        except Exception as e:
+            print(f"按概念分组工作表：异动检测器初始化失败: {e}")
+            abnormal_detector = None
 
     current_row = 4  # 从第4行开始（第1行是日期标题，第2-3行是大盘指标）
     current_concept_group = None
@@ -3041,7 +3148,8 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         fill_single_stock_row(ws, current_row, stock, shouban_df, stock_reason_group, reason_colors,
                               stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                               period_column, period_days, period_days_long, stock_details, date_mapping,
-                              max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers)
+                              max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers,
+                              show_warning_column, abnormal_detector)
 
         current_row += 1
 
@@ -3049,7 +3157,8 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
 def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                           formatted_trading_days, date_column_start, show_period_change, period_column,
                           period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                          max_tracking_days_before, zaban_df, new_high_markers=None):
+                          max_tracking_days_before, zaban_df, new_high_markers=None,
+                          show_warning_column=True, abnormal_detector=None):
     """
     填充单个股票的数据行
 
@@ -3058,6 +3167,8 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
         row_idx: 行索引
         stock: 股票数据
         new_high_markers: 新高标记映射
+        show_warning_column: 是否显示异动预警列
+        abnormal_detector: 异动检测器实例
         其他参数与fill_data_rows相同
     """
     # 提取基本股票信息
@@ -3104,6 +3215,70 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
                     max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
+
+    # 填充异动预警列
+    if show_warning_column and abnormal_detector and formatted_trading_days:
+        warning_col = len(formatted_trading_days) + date_column_start
+        warning_message = ""
+
+        try:
+            # 使用最后一个交易日作为检查日期
+            check_date = date_mapping.get(formatted_trading_days[-1])
+            if check_date:
+                # 准备周期数据用于性能优化
+                period_data = None
+                try:
+                    from analysis.ladder_chart import calculate_stock_period_change
+                    from utils.date_util import get_n_trading_days_before
+
+                    end_date_str = check_date.strftime('%Y%m%d')
+
+                    # 计算5日、10日、30日涨幅
+                    prev_5d = get_n_trading_days_before(end_date_str, 5).replace('-', '')
+                    prev_10d = get_n_trading_days_before(end_date_str, 10).replace('-', '')
+                    prev_30d = get_n_trading_days_before(end_date_str, 30).replace('-', '')
+
+                    change_5d = calculate_stock_period_change(stock_code, prev_5d, end_date_str, stock_name)
+                    change_10d = calculate_stock_period_change(stock_code, prev_10d, end_date_str, stock_name)
+                    change_30d = calculate_stock_period_change(stock_code, prev_30d, end_date_str, stock_name)
+
+                    if change_5d is not None and change_10d is not None and change_30d is not None:
+                        period_data = {
+                            '5d': change_5d / 100.0,  # 转换为小数
+                            '10d': change_10d / 100.0,
+                            '30d': change_30d / 100.0
+                        }
+                except Exception:
+                    period_data = None
+
+                warning_message = abnormal_detector.get_warning_message(pure_stock_code, check_date, period_data)
+        except Exception as e:
+            print(f"获取股票{pure_stock_code}预警信息时出错: {e}")
+            warning_message = ""
+
+        # 设置预警单元格
+        warning_cell = ws.cell(row=row_idx, column=warning_col, value=warning_message if warning_message else "")
+        warning_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        warning_cell.border = BORDER_STYLE
+        warning_cell.font = Font(size=9)
+
+        # 设置固定行高（与默认行高一致）
+        ws.row_dimensions[row_idx].height = 14
+
+        # 根据预警类型设置背景色（使用浅色方案）
+        if warning_message:
+            if "已触发严重异常波动" in warning_message:
+                warning_cell.fill = PatternFill(start_color="FFCCCB", fill_type="solid")  # 浅红色
+                warning_cell.font = Font(color="8B0000", size=9, bold=True)  # 深红色字体
+            elif "已触发异常波动" in warning_message:
+                warning_cell.fill = PatternFill(start_color="FFE4B5", fill_type="solid")  # 浅橙色
+                warning_cell.font = Font(color="FF4500", size=9, bold=True)  # 橙红色字体
+            elif "将触发严重异动" in warning_message:
+                warning_cell.fill = PatternFill(start_color="FFB6C1", fill_type="solid")  # 浅粉红色
+                warning_cell.font = Font(color="8B008B", size=9)  # 深紫色字体
+            elif "将触发异常波动" in warning_message:
+                # 异动预警和正常状态都不设置背景色
+                pass
 
 
 def save_excel_file(wb, output_file):
@@ -3272,7 +3447,7 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
                    max_tracking_days_before, zaban_df)
 
     # 调整列宽
-    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change)
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, False)  # 龙头股工作表不显示预警列
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
