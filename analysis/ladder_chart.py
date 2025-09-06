@@ -21,6 +21,7 @@ from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
     create_legend_sheet, get_color_for_pct_change, add_market_indicators,
+    create_index_sheet, load_all_index_data,
     HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS
 )
 
@@ -2588,6 +2589,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         last_trading_day_obj = datetime.strptime(last_day_str, '%Y%m%d')
         manage_leader_sheets(wb, last_trading_day_obj)
         backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
+
+    # 创建指数数据工作表
+    print("开始创建指数数据工作表...")
+    create_index_sheet(wb, date_columns, sheet_name="指数数据")
 
     # 创建图例工作表，传入对应的sheet名
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],

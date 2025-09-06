@@ -6,6 +6,18 @@ from collections import Counter
 import pandas as pd
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 
+# 指数顺序配置
+INDEX_ORDER = [
+    "上证指数",
+    "深证成指",
+    "创业板指",
+    "科创50",
+    "北证50",
+    "中证500",
+    "大盘高贝",
+    "小盘高贝"
+]
+
 # 选择一个同义词分组规则
 from data.reasons.origin_synonym_groups import synonym_groups
 
@@ -720,6 +732,91 @@ def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
         return {}
 
 
+def load_all_index_data(index_dir="./data/indexes"):
+    """
+    加载所有指数数据
+
+    Args:
+        index_dir: 指数数据文件目录
+
+    Returns:
+        dict: 以指数名称为键的字典，每个值包含该指数的日期数据
+    """
+    all_index_data = {}
+
+    try:
+        # 检查目录是否存在
+        if not os.path.exists(index_dir):
+            print(f"指数数据目录不存在: {index_dir}")
+            return {}
+
+        # 遍历目录中的所有CSV文件
+        for filename in os.listdir(index_dir):
+            if filename.endswith('.csv'):
+                # 从文件名提取指数名称
+                # 文件名格式: sh000001_上证指数.csv
+                index_name = filename.replace('.csv', '').split('_', 1)
+                if len(index_name) >= 2:
+                    index_display_name = index_name[1]  # 使用中文名称
+                else:
+                    index_display_name = filename.replace('.csv', '')
+
+                # 加载单个指数数据
+                index_file = os.path.join(index_dir, filename)
+                index_data = load_single_index_data(index_file)
+
+                if index_data:
+                    all_index_data[index_display_name] = index_data
+                    print(f"成功加载指数数据: {index_display_name}")
+                else:
+                    print(f"加载指数数据失败: {filename}")
+
+        print(f"总共加载了 {len(all_index_data)} 个指数的数据")
+        return all_index_data
+
+    except Exception as e:
+        print(f"加载所有指数数据失败: {e}")
+        return {}
+
+
+def load_single_index_data(index_file):
+    """
+    加载单个指数数据文件
+
+    Args:
+        index_file: 指数数据文件路径
+
+    Returns:
+        dict: 以日期为键的字典，包含涨跌幅和成交量信息
+    """
+    try:
+        # 读取CSV文件 (无表头)
+        df = pd.read_csv(index_file, header=None,
+                         names=['date', 'open', 'high', 'low', 'close', 'volume'])
+
+        # 计算每日涨跌幅
+        df['pct_change'] = df['close'].pct_change() * 100
+
+        # 将成交量转换为亿元
+        df['volume_100m'] = df['volume'] / 100000000  # 转换为亿元
+
+        # 以日期为键创建字典
+        index_data = {}
+        for _, row in df.iterrows():
+            # 确保日期格式与date_columns中的键完全一致
+            date_obj = pd.to_datetime(row['date'])
+            date_str = date_obj.strftime('%Y年%m月%d日')
+            index_data[date_str] = {
+                'pct_change': row['pct_change'],
+                'volume_100m': row['volume_100m']
+            }
+
+        return index_data
+    except Exception as e:
+        print(f"读取指数数据失败 {index_file}: {e}")
+        return {}
+
+
 def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/indexes/sz399006_创业板指.csv",
                           label_col=1):
     """
@@ -781,6 +878,181 @@ def add_market_indicators(ws, date_columns, index_data=None, index_file="./data/
         )
 
     return True
+
+
+def format_date_header_for_index(date_str):
+    """
+    为指数工作表格式化日期表头，与其他sheet保持一致
+
+    Args:
+        date_str: 日期字符串（格式：YYYY年MM月DD日）
+
+    Returns:
+        str: 格式化后的日期表头（格式：YYYY-MM-DD\n星期X）
+    """
+    try:
+        if '年' in date_str:
+            date_obj = pd.to_datetime(date_str, format='%Y年%m月%d日')
+        else:
+            date_obj = pd.to_datetime(date_str)
+
+        # 获取星期几的中文名称
+        weekday_map = {0: "星期一", 1: "星期二", 2: "星期三", 3: "星期四", 4: "星期五", 5: "星期六", 6: "星期日"}
+        weekday = weekday_map[date_obj.weekday()]
+
+        # 格式化为：YYYY-MM-DD\n星期X
+        return f"{date_obj.strftime('%Y-%m-%d')}\n{weekday}"
+    except:
+        return date_str
+
+
+def create_index_sheet_optimized(wb, date_columns, all_index_data=None, index_dir="./data/indexes", sheet_name="指数数据"):
+    """
+    创建指数专用的工作表（优化版本，支持增量更新）
+
+    Args:
+        wb: openpyxl工作簿对象
+        date_columns: 日期列映射字典，键为日期字符串，值为列索引
+        all_index_data: 已加载的所有指数数据，如果为None则会尝试加载
+        index_dir: 指数数据文件目录
+        sheet_name: 工作表名称
+
+    Returns:
+        bool: 是否成功创建指数工作表
+    """
+    try:
+        # 如果没有提供指数数据，尝试加载
+        if all_index_data is None:
+            all_index_data = load_all_index_data(index_dir)
+            if not all_index_data:
+                print("未能加载指数数据，将不创建指数工作表")
+                return False
+
+        # 检查指数工作表是否已存在
+        index_ws = None
+        if sheet_name in wb.sheetnames:
+            index_ws = wb[sheet_name]
+            print(f"指数工作表 {sheet_name} 已存在，将进行增量更新")
+        else:
+            # 创建新的指数工作表
+            index_ws = wb.create_sheet(title=sheet_name)
+            print(f"创建新的指数工作表: {sheet_name}")
+
+        # 创建日期列映射，从第2列开始（第1列是指数名称）
+        compact_date_columns = {}
+        col_idx = 2
+        for date_str in sorted(date_columns.keys()):
+            compact_date_columns[date_str] = col_idx
+            col_idx += 1
+
+        # 设置表头
+        # 第一行：指数名称列
+        header_cell = index_ws.cell(row=1, column=1, value="指数名称")
+        header_cell.font = Font(bold=True)
+        header_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+        header_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 添加日期列表头（与其他sheet格式一致）
+        for date_str, col_idx in compact_date_columns.items():
+            formatted_date = format_date_header_for_index(date_str)
+
+            header_cell = index_ws.cell(row=1, column=col_idx, value=formatted_date)
+            header_cell.font = Font(bold=True)
+            header_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+            header_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # 设置列宽
+        index_ws.column_dimensions['A'].width = 15  # 指数名称列
+
+        # 按照配置的顺序排列指数
+        ordered_indexes = []
+        for index_name in INDEX_ORDER:
+            if index_name in all_index_data:
+                ordered_indexes.append(index_name)
+
+        # 添加不在配置中的指数（按字母顺序）
+        remaining_indexes = sorted([name for name in all_index_data.keys() if name not in INDEX_ORDER])
+        ordered_indexes.extend(remaining_indexes)
+
+        # 为每个指数创建两行：涨跌幅行和成交量行，指数之间空一行
+        current_row = 2
+        for i, index_name in enumerate(ordered_indexes):
+            index_data = all_index_data[index_name]
+
+            # 如果不是第一个指数，先空一行
+            if i > 0:
+                current_row += 1
+
+            # 涨跌幅行
+            pct_change_cell = index_ws.cell(row=current_row, column=1, value=f"{index_name}")
+            pct_change_cell.alignment = Alignment(horizontal="left", vertical="center")
+            pct_change_cell.font = Font(bold=True, size=9)
+            pct_change_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+            # 成交量行
+            volume_cell = index_ws.cell(row=current_row + 1, column=1, value=f"{index_name}(亿)")
+            volume_cell.alignment = Alignment(horizontal="left", vertical="center")
+            volume_cell.font = Font(bold=True, size=9)
+            volume_cell.fill = PatternFill(start_color=HEADER_COLOR, fill_type="solid")
+
+            # 为每个日期列添加指数数据
+            for date_str, col_idx in compact_date_columns.items():
+                if date_str in index_data:
+                    # 涨跌幅数据
+                    pct_change = index_data[date_str]['pct_change']
+                    if pd.notna(pct_change):
+                        pct_cell = index_ws.cell(row=current_row, column=col_idx, value=f"{pct_change:.2f}%")
+                        pct_cell.alignment = Alignment(horizontal="center", vertical="center")
+                        pct_cell.fill = PatternFill(start_color=get_color_by_pct_change(pct_change), fill_type="solid")
+                        pct_cell.font = Font(size=9)
+                    else:
+                        index_ws.cell(row=current_row, column=col_idx, value="--").font = Font(size=9)
+
+                    # 成交量数据
+                    volume = index_data[date_str]['volume_100m']
+                    if pd.notna(volume):
+                        volume_cell = index_ws.cell(row=current_row + 1, column=col_idx, value=f"{volume:.2f}")
+                        volume_cell.alignment = Alignment(horizontal="center", vertical="center")
+                        volume_cell.font = Font(size=9)
+                    else:
+                        index_ws.cell(row=current_row + 1, column=col_idx, value="--").font = Font(size=9)
+                else:
+                    # 如果没有指数数据，添加空单元格
+                    index_ws.cell(row=current_row, column=col_idx, value="--").font = Font(size=9)
+                    index_ws.cell(row=current_row + 1, column=col_idx, value="--").font = Font(size=9)
+
+            current_row += 2  # 每个指数占用两行
+
+        # 设置所有单元格的边框
+        max_row = current_row - 1
+        max_col = max(compact_date_columns.values()) if compact_date_columns else 1
+
+        for row in index_ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
+            for cell in row:
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+
+        # 冻结第一列和第一行
+        index_ws.freeze_panes = index_ws.cell(row=2, column=2)
+
+        print(f"成功创建指数工作表: {sheet_name}，包含 {len(ordered_indexes)} 个指数")
+        return True
+
+    except Exception as e:
+        print(f"创建指数工作表失败: {e}")
+        return False
+
+
+# 为了向后兼容，保留原函数名
+def create_index_sheet(wb, date_columns, all_index_data=None, index_dir="./data/indexes", sheet_name="指数数据"):
+    """
+    创建指数专用的工作表（兼容性包装函数）
+    """
+    return create_index_sheet_optimized(wb, date_columns, all_index_data, index_dir, sheet_name)
 
 
 def save_unique_reasons(all_reasons, output_file="./data/reasons/unique_reasons.json"):
