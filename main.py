@@ -153,7 +153,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250630'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250815'  # 只看这个日期之后的
+    details_after_date = '20250820'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -405,7 +405,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250620'  # 开始日期
+    start_date = '20250730'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -565,9 +565,9 @@ if __name__ == '__main__':
     # generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
