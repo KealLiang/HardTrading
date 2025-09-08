@@ -276,7 +276,7 @@ def _detect_signals(self, df):
 
 | 参数类别 | 原版参数 | V2版本参数 | 影响 |
 |----------|----------|------------|------|
-| **极值窗口** | EXTREME_WINDOW=120 | EXTREME_WINDOW=20 | V2更敏感，信号更频繁 |
+| **极值窗口** | EXTREME_WINDOW=120 | EXTREME_WINDOW=120 | 两者一致，均关注2小时周期 |
 | **价格阈值** | PRICE_DIFF_THRESHOLD=0.02 | PRICE_DIFF_SELL_THR=0.02 | 相同 |
 | **MACD阈值** | MACD_DIFF_THRESHOLD=0.15 | MACD_DIFF_THR=0.15 | 相同 |
 | **KDJ阈值** | 无 | KD_HIGH=80, KD_LOW=20 | V2新增KDJ过滤 |
