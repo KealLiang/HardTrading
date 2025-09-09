@@ -13,6 +13,10 @@ from openpyxl.utils import get_column_letter
 from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
+from analysis.momo_shangzhang_processor import (
+    identify_momo_shangzhang_stocks, format_momo_concept_info,
+    MAX_TRACKING_DAYS_BEFORE_ENTRY_MOMO
+)
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
     get_valid_trading_date_pair
@@ -788,6 +792,10 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
 
     # 添加概念组信息用于排序，使用全局热门概念
     def get_global_concept_group(row):
+        # 检查是否为【默默上涨】股票
+        if row.get('entry_type') == 'momo_shangzhang':
+            return "默默上涨"
+
         concept_str = row.get('concept', '')
         if pd.isna(concept_str) or not concept_str:
             return "其他"
@@ -826,8 +834,11 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
     for i, concept in enumerate(non_hot_concepts_sorted):
         concept_priority[concept] = start_priority + i
 
+    # 【默默上涨】排在非热门概念之后，"其他"之前
+    concept_priority["默默上涨"] = start_priority + len(non_hot_concepts_sorted)
+
     # "其他"排在最后
-    concept_priority["其他"] = start_priority + len(non_hot_concepts_sorted)
+    concept_priority["其他"] = start_priority + len(non_hot_concepts_sorted) + 1
 
     # 添加概念优先级列用于排序
     result_df['concept_priority'] = result_df['concept_group'].map(lambda x: concept_priority.get(x, 999))
@@ -1562,6 +1573,55 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
     return cell, last_board_date
 
 
+def format_momo_entry_cell(ws, row, col, pure_stock_code, current_date_obj, stock):
+    """
+    格式化【默默上涨】入选日期单元格
+
+    Args:
+        ws: Excel工作表
+        row: 行索引
+        col: 列索引
+        pure_stock_code: 纯股票代码
+        current_date_obj: 当前日期对象
+        stock: 股票数据
+
+    Returns:
+        单元格对象
+    """
+    cell = ws.cell(row=row, column=col)
+
+    # 获取当日涨跌幅
+    date_yyyymmdd = current_date_obj.strftime('%Y%m%d')
+    pct_change = get_stock_daily_pct_change(pure_stock_code, date_yyyymmdd)
+
+    if pd.notna(pct_change):
+        # 显示正常的涨跌幅
+        cell_value = f"{pct_change:.2f}%"
+
+        # 添加成交量比信息
+        cell_value = add_volume_ratio_to_text(cell_value, pure_stock_code, date_yyyymmdd)
+
+        cell.value = cell_value
+
+        # 设置背景色 - 根据涨跌幅正常上色
+        color = get_color_for_pct_change(pct_change)
+        if color:
+            cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+        # 设置深紫色字体并加粗
+        cell.font = Font(color="663399", bold=True)  # 深紫色字体
+    else:
+        cell.value = "停牌"
+        # 停牌时也使用深紫色字体并加粗
+        cell.font = Font(color="663399", bold=True)
+
+    # 设置单元格格式
+    cell.alignment = Alignment(horizontal='center')
+    cell.border = BORDER_STYLE
+
+    return cell
+
+
 def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
     """
     格式化日涨跌幅单元格
@@ -1639,8 +1699,20 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     # 检查是否为炸板股票
     is_zaban = check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day)
 
+    # 检查是否为【默默上涨】数据
+    is_momo_shangzhang = stock.get('entry_type') == 'momo_shangzhang'
+
+    # 处理【默默上涨】数据 - 显示涨跌幅而不是连板信息
+    if is_momo_shangzhang:
+        # 【默默上涨】数据在入选日期显示特殊标记，其他日期显示涨跌幅
+        if current_date_obj == stock['first_significant_date']:
+            # 在入选日期显示【默默上涨】标记
+            format_momo_entry_cell(ws, row_idx, col_idx, pure_stock_code, current_date_obj, stock)
+        else:
+            # 其他日期显示涨跌幅
+            format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
     # 处理连板数据
-    if pd.notna(board_days) and board_days:
+    elif pd.notna(board_days) and board_days:
         stock_detail_key = f"{pure_stock_code}_{formatted_day}"
         _, last_board_date = format_board_cell(ws, row_idx, col_idx, board_days, pure_stock_code,
                                                stock_detail_key, stock_details, current_date_obj)
@@ -2364,7 +2436,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, period_days_long=PERIOD_DAYS_LONG, show_period_change=False,
                        priority_reasons=None, enable_attention_criteria=False, sheet_name=None,
-                       create_leader_sheet=False):
+                       create_leader_sheet=False, enable_momo_shangzhang=True):
     """
     构建梯队形态的涨停复盘图
 
@@ -2384,6 +2456,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
         sheet_name: 工作表名称，默认为None，表示使用"涨停梯队{start_date[:6]}"；如果指定，则使用指定的名称
         create_leader_sheet: 是否创建龙头股工作表，默认为False
+        enable_momo_shangzhang: 是否启用【默默上涨】数据，默认为False
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -2412,7 +2485,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     formatted_trading_days, date_mapping = format_trading_days(trading_days)
 
     # 加载股票数据
-    lianban_df, shouban_df, attention_data, zaban_df = load_stock_data(start_date, end_date, enable_attention_criteria)
+    lianban_df, shouban_df, attention_data, zaban_df, momo_df = load_stock_data(start_date, end_date, enable_attention_criteria, enable_momo_shangzhang)
     if lianban_df.empty:
         print("未获取到有效的连板数据")
         return
@@ -2420,10 +2493,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 获取股票详细信息映射
     stock_details = lianban_df.attrs.get('stock_details', {})
 
-    # 识别显著连板股票
+    # 识别显著连板股票（不包含【默默上涨】数据）
     result_df = identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
                                             non_main_board_level, enable_attention_criteria,
-                                            attention_data, priority_reasons)
+                                            attention_data, priority_reasons, None, start_date, end_date)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
@@ -2490,9 +2563,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if should_create_sheet:
         concept_ws = wb.create_sheet(title=concept_grouped_sheet_name)
 
-        # 为"涨停梯队 按概念分组"sheet去重，但保留重入标记色
-        if not result_df.empty:
-            grouped_df = result_df.copy()
+        # 为"涨停梯队 按概念分组"sheet去重，但保留重入标记色，并添加【默默上涨】数据
+        grouped_df = result_df.copy() if not result_df.empty else pd.DataFrame()
+
+        # 添加【默默上涨】数据到按概念分组工作表
+        if enable_momo_shangzhang and momo_df is not None and not momo_df.empty:
+            from analysis.momo_shangzhang_processor import identify_momo_shangzhang_stocks
+            momo_result_df = identify_momo_shangzhang_stocks(momo_df, start_date, end_date)
+            if not momo_result_df.empty:
+                grouped_df = pd.concat([grouped_df, momo_result_df], ignore_index=True)
+                print(f"按概念分组工作表合并【默默上涨】数据后总股票数量: {len(grouped_df)}")
+
+        # 去重处理
+        if not grouped_df.empty:
             # 检查 is_reentry 列是否存在
             if 'is_reentry' in grouped_df.columns:
                 is_reentry_map = grouped_df.groupby('stock_code')['is_reentry'].any()
@@ -2501,8 +2584,6 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             else:
                 # 如果 is_reentry 列不存在，直接去重
                 grouped_df = grouped_df.drop_duplicates(subset='stock_code', keep='first').copy()
-        else:
-            grouped_df = result_df
 
         create_concept_grouped_sheet_content(concept_ws, grouped_df, shouban_df, stock_data,
                                              stock_entry_count, formatted_trading_days, date_column_start,
@@ -2643,7 +2724,7 @@ def format_trading_days(trading_days):
 
 def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
                                 non_main_board_level, enable_attention_criteria, attention_data,
-                                priority_reasons):
+                                priority_reasons, momo_df=None, start_date=None, end_date=None):
     """
     识别显著连板股票
 
@@ -2656,15 +2737,34 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
         enable_attention_criteria: 是否启用关注度榜入选条件
         attention_data: 关注度榜数据
         priority_reasons: 优先选择的原因列表
+        momo_df: 【默默上涨】数据DataFrame
+        start_date: 分析开始日期
+        end_date: 分析结束日期
 
     Returns:
-        pandas.DataFrame: 显著连板股票DataFrame
+        pandas.DataFrame: 显著连板股票DataFrame（包含【默默上涨】数据）
     """
-    return identify_first_significant_board(
+    # 识别连板股票
+    result_df = identify_first_significant_board(
         lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
         enable_attention_criteria, attention_data['main'], attention_data['non_main'],
         priority_reasons
     )
+
+    # 如果有【默默上涨】数据，则处理并合并
+    if momo_df is not None and not momo_df.empty and start_date and end_date:
+        print("处理【默默上涨】数据...")
+        momo_result_df = identify_momo_shangzhang_stocks(momo_df, start_date, end_date)
+
+        if not momo_result_df.empty:
+            print(f"【默默上涨】处理完成，共{len(momo_result_df)}只股票")
+            # 合并【默默上涨】数据到结果中
+            result_df = pd.concat([result_df, momo_result_df], ignore_index=True)
+            print(f"合并后总股票数量: {len(result_df)}")
+        else:
+            print("【默默上涨】数据处理后为空")
+
+    return result_df
 
 
 def count_stock_entries(result_df):
@@ -2876,6 +2976,15 @@ def get_stock_concept(stock):
     Returns:
         str: 概念文本
     """
+    # 检查是否为【默默上涨】股票
+    if stock.get('entry_type') == 'momo_shangzhang':
+        # 【默默上涨】股票使用特殊的概念格式
+        momo_data = stock.get('momo_data', {})
+        period_volume = momo_data.get('区间成交额', '')
+        period_change = momo_data.get('区间涨跌幅', '')
+        return f"成交额:{period_volume} 涨幅:{period_change}"
+
+    # 普通股票的概念处理
     concept = stock.get('concept', '其他')
     if pd.isna(concept) or not concept:
         concept = "其他"
@@ -3026,12 +3135,57 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
     concept_grouped_df['long_period_change'] = concept_grouped_df.apply(calculate_long_period_change, axis=1)
 
-    # 按新的优先级排序：首次显著连板日期、长周期涨跌幅倒序、首次显著连板时的连板天数倒序
-    concept_grouped_df = concept_grouped_df.sort_values(
-        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
-            'board_level_at_first'],
-        ascending=[True, True, True, False, False]
+    # 为【默默上涨】分组添加特殊排序字段
+    def get_momo_sort_keys(row):
+        if row.get('concept_group') == '默默上涨':
+            momo_data = row.get('momo_data', {})
+            # 提取成交额数值（去掉"亿"字符）
+            volume_str = momo_data.get('区间成交额', '0')
+            try:
+                volume = float(volume_str.replace('亿', '')) if '亿' in str(volume_str) else 0.0
+            except:
+                volume = 0.0
+
+            # 提取涨幅数值（去掉"%"字符）
+            change_str = momo_data.get('区间涨跌幅', '0')
+            try:
+                change = float(change_str.replace('%', '')) if '%' in str(change_str) else 0.0
+            except:
+                change = 0.0
+
+            return volume, change
+        else:
+            return 0.0, 0.0
+
+    # 添加【默默上涨】排序字段
+    concept_grouped_df[['momo_volume', 'momo_change']] = concept_grouped_df.apply(
+        lambda row: pd.Series(get_momo_sort_keys(row)), axis=1
     )
+
+    # 分别处理【默默上涨】分组和其他分组的排序
+    momo_mask = concept_grouped_df['concept_group'] == '默默上涨'
+    momo_df = concept_grouped_df[momo_mask].copy()
+    other_df = concept_grouped_df[~momo_mask].copy()
+
+    # 【默默上涨】分组：按概念优先级、成交额、涨幅倒序排列
+    if not momo_df.empty:
+        momo_df = momo_df.sort_values(
+            by=['concept_priority', 'momo_volume', 'momo_change'],
+            ascending=[True, False, False]
+        )
+
+    # 其他分组：按原有逻辑排序
+    if not other_df.empty:
+        other_df = other_df.sort_values(
+            by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+            ascending=[True, True, True, False, False]
+        )
+
+    # 合并排序结果
+    concept_grouped_df = pd.concat([other_df, momo_df], ignore_index=True)
+
+    # 删除临时排序字段
+    concept_grouped_df = concept_grouped_df.drop(columns=['momo_volume', 'momo_change'])
 
     # 设置Excel表头和日期列
     show_warning_column = True  # 默认显示异动预警列

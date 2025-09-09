@@ -641,7 +641,27 @@ def load_attention_data(start_date, end_date, is_main_board=True):
         return pd.DataFrame()
 
 
-def load_stock_data(start_date, end_date, enable_attention_criteria):
+def load_momo_shangzhang_data(start_date, end_date):
+    """
+    从Excel中加载【默默上涨】数据
+
+    Args:
+        start_date: 开始日期 (YYYYMMDD)
+        end_date: 结束日期 (YYYYMMDD)
+
+    Returns:
+        pandas.DataFrame: 处理后的【默默上涨】数据
+    """
+    try:
+        # 导入【默默上涨】处理模块
+        from analysis.momo_shangzhang_processor import load_momo_shangzhang_data as load_momo_data
+        return load_momo_data(start_date, end_date)
+    except Exception as e:
+        print(f"加载【默默上涨】数据时出错: {e}")
+        return pd.DataFrame()
+
+
+def load_stock_data(start_date, end_date, enable_attention_criteria, enable_momo_shangzhang=False):
     """
     加载股票数据
 
@@ -649,9 +669,10 @@ def load_stock_data(start_date, end_date, enable_attention_criteria):
         start_date: 开始日期
         end_date: 结束日期
         enable_attention_criteria: 是否启用关注度榜入选条件
+        enable_momo_shangzhang: 是否启用【默默上涨】数据
 
     Returns:
-        tuple: (连板数据, 首板数据, 关注度数据, 炸板数据)
+        tuple: (连板数据, 首板数据, 关注度数据, 炸板数据, 默默上涨数据)
     """
     # 加载连板数据
     lianban_df = load_lianban_data(start_date, end_date)
@@ -677,7 +698,14 @@ def load_stock_data(start_date, end_date, enable_attention_criteria):
             print(
                 f"成功加载关注度榜数据：主板 {len(attention_data['main'])}条，非主板 {len(attention_data['non_main'])}条")
 
+    # 如果启用【默默上涨】，加载【默默上涨】数据
+    momo_df = pd.DataFrame()
+    if enable_momo_shangzhang:
+        print("启用【默默上涨】数据，加载【默默上涨】数据...")
+        momo_df = load_momo_shangzhang_data(start_date, end_date)
+        print(f"加载【默默上涨】数据完成，共有{len(momo_df)}只股票")
+
     # 调试输出连板数据
     debug_print_lianban_data(lianban_df)
 
-    return lianban_df, shouban_df, attention_data, zaban_df
+    return lianban_df, shouban_df, attention_data, zaban_df, momo_df
