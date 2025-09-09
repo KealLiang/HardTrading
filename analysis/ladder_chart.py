@@ -14,8 +14,7 @@ from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
 from analysis.momo_shangzhang_processor import (
-    identify_momo_shangzhang_stocks, format_momo_concept_info,
-    MAX_TRACKING_DAYS_BEFORE_ENTRY_MOMO
+    identify_momo_shangzhang_stocks
 )
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
@@ -25,8 +24,7 @@ from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
     create_legend_sheet, get_color_for_pct_change, add_market_indicators,
-    create_index_sheet, load_all_index_data,
-    HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS
+    create_index_sheet, HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS
 )
 
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
@@ -2123,7 +2121,8 @@ def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
     return False
 
 
-def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column=True):
+def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
+                       show_warning_column=True):
     """
     设置Excel表头
 
@@ -2485,7 +2484,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     formatted_trading_days, date_mapping = format_trading_days(trading_days)
 
     # 加载股票数据
-    lianban_df, shouban_df, attention_data, zaban_df, momo_df = load_stock_data(start_date, end_date, enable_attention_criteria, enable_momo_shangzhang)
+    lianban_df, shouban_df, attention_data, zaban_df, momo_df = load_stock_data(start_date, end_date,
+                                                                                enable_attention_criteria,
+                                                                                enable_momo_shangzhang)
     if lianban_df.empty:
         print("未获取到有效的连板数据")
         return
@@ -2516,7 +2517,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     period_column = 4
     date_column_start = 4 if not show_period_change else 5
     show_warning_column = True  # 默认显示异动预警列
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
+                                      show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -3177,7 +3179,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     # 其他分组：按原有逻辑排序
     if not other_df.empty:
         other_df = other_df.sort_values(
-            by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+            by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
+                'board_level_at_first'],
             ascending=[True, True, True, False, False]
         )
 
@@ -3189,7 +3192,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
     # 设置Excel表头和日期列
     show_warning_column = True  # 默认显示异动预警列
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start, show_warning_column)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
+                                      show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)

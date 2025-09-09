@@ -9,15 +9,17 @@
 
 import re
 from datetime import datetime, timedelta
+
 import pandas as pd
-from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before
+
+from utils.date_util import get_trading_days, get_n_trading_days_before
 
 # 【默默上涨】相关参数
 # 入选前跟踪的最大天数（独立于连板数据的参数）
 MAX_TRACKING_DAYS_BEFORE_ENTRY_MOMO = 20
 
 # 【默默上涨】持续跟踪的跌幅阈值（%），跌幅小于此值则停止跟踪
-MOMO_DECLINE_THRESHOLD = -30.0
+MOMO_DECLINE_THRESHOLD = -25.0
 
 # 【默默上涨】入选的月数范围
 MOMO_ENTRY_MONTHS = 3
@@ -48,7 +50,7 @@ def load_momo_shangzhang_data(start_date, end_date):
 
         # 将日期列转换为datetime格式
         date_columns = []
-        
+
         # 检查两种可能的日期格式：YYYY/MM/DD和YYYY年MM月DD日
         for col in df.columns:
             if isinstance(col, str):
@@ -65,7 +67,7 @@ def load_momo_shangzhang_data(start_date, end_date):
         end_date_obj = datetime.strptime(end_date, '%Y%m%d')
         start_date_obj = end_date_obj - timedelta(days=MOMO_ENTRY_MONTHS * 30)  # 大约3个月
         start_date_filter = start_date_obj.strftime('%Y%m%d')
-        
+
         filtered_date_columns = []
         for col in date_columns:
             # 将两种格式的日期都转换为datetime
@@ -180,30 +182,30 @@ def identify_momo_shangzhang_stocks(momo_df, start_date, end_date):
         return pd.DataFrame()
 
     result = []
-    
+
     # 获取分析周期内的所有交易日
     trading_days = get_trading_days(start_date, end_date)
-    
+
     for _, stock in momo_df.iterrows():
         stock_code = stock['纯代码']
         stock_name = stock['股票名称']
         entry_date_str = stock['日期']
-        
+
         # 将入选日期转换为datetime对象
         if '年' in entry_date_str:
             entry_date = datetime.strptime(entry_date_str, '%Y年%m月%d日')
         else:
             entry_date = pd.to_datetime(entry_date_str)
-        
+
         entry_date_yyyymmdd = entry_date.strftime('%Y%m%d')
-        
+
         # 检查入选日期是否在分析周期内
         if entry_date_yyyymmdd < start_date or entry_date_yyyymmdd > end_date:
             continue
-        
+
         # 【默默上涨】的跟踪逻辑：检查从入选日起的跌幅是否超过阈值
         should_track = check_momo_tracking_condition(stock_code, entry_date_yyyymmdd, end_date)
-        
+
         if should_track:
             # 构建跟踪期间的数据字典
             all_board_data = {}
@@ -221,7 +223,7 @@ def identify_momo_shangzhang_stocks(momo_df, start_date, end_date):
             for trading_day in limited_trading_days:
                 # 【默默上涨】在天梯图中不显示连板信息，而是显示涨跌幅或特殊标记
                 all_board_data[datetime.strptime(trading_day, '%Y%m%d').strftime('%Y年%m月%d日')] = None
-            
+
             # 添加到结果列表
             entry = {
                 'stock_code': stock_code,
@@ -239,20 +241,20 @@ def identify_momo_shangzhang_stocks(momo_df, start_date, end_date):
                     '最新涨跌幅': stock['最新涨跌幅']
                 }
             }
-            
+
             result.append(entry)
             print(f"【默默上涨】股票入选: {stock_name} ({stock_code}) 入选日期: {entry_date_str}")
 
     # 转换为DataFrame
     result_df = pd.DataFrame(result)
-    
+
     if not result_df.empty:
         # 添加概念组信息
         result_df['concept_group'] = "默默上涨"
         result_df['concept_priority'] = 999  # 设置较低的优先级，排在最后
-        
+
         print(f"【默默上涨】最终入选股票数量: {len(result_df)}")
-    
+
     return result_df
 
 
@@ -324,8 +326,8 @@ def format_momo_concept_info(momo_data):
     """
     if not momo_data:
         return "默默上涨"
-    
+
     period_change = momo_data.get('区间涨跌幅', '')
     period_volume = momo_data.get('区间成交额', '')
-    
+
     return f"默默上涨 [{period_change} {period_volume}]"
