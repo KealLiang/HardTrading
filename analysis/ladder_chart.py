@@ -30,12 +30,12 @@ from utils.theme_color_util import (
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
 # 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
 # 设置为None表示一直跟踪到分析周期结束
-MAX_TRACKING_DAYS_AFTER_BREAK = 9
+MAX_TRACKING_DAYS_AFTER_BREAK = 11
 
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
 # 设置为0表示不显示入选前的走势
-MAX_TRACKING_DAYS_BEFORE_ENTRY = 5
+MAX_TRACKING_DAYS_BEFORE_ENTRY = 7
 
 # 断板后再次达到入选的交易日间隔阈值
 # 例如设置为4，当股票断板后第5个交易日或之后再次达到入选时，会作为新的一行记录
@@ -2435,7 +2435,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, period_days_long=PERIOD_DAYS_LONG, show_period_change=False,
                        priority_reasons=None, enable_attention_criteria=False, sheet_name=None,
-                       create_leader_sheet=False, enable_momo_shangzhang=True):
+                       create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False):
     """
     构建梯队形态的涨停复盘图
 
@@ -2456,6 +2456,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         sheet_name: 工作表名称，默认为None，表示使用"涨停梯队{start_date[:6]}"；如果指定，则使用指定的名称
         create_leader_sheet: 是否创建龙头股工作表，默认为False
         enable_momo_shangzhang: 是否启用【默默上涨】数据，默认为False
+        create_volume_sheet: 是否创建成交量涨跌幅分析工作表，默认为False
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -2592,6 +2593,40 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                              show_period_change, period_column, period_days, period_days_long,
                                              stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
                                              zaban_df)
+
+    # 创建成交量涨跌幅分析工作表（如果启用）
+    if create_volume_sheet:
+        volume_sheet_name = f"{concept_grouped_sheet_name}_成交量分析"
+
+        # 检查是否需要创建成交量工作表
+        volume_sheet_exists = volume_sheet_name in wb.sheetnames
+        should_create_volume_sheet = False
+
+        if not volume_sheet_exists:
+            # 工作表不存在，需要创建
+            should_create_volume_sheet = True
+            print(f"创建成交量涨跌幅分析工作表: {volume_sheet_name}")
+        elif is_default_pattern:
+            # 默认模式下，覆盖更新
+            wb.remove(wb[volume_sheet_name])
+            should_create_volume_sheet = True
+            print(f"已更新成交量涨跌幅分析工作表: {volume_sheet_name}")
+        else:
+            # 用户自定义工作表已存在，保留原样
+            print(f"保留用户自定义成交量工作表: {volume_sheet_name}")
+
+        # 创建成交量工作表
+        if should_create_volume_sheet:
+            from analysis.volume_ladder_chart import create_volume_concept_grouped_sheet
+
+            # 使用与概念分组相同的数据
+            volume_grouped_df = grouped_df if 'grouped_df' in locals() else result_df.copy()
+
+            create_volume_concept_grouped_sheet(wb, volume_sheet_name, volume_grouped_df, shouban_df, stock_data,
+                                              stock_entry_count, formatted_trading_days, date_column_start,
+                                              show_period_change, period_column, period_days, period_days_long,
+                                              stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+                                              zaban_df)
 
     # 创建龙头股工作表（如果启用）
     if create_leader_sheet:
