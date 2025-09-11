@@ -31,7 +31,7 @@ VOLUME_CHANGE_COLORS = {
 
 # 成交量上色配置
 VOLUME_COLOR_CONFIG = {
-    "COLOR_PERCENTAGE": 0.20,  # 上色比例：20%的数据会被上色
+    "COLOR_PERCENTAGE": 0.30,  # 上色比例：20%的数据会被上色
     "POSITIVE_RATIO": 0.6,  # 正值(放量)在上色数据中的比例：60%
     "NEGATIVE_RATIO": 0.4,  # 负值(缩量)在上色数据中的比例：40%
 }

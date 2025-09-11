@@ -2540,7 +2540,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
 
     # 创建按概念分组的工作表
-    concept_grouped_sheet_name = f"{sheet_name_used}_按概念分组"
+    concept_grouped_sheet_name = f"{sheet_name_used}_概念分组"
 
     # 检查是否需要创建或更新按概念分组的工作表
     is_default_pattern = "涨停梯队" in concept_grouped_sheet_name
@@ -2596,7 +2596,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 创建成交量涨跌幅分析工作表（如果启用）
     if create_volume_sheet:
-        volume_sheet_name = f"{concept_grouped_sheet_name}_成交量分析"
+        volume_sheet_name = f"{concept_grouped_sheet_name}_成交量"
 
         # 检查是否需要创建成交量工作表
         volume_sheet_exists = volume_sheet_name in wb.sheetnames
