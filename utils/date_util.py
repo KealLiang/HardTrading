@@ -3,10 +3,14 @@ import re
 from datetime import datetime, timedelta
 
 import pandas as pd
-import pandas_market_calendars as mcal
-
-# 预先初始化A股交易所日历对象
-SSE_CALENDAR = mcal.get_calendar('SSE')
+try:
+    import pandas_market_calendars as mcal
+    # 预先初始化A股交易所日历对象
+    SSE_CALENDAR = mcal.get_calendar('SSE')
+except ImportError:
+    print("警告: pandas_market_calendars 未安装，使用简化的日期处理")
+    mcal = None
+    SSE_CALENDAR = None
 
 # 交易日缓存
 _TRADING_DAYS_CACHE = None
@@ -115,6 +119,21 @@ def get_trading_days(start_date: str, end_date: str):
     :param end_date: 查询结束日期，格式为'YYYYMMDD'。
     :return: A股交易日列表。
     """
+    if SSE_CALENDAR is None:
+        # 简化版本：生成所有工作日（排除周末）
+        start_date_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_date_dt = datetime.strptime(end_date, '%Y%m%d')
+
+        trading_days = []
+        current_date = start_date_dt
+        while current_date <= end_date_dt:
+            # 排除周末（周六=5，周日=6）
+            if current_date.weekday() < 5:
+                trading_days.append(current_date)
+            current_date += timedelta(days=1)
+
+        return pd.DatetimeIndex(trading_days)
+
     # 将日期字符串转换为datetime对象
     start_date_dt = datetime.strptime(start_date, '%Y%m%d')
     end_date_dt = datetime.strptime(end_date, '%Y%m%d')

@@ -16,6 +16,9 @@ from analysis.loader.fupan_data_loader import (
 from analysis.momo_shangzhang_processor import (
     identify_momo_shangzhang_stocks
 )
+from analysis.concept_analyzer import (
+    analyze_concepts_from_ladder_data, format_concept_analysis_summary
+)
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
     get_valid_trading_date_pair
@@ -2435,7 +2438,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, period_days_long=PERIOD_DAYS_LONG, show_period_change=False,
                        priority_reasons=None, enable_attention_criteria=False, sheet_name=None,
-                       create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False):
+                       create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False,
+                       enable_reason_analysis=None):
     """
     构建梯队形态的涨停复盘图
 
@@ -2457,6 +2461,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         create_leader_sheet: 是否创建龙头股工作表，默认为False
         enable_momo_shangzhang: 是否启用【默默上涨】数据，默认为False
         create_volume_sheet: 是否创建成交量涨跌幅分析工作表，默认为False
+        enable_reason_analysis: 是否启用原因分析，None表示使用默认配置，True强制启用，False强制禁用
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -2477,7 +2482,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 获取并处理交易日数据
     trading_days = get_trading_days(start_date, end_date)
-    if not trading_days:
+    if trading_days is None or len(trading_days) == 0:
         print("未获取到交易日列表")
         return
 
@@ -2571,11 +2576,15 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
         # 添加【默默上涨】数据到按概念分组工作表
         if enable_momo_shangzhang and momo_df is not None and not momo_df.empty:
-            from analysis.momo_shangzhang_processor import identify_momo_shangzhang_stocks
-            momo_result_df = identify_momo_shangzhang_stocks(momo_df, start_date, end_date)
-            if not momo_result_df.empty:
-                grouped_df = pd.concat([grouped_df, momo_result_df], ignore_index=True)
-                print(f"按概念分组工作表合并【默默上涨】数据后总股票数量: {len(grouped_df)}")
+            try:
+                from analysis.momo_shangzhang_processor import identify_momo_shangzhang_stocks
+                momo_result_df = identify_momo_shangzhang_stocks(momo_df, start_date, end_date)
+                if not momo_result_df.empty:
+                    grouped_df = pd.concat([grouped_df, momo_result_df], ignore_index=True)
+                    print(f"按概念分组工作表合并【默默上涨】数据后总股票数量: {len(grouped_df)}")
+            except Exception as e:
+                print(f"处理【默默上涨】数据时出错，跳过: {e}")
+                # 继续执行，不影响概念分析
 
         # 去重处理
         if not grouped_df.empty:
@@ -2712,10 +2721,42 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     print("开始创建指数数据工作表...")
     create_index_sheet(wb, date_columns, sheet_name="指数数据")
 
-    # 创建图例工作表，传入对应的sheet名
+    # 进行原因分析（根据开关控制）
+    from analysis.concept_analyzer import ENABLE_REASON_ANALYSIS
+
+    # 确定是否启用原因分析
+    should_enable_reason_analysis = enable_reason_analysis
+    if should_enable_reason_analysis is None:
+        should_enable_reason_analysis = ENABLE_REASON_ANALYSIS
+
+    concept_analysis_data = None
+    if should_enable_reason_analysis:
+        print("开始进行原因分析...")
+        try:
+            # 从原始连板数据中分析原因
+            print("从原始连板数据中分析原因...")
+            concept_analysis_data = analyze_concepts_from_ladder_data(lianban_df, date_columns)
+
+            if concept_analysis_data:
+                reason_stats, new_reasons = concept_analysis_data
+                # 打印原因分析摘要
+                summary = format_concept_analysis_summary(reason_stats, new_reasons)
+                print(summary)
+            else:
+                print("原因分析未返回数据")
+
+        except Exception as e:
+            print(f"原因分析过程中出现错误: {e}")
+            import traceback
+            traceback.print_exc()
+            concept_analysis_data = None
+    else:
+        print("原因分析已禁用，跳过分析步骤")
+
+    # 创建图例工作表，传入对应的sheet名和概念分析数据
     create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
                         stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
-                        source_sheet_name=sheet_name_used)
+                        source_sheet_name=sheet_name_used, concept_analysis_data=concept_analysis_data)
 
     # 保存Excel文件
     try:
@@ -2744,7 +2785,14 @@ def format_trading_days(trading_days):
     date_mapping = {}  # 用于将格式化日期映射回YYYYMMDD格式
 
     for day in trading_days:
-        date_obj = datetime.strptime(day, '%Y%m%d')
+        # 处理不同类型的日期输入
+        if isinstance(day, str):
+            date_obj = datetime.strptime(day, '%Y%m%d')
+            day_str = day
+        else:
+            # 如果是Timestamp对象，直接使用
+            date_obj = day.to_pydatetime() if hasattr(day, 'to_pydatetime') else day
+            day_str = date_obj.strftime('%Y%m%d')
 
         # 标准格式 YYYY/MM/DD
         formatted_day_slash = date_obj.strftime('%Y/%m/%d')
@@ -2753,8 +2801,8 @@ def format_trading_days(trading_days):
 
         # 使用中文格式作为主要格式
         formatted_trading_days.append(formatted_day_cn)
-        date_mapping[formatted_day_cn] = day
-        date_mapping[formatted_day_slash] = day  # 同时保存标准格式的映射
+        date_mapping[formatted_day_cn] = day_str
+        date_mapping[formatted_day_slash] = day_str  # 同时保存标准格式的映射
 
     return formatted_trading_days, date_mapping
 

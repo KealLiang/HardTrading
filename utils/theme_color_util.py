@@ -507,7 +507,7 @@ def get_color_for_pct_change(pct_change):
 
 
 def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_board_colors=None,
-                        reentry_colors=None, source_sheet_name=None):
+                        reentry_colors=None, source_sheet_name=None, concept_analysis_data=None):
     """
     创建颜色图例工作表
 
@@ -519,6 +519,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
         high_board_colors: 高板数颜色映射字典，默认为None
         reentry_colors: 重复入选颜色映射字典，默认为None
         source_sheet_name: 源数据工作表名称，用于生成图例工作表名称，默认为None
+        concept_analysis_data: 概念分析数据，格式为(top_concepts, new_concepts)，默认为None
 
     Returns:
         openpyxl.worksheet.worksheet.Worksheet: 创建的图例工作表对象
@@ -550,7 +551,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
     current_row = 2
 
     # 添加表头
-    legend_ws.cell(row=current_row, column=1, value="概念").font = Font(bold=True)
+    legend_ws.cell(row=current_row, column=1, value="原因").font = Font(bold=True)
     legend_ws.cell(row=current_row, column=2, value="出现次数").font = Font(bold=True)
     current_row += 1
 
@@ -558,7 +559,7 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
     for i, reason in enumerate(top_reasons, start=0):
         count = reason_counter.get(reason, 0)
 
-        # 添加概念名称
+        # 添加原因名称
         name_cell = legend_ws.cell(row=current_row, column=1, value=reason)
         name_cell.fill = PatternFill(start_color=reason_colors[reason], fill_type="solid")
 
@@ -685,7 +686,198 @@ def create_legend_sheet(wb, reason_counter, reason_colors, top_reasons, high_boa
                 bottom=Side(style='thin')
             )
 
+    # 添加概念分析数据（如果提供）
+    if concept_analysis_data:
+        add_concept_analysis_to_legend_sheet(legend_ws, concept_analysis_data)
+
     return legend_ws
+
+
+def add_concept_analysis_to_legend_sheet(legend_ws, concept_analysis_data):
+    """
+    在图例工作表中添加原因分析数据（并列显示）
+
+    Args:
+        legend_ws: 图例工作表对象
+        concept_analysis_data: 原因分析数据，格式为(reason_stats, new_reasons)
+    """
+    if not concept_analysis_data:
+        return
+
+    reason_stats, new_reasons = concept_analysis_data
+
+    if not reason_stats:
+        return
+
+    from analysis.concept_analyzer import TOP_CONCEPTS_COUNT, NEW_CONCEPT_DAYS, NEW_REASON_MIN_COUNT
+
+    # 设置起始位置
+    start_col = 4  # D列开始
+
+    # 设置列宽 - 并列显示
+    legend_ws.column_dimensions['D'].width = 20  # 热门原因名称
+    legend_ws.column_dimensions['E'].width = 15  # 热门原因首次出现
+    legend_ws.column_dimensions['F'].width = 12  # 热门原因出现次数
+    legend_ws.column_dimensions['G'].width = 25  # 新原因名称（调宽）
+    legend_ws.column_dimensions['H'].width = 15  # 新原因首次出现
+    legend_ws.column_dimensions['I'].width = 12  # 新原因出现次数
+
+    current_row = 1
+
+    # 并列显示标题
+    # 热门原因标题
+    hot_title_cell = legend_ws.cell(row=current_row, column=start_col, value=f"热门原因统计 Top {TOP_CONCEPTS_COUNT}")
+    hot_title_cell.font = Font(bold=True, size=12)
+    hot_title_cell.fill = PatternFill(start_color="E6F3FF", fill_type="solid")  # 浅蓝色背景
+    hot_title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    # 合并热门原因标题单元格
+    legend_ws.merge_cells(start_row=current_row, start_column=start_col,
+                         end_row=current_row, end_column=start_col + 2)
+
+    # 新原因标题（如果有新原因数据）
+    if new_reasons:
+        new_title_cell = legend_ws.cell(row=current_row, column=start_col + 3,
+                                       value=f"新原因统计 (最近{NEW_CONCEPT_DAYS}天，≥{NEW_REASON_MIN_COUNT}次)")
+        new_title_cell.font = Font(bold=True, size=12)
+        new_title_cell.fill = PatternFill(start_color="FFE6F0", fill_type="solid")  # 浅粉色背景
+        new_title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        # 合并新原因标题单元格
+        legend_ws.merge_cells(start_row=current_row, start_column=start_col + 3,
+                             end_row=current_row, end_column=start_col + 5)
+    else:
+        # 如果没有新原因，显示无新原因
+        no_new_title_cell = legend_ws.cell(row=current_row, column=start_col + 3,
+                                          value=f"无新原因 (最近{NEW_CONCEPT_DAYS}天)")
+        no_new_title_cell.font = Font(bold=True, size=12, italic=True)
+        no_new_title_cell.fill = PatternFill(start_color="F0F0F0", fill_type="solid")  # 灰色背景
+        no_new_title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        # 合并无新原因标题单元格
+        legend_ws.merge_cells(start_row=current_row, start_column=start_col + 3,
+                             end_row=current_row, end_column=start_col + 5)
+
+    current_row += 1
+
+    # 添加表头
+    # 热门原因表头
+    hot_headers = ["原因", "首次出现", "出现次数"]
+    for i, header in enumerate(hot_headers):
+        header_cell = legend_ws.cell(row=current_row, column=start_col + i, value=header)
+        header_cell.font = Font(bold=True)
+        header_cell.fill = PatternFill(start_color="F0F8FF", fill_type="solid")  # 更浅的蓝色
+        header_cell.alignment = Alignment(horizontal="center", vertical="center")
+        header_cell.border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+    # 新原因表头（如果有新原因数据）
+    if new_reasons:
+        new_headers = ["原因", "首次出现", "出现次数"]
+        for i, header in enumerate(new_headers):
+            header_cell = legend_ws.cell(row=current_row, column=start_col + 3 + i, value=header)
+            header_cell.font = Font(bold=True)
+            header_cell.fill = PatternFill(start_color="FFF0F5", fill_type="solid")  # 更浅的粉色
+            header_cell.alignment = Alignment(horizontal="center", vertical="center")
+            header_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+    current_row += 1
+
+    # 准备数据
+    # reason_stats 已经是排序后的列表 [(reason, stats), ...]
+    if isinstance(reason_stats, list):
+        sorted_reasons = reason_stats[:TOP_CONCEPTS_COUNT]
+    else:
+        sorted_reasons = sorted(reason_stats.items(), key=lambda x: x[1]['count'], reverse=True)[:TOP_CONCEPTS_COUNT]
+
+    sorted_new_reasons = sorted(new_reasons.items(), key=lambda x: x[1]['count'], reverse=True) if new_reasons else []
+
+    # 并列填充数据
+    max_rows = max(len(sorted_reasons), len(sorted_new_reasons))
+
+    for i in range(max_rows):
+        # 填充热门原因数据
+        if i < len(sorted_reasons):
+            reason, stats = sorted_reasons[i]
+
+            # 原因名称
+            reason_cell = legend_ws.cell(row=current_row, column=start_col, value=reason)
+            reason_cell.alignment = Alignment(horizontal="left", vertical="center")
+            reason_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # 为前5名添加不同的背景色
+            if i < 5:
+                colors = ["FFE6E6", "FFF0E6", "FFFBE6", "E6FFE6", "E6F0FF"]  # 红、橙、黄、绿、蓝的浅色版本
+                reason_cell.fill = PatternFill(start_color=colors[i], fill_type="solid")
+
+            # 首次出现日期
+            first_date = stats.get('historical_first_date', stats.get('first_date', ''))
+            first_date_cell = legend_ws.cell(row=current_row, column=start_col + 1, value=first_date)
+            first_date_cell.alignment = Alignment(horizontal="center", vertical="center")
+            first_date_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # 出现次数
+            count_cell = legend_ws.cell(row=current_row, column=start_col + 2, value=stats['count'])
+            count_cell.alignment = Alignment(horizontal="center", vertical="center")
+            count_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+        # 填充新原因数据
+        if new_reasons and i < len(sorted_new_reasons):
+            reason, stats = sorted_new_reasons[i]
+
+            # 原因名称
+            reason_cell = legend_ws.cell(row=current_row, column=start_col + 3, value=reason)
+            reason_cell.alignment = Alignment(horizontal="left", vertical="center")
+            reason_cell.fill = PatternFill(start_color="E6FFE6", fill_type="solid")  # 浅绿色背景
+            reason_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # 首次出现日期
+            first_date_cell = legend_ws.cell(row=current_row, column=start_col + 4, value=stats['first_date'])
+            first_date_cell.alignment = Alignment(horizontal="center", vertical="center")
+            first_date_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # 出现次数
+            count_cell = legend_ws.cell(row=current_row, column=start_col + 5, value=stats['count'])
+            count_cell.alignment = Alignment(horizontal="center", vertical="center")
+            count_cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+        current_row += 1
 
 
 def load_index_data(index_file="./data/indexes/sz399006_创业板指.csv"):
