@@ -796,7 +796,9 @@ def add_concept_analysis_to_legend_sheet(legend_ws, concept_analysis_data):
     else:
         sorted_reasons = sorted(reason_stats.items(), key=lambda x: x[1]['count'], reverse=True)[:TOP_CONCEPTS_COUNT]
 
-    sorted_new_reasons = sorted(new_reasons.items(), key=lambda x: x[1]['count'], reverse=True) if new_reasons else []
+    # 新原因排序：出现次数（倒序），首次出现（倒序）
+    # 注意：first_date是字符串，需要用reverse=True来实现倒序
+    sorted_new_reasons = sorted(new_reasons.items(), key=lambda x: (x[1]['count'], x[1]['first_date']), reverse=True) if new_reasons else []
 
     # 并列填充数据
     max_rows = max(len(sorted_reasons), len(sorted_new_reasons))

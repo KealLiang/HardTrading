@@ -4,16 +4,15 @@
 用于分析涨停梯队数据中的题材概念，统计概念出现频次和识别新概念
 """
 
-import re
-from collections import defaultdict, Counter
-from datetime import datetime, timedelta
-import pandas as pd
-from utils.theme_color_util import extract_reasons, normalize_reason
+from collections import defaultdict
 
+import pandas as pd
+
+from utils.theme_color_util import extract_reasons
 
 # 配置参数
 TOP_CONCEPTS_COUNT = 30  # 展示前N个热门原因
-NEW_CONCEPT_DAYS = 5     # 新原因的天数阈值（最近N天才出现的原因）
+NEW_CONCEPT_DAYS = 5  # 新原因的天数阈值（最近N天才出现的原因）
 NEW_REASON_MIN_COUNT = 2  # 新原因的最小出现次数阈值
 ENABLE_REASON_ANALYSIS = True  # 是否启用原因分析功能
 
@@ -30,20 +29,20 @@ def extract_concepts_from_reason_text(reason_text):
     """
     if not reason_text or pd.isna(reason_text):
         return []
-    
+
     # 转换为字符串并去除空格
     reason_text = str(reason_text).strip()
-    
+
     # 去除方括号
     reason_text = reason_text.strip('[]')
-    
+
     # 如果为空，返回空列表
     if not reason_text:
         return []
-    
+
     # 使用extract_reasons函数处理，它会按+分割并标准化
     concepts = extract_reasons(reason_text)
-    
+
     return concepts
 
 
@@ -66,14 +65,14 @@ def analyze_concept_data(stock_data_dict, trading_days):
         'last_date': None,
         'stocks': set()
     })
-    
+
     # 按日期顺序处理数据
     for date in sorted(trading_days):
         if date not in stock_data_dict:
             continue
-            
+
         daily_data = stock_data_dict[date]
-        
+
         # 处理当日的每只股票
         for _, stock_row in daily_data.iterrows():
             reason = stock_row.get('涨停原因', '')  # 获取单个原因
@@ -91,7 +90,7 @@ def analyze_concept_data(stock_data_dict, trading_days):
             if reason_stats[reason]['first_date'] is None:
                 reason_stats[reason]['first_date'] = date
             reason_stats[reason]['last_date'] = date
-    
+
     # 转换stocks set为list
     for reason in reason_stats:
         reason_stats[reason]['stocks'] = list(reason_stats[reason]['stocks'])
@@ -273,12 +272,12 @@ def find_new_concepts(concept_stats, trading_days):
 
     # 获取最近N个交易日
     recent_days = days_list[-NEW_CONCEPT_DAYS:]
-    
+
     new_concepts = {}
-    
+
     for concept, stats in concept_stats.items():
         first_date = stats['first_date']
-        
+
         # 如果概念首次出现在最近N天内，则认为是新概念
         if first_date and first_date in recent_days:
             new_concepts[concept] = {
@@ -286,7 +285,7 @@ def find_new_concepts(concept_stats, trading_days):
                 'count': stats['count'],
                 'stocks': stats['stocks']
             }
-    
+
     return new_concepts
 
 
@@ -307,17 +306,19 @@ def get_top_concepts(concept_stats, top_n=TOP_CONCEPTS_COUNT):
         key=lambda x: x[1]['count'],
         reverse=True
     )
-    
+
     return sorted_concepts[:top_n]
 
 
-def analyze_concepts_from_ladder_data(ladder_data, date_columns):
+def analyze_concepts_from_ladder_data(ladder_data, date_columns, start_date=None, end_date=None):
     """
     从原始fupan_stocks.xlsx文件中分析热门原因（细粒度分析）
 
     Args:
         ladder_data: 涨停梯队DataFrame数据（用于获取日期范围）
         date_columns: 日期列列表（分析范围内的日期）
+        start_date: 分析开始日期 (YYYYMMDD格式)，None表示不限制
+        end_date: 分析结束日期 (YYYYMMDD格式)，None表示不限制
 
     Returns:
         tuple: (top_reasons, new_reasons) - 热门原因和新原因
@@ -339,21 +340,87 @@ def analyze_concepts_from_ladder_data(ladder_data, date_columns):
         print(f"成功读取原始数据: 连板数据{lianban_df.shape}, 首板数据{shouban_df.shape}")
 
         # 获取所有历史日期列（用于准确识别新原因）
-        all_date_columns = [col for col in lianban_df.columns if col != 'Unnamed: 0' and '年' in col and '月' in col and '日' in col]
+        all_date_columns = [col for col in lianban_df.columns if
+                            col != 'Unnamed: 0' and '年' in col and '月' in col and '日' in col]
         all_date_columns = sorted(all_date_columns)
-        print(f"找到历史日期列: {len(all_date_columns)}个，范围: {all_date_columns[0]} 到 {all_date_columns[-1]}")
+
+        # 如果指定了日期范围，则过滤历史日期列
+        if start_date or end_date:
+            filtered_all_date_columns = []
+            for date_col in all_date_columns:
+                # 将日期列名转换为YYYYMMDD格式进行比较
+                try:
+                    # 从"2025年09月05日"格式提取日期
+                    import re
+                    match = re.search(r'(\d{4})年(\d{2})月(\d{2})日', date_col)
+                    if match:
+                        year, month, day = match.groups()
+                        date_str = f"{year}{month}{day}"
+
+                        # 检查是否在指定范围内
+                        if start_date and date_str < start_date:
+                            continue
+                        if end_date and date_str > end_date:
+                            continue
+
+                        filtered_all_date_columns.append(date_col)
+                except:
+                    # 如果解析失败，保留该日期列
+                    filtered_all_date_columns.append(date_col)
+
+            all_date_columns = filtered_all_date_columns
+            print(f"应用日期范围过滤 ({start_date} 到 {end_date})，历史日期列: {len(all_date_columns)}个")
+        else:
+            print(f"找到历史日期列: {len(all_date_columns)}个，范围: {all_date_columns[0]} 到 {all_date_columns[-1]}")
+
+        if not all_date_columns:
+            print("警告: 没有找到符合日期范围的历史数据")
+            return [], {}
 
         # 构建股票数据字典（使用分析范围内的日期）
         stock_data_dict = {}
 
+        # 如果指定了日期范围，需要过滤日期列
+        if start_date or end_date:
+            # 从所有日期列中过滤出符合范围的日期列
+            filtered_date_columns = []
+            for date_col in all_date_columns:
+                # 将日期列名转换为YYYYMMDD格式进行比较
+                try:
+                    # 从"2025年09月05日"格式提取日期
+                    import re
+                    match = re.search(r'(\d{4})年(\d{2})月(\d{2})日', date_col)
+                    if match:
+                        year, month, day = match.groups()
+                        date_str = f"{year}{month}{day}"
+
+                        # 检查是否在指定范围内
+                        if start_date and date_str < start_date:
+                            continue
+                        if end_date and date_str > end_date:
+                            continue
+
+                        filtered_date_columns.append(date_col)
+                except:
+                    # 如果解析失败，保留该日期列
+                    filtered_date_columns.append(date_col)
+
+            # 使用过滤后的日期列作为分析范围
+            analysis_date_columns = filtered_date_columns
+            print(f"应用日期范围过滤，分析日期列: {len(analysis_date_columns)}个")
+        else:
+            # 如果没有指定日期范围，使用传入的date_columns
+            analysis_date_columns = date_columns
+            print(f"使用传入的日期列: {len(analysis_date_columns)}个")
+
         # 初始化分析范围内日期的股票列表
-        for date_col in date_columns:
+        for date_col in analysis_date_columns:
             stock_data_dict[date_col] = []
 
         # 处理连板数据（使用分析范围内的日期）
         for _, row in lianban_df.iterrows():
             # 检查每个分析范围内的日期列
-            for date_col in date_columns:
+            for date_col in analysis_date_columns:
                 cell_value = row.get(date_col)
 
                 # 如果该日期有数据
@@ -383,7 +450,7 @@ def analyze_concepts_from_ladder_data(ladder_data, date_columns):
         # 处理首板数据（使用分析范围内的日期）
         for _, row in shouban_df.iterrows():
             # 检查每个分析范围内的日期列
-            for date_col in date_columns:
+            for date_col in analysis_date_columns:
                 cell_value = row.get(date_col)
 
                 # 如果该日期有数据
@@ -410,11 +477,18 @@ def analyze_concepts_from_ladder_data(ladder_data, date_columns):
                                 }
                                 stock_data_dict[date_col].append(stock_info)
 
-        # 转换为DataFrame格式，只保留有数据的日期
+        # 转换为DataFrame格式，只保留有数据的日期，并去重
         filtered_stock_data_dict = {}
-        for date_col in date_columns:
+
+        for date_col in analysis_date_columns:  # 使用analysis_date_columns而不是date_columns
             if stock_data_dict[date_col]:  # 如果列表不为空
-                filtered_stock_data_dict[date_col] = pd.DataFrame(stock_data_dict[date_col])
+                df = pd.DataFrame(stock_data_dict[date_col])
+
+                # 去重：同一只股票在同一天的同一个原因只保留一次
+                # 基于股票代码、股票简称、涨停原因进行去重
+                df = df.drop_duplicates(subset=['股票代码', '股票简称', '涨停原因'], keep='first')
+
+                filtered_stock_data_dict[date_col] = df
 
         stock_data_dict = filtered_stock_data_dict
 
@@ -422,7 +496,7 @@ def analyze_concepts_from_ladder_data(ladder_data, date_columns):
 
         # 分析原因数据（需要从所有历史数据中分析原因的首次出现日期）
         reason_stats, new_reasons = analyze_concept_data_with_history(
-            stock_data_dict, date_columns, all_date_columns, lianban_df, shouban_df)
+            stock_data_dict, analysis_date_columns, all_date_columns, lianban_df, shouban_df)
 
         # 获取热门原因
         top_reasons = get_top_concepts(reason_stats)
@@ -448,24 +522,23 @@ def format_concept_analysis_summary(top_concepts, new_concepts):
         str: 格式化的摘要文本
     """
     summary = []
-    
+
     summary.append("=== 题材概念分析结果 ===")
-    
+
     # 热门概念
     summary.append(f"\n热门概念 Top {len(top_concepts)}:")
     for i, (concept, stats) in enumerate(top_concepts, 1):
         summary.append(f"{i:2d}. {concept}: {stats['count']}次")
-    
+
     # 新概念
     if new_concepts:
         summary.append(f"\n新概念 (最近{NEW_CONCEPT_DAYS}天出现):")
-        sorted_new = sorted(new_concepts.items(), key=lambda x: x[1]['count'], reverse=True)
+        # 排序：出现次数（倒序），首次出现（倒序）
+        # 注意：first_date是字符串，需要用reverse=True来实现倒序
+        sorted_new = sorted(new_concepts.items(), key=lambda x: (x[1]['count'], x[1]['first_date']), reverse=True)
         for concept, stats in sorted_new:
             summary.append(f"  - {concept}: {stats['count']}次 (首次: {stats['first_date']})")
     else:
         summary.append(f"\n新概念: 无 (最近{NEW_CONCEPT_DAYS}天)")
-    
+
     return "\n".join(summary)
-
-
-

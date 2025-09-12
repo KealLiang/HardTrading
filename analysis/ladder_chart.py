@@ -2735,7 +2735,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         try:
             # 从原始连板数据中分析原因
             print("从原始连板数据中分析原因...")
-            concept_analysis_data = analyze_concepts_from_ladder_data(lianban_df, date_columns)
+            concept_analysis_data = analyze_concepts_from_ladder_data(lianban_df, date_columns, start_date, end_date)
 
             if concept_analysis_data:
                 reason_stats, new_reasons = concept_analysis_data
