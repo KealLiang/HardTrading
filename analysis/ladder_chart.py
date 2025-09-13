@@ -10,14 +10,14 @@ from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 
+from analysis.concept_analyzer import (
+    analyze_concepts_from_ladder_data, format_concept_analysis_summary
+)
 from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
 from analysis.momo_shangzhang_processor import (
     identify_momo_shangzhang_stocks
-)
-from analysis.concept_analyzer import (
-    analyze_concepts_from_ladder_data, format_concept_analysis_summary
 )
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
@@ -96,6 +96,10 @@ MA_SLOPE_DAYS = 5
 MA_SLOPE_THRESHOLD_PCT = 2  # 单位：%，均线日变化率阈值
 # 均线斜率缓存
 _ma_slope_cache = {}
+
+# 炸板格式缓存，用于在A和B sheet之间共享炸板格式信息
+_zaban_format_cache = {}
+
 # 斜率统计信息（用于分析和调试）
 _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
 
@@ -123,12 +127,43 @@ PERIOD_CHANGE_COLORS = {
 
 def clear_caches():
     """清理所有缓存"""
-    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats
+    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats, _zaban_format_cache
     _high_gain_cache.clear()
     _new_high_markers_cache = None
     _ma_slope_cache.clear()
     _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
+    _zaban_format_cache.clear()
     print("已清理所有缓存")
+
+
+def cache_zaban_format(stock_code, formatted_day, is_zaban):
+    """
+    缓存炸板格式信息
+
+    Args:
+        stock_code: 股票代码
+        formatted_day: 格式化的日期
+        is_zaban: 是否为炸板
+    """
+    global _zaban_format_cache
+    key = f"{stock_code}_{formatted_day}"
+    _zaban_format_cache[key] = is_zaban
+
+
+def get_cached_zaban_format(stock_code, formatted_day):
+    """
+    获取缓存的炸板格式信息
+
+    Args:
+        stock_code: 股票代码
+        formatted_day: 格式化的日期
+
+    Returns:
+        bool: 是否为炸板，如果缓存中没有则返回None
+    """
+    global _zaban_format_cache
+    key = f"{stock_code}_{formatted_day}"
+    return _zaban_format_cache.get(key)
 
 
 @lru_cache(maxsize=1000)
@@ -1700,6 +1735,9 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     # 检查是否为炸板股票
     is_zaban = check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day)
 
+    # 缓存炸板格式信息，供B sheet使用
+    cache_zaban_format(pure_stock_code, formatted_day, is_zaban)
+
     # 检查是否为【默默上涨】数据
     is_momo_shangzhang = stock.get('entry_type') == 'momo_shangzhang'
 
@@ -2632,10 +2670,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             volume_grouped_df = grouped_df if 'grouped_df' in locals() else result_df.copy()
 
             create_volume_concept_grouped_sheet(wb, volume_sheet_name, volume_grouped_df, shouban_df, stock_data,
-                                              stock_entry_count, formatted_trading_days, date_column_start,
-                                              show_period_change, period_column, period_days, period_days_long,
-                                              stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                              zaban_df)
+                                                stock_entry_count, formatted_trading_days, date_column_start,
+                                                show_period_change, period_column, period_days, period_days_long,
+                                                stock_details, date_mapping, max_tracking_days,
+                                                max_tracking_days_before,
+                                                zaban_df)
 
     # 创建龙头股工作表（如果启用）
     if create_leader_sheet:
@@ -3292,7 +3331,9 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
 
     # 冻结前三列和前三行
-    ws.freeze_panes = ws.cell(row=4, column=date_column_start)
+    from openpyxl.utils import get_column_letter
+    freeze_cell = f"{get_column_letter(date_column_start)}4"
+    ws.freeze_panes = freeze_cell
 
 
 def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
@@ -3358,11 +3399,10 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
             # 添加空行作为分隔
             current_row += 1
 
-            # 添加概念组标题行
-            concept_title_cell = ws.cell(row=current_row, column=2, value=f"【{stock_concept_group}】")
+            # 添加概念组标题行，合并所有列
+            concept_title_cell = ws.cell(row=current_row, column=1, value=f"【{stock_concept_group}】")
             concept_title_cell.font = Font(bold=True, size=12)
-            concept_title_cell.alignment = Alignment(horizontal='center')
-            concept_title_cell.border = BORDER_STYLE
+            concept_title_cell.alignment = Alignment(horizontal='left')
 
             # 为概念组标题行设置背景色
             if stock_concept_group in reason_colors:
@@ -3370,14 +3410,23 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
                 # 如果背景色较深，使用白色字体
                 if reason_colors[stock_concept_group] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
                     concept_title_cell.font = Font(bold=True, size=12, color="FFFFFF")
+
+            # 计算合并的结束列
+            end_col = date_column_start + len(formatted_trading_days) - 1
+            if show_period_change:
+                end_col += 1
+            if show_warning_column:
+                end_col += 1
+
+            # 合并概念组标题行的所有列
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=end_col)
 
             current_row += 1
         elif current_concept_group is None:
-            # 第一个概念组，添加标题行
-            concept_title_cell = ws.cell(row=current_row, column=2, value=f"【{stock_concept_group}】")
+            # 第一个概念组，添加标题行，合并所有列
+            concept_title_cell = ws.cell(row=current_row, column=1, value=f"【{stock_concept_group}】")
             concept_title_cell.font = Font(bold=True, size=12)
-            concept_title_cell.alignment = Alignment(horizontal='center')
-            concept_title_cell.border = BORDER_STYLE
+            concept_title_cell.alignment = Alignment(horizontal='left')
 
             # 为概念组标题行设置背景色
             if stock_concept_group in reason_colors:
@@ -3385,6 +3434,16 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
                 # 如果背景色较深，使用白色字体
                 if reason_colors[stock_concept_group] in ["FF5A5A", "FF8C42", "9966FF", "45B5FF"]:
                     concept_title_cell.font = Font(bold=True, size=12, color="FFFFFF")
+
+            # 计算合并的结束列
+            end_col = date_column_start + len(formatted_trading_days) - 1
+            if show_period_change:
+                end_col += 1
+            if show_warning_column:
+                end_col += 1
+
+            # 合并概念组标题行的所有列
+            ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=end_col)
 
             current_row += 1
 

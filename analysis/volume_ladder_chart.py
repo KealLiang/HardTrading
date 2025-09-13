@@ -240,7 +240,7 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
                               zaban_df, new_high_markers, thresholds=None):
     """
     处理成交量版本的每日单元格数据
-    
+
     Args:
         ws: Excel工作表
         row_idx: 行索引
@@ -254,7 +254,7 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据
         new_high_markers: 新高标记
-    
+
     Returns:
         最后连板日期（如果有的话）
     """
@@ -269,6 +269,13 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
     # 检查是否有连板数据
     board_days = all_board_data.get(formatted_day)
 
+    # 检查是否为炸板股票（优先使用缓存，如果没有缓存则重新计算）
+    from analysis.ladder_chart import get_cached_zaban_format, check_stock_in_zaban
+    is_zaban = get_cached_zaban_format(pure_stock_code, formatted_day)
+    if is_zaban is None:
+        # 如果缓存中没有，重新计算
+        is_zaban = check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day)
+
     if pd.notna(board_days) and board_days > 0:
         # 有连板数据，显示连板信息（保持原有逻辑）
         from analysis.ladder_chart import format_board_cell
@@ -276,6 +283,12 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
             ws, row_idx, col_idx, board_days, pure_stock_code,
             f"{stock_code}_{formatted_day}", stock_details, current_date_obj
         )
+
+        # 如果是炸板股票，添加炸板格式
+        if is_zaban:
+            from analysis.ladder_chart import add_zaban_underline
+            add_zaban_underline(cell)
+
         return last_board_date
     else:
         # 没有连板数据，显示成交量涨跌幅
@@ -286,6 +299,11 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
         else:
             cell = ws.cell(row=row_idx, column=col_idx, value="")
             cell.border = BORDER_STYLE
+
+        # 如果是炸板股票，添加炸板格式
+        if is_zaban:
+            from analysis.ladder_chart import add_zaban_underline
+            add_zaban_underline(cell)
 
         return None
 
@@ -539,7 +557,7 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
 
     print(f"按概念分组排序后的股票数量: {len(concept_grouped_df)}")
 
-    # 设置表头
+    # 设置表头，显示异动预警列（与A sheet保持一致）
     from analysis.ladder_chart import setup_excel_header
     show_warning_column = True
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days,
