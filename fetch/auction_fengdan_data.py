@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import json
 import time
-from utils.date_util import get_prev_trading_day, is_trading_day
+from utils.date_util import get_prev_trading_day, get_current_or_prev_trading_day, is_trading_day
 
 
 class AuctionFengdanCollector:
@@ -51,12 +51,21 @@ class AuctionFengdanCollector:
         os.makedirs(os.path.join(self.data_dir, "analysis"), exist_ok=True)
 
     def get_current_trading_day(self) -> str:
-        """获取当前交易日"""
+        """获取最近的交易日"""
         today = datetime.now().strftime('%Y%m%d')
+
+        # 检查今天是否是交易日
         if is_trading_day(today):
             return today
-        else:
-            return get_prev_trading_day(today)
+
+        # 如果不是，往前找最近的交易日
+        for i in range(1, 8):  # 最多往前找7天
+            check_date = (datetime.now() - timedelta(days=i)).strftime('%Y%m%d')
+            if is_trading_day(check_date):
+                return check_date
+
+        # 如果都找不到，使用原来的方法
+        return get_current_or_prev_trading_day(today)
     
     def get_zt_fengdan_data(self, date_str: str = None) -> pd.DataFrame:
         """
@@ -270,7 +279,7 @@ class AuctionFengdanCollector:
             保存的文件路径
         """
         if date_str is None:
-            date_str = datetime.now().strftime('%Y%m%d')
+            date_str = self.get_current_trading_day()
         
         # 获取数据
         zt_data = self.get_zt_fengdan_data(date_str)
@@ -355,9 +364,9 @@ class AuctionFengdanCollector:
                 results[target_time] = data
                 
                 # 保存时间点数据
-                date_str = datetime.now().strftime('%Y%m%d')
+                date_str = self.get_current_trading_day()
                 file_path = os.path.join(
-                    self.data_dir, "daily", 
+                    self.data_dir, "daily",
                     f"{date_str}_{target_time.replace(':', '')}_fengdan.csv"
                 )
                 data.to_csv(file_path, index=False, encoding='utf-8-sig')

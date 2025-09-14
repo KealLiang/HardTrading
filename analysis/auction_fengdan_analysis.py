@@ -195,13 +195,17 @@ class AuctionFengdanAnalyzer:
         
         return comparison_df
     
-    def plot_fengdan_distribution(self, date_str: str = None, save_plot: bool = True):
+    def plot_fengdan_distribution(self, date_str: str = None, save_plot: bool = True, show_plot: bool = False):
         """
         绘制封单额分布图（涨停+跌停综合）
 
         Args:
             date_str: 日期字符串，默认为当前交易日
             save_plot: 是否保存图片
+            show_plot: 是否显示图片（默认不显示，避免阻塞）
+
+        Returns:
+            str: 保存的图片文件路径，如果没有保存则返回None
         """
         if date_str is None:
             date_str = self.get_current_trading_day()
@@ -213,7 +217,7 @@ class AuctionFengdanAnalyzer:
 
         if df.empty:
             print(f"没有 {date_str} 的数据")
-            return
+            return None
 
         # 分离涨停和跌停数据
         zt_df = df[df['涨跌类型'] == '涨停'].copy() if '涨跌类型' in df.columns else df.copy()
@@ -301,12 +305,18 @@ class AuctionFengdanAnalyzer:
 
         plt.tight_layout()
 
+        output_file = None
         if save_plot:
             output_file = os.path.join(self.images_dir, f"{date_str}_auction_fengdan_analysis.png")
             plt.savefig(output_file, dpi=300, bbox_inches='tight')
             print(f"图表已保存: {output_file}")
 
-        plt.show()
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()  # 关闭图表，避免阻塞
+
+        return output_file
     
     def plot_timepoint_comparison(self, date_str: str, save_plot: bool = True):
         """
@@ -412,6 +422,100 @@ class AuctionFengdanAnalyzer:
 
         print(f"分析报告已生成: {report_file}")
         return report_file
+
+    def run_comprehensive_analysis(self, date_str: str = None, show_plot: bool = False) -> Dict:
+        """
+        运行综合分析（复盘分析的主要逻辑）
+
+        Args:
+            date_str: 指定日期，格式YYYYMMDD，默认为最近交易日
+            show_plot: 是否显示图表（默认不显示，避免阻塞）
+
+        Returns:
+            分析结果字典
+        """
+        from fetch.auction_fengdan_data import AuctionFengdanCollector
+        import pandas as pd
+
+        collector = AuctionFengdanCollector()
+
+        # 确定分析日期
+        if date_str is None:
+            date_str = collector.get_current_trading_day()
+
+        print(f"=== A股集合竞价封单数据复盘分析 ({date_str}) ===")
+
+        # 获取综合数据（涨停+跌停）
+        print("1. 获取综合封单数据...")
+        current_data = collector.get_combined_fengdan_data(date_str)
+
+        if current_data.empty:
+            print("❌ 当前没有涨停或跌停数据")
+            return {}
+
+        # 分离涨停和跌停数据
+        zt_data = current_data[current_data['涨跌类型'] == '涨停'] if '涨跌类型' in current_data.columns else current_data
+        dt_data = current_data[current_data['涨跌类型'] == '跌停'] if '涨跌类型' in current_data.columns else pd.DataFrame()
+
+        print(f"涨停板数量: {len(zt_data)}")
+        print(f"跌停板数量: {len(dt_data)}")
+
+        # 显示涨停封单额前10名
+        if not zt_data.empty:
+            print("\n📈 涨停封单额前10名:")
+            top_10_zt = zt_data[['代码', '名称', '封板资金', '首次封板时间', '封板时间段']].head(10)
+            for _, row in top_10_zt.iterrows():
+                code = str(row['代码']).zfill(6)
+                print(f"  {code} {row['名称']}: {row['封板资金']/1e8:.2f}亿 ({row['首次封板时间']})")
+
+        # 显示跌停封单额前5名
+        if not dt_data.empty:
+            print("\n📉 跌停封单额前5名:")
+            top_5_dt = dt_data.nsmallest(5, '封板资金')  # 跌停是负数，用nsmallest
+            for _, row in top_5_dt.iterrows():
+                code = str(row['代码']).zfill(6)
+                amount = abs(row['封板资金']) / 1e8
+                print(f"  {code} {row['名称']}: {amount:.2f}亿")
+
+        # 竞价阶段封板股票
+        auction_stocks = current_data[current_data['首次封板时间'].astype(str).str.startswith('092')] if '首次封板时间' in current_data.columns else pd.DataFrame()
+        if not auction_stocks.empty:
+            print(f"\n🎯 竞价阶段封板股票 ({len(auction_stocks)} 只):")
+            for _, row in auction_stocks.iterrows():
+                code = str(row['代码']).zfill(6)
+                amount = abs(row['封板资金']) / 1e8
+                type_str = row.get('涨跌类型', '涨停')
+                print(f"  {code} {row['名称']}: {amount:.2f}亿 ({type_str})")
+        else:
+            print("\n🎯 当前没有竞价阶段封板的股票")
+
+        # 保存数据
+        saved_file = collector.save_daily_data(date_str)
+        if saved_file:
+            print(f"\n💾 数据已保存到: {saved_file}")
+
+        # 生成分析报告和图表
+        print("\n📊 生成分析报告和图表...")
+        report_file = self.generate_daily_report(date_str)
+        if report_file:
+            print(f"📄 分析报告: {report_file}")
+
+        chart_file = self.plot_fengdan_distribution(date_str, save_plot=True, show_plot=show_plot)
+        if chart_file:
+            print(f"📊 分析图表: {chart_file}")
+
+        # 返回分析结果
+        return {
+            'date': date_str,
+            'zt_count': len(zt_data),
+            'dt_count': len(dt_data),
+            'auction_count': len(auction_stocks),
+            'total_zt_amount': zt_data['封板资金'].sum() if not zt_data.empty else 0,
+            'total_dt_amount': abs(dt_data['封板资金'].sum()) if not dt_data.empty else 0,
+            'report_file': report_file,
+            'chart_file': chart_file,
+            'data_file': saved_file
+        }
 
 
 def main():

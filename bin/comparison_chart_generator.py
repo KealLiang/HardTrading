@@ -292,5 +292,45 @@ def main():
     generator.generate_recent_comparisons(summary_path, recent_days=10)
 
 
+def run_auto_generation(recent_days: int = 10) -> List[str]:
+    """
+    自动查找最新summary文件并生成对比图
+
+    Args:
+        recent_days: 生成最近几天的对比图
+
+    Returns:
+        生成的文件列表
+    """
+    # 自动查找最新的scan_summary文件
+    base_dir = 'bin/candidate_stocks_result'
+    summary_files = [f for f in os.listdir(base_dir) if f.startswith('scan_summary_') and f.endswith('.txt')]
+
+    if not summary_files:
+        print("没有找到scan_summary文件，请先运行strategy_scan()生成扫描结果")
+        return []
+
+    # 选择最新的summary文件
+    latest_summary = sorted(summary_files)[-1]
+    summary_path = os.path.join(base_dir, latest_summary)
+
+    print(f"使用summary文件: {summary_path}")
+
+    # 创建生成器并生成对比图
+    generator = ComparisonChartGenerator(base_dir)
+    generated_files = generator.generate_recent_comparisons(summary_path, recent_days=recent_days)
+
+    if generated_files:
+        print(f"\n✅ 成功生成 {len(generated_files)} 张对比图")
+        print(f"📁 对比图保存位置: {generator.comparison_dir}")
+        print("\n生成的对比图:")
+        for file in generated_files:
+            print(f"  📊 {os.path.basename(file)}")
+    else:
+        print("❌ 没有生成任何对比图，请检查数据完整性")
+
+    return generated_files
+
+
 if __name__ == '__main__':
-    main() 
+    main()
