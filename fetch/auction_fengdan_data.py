@@ -248,24 +248,42 @@ class AuctionFengdanCollector:
     
     def get_auction_period_stocks(self, date_str: str = None) -> pd.DataFrame:
         """
-        获取竞价阶段封板的股票
-        
+        获取竞价阶段封板的股票（包含涨停和跌停）
+
         Args:
             date_str: 日期字符串
-            
+
         Returns:
             竞价阶段封板的股票数据
         """
-        zt_data = self.get_zt_fengdan_data(date_str)
-        
-        if zt_data.empty:
+        # 获取综合数据（涨停+跌停）
+        combined_data = self.get_combined_fengdan_data(date_str)
+
+        if combined_data.empty:
             return pd.DataFrame()
-        
+
         # 筛选竞价阶段封板的股票
-        auction_stocks = zt_data[zt_data['封板时间段'] == "竞价阶段(09:15-09:25)"]
-        
+        # 方法1：使用封板时间段字段（如果存在）
+        if '封板时间段' in combined_data.columns:
+            auction_stocks = combined_data[combined_data['封板时间段'] == "竞价阶段(09:15-09:25)"]
+        else:
+            # 方法2：使用首次封板时间或最后封板时间
+            auction_stocks = pd.DataFrame()
+
+            # 处理涨停数据（使用首次封板时间）
+            zt_data = combined_data[combined_data.get('涨跌类型', '') == '涨停'] if '涨跌类型' in combined_data.columns else combined_data
+            if not zt_data.empty and '首次封板时间' in zt_data.columns:
+                zt_auction = zt_data[zt_data['首次封板时间'].astype(str).str.startswith('092')]
+                auction_stocks = pd.concat([auction_stocks, zt_auction], ignore_index=True)
+
+            # 处理跌停数据（使用最后封板时间）
+            dt_data = combined_data[combined_data.get('涨跌类型', '') == '跌停'] if '涨跌类型' in combined_data.columns else pd.DataFrame()
+            if not dt_data.empty and '最后封板时间' in dt_data.columns:
+                dt_auction = dt_data[dt_data['最后封板时间'].astype(str).str.startswith('092')]
+                auction_stocks = pd.concat([auction_stocks, dt_auction], ignore_index=True)
+
         self.logger.info(f"竞价阶段封板股票数量: {len(auction_stocks)}")
-        
+
         return auction_stocks
     
     def save_daily_data(self, date_str: str = None) -> str:
