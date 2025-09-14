@@ -2,6 +2,7 @@ import logging
 import os
 import warnings
 
+from alerting.auction_scheduler import AuctionScheduler
 from bin import simulator
 from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
@@ -39,6 +40,7 @@ from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yy
 from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
+from fetch.auction_fengdan_data import AuctionFengdanCollector
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
@@ -549,14 +551,113 @@ def generate_comparison_charts():
         print("❌ 没有生成任何对比图，请检查数据完整性")
 
 
-if __name__ == '__main__':
-    # === 参数优化功能 ===
-    # 1. 生成配置模板
-    # generate_optimization_templates()
-    # 2. 运行参数优化（需要先生成并编辑配置文件）
-    # run_parameter_optimization("compare_config.yaml")
+def auction_fengdan_analyze():
+    """集合竞价封单数据复盘分析"""
+    print("=== A股集合竞价封单数据复盘分析 ===")
 
-    # === 原有功能 ===
+    import pandas as pd
+    from analysis.auction_fengdan_analysis import AuctionFengdanAnalyzer
+
+    collector = AuctionFengdanCollector()
+    analyzer = AuctionFengdanAnalyzer()
+
+    # 获取当前交易日的综合数据（涨停+跌停）
+    print("1. 获取当前交易日综合封单数据...")
+    current_data = collector.get_combined_fengdan_data()
+
+    if not current_data.empty:
+        # 分离涨停和跌停数据
+        zt_data = current_data[current_data['涨跌类型'] == '涨停'] if '涨跌类型' in current_data.columns else current_data
+        dt_data = current_data[current_data['涨跌类型'] == '跌停'] if '涨跌类型' in current_data.columns else pd.DataFrame()
+
+        print(f"涨停板数量: {len(zt_data)}")
+        print(f"跌停板数量: {len(dt_data)}")
+
+        # 显示涨停封单额前10名
+        if not zt_data.empty:
+            print("\n📈 涨停封单额前10名:")
+            top_10_zt = zt_data[['代码', '名称', '封板资金', '首次封板时间', '封板时间段']].head(10)
+            for _, row in top_10_zt.iterrows():
+                code = str(row['代码']).zfill(6)
+                print(f"  {code} {row['名称']}: {row['封板资金']/1e8:.2f}亿 ({row['首次封板时间']})")
+
+        # 显示跌停封单额前5名
+        if not dt_data.empty:
+            print("\n📉 跌停封单额前5名:")
+            top_5_dt = dt_data.nsmallest(5, '封板资金')  # 跌停是负数，用nsmallest
+            for _, row in top_5_dt.iterrows():
+                code = str(row['代码']).zfill(6)
+                amount = abs(row['封板资金']) / 1e8
+                print(f"  {code} {row['名称']}: {amount:.2f}亿")
+
+        # 竞价阶段封板股票
+        auction_stocks = current_data[current_data['首次封板时间'].astype(str).str.startswith('092')] if '首次封板时间' in current_data.columns else pd.DataFrame()
+        if not auction_stocks.empty:
+            print(f"\n🎯 竞价阶段封板股票 ({len(auction_stocks)} 只):")
+            for _, row in auction_stocks.iterrows():
+                code = str(row['代码']).zfill(6)
+                amount = abs(row['封板资金']) / 1e8
+                type_str = row.get('涨跌类型', '涨停')
+                print(f"  {code} {row['名称']}: {amount:.2f}亿 ({type_str})")
+        else:
+            print("\n🎯 当前没有竞价阶段封板的股票")
+
+        # 保存数据
+        saved_file = collector.save_daily_data()
+        if saved_file:
+            print(f"\n💾 数据已保存到: {saved_file}")
+
+        # 生成分析报告和图表
+        print("\n📊 生成分析报告和图表...")
+        trading_day = collector.get_current_trading_day()
+        analyzer.generate_daily_report(trading_day)
+        analyzer.plot_fengdan_distribution(trading_day)
+
+    else:
+        print("❌ 当前没有涨停或跌停数据")
+
+
+def auction_scheduler_start():
+    """启动集合竞价数据定时采集"""
+    print("=== 集合竞价数据定时采集调度器 ===")
+    scheduler = AuctionScheduler()
+
+    print("采集时间点: 09:15, 09:20, 09:25")
+    print("1. 手动采集一次")
+    print("2. 启动定时调度器")
+    print("3. 查看调度器状态")
+
+    choice = input("请选择操作 (1-3): ").strip()
+
+    if choice == '1':
+        print("正在手动采集数据...")
+        scheduler.manual_collect_now()
+
+    elif choice == '2':
+        print("启动定时调度器...")
+        print("调度器将在交易日的 09:15, 09:20, 09:25 自动采集数据")
+        print("按 Ctrl+C 停止调度器")
+
+        try:
+            thread = scheduler.start_scheduler()
+            import time
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            scheduler.stop_scheduler()
+            print("\n调度器已停止")
+
+    elif choice == '3':
+        status = scheduler.get_schedule_status()
+        print(f"调度器状态: {'运行中' if status['is_running'] else '已停止'}")
+        print(f"今日已采集: {status['collected_today']}")
+        print(f"采集时间点: {status['target_times']}")
+    else:
+        print("无效选择")
+
+
+if __name__ == '__main__':
+    # === 复盘相关 ===
     # daily_routine()
     # backtrade_simulate()
     # run_psq_analysis()
@@ -567,7 +668,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
@@ -586,3 +687,13 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
+
+    # === 参数优化功能 ===
+    # 1. 生成配置模板
+    # generate_optimization_templates()
+    # 2. 运行参数优化（需要先生成并编辑配置文件）
+    # run_parameter_optimization("compare_config.yaml")
+
+    # === 集合竞价封单数据功能 ===
+    auction_fengdan_analyze()  # 复盘分析封单数据
+    # auction_scheduler_start()  # 启动定时采集调度器
