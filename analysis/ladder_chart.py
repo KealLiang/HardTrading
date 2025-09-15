@@ -2676,6 +2676,19 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                                 max_tracking_days_before,
                                                 zaban_df)
 
+            # 强制同步单元格格式，确保与概念分组表一致
+            if 'concept_ws' in locals() and volume_sheet_name in wb.sheetnames:
+                volume_ws = wb[volume_sheet_name]
+                print(f"同步工作表 '{concept_ws.title}' 和 '{volume_ws.title}' 的单元格格式...")
+
+                # 1. 同步列宽
+                for col_letter, dim in concept_ws.column_dimensions.items():
+                    volume_ws.column_dimensions[col_letter].width = dim.width
+
+                # 2. 同步行高
+                for row_idx, dim in concept_ws.row_dimensions.items():
+                    volume_ws.row_dimensions[row_idx].height = dim.height
+
     # 创建龙头股工作表（如果启用）
     if create_leader_sheet:
         # 从最后一个交易日提取MMDD格式的日期作为sheet名称
