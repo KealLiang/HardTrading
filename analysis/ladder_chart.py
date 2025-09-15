@@ -840,10 +840,12 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         if not concepts:
             return "其他"
 
-        # 找到第一个在热门概念中的概念
-        for concept in concepts:
-            if concept in global_top_reasons:
-                return concept
+        # 修复分组逻辑与颜色逻辑不一致的问题
+        # 优先从热门概念列表（global_top_reasons，已排序）中匹配，确保分组与颜色逻辑一致
+        concepts_set = set(concepts)
+        for top_reason in global_top_reasons:
+            if top_reason in concepts_set:
+                return top_reason
 
         # 如果没有热门概念，返回第一个概念
         return concepts[0] if concepts else "其他"
