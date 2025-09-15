@@ -287,6 +287,7 @@ def daily_routine():
         (draw_ths_fupan, "绘制涨跌高度图"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
+        (auction_fengdan_analyze, "复盘分析封单数据"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -559,7 +560,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
@@ -596,5 +597,5 @@ if __name__ == '__main__':
     # run_parameter_optimization("compare_config.yaml")
 
     # === 集合竞价封单数据功能 ===
-    auction_fengdan_analyze()  # 复盘分析封单数据
+    # auction_fengdan_analyze()  # 复盘分析封单数据
     # 定时采集请运行: python alerting/auction_scheduler.py start
