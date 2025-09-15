@@ -36,15 +36,22 @@ VOLUME_COLOR_CONFIG = {
     "NEGATIVE_RATIO": 0.4,  # 负值(缩量)在上色数据中的比例：40%
 }
 
+# 成交量趋势分析相关参数
+VOLUME_MA_DAYS = 7  # 成交量均线天数
+VOLUME_TREND_DAYS = 3  # 判断趋势的连续天数
+VOLUME_RATIO_HIGH_THRESHOLD = 1.5  # 高活跃阈值（成交量/均线）
+VOLUME_RATIO_LOW_THRESHOLD = 0.6  # 低活跃阈值
+VOLUME_MA_SLOPE_THRESHOLD = 0.1  # 均线斜率阈值（日变化率）
+
 
 def get_stock_daily_volume_change(stock_code, date_str_yyyymmdd):
     """
     获取指定股票在特定日期的成交量涨跌幅
-    
+
     Args:
         stock_code: 股票代码
         date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-    
+
     Returns:
         float: 成交量涨跌幅百分比，如果数据不存在则返回None
     """
@@ -72,6 +79,137 @@ def get_stock_daily_volume_change(stock_code, date_str_yyyymmdd):
     except Exception as e:
         print(f"获取股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量涨跌幅时出错: {e}")
         return None
+
+
+def calculate_volume_ma(stock_code, date_str_yyyymmdd, days=VOLUME_MA_DAYS):
+    """
+    计算指定股票在特定日期的成交量均线
+
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
+        days: 均线天数
+
+    Returns:
+        float: 成交量均线，如果数据不存在则返回None
+    """
+    try:
+        df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd)
+
+        if df is None or target_row is None or target_row.empty:
+            return None
+
+        # 确保有足够的历史数据来计算均线
+        if target_idx < days - 1:
+            return None
+
+        # 获取包含当天在内的前days天的成交量数据
+        volume_data = df.iloc[target_idx - days + 1:target_idx + 1]['成交量'].values
+
+        # 检查数据有效性
+        if len(volume_data) != days or pd.isna(volume_data).any():
+            return None
+
+        # 计算均线
+        volume_ma = volume_data.mean()
+
+        return volume_ma
+
+    except Exception as e:
+        print(f"计算股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量均线时出错: {e}")
+        return None
+
+
+def get_volume_trend_indicator(stock_code, date_str_yyyymmdd, formatted_trading_days, date_mapping):
+    """
+    获取成交量趋势指标
+
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
+        formatted_trading_days: 格式化的交易日列表
+        date_mapping: 日期映射
+
+    Returns:
+        str: 趋势指标文字，如果无明显趋势则返回空字符串
+    """
+    try:
+        # 获取当前日期的成交量和均线
+        df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd)
+        if df is None or target_row is None or target_row.empty:
+            return ""
+
+        current_volume = target_row['成交量'].values[0]
+        current_ma = calculate_volume_ma(stock_code, date_str_yyyymmdd)
+
+        if pd.isna(current_volume) or current_ma is None or current_ma <= 0:
+            return ""
+
+        # 计算当前成交量相对均线的比值
+        volume_ratio = current_volume / current_ma
+
+        # 计算均线趋势（获取最近几个有数据的交易日的均线）
+        ma_values = []
+        current_date_idx = None
+
+        # 找到当前日期在交易日列表中的位置
+        for i, formatted_day in enumerate(formatted_trading_days):
+            if date_mapping.get(formatted_day) == date_str_yyyymmdd:
+                current_date_idx = i
+                break
+
+        if current_date_idx is None:
+            return ""
+
+        # 从当前日期往前收集有效的均线数据，跳过周末等无数据的日期
+        collected_days = 0
+        for i in range(current_date_idx + 1):  # 从当前日期往前遍历
+            day_idx = current_date_idx - i
+            if day_idx >= 0 and day_idx < len(formatted_trading_days):
+                formatted_day = formatted_trading_days[day_idx]
+                day_date = date_mapping.get(formatted_day)
+                if day_date:
+                    ma_value = calculate_volume_ma(stock_code, day_date)
+                    if ma_value is not None:
+                        ma_values.insert(0, ma_value)  # 插入到开头，保持时间顺序
+                        collected_days += 1
+                        if collected_days >= VOLUME_TREND_DAYS:
+                            break
+
+        # 如果收集到的数据不足，则不计算趋势
+        if len(ma_values) < 2:
+            # 数据不足时，只基于当前成交量和均线的比值判断
+            if volume_ratio >= VOLUME_RATIO_HIGH_THRESHOLD:
+                return "高量🔥"
+            elif volume_ratio <= VOLUME_RATIO_LOW_THRESHOLD:
+                return "低量💤"
+            else:
+                return ""
+
+        # 计算均线斜率（最后一天相对第一天的变化率）
+        ma_slope = (ma_values[-1] - ma_values[0]) / ma_values[0] if ma_values[0] > 0 else 0
+
+        # 判断趋势
+        if volume_ratio >= VOLUME_RATIO_HIGH_THRESHOLD:
+            if ma_slope > VOLUME_MA_SLOPE_THRESHOLD:
+                return "放量↗"
+            else:
+                return "高量🔥"
+        elif volume_ratio <= VOLUME_RATIO_LOW_THRESHOLD:
+            if ma_slope < -VOLUME_MA_SLOPE_THRESHOLD:
+                return "缩量↘"
+            else:
+                return "低量💤"
+        elif ma_slope > VOLUME_MA_SLOPE_THRESHOLD:
+            return "量增↗"
+        elif ma_slope < -VOLUME_MA_SLOPE_THRESHOLD:
+            return "量减↘"
+
+        return ""
+
+    except Exception as e:
+        print(f"获取股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量趋势指标时出错: {e}")
+        return ""
 
 
 def get_color_for_volume_change(volume_change, thresholds=None):
@@ -452,10 +590,48 @@ def fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_
         if show_period_change:
             warning_col += 1
 
-        # 异动预警列暂时留空，因为这主要针对股价异动
-        warning_cell = ws.cell(row=row_idx, column=warning_col, value="")
+        # 在成交量版本中显示成交量趋势信息
+        # 找到该股票最后一个有数据的交易日
+        last_data_date = None
+        for formatted_day_reverse in reversed(formatted_trading_days):
+            date_yyyymmdd_check = date_mapping.get(formatted_day_reverse)
+            if date_yyyymmdd_check:
+                # 检查是否有连板数据或成交量数据
+                if (all_board_data.get(formatted_day_reverse) is not None or
+                    get_stock_daily_volume_change(pure_stock_code, date_yyyymmdd_check) is not None):
+                    last_data_date = date_yyyymmdd_check
+                    break
+
+        volume_trend = ""
+        if last_data_date:
+            volume_trend = get_volume_trend_indicator(pure_stock_code, last_data_date,
+                                                    formatted_trading_days, date_mapping)
+
+
+        warning_cell = ws.cell(row=row_idx, column=warning_col, value=volume_trend)
         warning_cell.border = BORDER_STYLE
         warning_cell.alignment = Alignment(horizontal='center')
+        warning_cell.font = Font(size=9)  # 设置小一号字体
+
+        # 根据趋势类型设置颜色
+        if volume_trend:
+            if "放量" in volume_trend:
+                # 放量↗ - 红色系
+                warning_cell.fill = PatternFill(start_color="FFE6E6", fill_type="solid")  # 浅红色背景
+                warning_cell.font = Font(color="CC0000", size=9, bold=True)  # 红色字体
+            elif "缩量" in volume_trend:
+                # 缩量↘ - 绿色系
+                warning_cell.fill = PatternFill(start_color="E6F3E6", fill_type="solid")  # 浅绿色背景
+                warning_cell.font = Font(color="006600", size=9, bold=True)  # 绿色字体
+            elif "高量" in volume_trend:
+                # 高量🔥 - 橙色系
+                warning_cell.fill = PatternFill(start_color="FFF2E6", fill_type="solid")  # 浅橙色背景
+                warning_cell.font = Font(color="FF6600", size=9, bold=True)  # 橙色字体
+            elif "低量" in volume_trend:
+                # 低量💤 - 蓝色系
+                warning_cell.fill = PatternFill(start_color="E6F0FF", fill_type="solid")  # 浅蓝色背景
+                warning_cell.font = Font(color="0066CC", size=9, bold=True)  # 蓝色字体
+            # 温和变化（量增↗/量减↘）不上色
 
 
 def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
@@ -557,11 +733,26 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
 
     print(f"按概念分组排序后的股票数量: {len(concept_grouped_df)}")
 
-    # 设置表头，显示异动预警列（与A sheet保持一致）
+    # 设置表头，显示量趋势列（成交量版本专用）
     from analysis.ladder_chart import setup_excel_header
     show_warning_column = True
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days,
                                       date_column_start, show_warning_column)
+
+    # 修改表头标题为"量趋势"（成交量版本专用）
+    if show_warning_column and formatted_trading_days:
+        warning_col = len(formatted_trading_days) + date_column_start
+        if show_period_change:
+            warning_col += 1
+        warning_cell = ws.cell(row=1, column=warning_col)
+        warning_cell.value = "量趋势"
+        warning_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        # 设置与其他表头一致的格式
+        from analysis.ladder_chart import BORDER_STYLE
+        warning_cell.border = BORDER_STYLE
+        warning_cell.font = Font(bold=True, size=10)
+        # 设置量趋势列的背景色为浅蓝色，区别于异动预警
+        warning_cell.fill = PatternFill(start_color="E6F3FF", fill_type="solid")
 
     # 修改表头标题，标明这是成交量版本
     title_cell = ws.cell(row=1, column=1, value="成交量涨跌幅分析 - 涨停梯队按概念分组")
