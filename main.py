@@ -560,7 +560,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # backtrade_simulate()
     # run_psq_analysis()
     # find_candidate_stocks()
@@ -570,7 +570,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
