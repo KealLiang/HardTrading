@@ -161,15 +161,69 @@ class AuctionFengdanCollector:
             self.logger.error(f"获取跌停封单数据失败: {e}")
             return pd.DataFrame()
 
-    def get_combined_fengdan_data(self, date_str: str = None) -> pd.DataFrame:
+    def get_zhaban_fengdan_data(self, date_str: str = None) -> pd.DataFrame:
         """
-        获取综合封单数据（涨停+跌停）
+        获取炸板封单数据
 
         Args:
             date_str: 日期字符串，格式YYYYMMDD，默认为当前交易日
 
         Returns:
-            包含涨停和跌停封单数据的DataFrame
+            包含炸板封单数据的DataFrame
+        """
+        if date_str is None:
+            date_str = self.get_current_trading_day()
+
+        try:
+            self.logger.info(f"获取 {date_str} 的炸板封单数据...")
+
+            # 获取炸板数据
+            zhaban_data = ak.stock_zt_pool_zbgc_em(date=date_str)
+
+            if zhaban_data.empty:
+                self.logger.warning(f"{date_str} 没有炸板数据")
+                return pd.DataFrame()
+
+            # 按封板资金排序（如果有的话）
+            if '封板资金' in zhaban_data.columns:
+                zhaban_sorted = zhaban_data.sort_values('封板资金', ascending=False).reset_index(drop=True)
+            else:
+                zhaban_sorted = zhaban_data.reset_index(drop=True)
+
+            # 添加排名
+            zhaban_sorted['封单排名'] = range(1, len(zhaban_sorted) + 1)
+
+            # 添加时间段分类（如果有首次封板时间）
+            if '首次封板时间' in zhaban_sorted.columns:
+                zhaban_sorted['封板时间段'] = zhaban_sorted['首次封板时间'].apply(self._classify_time_period)
+            elif '炸板时间' in zhaban_sorted.columns:
+                zhaban_sorted['封板时间段'] = zhaban_sorted['炸板时间'].apply(self._classify_time_period)
+
+            # 添加采集时间
+            zhaban_sorted['采集时间'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            zhaban_sorted['交易日期'] = date_str
+
+            # 标记为炸板
+            zhaban_sorted['涨跌类型'] = '炸板'
+
+            self.logger.info(f"成功获取 {len(zhaban_sorted)} 只炸板股票的封单数据")
+
+            return zhaban_sorted
+
+        except Exception as e:
+            self.logger.error(f"获取炸板封单数据失败: {e}")
+            return pd.DataFrame()
+
+    def get_combined_fengdan_data(self, date_str: str = None, include_zhaban: bool = True) -> pd.DataFrame:
+        """
+        获取综合封单数据（涨停+跌停+炸板）
+
+        Args:
+            date_str: 日期字符串，格式YYYYMMDD，默认为当前交易日
+            include_zhaban: 是否包含炸板数据
+
+        Returns:
+            包含涨停、跌停和炸板封单数据的DataFrame
         """
         if date_str is None:
             date_str = self.get_current_trading_day()
@@ -179,6 +233,11 @@ class AuctionFengdanCollector:
 
         # 获取跌停数据
         dt_data = self.get_dt_fengdan_data(date_str)
+
+        # 获取炸板数据
+        zhaban_data = pd.DataFrame()
+        if include_zhaban:
+            zhaban_data = self.get_zhaban_fengdan_data(date_str)
 
         # 合并数据
         combined_data = []
@@ -196,27 +255,40 @@ class AuctionFengdanCollector:
                 dt_data_unified['首次封板时间'] = dt_data_unified['最后封板时间']
             combined_data.append(dt_data_unified)
 
+        if not zhaban_data.empty:
+            # 炸板数据统一字段名
+            zhaban_data_unified = zhaban_data.copy()
+            # 炸板的封板资金保持原值（正数，但标记为炸板）
+            if '封板资金' not in zhaban_data_unified.columns and '封单资金' in zhaban_data_unified.columns:
+                zhaban_data_unified['封板资金'] = zhaban_data_unified['封单资金']
+            combined_data.append(zhaban_data_unified)
+
         if not combined_data:
-            self.logger.warning(f"{date_str} 没有涨停或跌停数据")
+            self.logger.warning(f"{date_str} 没有涨停、跌停或炸板数据")
             return pd.DataFrame()
 
         # 合并所有数据
         result = pd.concat(combined_data, ignore_index=True, sort=False)
 
-        # 重新排序：涨停按封板资金降序，跌停按封单资金降序
+        # 重新排序：涨停按封板资金降序，跌停按封单资金降序，炸板按封板资金降序
         zt_mask = result['涨跌类型'] == '涨停'
         dt_mask = result['涨跌类型'] == '跌停'
+        zhaban_mask = result['涨跌类型'] == '炸板'
 
         zt_sorted = result[zt_mask].sort_values('封板资金', ascending=False) if zt_mask.any() else pd.DataFrame()
         dt_sorted = result[dt_mask].sort_values('封板资金', ascending=True) if dt_mask.any() else pd.DataFrame()  # 跌停用升序（因为是负数）
+        zhaban_sorted = result[zhaban_mask].sort_values('封板资金', ascending=False) if zhaban_mask.any() else pd.DataFrame()
 
-        # 重新合并
-        final_result = pd.concat([zt_sorted, dt_sorted], ignore_index=True)
+        # 重新合并：涨停 -> 炸板 -> 跌停
+        final_result = pd.concat([zt_sorted, zhaban_sorted, dt_sorted], ignore_index=True)
 
         # 重新编号
         final_result['综合排名'] = range(1, len(final_result) + 1)
 
-        self.logger.info(f"成功获取 {date_str} 的综合封单数据：涨停 {len(zt_sorted)} 只，跌停 {len(dt_sorted)} 只")
+        log_msg = f"成功获取 {date_str} 的综合封单数据：涨停 {len(zt_sorted)} 只，跌停 {len(dt_sorted)} 只"
+        if include_zhaban:
+            log_msg += f"，炸板 {len(zhaban_sorted)} 只"
+        self.logger.info(log_msg)
 
         return final_result
     

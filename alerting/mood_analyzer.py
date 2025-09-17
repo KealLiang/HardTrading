@@ -15,16 +15,17 @@
 创建时间：2025-01-14
 """
 
-import sys
 import os
+import sys
+
 sys.path.append('.')
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import argparse
 
 # 设置中文字体
@@ -32,21 +33,39 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 from fetch.auction_fengdan_data import AuctionFengdanCollector
-from utils.date_util import get_current_or_prev_trading_day, is_trading_day
+from utils.date_util import get_current_or_prev_trading_day
 
 
 class MoodAnalyzer:
     """盘中情绪分析器"""
-    
+
     def __init__(self):
         """初始化分析器"""
         self.collector = AuctionFengdanCollector()
         self.logger = logging.getLogger(__name__)
-        
-        # 配置参数
-        self.AUCTION_TIMES = ["09:15", "09:20", "09:25"]
-        self.INTRADAY_TIMES = ["10:00", "11:00", "13:30", "14:30"]
-        
+
+        # 注意：AUCTION_TIMES和INTRADAY_TIMES已移至auction_scheduler中管理
+
+        # akshare字段映射（解决字段名不匹配问题）
+        self.FIELD_MAPPING = {
+            # akshare字段名 -> 标准字段名
+            '代码': '股票代码',
+            '名称': '股票名称',
+            '涨跌幅': '涨幅',
+            '现价': '现价',
+            '成交额': '成交额',
+            '流通市值': '流通市值',
+            '总市值': '总市值',
+            '换手率': '换手率',
+            '连板数': '连板数',
+            '首次封板时间': '首次封板时间',
+            '最后封板时间': '最后封板时间',
+            '封板资金': '封板资金',
+            '炸板次数': '炸板次数',
+            '炸板时间': '炸板时间',
+            '封单资金': '封单资金'  # 跌停和部分炸板数据使用
+        }
+
         # 情绪阈值
         self.MOOD_THRESHOLDS = {
             90: ("极度狂热", "🔥🔥🔥🔥🔥"),
@@ -55,25 +74,57 @@ class MoodAnalyzer:
             30: ("谨慎观望", "🔥🔥"),
             0: ("恐慌情绪", "🔥")
         }
-        
+
         # 确保输出目录存在
         self.base_dir = "mood"
         os.makedirs(self.base_dir, exist_ok=True)
-    
+
+    def _map_fields(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        映射akshare字段名到标准字段名
+
+        Args:
+            df: 原始DataFrame
+
+        Returns:
+            映射后的DataFrame
+        """
+        if df.empty:
+            return df
+
+        # 创建副本避免修改原数据
+        df_mapped = df.copy()
+
+        # 应用字段映射
+        for akshare_field, standard_field in self.FIELD_MAPPING.items():
+            if akshare_field in df_mapped.columns:
+                df_mapped = df_mapped.rename(columns={akshare_field: standard_field})
+
+        # 记录映射信息
+        mapped_fields = []
+        for akshare_field, standard_field in self.FIELD_MAPPING.items():
+            if akshare_field in df.columns:
+                mapped_fields.append(f"{akshare_field}->{standard_field}")
+
+        if mapped_fields:
+            self.logger.debug(f"字段映射: {', '.join(mapped_fields)}")
+
+        return df_mapped
+
     def get_mood_level(self, score: int) -> Tuple[str, str]:
         """根据评分获取情绪等级"""
         for threshold, (level, emoji) in sorted(self.MOOD_THRESHOLDS.items(), reverse=True):
             if score >= threshold:
                 return level, emoji
         return "恐慌情绪", "🔥"
-    
+
     def calculate_mood_score(self, data: Dict) -> int:
         """
         计算情绪强度评分 (0-100分)
-        
+
         Args:
             data: 分析数据字典
-            
+
         Returns:
             情绪评分
         """
@@ -87,33 +138,37 @@ class MoodAnalyzer:
         dt_count = data.get('跌停数量', 0)
         score -= min(15, dt_count * 6)
 
-        # 3. 连板高度 (最高15分)
+        # 3. 炸板影响 (最多-15分) - 新增
+        zhaban_count = data.get('炸板数量', 0)
+        score -= min(15, zhaban_count * 3)
+
+        # 4. 连板高度 (最高15分)
         max_lianban = data.get('最高连板', 0)
         lianban_3_plus = data.get('三板以上', 0)
         score += min(15, max_lianban * 2.5 + lianban_3_plus * 1.5)
 
-        # 4. 炸板率影响 (最多-12分)
+        # 5. 炸板率影响 (最多-12分) - 基于涨停中的炸板比例
         zhaban_rate = data.get('炸板率', 0)
         score -= zhaban_rate * 12
 
-        # 5. 成交量 (最高8分)
+        # 6. 成交量 (最高8分)
         volume_ratio = data.get('成交量比', 1.0)
         if volume_ratio > 1:
             score += min(8, (volume_ratio - 1) * 16)
         else:
             score -= (1 - volume_ratio) * 8
 
-        # 6. 换手率 (最高4分)
+        # 7. 换手率 (最高4分)
         avg_turnover = data.get('平均换手率', 0)
         score += min(4, avg_turnover * 0.25)
 
-        # 7. 封板金额强度 (最高8分)
+        # 8. 封板金额强度 (最高8分)
         avg_fengdan = data.get('平均封板金额', 0)  # 亿元
         if avg_fengdan > 0:
             score += min(8, avg_fengdan * 1.6)  # 每亿元加1.6分
-        
+
         return max(0, min(100, int(score)))
-    
+
     def analyze_auction_mood(self, date_str: str = None, time_point: str = "0925") -> Dict:
         """
         分析竞价阶段情绪
@@ -129,35 +184,37 @@ class MoodAnalyzer:
             from datetime import datetime
             today = datetime.now().strftime('%Y%m%d')
             date_str = get_current_or_prev_trading_day(today)
-        
+
         try:
-            # 获取数据 - 添加详细日志
-            self.logger.info(f"开始获取竞价阶段数据，日期: {date_str}")
-
-            self.logger.info("正在获取涨停封单数据...")
-            zt_data = self.collector.get_zt_fengdan_data(date_str)
-            self.logger.info(f"涨停封单数据获取成功，共{len(zt_data)}条记录")
-
-            self.logger.info("正在获取跌停封单数据...")
-            dt_data = self.collector.get_dt_fengdan_data(date_str)
-            self.logger.info(f"跌停封单数据获取成功，共{len(dt_data)}条记录")
-
-            self.logger.info("正在获取竞价期间股票数据...")
+            # 获取竞价阶段数据（这才是竞价分析应该用的数据）
             auction_data = self.collector.get_auction_period_stocks(date_str)
-            self.logger.info(f"竞价期间股票数据获取成功，共{len(auction_data)}条记录")
-            
+
+            # 应用字段映射
+            auction_data = self._map_fields(auction_data)
+
+            # 从竞价数据中分离涨停和跌停
+            if not auction_data.empty and '涨跌类型' in auction_data.columns:
+                zt_data = auction_data[auction_data['涨跌类型'] == '涨停']
+                dt_data = auction_data[auction_data['涨跌类型'] == '跌停']
+            else:
+                # 如果没有涨跌类型字段，按涨幅判断
+                zt_data = auction_data[auction_data[
+                                           '涨幅'] > 9.5] if not auction_data.empty and '涨幅' in auction_data.columns else pd.DataFrame()
+                dt_data = auction_data[auction_data[
+                                           '涨幅'] < -9.5] if not auction_data.empty and '涨幅' in auction_data.columns else pd.DataFrame()
+
             # 基础指标
             zt_count = len(zt_data)
             dt_count = len(dt_data)
             auction_count = len(auction_data)
-            
+
             # 连板分析
             max_lianban = 0
             lianban_3_plus = 0
             if not zt_data.empty and '连板数' in zt_data.columns:
                 max_lianban = zt_data['连板数'].max()
                 lianban_3_plus = len(zt_data[zt_data['连板数'] >= 3])
-            
+
             # 换手率分析
             avg_turnover = 0
             if not zt_data.empty and '换手率' in zt_data.columns:
@@ -183,11 +240,11 @@ class MoodAnalyzer:
                 '平均封板金额': avg_fengban,
                 '净涨停': zt_count - dt_count
             }
-            
+
             # 计算情绪评分
             mood_score = self.calculate_mood_score(analysis_data)
             mood_level, mood_emoji = self.get_mood_level(mood_score)
-            
+
             return {
                 'date': date_str,
                 'time': time_point,
@@ -202,38 +259,11 @@ class MoodAnalyzer:
                     'auction_data': auction_data
                 }
             }
-            
+
         except Exception as e:
-            self.logger.error(f"竞价情绪分析失败: {e}", exc_info=True)
-            self.logger.error(f"失败详情 - 日期: {date_str}, 时间点: {time_point}")
-            # 返回基本结构，避免绘图时出错
-            import pandas as pd
-            return {
-                'date': date_str,
-                'time': time_point,
-                'type': 'auction',
-                'score': 40,  # 基础分
-                'level': '数据获取失败',
-                'emoji': '❌',
-                'data': {
-                    '涨停数量': 0,
-                    '跌停数量': 0,
-                    '竞价封板': 0,
-                    '最高连板': 0,
-                    '三板以上': 0,
-                    '炸板率': 0,
-                    '成交量比': 1.0,
-                    '平均换手率': 0,
-                    '平均封板金额': 0,
-                    '净涨停': 0
-                },
-                'raw_data': {
-                    'zt_data': pd.DataFrame(),
-                    'dt_data': pd.DataFrame(),
-                    'auction_data': pd.DataFrame()
-                }
-            }
-    
+            self.logger.error(f"竞价情绪分析失败: {e}")
+            return {}
+
     def analyze_intraday_mood(self, date_str: str = None, time_point: str = "1000") -> Dict:
         """
         分析盘中情绪
@@ -249,27 +279,27 @@ class MoodAnalyzer:
             from datetime import datetime
             today = datetime.now().strftime('%Y%m%d')
             date_str = get_current_or_prev_trading_day(today)
-        
+
         try:
-            # 获取当前数据 - 添加详细日志
-            self.logger.info(f"开始获取盘中数据，日期: {date_str}, 时间点: {time_point}")
-
-            self.logger.info("正在获取涨停封单数据...")
+            # 获取当前数据（包含炸板数据）
             zt_data = self.collector.get_zt_fengdan_data(date_str)
-            self.logger.info(f"涨停封单数据获取成功，共{len(zt_data)}条记录")
-
-            self.logger.info("正在获取跌停封单数据...")
             dt_data = self.collector.get_dt_fengdan_data(date_str)
-            self.logger.info(f"跌停封单数据获取成功，共{len(dt_data)}条记录")
-            
+            zhaban_data = self.collector.get_zhaban_fengdan_data(date_str)
+
+            # 应用字段映射
+            zt_data = self._map_fields(zt_data)
+            dt_data = self._map_fields(dt_data)
+            zhaban_data = self._map_fields(zhaban_data)
+
             # 基础指标
             zt_count = len(zt_data)
             dt_count = len(dt_data)
-            
+            zhaban_count_total = len(zhaban_data)  # 独立炸板数据
+
             # 连板和炸板分析
             max_lianban = 0
             lianban_3_plus = 0
-            zhaban_count = 0
+            zhaban_count_in_zt = 0  # 涨停中的炸板数量
             zhaban_rate = 0
 
             if not zt_data.empty:
@@ -280,9 +310,9 @@ class MoodAnalyzer:
                 if '炸板次数' in zt_data.columns:
                     # 炸板次数是每只股票的炸板次数，需要统计有炸板的股票数量
                     zhaban_stocks = zt_data[zt_data['炸板次数'] > 0]
-                    zhaban_count = len(zhaban_stocks)
-                    zhaban_rate = zhaban_count / zt_count if zt_count > 0 else 0
-            
+                    zhaban_count_in_zt = len(zhaban_stocks)
+                    zhaban_rate = zhaban_count_in_zt / zt_count if zt_count > 0 else 0
+
             # 换手率分析
             avg_turnover = 0
             if not zt_data.empty and '换手率' in zt_data.columns:
@@ -302,20 +332,20 @@ class MoodAnalyzer:
             analysis_data = {
                 '涨停数量': zt_count,
                 '跌停数量': dt_count,
-                '炸板数量': zhaban_count,
+                '炸板数量': zhaban_count_total,  # 使用独立炸板数据总数
                 '最高连板': max_lianban,
                 '三板以上': lianban_3_plus,
-                '炸板率': zhaban_rate,
+                '炸板率': zhaban_rate,  # 基于涨停中的炸板比例
                 '成交量比': volume_ratio,
                 '平均换手率': avg_turnover,
                 '平均封板金额': avg_fengban,
                 '净涨停': zt_count - dt_count
             }
-            
+
             # 计算情绪评分
             mood_score = self.calculate_mood_score(analysis_data)
             mood_level, mood_emoji = self.get_mood_level(mood_score)
-            
+
             return {
                 'date': date_str,
                 'time': time_point,
@@ -326,38 +356,14 @@ class MoodAnalyzer:
                 'data': analysis_data,
                 'raw_data': {
                     'zt_data': zt_data,
-                    'dt_data': dt_data
+                    'dt_data': dt_data,
+                    'zhaban_data': zhaban_data
                 }
             }
-            
+
         except Exception as e:
-            self.logger.error(f"盘中情绪分析失败: {e}", exc_info=True)
-            self.logger.error(f"失败详情 - 日期: {date_str}, 时间点: {time_point}")
-            # 返回基本结构，避免绘图时出错
-            return {
-                'date': date_str,
-                'time': time_point,
-                'type': 'intraday',
-                'score': 40,  # 基础分
-                'level': '数据获取失败',
-                'emoji': '❌',
-                'data': {
-                    '涨停数量': 0,
-                    '跌停数量': 0,
-                    '炸板数量': 0,
-                    '最高连板': 0,
-                    '三板以上': 0,
-                    '炸板率': 0,
-                    '成交量比': 1.0,
-                    '平均换手率': 0,
-                    '平均封板金额': 0,
-                    '净涨停': 0
-                },
-                'raw_data': {
-                    'zt_data': pd.DataFrame(),
-                    'dt_data': pd.DataFrame()
-                }
-            }
+            self.logger.error(f"盘中情绪分析失败: {e}")
+            return {}
 
     def generate_mood_report(self, analysis: Dict) -> str:
         """
@@ -446,11 +452,12 @@ class MoodAnalyzer:
 |------|------|----------|
 | 🔴 涨停数量 | {data['涨停数量']}只 | +{min(25, data['涨停数量'] * 1.2):.1f}分 |
 | 🟢 跌停数量 | {data['跌停数量']}只 | -{min(15, data['跌停数量'] * 6):.1f}分 |
-| 🔗 连板高度 | 最高{data['最高连板']}板 | +{min(15, data['最高连板'] * 2.5 + data['三板以上'] * 1.5):.1f}分 |
-| 💰 封板金额 | {data.get('平均封板金额', 0):.1f}亿元 | +{min(8, data.get('平均封板金额', 0) * 1.6):.1f}分 |
-| 📊 成交量比 | {data.get('成交量比', 1.0):.1f}倍 | {'+'if data.get('成交量比', 1.0) > 1 else ''}{min(8, (data.get('成交量比', 1.0) - 1) * 16) if data.get('成交量比', 1.0) > 1 else -(1 - data.get('成交量比', 1.0)) * 8:.1f}分 |
+| � 炸板数量 | {data.get('炸板数量', 0)}只 | -{min(15, data.get('炸板数量', 0) * 3):.1f}分 |
+| �🔗 连板高度 | 最高{data['最高连板']}板 | +{min(15, data['最高连板'] * 2.5 + data['三板以上'] * 1.5):.1f}分 |
+| � 炸板率 | {data.get('炸板率', 0):.1%} | -{data.get('炸板率', 0) * 12:.1f}分 |
+| 📊 成交量比 | {data.get('成交量比', 1.0):.1f}倍 | {'+' if data.get('成交量比', 1.0) > 1 else ''}{min(8, (data.get('成交量比', 1.0) - 1) * 16) if data.get('成交量比', 1.0) > 1 else -(1 - data.get('成交量比', 1.0)) * 8:.1f}分 |
 | 🔄 换手率 | {data.get('平均换手率', 0):.1f}% | +{min(4, data.get('平均换手率', 0) * 0.25):.1f}分 |
-| 💥 炸板率 | {data.get('炸板率', 0):.1%} | -{data.get('炸板率', 0) * 12:.1f}分 |
+| � 封板金额 | {data.get('平均封板金额', 0):.1f}亿元 | +{min(8, data.get('平均封板金额', 0) * 1.6):.1f}分 |
 
 ### 情绪信号
 {chr(10).join(signals)}
@@ -501,9 +508,10 @@ class MoodAnalyzer:
 |------|------|----------|
 | 🔴 涨停数量 | {data['涨停数量']}只 | +{min(25, data['涨停数量'] * 1.2):.1f}分 |
 | 🟢 跌停数量 | {data['跌停数量']}只 | -{min(15, data['跌停数量'] * 6):.1f}分 |
+| 💥 炸板数量 | {data.get('炸板数量', 0)}只 | -{min(15, data.get('炸板数量', 0) * 3):.1f}分 |
 | 🔗 连板高度 | 最高{data['最高连板']}板 | +{min(15, data['最高连板'] * 2.5 + data['三板以上'] * 1.5):.1f}分 |
 | 💥 炸板率 | {zhaban_rate:.1%} | -{zhaban_rate * 12:.1f}分 |
-| 📊 成交量比 | {data['成交量比']:.1f}倍 | {'+'if data['成交量比'] > 1 else ''}{min(8, (data['成交量比'] - 1) * 16) if data['成交量比'] > 1 else -(1 - data['成交量比']) * 8:.1f}分 |
+| 📊 成交量比 | {data['成交量比']:.1f}倍 | {'+' if data['成交量比'] > 1 else ''}{min(8, (data['成交量比'] - 1) * 16) if data['成交量比'] > 1 else -(1 - data['成交量比']) * 8:.1f}分 |
 | 🔄 换手率 | {data['平均换手率']:.1f}% | +{min(4, data['平均换手率'] * 0.25):.1f}分 |
 | 💰 封板金额 | {data.get('平均封板金额', 0):.1f}亿元 | +{min(8, data.get('平均封板金额', 0) * 1.6):.1f}分 |
 
@@ -586,7 +594,7 @@ class MoodAnalyzer:
         # 保存图表 - 优化文件大小
         chart_path = os.path.join(date_dir, f"{time_point}_auction_mood.png")
         plt.savefig(chart_path, dpi=120, bbox_inches='tight', facecolor='white',
-                   edgecolor='none', format='png')
+                    edgecolor='none', format='png')
         plt.close()
 
         return chart_path
@@ -628,7 +636,7 @@ class MoodAnalyzer:
         # 保存图表 - 优化文件大小
         chart_path = os.path.join(date_dir, f"{time_point}_intraday_mood.png")
         plt.savefig(chart_path, dpi=120, bbox_inches='tight', facecolor='white',
-                   edgecolor='none', format='png')
+                    edgecolor='none', format='png')
         plt.close()
 
         return chart_path
@@ -643,15 +651,15 @@ class MoodAnalyzer:
         thresholds = [0, 30, 50, 70, 90, 100]
 
         for i in range(len(colors)):
-            start_angle = np.pi * (1 - thresholds[i+1]/100)
-            end_angle = np.pi * (1 - thresholds[i]/100)
+            start_angle = np.pi * (1 - thresholds[i + 1] / 100)
+            end_angle = np.pi * (1 - thresholds[i] / 100)
             theta_section = np.linspace(start_angle, end_angle, 20)
             x = np.cos(theta_section)
             y = np.sin(theta_section)
             ax.fill_between(x, 0, y, color=colors[i], alpha=0.3)
 
         # 指针
-        needle_angle = np.pi * (1 - score/100)
+        needle_angle = np.pi * (1 - score / 100)
         needle_x = [0, 0.8 * np.cos(needle_angle)]
         needle_y = [0, 0.8 * np.sin(needle_angle)]
         ax.plot(needle_x, needle_y, 'k-', linewidth=3)
@@ -670,10 +678,6 @@ class MoodAnalyzer:
 
     def _plot_volume_price_analysis(self, ax, analysis: Dict):
         """绘制量价联动分析散点图"""
-        # 导入必要的库
-        import pandas as pd
-        import numpy as np
-
         try:
             if 'raw_data' not in analysis:
                 ax.text(0.5, 0.5, '无原始数据', ha='center', va='center', transform=ax.transAxes, fontsize=10)
@@ -683,29 +687,15 @@ class MoodAnalyzer:
             # 获取涨停数据
             zt_data = analysis['raw_data'].get('zt_data')
             if zt_data is None or zt_data.empty:
-                # 当没有真实数据时，创建示例数据用于展示图表效果
-
-                # 创建示例数据
-                sample_data = []
-                for i in range(8):
-                    sample_data.append({
-                        '换手率': np.random.uniform(2, 15),
-                        '涨幅': np.random.uniform(9.8, 10.2),
-                        '连板数': np.random.choice([1, 2, 3], p=[0.6, 0.3, 0.1]),
-                        '封板资金': np.random.uniform(1e8, 5e8)
-                    })
-
-                zt_data = pd.DataFrame(sample_data)
-
-                # 添加示例数据标识
-                ax.text(0.02, 0.02, '示例数据', transform=ax.transAxes, fontsize=8,
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7))
+                ax.text(0.5, 0.5, '无涨停数据', ha='center', va='center', transform=ax.transAxes, fontsize=10)
+                ax.set_title('量价联动分析', fontsize=12, fontweight='bold')
+                return
 
             # 提取数据
             x_data = []  # 换手率
             y_data = []  # 涨幅
             colors = []  # 颜色映射（连板数）
-            sizes = []   # 点大小（封板金额）
+            sizes = []  # 点大小（封板金额）
 
             for _, row in zt_data.iterrows():
                 turnover = row.get('换手率', 0)
@@ -725,7 +715,8 @@ class MoodAnalyzer:
                 return
 
             # 绘制散点图
-            scatter = ax.scatter(x_data, y_data, c=colors, s=sizes, cmap='Reds', alpha=0.6, edgecolors='black', linewidth=0.5)
+            scatter = ax.scatter(x_data, y_data, c=colors, s=sizes, cmap='Reds', alpha=0.6, edgecolors='black',
+                                 linewidth=0.5)
 
             # 设置标签和标题
             ax.set_xlabel('换手率 (%)', fontsize=10)
@@ -741,18 +732,14 @@ class MoodAnalyzer:
 
             # 添加说明文字
             ax.text(0.02, 0.98, '点大小=封板金额', transform=ax.transAxes, fontsize=8,
-                   verticalalignment='top', bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+                    verticalalignment='top', bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
 
             # 调整刻度字体大小
             ax.tick_params(axis='both', which='major', labelsize=8)
 
         except Exception as e:
-            # 记录详细错误日志
-            self.logger.error(f"量价联动分析绘图失败: {e}", exc_info=True)
-            # 在图表上显示错误信息
             ax.text(0.5, 0.5, f'绘图错误: {str(e)}', ha='center', va='center', transform=ax.transAxes, fontsize=10)
             ax.set_title('量价联动分析', fontsize=12, fontweight='bold')
-            # 绘图失败不应该影响整个分析，所以不重新抛出异常
 
     def _plot_fengban_strength_analysis(self, ax, analysis: Dict):
         """绘制封板强度分析 - 按涨跌幅等级分组的柱状图"""
@@ -829,21 +816,16 @@ class MoodAnalyzer:
                     dt_amounts.append(dt_avg)
 
             if not group_names:
-                # 当没有真实数据时，创建示例数据用于展示图表效果
-                group_names = ['10%限制', '20%限制']
-                zt_amounts = [3.2, 5.8]  # 示例涨停封板金额
-                dt_amounts = [1.5, 2.1]  # 示例跌停封板金额
-
-                # 添加示例数据标识
-                ax.text(0.02, 0.98, '示例数据', transform=ax.transAxes, fontsize=8,
-                       verticalalignment='top', bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7))
+                ax.text(0.5, 0.5, '无封板数据', ha='center', va='center', transform=ax.transAxes, fontsize=10)
+                ax.set_title('封板强度分析', fontsize=12, fontweight='bold')
+                return
 
             # 绘制分组柱状图
             x = np.arange(len(group_names))
             width = 0.35
 
-            bars1 = ax.bar(x - width/2, zt_amounts, width, label='涨停', color='red', alpha=0.7)
-            bars2 = ax.bar(x + width/2, dt_amounts, width, label='跌停', color='green', alpha=0.7)
+            bars1 = ax.bar(x - width / 2, zt_amounts, width, label='涨停', color='red', alpha=0.7)
+            bars2 = ax.bar(x + width / 2, dt_amounts, width, label='跌停', color='green', alpha=0.7)
 
             # 设置标签和标题
             ax.set_xlabel('涨跌幅限制', fontsize=10)
@@ -858,25 +840,21 @@ class MoodAnalyzer:
             for bar in bars1:
                 height = bar.get_height()
                 if height > 0:
-                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.05,
-                           f'{height:.1f}', ha='center', va='bottom', fontsize=8)
+                    ax.text(bar.get_x() + bar.get_width() / 2., height + 0.05,
+                            f'{height:.1f}', ha='center', va='bottom', fontsize=8)
 
             for bar in bars2:
                 height = bar.get_height()
                 if height > 0:
-                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.05,
-                           f'{height:.1f}', ha='center', va='bottom', fontsize=8)
+                    ax.text(bar.get_x() + bar.get_width() / 2., height + 0.05,
+                            f'{height:.1f}', ha='center', va='bottom', fontsize=8)
 
             # 调整刻度字体大小
             ax.tick_params(axis='both', which='major', labelsize=8)
 
         except Exception as e:
-            # 记录详细错误日志
-            self.logger.error(f"封板强度分析绘图失败: {e}", exc_info=True)
-            # 在图表上显示错误信息
             ax.text(0.5, 0.5, f'绘图错误: {str(e)}', ha='center', va='center', transform=ax.transAxes, fontsize=10)
             ax.set_title('封板强度分析', fontsize=12, fontweight='bold')
-            # 绘图失败不应该影响整个分析，所以不重新抛出异常
 
     def run_analysis(self, date_str: str = None, time_point: str = "0925", analysis_type: str = "auction"):
         """
