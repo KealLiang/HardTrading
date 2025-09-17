@@ -13,6 +13,8 @@ from strategy.hybrid_strategy import HybridStrategy
 from strategy.market_regime import MarketRegimeStrategy
 from strategy.origin_breakout_strategy import OriginBreakoutStrategy
 from strategy.panic_rebound_strategy import PanicReboundStrategy
+from strategy.pullback_rebound_strategy import PullbackReboundStrategy
+from strategy.scannable_pullback_rebound_strategy import ScannablePullbackReboundStrategy
 from strategy.regime_classifier_strategy import RegimeClassifierStrategy
 
 from utils.logging_util import redirect_print_to_logger
@@ -144,6 +146,27 @@ def backtrade_simulate():
     )
 
 
+# 止跌反弹策略回测
+def pullback_rebound_simulate():
+    """止跌反弹策略回测示例"""
+    stock_code = '603986'  # 可以替换为其他股票代码
+    simulator.go_trade(
+        code=stock_code,
+        amount=100000,
+        startdate=datetime(2023, 9, 25),  # 修正时间范围
+        enddate=datetime(2025, 9, 17),
+        strategy=PullbackReboundStrategy,
+        strategy_params={
+            'debug': False,  # 关闭调试日志，只显示交易日志
+            'uptrend_min_gain': 0.30,  # 保持30%要求
+            'volume_dry_ratio': 0.7,   # 量窒息阈值调整为70%
+        },
+        log_trades=True,
+        visualize=True,
+        interactive_plot=True,  # 弹出交互图
+    )
+
+
 def strategy_scan(candidate_model='a'):
     # 使用更精确的信号模式列表
     signal_patterns = [
@@ -160,6 +183,30 @@ def strategy_scan(candidate_model='a'):
     # 扫描与可视化
     scan_and_visualize_analyzer(
         scan_strategy=BreakoutStrategy,
+        scan_start_date=start_date,
+        scan_end_date=end_date,
+        stock_pool=None,
+        signal_patterns=signal_patterns,
+        details_after_date=details_after_date,  # 只有此日期后信号才输出详情
+        candidate_model=candidate_model
+    )
+
+
+def pullback_rebound_scan(candidate_model='a'):
+    """止跌反弹策略扫描"""
+    # 使用止跌反弹策略的信号模式
+    signal_patterns = [
+        '*** 止跌反弹买入信号触发',
+        '止跌反弹信号',
+    ]
+
+    start_date = '20250630'
+    end_date = None
+    details_after_date = '20250820'  # 只看这个日期之后的
+
+    # 扫描与可视化
+    scan_and_visualize_analyzer(
+        scan_strategy=ScannablePullbackReboundStrategy,
         scan_start_date=start_date,
         scan_end_date=end_date,
         stock_pool=None,
@@ -560,11 +607,13 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # backtrade_simulate()
+    pullback_rebound_simulate()  # 止跌反弹策略回测
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
