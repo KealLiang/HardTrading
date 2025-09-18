@@ -34,6 +34,13 @@ class ActionRecorder:
         self.play_speed = 1.0  # 1.0=按原速，0.5=放慢，2.0=加速
         self.min_interval = 0.08  # 每步最小间隔秒
         self.scroll_settle_wait = 0.3  # 滚动后额外等待秒
+        # 滚动回放控制（缩放、分块、残差）
+        self.scroll_scale = 80.0  # 将录制的dy放大为滚动步数（垂直）
+        self.hscroll_scale = 80.0  # 将录制的dx放大为滚动步数（水平）
+        self.scroll_chunk = 30     # 单次发送的最大滚动步数，避免过大导致丢失
+        self.scroll_min_step = 1   # 最小生效步数，避免被四舍五入为0
+        self._scroll_residual = 0.0
+        self._hscroll_residual = 0.0
         
         # 设置pyautogui
         pyautogui.FAILSAFE = True
@@ -86,6 +93,19 @@ class ActionRecorder:
         
         ttk.Button(params_frame, text="应用参数", command=self.apply_params).grid(row=0, column=6, padx=8)
         
+        # 新增：滚动缩放与分块设置
+        ttk.Label(params_frame, text="垂直滚动缩放").grid(row=1, column=0, sticky=tk.W)
+        self.scroll_scale_var = tk.DoubleVar(value=self.scroll_scale)
+        ttk.Entry(params_frame, textvariable=self.scroll_scale_var, width=8).grid(row=1, column=1, padx=6)
+        
+        ttk.Label(params_frame, text="水平滚动缩放").grid(row=1, column=2, sticky=tk.W)
+        self.hscroll_scale_var = tk.DoubleVar(value=self.hscroll_scale)
+        ttk.Entry(params_frame, textvariable=self.hscroll_scale_var, width=8).grid(row=1, column=3, padx=6)
+        
+        ttk.Label(params_frame, text="滚动分块步数").grid(row=1, column=4, sticky=tk.W)
+        self.scroll_chunk_var = tk.IntVar(value=self.scroll_chunk)
+        ttk.Entry(params_frame, textvariable=self.scroll_chunk_var, width=8).grid(row=1, column=5, padx=6)
+        
         # 状态显示
         status_frame = ttk.LabelFrame(main_frame, text="状态", padding="5")
         status_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
@@ -136,16 +156,29 @@ class ActionRecorder:
             speed = float(self.speed_var.get())
             min_iv = float(self.min_interval_var.get())
             scroll_wait = float(self.scroll_wait_var.get())
+            v_scale = float(self.scroll_scale_var.get())
+            h_scale = float(self.hscroll_scale_var.get())
+            chunk = int(self.scroll_chunk_var.get())
             if speed <= 0:
                 raise ValueError("回放速度必须>0")
             if min_iv < 0:
                 raise ValueError("最小间隔必须>=0")
             if scroll_wait < 0:
                 raise ValueError("滚动后等待必须>=0")
+            if v_scale <= 0 or h_scale <= 0:
+                raise ValueError("滚动缩放必须>0")
+            if chunk <= 0:
+                raise ValueError("滚动分块步数必须>0")
             self.play_speed = speed
             self.min_interval = min_iv
             self.scroll_settle_wait = scroll_wait
-            self.status_label.config(text=f"已应用参数: 速度x{self.play_speed}, 最小间隔{self.min_interval}s, 滚动等待{self.scroll_settle_wait}s")
+            self.scroll_scale = v_scale
+            self.hscroll_scale = h_scale
+            self.scroll_chunk = chunk
+            # 重新应用时重置残差，避免历史误差影响
+            self._scroll_residual = 0.0
+            self._hscroll_residual = 0.0
+            self.status_label.config(text=f"已应用参数: 速度x{self.play_speed}, 最小间隔{self.min_interval}s, 滚动等待{self.scroll_settle_wait}s, 垂直缩放{self.scroll_scale}, 水平缩放{self.hscroll_scale}, 分块{self.scroll_chunk}")
         except Exception as e:
             messagebox.showerror("错误", f"参数无效: {e}")
         
@@ -244,6 +277,55 @@ class ActionRecorder:
         while self.is_playing and time.time() < end:
             time.sleep(0.01)
         
+    def _apply_scroll(self, dx, dy, x, y):
+        """根据缩放、残差与分块发送滚动，尽量复现原手势力度。"""
+        # 对齐位置
+        try:
+            pyautogui.moveTo(x, y)
+        except Exception:
+            pass
+        
+        # 垂直滚动
+        total_v = dy * self.scroll_scale + self._scroll_residual
+        clicks_v = 0
+        if abs(total_v) >= self.scroll_min_step:
+            clicks_v = int(total_v)
+            self._scroll_residual = total_v - clicks_v
+        else:
+            self._scroll_residual = total_v
+        
+        # 水平滚动
+        total_h = dx * self.hscroll_scale + self._hscroll_residual
+        clicks_h = 0
+        if abs(total_h) >= self.scroll_min_step:
+            clicks_h = int(total_h)
+            self._hscroll_residual = total_h - clicks_h
+        else:
+            self._hscroll_residual = total_h
+        
+        # 分块发送，避免一次性过大
+        try:
+            if clicks_v != 0:
+                remaining = clicks_v
+                step_sign = 1 if remaining > 0 else -1
+                while remaining != 0 and self.is_playing:
+                    step = step_sign * min(self.scroll_chunk, abs(remaining))
+                    pyautogui.scroll(step)
+                    remaining -= step
+                    time.sleep(0.005)
+            
+            if clicks_h != 0:
+                if hasattr(pyautogui, "hscroll"):
+                    remaining = clicks_h
+                    step_sign = 1 if remaining > 0 else -1
+                    while remaining != 0 and self.is_playing:
+                        step = step_sign * min(self.scroll_chunk, abs(remaining))
+                        pyautogui.hscroll(step)
+                        remaining -= step
+                        time.sleep(0.005)
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("错误", f"滚动执行失败: {str(e)}"))
+        
     def _play_actions(self):
         try:
             for i, action in enumerate(self.actions):
@@ -260,8 +342,7 @@ class ActionRecorder:
                 if action["type"] == "click":
                     pyautogui.click(action["x"], action["y"], button=action["button"]) 
                 elif action["type"] == "scroll":
-                    pyautogui.moveTo(action["x"], action["y"])  # 对齐位置
-                    pyautogui.scroll(action["dy"]) 
+                    self._apply_scroll(action.get("dx", 0), action.get("dy", 0), action["x"], action["y"]) 
                     # 滚动后额外等待，避免界面未稳定
                     self._sleep_responsive(self.scroll_settle_wait)
                 
@@ -284,7 +365,7 @@ class ActionRecorder:
             if action["type"] == "click":
                 details = f"({action['x']}, {action['y']}) {action['button']} dt={action.get('dt', 0):.3f}s"
             elif action["type"] == "scroll":
-                details = f"({action['x']}, {action['y']}) dy={action['dy']} dt={action.get('dt', 0):.3f}s"
+                details = f"({action['x']}, {action['y']}) dx={action.get('dx', 0)}, dy={action.get('dy', 0)} dt={action.get('dt', 0):.3f}s"
             else:
                 details = str(action)
             self.action_tree.insert("", "end", values=(timestamp, action["type"], details))
