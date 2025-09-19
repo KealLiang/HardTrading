@@ -646,7 +646,7 @@ if __name__ == "__main__":
     IS_BACKTEST = False
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['600869', '603948', '688096']
+    symbols = ['603269', '300815']
 
     manager = MonitorManagerV2(symbols,
                                is_backtest=IS_BACKTEST,

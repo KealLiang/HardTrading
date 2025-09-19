@@ -84,7 +84,7 @@ class AuctionScheduler:
         self.logger = logging.getLogger(__name__)
 
         # 采集时间点（竞价阶段）
-        self.auction_times = ['09:15:00', '09:20:00', '09:25:00']
+        self.auction_times = ['09:25:00']
 
         # 盘中情绪分析时间点
         self.intraday_times = ['10:00:00', '11:00:00', '13:30:00', '14:30:00']
