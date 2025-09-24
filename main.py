@@ -613,8 +613,8 @@ if __name__ == '__main__':
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
-    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_comparison_charts()
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
