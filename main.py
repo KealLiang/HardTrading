@@ -178,7 +178,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250630'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250820'  # 只看这个日期之后的
+    details_after_date = '20250910'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -202,7 +202,7 @@ def pullback_rebound_scan(candidate_model='a'):
 
     start_date = '20250630'
     end_date = None
-    details_after_date = '20250820'  # 只看这个日期之后的
+    details_after_date = '20250901'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -607,14 +607,14 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # backtrade_simulate()
-    pullback_rebound_simulate()  # 止跌反弹策略回测
+    # pullback_rebound_simulate()  # 止跌反弹策略回测
     # run_psq_analysis()
     # find_candidate_stocks()
     # strategy_scan('a')
-    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_comparison_charts()
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
