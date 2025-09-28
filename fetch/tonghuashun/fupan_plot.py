@@ -32,11 +32,17 @@ LABEL_CONFIG = {
 }
 
 
-def format_stock_name_with_limit_indicator(stock_code: str, stock_name: str) -> str:
+def format_stock_name_with_indicators(stock_code: str, stock_name: str, 
+                                    zhangting_open_times: str = None, 
+                                    first_zhangting_time: str = None, 
+                                    final_zhangting_time: str = None) -> str:
     """
-    根据股票代码的涨跌幅限制为股票名添加标识
+    根据股票代码的涨跌幅限制和涨停特征为股票名添加标识
     :param stock_code: 股票代码
     :param stock_name: 股票简称
+    :param zhangting_open_times: 涨停开板次数
+    :param first_zhangting_time: 首次涨停时间
+    :param final_zhangting_time: 最终涨停时间
     :return: 带标识的股票名
     """
     try:
@@ -46,18 +52,91 @@ def format_stock_name_with_limit_indicator(stock_code: str, stock_name: str) -> 
         # 获取涨跌幅限制比例
         limit_ratio = stock_limit_ratio(clean_code)
         
-        # 根据比例添加标识
+        # 基础股票名
+        formatted_name = stock_name
+        
+        # 判断是否为一字板涨停
+        is_yizi_ban = is_yizi_board_zhangting(zhangting_open_times, first_zhangting_time, final_zhangting_time)
+        
+        # 如果是一字板，添加标识
+        if is_yizi_ban:
+            formatted_name = f"{formatted_name}|"
+        
+        # 根据涨跌幅比例添加星号标识
         if limit_ratio == 0.1:  # 10%
-            return stock_name  # 原样显示
+            return formatted_name  # 原样显示
         elif limit_ratio == 0.2:  # 20%
-            return f"{stock_name}*"
+            return f"{formatted_name}*"
         elif limit_ratio == 0.3:  # 30%
-            return f"{stock_name}**"
+            return f"{formatted_name}**"
         else:
-            return stock_name  # 其他情况原样显示
+            return formatted_name  # 其他情况原样显示
     except (ValueError, Exception):
-        # 如果获取涨跌幅限制失败，返回原始股票名
+        # 如果处理失败，返回原始股票名
         return stock_name
+
+
+def is_yizi_board_zhangting(zhangting_open_times: str, first_zhangting_time: str, final_zhangting_time: str) -> bool:
+    """
+    判断是否为一字板涨停
+    一字板条件：
+    1. 涨停开板次数 = 0 (没有开板过)
+    2. 首次涨停时间 = 最终涨停时间 (全天封死)
+    3. 首次涨停时间 = 开盘时间 (开盘即涨停)
+    
+    :param zhangting_open_times: 涨停开板次数
+    :param first_zhangting_time: 首次涨停时间
+    :param final_zhangting_time: 最终涨停时间
+    :return: True表示是一字板，False表示不是
+    """
+    try:
+        # 检查涨停开板次数是否为0
+        if zhangting_open_times is None or str(zhangting_open_times).strip() == '':
+            return False
+            
+        open_times = int(str(zhangting_open_times).strip())
+        if open_times != 0:
+            return False  # 如果开板过，就不是一字板
+        
+        # 检查首次涨停时间和最终涨停时间是否相同
+        if (first_zhangting_time is None or final_zhangting_time is None or 
+            str(first_zhangting_time).strip() == '' or str(final_zhangting_time).strip() == ''):
+            return False
+            
+        first_time = str(first_zhangting_time).strip()
+        final_time = str(final_zhangting_time).strip()
+        
+        # 条件2：首次涨停时间和最终涨停时间必须相同（全天封死）
+        if first_time != final_time:
+            return False
+        
+        # 条件3：首次涨停时间必须是开盘时间（开盘即涨停）
+        # A股开盘时间为09:30:00
+        if not is_market_open_time(first_time):
+            return False
+            
+        return True
+        
+    except (ValueError, TypeError, Exception):
+        return False
+
+
+def is_market_open_time(time_str: str) -> bool:
+    """
+    判断是否为开盘时间
+    A股开盘时间：09:30:00
+    """
+    try:
+        time_str = time_str.strip()
+        # A股上午开盘时间
+        if time_str == "09:30:00" or time_str == "09:25:00":
+            return True
+        # 也考虑可能的格式变体
+        if time_str.startswith("09:30") or time_str.startswith("09:25"):
+            return True
+        return False
+    except:
+        return False
 
 
 # 全局标签管理类，用于处理重叠点的标签
@@ -230,8 +309,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         max_ji_ban_filtered = lianban_df[lianban_df['几板'] == max_ji_ban]
         max_ji_ban_stocks = []
         if not max_ji_ban_filtered.empty:
-            max_ji_ban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
-                                for _, row in max_ji_ban_filtered.iterrows()]
+            max_ji_ban_stocks = [format_stock_name_with_indicators(
+                row['股票代码'], row['股票简称'],
+                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            ) for _, row in max_ji_ban_filtered.iterrows()]
         max_ji_ban_results.append((date, max_ji_ban, max_ji_ban_stocks))
 
         # 提取最高连板股
@@ -239,8 +320,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         max_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == max_lianban]
         max_lianban_stocks = []
         if not max_lianban_filtered.empty:
-            max_lianban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
-                                 for _, row in max_lianban_filtered.iterrows()]
+            max_lianban_stocks = [format_stock_name_with_indicators(
+                row['股票代码'], row['股票简称'],
+                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            ) for _, row in max_lianban_filtered.iterrows()]
 
         # 提取次高连板股
         second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban]['连续涨停天数'].max()
@@ -249,8 +332,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         second_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == second_lianban]
         second_lianban_stocks = []
         if not second_lianban_filtered.empty:
-            second_lianban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
-                                    for _, row in second_lianban_filtered.iterrows()]
+            second_lianban_stocks = [format_stock_name_with_indicators(
+                row['股票代码'], row['股票简称'],
+                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            ) for _, row in second_lianban_filtered.iterrows()]
 
         lianban_results.append((date, max_lianban, max_lianban_stocks))
         lianban_second_results.append((date, second_lianban, second_lianban_stocks))  # 存储次高连板股
@@ -274,7 +359,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
             max_dieting_stocks = []
             if not max_dieting_filtered.empty:
-                max_dieting_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
+                max_dieting_stocks = [format_stock_name_with_indicators(row['股票代码'], row['股票简称']) 
                                      for _, row in max_dieting_filtered.iterrows()]
         else:
             max_dieting = 0
@@ -556,8 +641,8 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     
     ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置主 y 轴刻度为整数
     ax2.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置副 y 轴刻度为整数
-    ax.legend(loc='upper left')  # 主 y 轴图例（首板数量）
-    ax2.legend(loc='upper right')  # 副 y 轴图例（连板/跌停/几板）
+    ax.legend(loc='upper left', fontsize=8)  # 主 y 轴图例（首板数量）
+    ax2.legend(loc='upper right', fontsize=8)  # 副 y 轴图例（连板/跌停/几板）
     plt.tight_layout()
     
     # 生成文件名

@@ -455,7 +455,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250730'  # 开始日期
+    start_date = '20250830'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -607,7 +607,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # run_psq_analysis()
@@ -617,7 +617,7 @@ if __name__ == '__main__':
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # get_stock_datas()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
