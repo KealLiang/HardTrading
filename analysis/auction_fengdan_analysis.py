@@ -21,6 +21,26 @@ import json
 import numpy as np
 from utils.date_util import get_prev_trading_day, is_trading_day
 
+# 在类的顶部定义时间段和颜色的映射关系（添加到 __init__ 方法前）
+TIME_PERIOD_ORDER = [
+    "竞价阶段(09:15-09:25)",
+    "开盘初期(09:30-10:00)", 
+    "上午盘(10:00-11:30)",
+    "下午盘(13:00-15:00)",
+    "其他时间",
+    "未知时间"
+]
+
+# 为每个时间段定义固定颜色（使用容易区分的颜色）
+TIME_PERIOD_COLORS = {
+    "竞价阶段(09:15-09:25)": "#FF6B6B",    # 红色 - 竞价
+    "开盘初期(09:30-10:00)": "#4ECDC4",     # 青色 - 开盘初期
+    "上午盘(10:00-11:30)": "#45B7D1",       # 蓝色 - 上午盘
+    "下午盘(13:00-15:00)": "#96CEB4",       # 绿色 - 下午盘
+    "其他时间": "#FFEAA7",                   # 黄色 - 其他时间
+    "未知时间": "#DDA0DD"                    # 紫色 - 未知时间
+}
+
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -350,8 +370,26 @@ class AuctionFengdanAnalyzer:
 
         # 2. 时间段分布饼图
         if not zt_df.empty and '封板时间段' in zt_df.columns:
+            # 确保时间段顺序一致
             time_dist = zt_df['封板时间段'].value_counts()
-            axes[0, 1].pie(time_dist.values, labels=time_dist.index, autopct='%1.1f%%', startangle=90)
+            
+            # 按固定顺序重新排列，只包含有数据的时间段
+            ordered_data = []
+            ordered_labels = []
+            ordered_colors = []
+            
+            for period in TIME_PERIOD_ORDER:
+                if period in time_dist.index and time_dist[period] > 0:
+                    ordered_data.append(time_dist[period])
+                    ordered_labels.append(period)
+                    ordered_colors.append(TIME_PERIOD_COLORS.get(period, '#888888'))
+            
+            # 绘制饼图，只显示有数据的时间段但保持颜色一致
+            if ordered_data:  # 确保有数据才绘制
+                axes[0, 1].pie(ordered_data, labels=ordered_labels, autopct='%1.1f%%', 
+                              startangle=90, colors=ordered_colors)
+            else:
+                axes[0, 1].text(0.5, 0.5, '无时间段数据', ha='center', va='center', transform=axes[0, 1].transAxes)
             axes[0, 1].set_title('涨停封板时间段分布')
         else:
             axes[0, 1].text(0.5, 0.5, '无时间段数据', ha='center', va='center', transform=axes[0, 1].transAxes)
