@@ -9,6 +9,12 @@ import pandas as pd
 import re
 import math
 
+# 导入股票工具函数
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from utils.stock_util import stock_limit_ratio
+
 # 设置 matplotlib 的字体为支持中文的字体
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 'SimHei' 是黑体的意思
 plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
@@ -24,6 +30,34 @@ LABEL_CONFIG = {
     'alpha': 0.8,                   # 标签背景透明度
     'padding': 0.2,                 # 标签内边距
 }
+
+
+def format_stock_name_with_limit_indicator(stock_code: str, stock_name: str) -> str:
+    """
+    根据股票代码的涨跌幅限制为股票名添加标识
+    :param stock_code: 股票代码
+    :param stock_name: 股票简称
+    :return: 带标识的股票名
+    """
+    try:
+        # 去除股票代码可能的后缀（如.SH, .SZ等）
+        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+        
+        # 获取涨跌幅限制比例
+        limit_ratio = stock_limit_ratio(clean_code)
+        
+        # 根据比例添加标识
+        if limit_ratio == 0.1:  # 10%
+            return stock_name  # 原样显示
+        elif limit_ratio == 0.2:  # 20%
+            return f"{stock_name}*"
+        elif limit_ratio == 0.3:  # 30%
+            return f"{stock_name}**"
+        else:
+            return stock_name  # 其他情况原样显示
+    except (ValueError, Exception):
+        # 如果获取涨跌幅限制失败，返回原始股票名
+        return stock_name
 
 
 # 全局标签管理类，用于处理重叠点的标签
@@ -177,7 +211,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             '几天几板', '最新价', '首次涨停时间', '最新涨跌幅',
             '连续涨停天数', '涨停原因类别'
         ])
-        lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].astype(int)
+        # 清理数据，处理None值和空字符串
+        lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].fillna(0)
+        lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].replace('', 0)
+        lianban_df['连续涨停天数'] = pd.to_numeric(lianban_df['连续涨停天数'], errors='coerce').fillna(0).astype(int)
         
         # 从"几天几板"中提取"几板"数值
         def extract_ji_ban(ji_tian_ji_ban):
@@ -190,18 +227,30 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         
         # 提取最高几板股
         max_ji_ban = lianban_df['几板'].max()
-        max_ji_ban_stocks = lianban_df[lianban_df['几板'] == max_ji_ban]['股票简称'].tolist()
+        max_ji_ban_filtered = lianban_df[lianban_df['几板'] == max_ji_ban]
+        max_ji_ban_stocks = []
+        if not max_ji_ban_filtered.empty:
+            max_ji_ban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
+                                for _, row in max_ji_ban_filtered.iterrows()]
         max_ji_ban_results.append((date, max_ji_ban, max_ji_ban_stocks))
 
         # 提取最高连板股
         max_lianban = lianban_df['连续涨停天数'].max()
-        max_lianban_stocks = lianban_df[lianban_df['连续涨停天数'] == max_lianban]['股票简称'].tolist()
+        max_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == max_lianban]
+        max_lianban_stocks = []
+        if not max_lianban_filtered.empty:
+            max_lianban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
+                                 for _, row in max_lianban_filtered.iterrows()]
 
         # 提取次高连板股
         second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban]['连续涨停天数'].max()
         if pd.isna(second_lianban):  # 处理可能的NaN值
             second_lianban = 0
-        second_lianban_stocks = lianban_df[lianban_df['连续涨停天数'] == second_lianban]['股票简称'].tolist()
+        second_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == second_lianban]
+        second_lianban_stocks = []
+        if not second_lianban_filtered.empty:
+            second_lianban_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
+                                    for _, row in second_lianban_filtered.iterrows()]
 
         lianban_results.append((date, max_lianban, max_lianban_stocks))
         lianban_second_results.append((date, second_lianban, second_lianban_stocks))  # 存储次高连板股
@@ -216,9 +265,17 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             '连续跌停天数', '跌停原因类型'
         ])
         if not dieting_df.empty:
-            dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].astype(int)
+            # 清理数据，处理None值和空字符串
+            dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].fillna(0)
+            dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].replace('', 0)
+            dieting_df['连续跌停天数'] = pd.to_numeric(dieting_df['连续跌停天数'], errors='coerce').fillna(0).astype(int)
+            
             max_dieting = dieting_df['连续跌停天数'].max()
-            max_dieting_stocks = dieting_df[dieting_df['连续跌停天数'] == max_dieting]['股票简称'].tolist()
+            max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
+            max_dieting_stocks = []
+            if not max_dieting_filtered.empty:
+                max_dieting_stocks = [format_stock_name_with_limit_indicator(row['股票代码'], row['股票简称']) 
+                                     for _, row in max_dieting_filtered.iterrows()]
         else:
             max_dieting = 0
             max_dieting_stocks = []
@@ -235,7 +292,7 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     global_label_manager = GlobalLabelManager()
     
     # 辅助函数：智能放置标签，优化性能
-    def place_labels(x, y, labels, color, line_type=None, priority=1):
+    def place_labels(x, y, labels, color, line_type=None, priority=1, target_ax=None):
         # 处理任何可能的NaN值
         cleaned_data = []
         for i, (xi, yi, label) in enumerate(zip(x, y, labels)):
@@ -428,7 +485,9 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             z_order = 100 + priority * 10  # 优先级高的在上面
             
             # 创建文本对象并添加到图表
-            text = ax.annotate(
+            # 如果没有指定target_ax，则使用默认的ax
+            axes_to_use = target_ax if target_ax is not None else ax
+            text = axes_to_use.annotate(
                 label.replace(', ', '\n'), 
                 xy=(point_xi, yi),
                 xytext=(final_position['dx'], final_position['dy']),
@@ -451,50 +510,54 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     # 使用交易日索引作为x轴，而不是真实日期
     x_indices = list(range(len(lianban_dates)))
     
-    # 提取数据并绘制最高连板折线
+    # 添加副坐标轴
+    ax2 = ax.twinx()  # 创建副坐标轴
+    
+    # 在主坐标轴绘制首板数量折线
+    ax.plot(x_indices, shouban_counts, label='首板数量', color='blue', marker='p', linestyle='--', alpha=0.1)
+    ax.set_ylabel('数量', fontsize=12)  # 设置主 y 轴标签
+
+    # 在副坐标轴绘制最高连板折线
     lianban_days = [item[1] for item in lianban_results]
     lianban_labels = [', '.join(item[2]) for item in lianban_results]
-    ax.plot(x_indices, lianban_days, label='最高连续涨停天数', color='red', marker='o', alpha=0.7)
-    place_labels(x_indices, lianban_days, lianban_labels, 'red', 'main', priority=3)
+    ax2.plot(x_indices, lianban_days, label='最高连续涨停天数', color='red', marker='o', alpha=0.7)
+    place_labels(x_indices, lianban_days, lianban_labels, 'red', 'main', priority=3, target_ax=ax2)
 
-    # 提取数据并绘制次高连板折线
+    # 在副坐标轴绘制次高连板折线
     lianban_second_days = [item[1] for item in lianban_second_results]
     lianban_second_labels = [', '.join(item[2]) for item in lianban_second_results]
-    ax.plot(x_indices, lianban_second_days, label='次高连续涨停天数', color='pink', marker='D', linestyle='-.', alpha=0.6)
-    place_labels(x_indices, lianban_second_days, lianban_second_labels, 'pink', 'secondary', priority=1)
+    ax2.plot(x_indices, lianban_second_days, label='次高连续涨停天数', color='pink', marker='D', linestyle='-.', alpha=0.6)
+    place_labels(x_indices, lianban_second_days, lianban_second_labels, 'pink', 'secondary', priority=1, target_ax=ax2)
                 
-    # 提取数据并绘制最高几板折线
+    # 在副坐标轴绘制最高几板折线
     max_ji_ban_values = [item[1] for item in max_ji_ban_results]
     max_ji_ban_labels = [', '.join(item[2]) for item in max_ji_ban_results]
-    ax.plot(x_indices, max_ji_ban_values, label='最高几板', color='purple', marker='*')
-    place_labels(x_indices, max_ji_ban_values, max_ji_ban_labels, 'purple', 'main', priority=2)
+    ax2.plot(x_indices, max_ji_ban_values, label='最高几板', color='purple', marker='*')
+    place_labels(x_indices, max_ji_ban_values, max_ji_ban_labels, 'purple', 'main', priority=2, target_ax=ax2)
 
-    # 提取数据并绘制跌停折线
+    # 在副坐标轴绘制跌停折线
     dieting_days = [item[1] for item in dieting_results]
     dieting_labels = [', '.join(item[2][:10]) + f'...{len(item[2])}' if len(item[2]) > 10 else ', '.join(item[2])
                       for item in dieting_results]  # 太长则省略
-    ax.plot(x_indices, dieting_days, label='连续跌停天数', color='green', marker='s')
-    place_labels(x_indices, dieting_days, dieting_labels, 'green', 'secondary', priority=1)
-
-    # 添加副坐标轴并绘制首板数量折线
-    ax2 = ax.twinx()  # 创建副坐标轴
-    ax2.plot(x_indices, shouban_counts, label='首板数量', color='blue', marker='p', linestyle='--', alpha=0.1)
-    ax2.set_ylabel('数量', fontsize=12)  # 设置副 y 轴标签
+    ax2.plot(x_indices, dieting_days, label='连续跌停天数', color='green', marker='s')
+    place_labels(x_indices, dieting_days, dieting_labels, 'green', 'secondary', priority=1, target_ax=ax2)
+    
+    ax2.set_ylabel('天数/板数', fontsize=12)  # 设置副 y 轴标签
 
     # 设置图表信息
-    ax.axhline(0, color='black', linewidth=0.8, linestyle='--')  # 添加水平参考线
+    ax2.axhline(0, color='black', linewidth=0.8, linestyle='--')  # 添加水平参考线（在副y轴上，因为有正负值）
     ax.set_title("连板/跌停/首板个股走势", fontsize=16)
     ax.set_xlabel("日期", fontsize=12)
-    ax.set_ylabel("天数/板数", fontsize=12)  # 更新Y轴标签
     
     # 设置等间距x轴刻度
     ax.set_xticks(x_indices)
     # 使用原始日期作为标签
     ax.set_xticklabels([date.strftime('%Y-%m-%d') for date in lianban_dates], rotation=45, fontsize=9, ha='right')
     
-    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置 y 轴刻度为整数
-    ax.legend(loc='upper left')  # 主 y 轴图例
-    ax2.legend(loc='upper right')  # 副 y 轴图例
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置主 y 轴刻度为整数
+    ax2.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))  # 设置副 y 轴刻度为整数
+    ax.legend(loc='upper left')  # 主 y 轴图例（首板数量）
+    ax2.legend(loc='upper right')  # 副 y 轴图例（连板/跌停/几板）
     plt.tight_layout()
     
     # 生成文件名
