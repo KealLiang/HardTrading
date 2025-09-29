@@ -2,7 +2,6 @@ import logging
 import os
 import warnings
 
-
 from bin import simulator
 from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
@@ -159,7 +158,7 @@ def pullback_rebound_simulate():
         strategy_params={
             'debug': False,  # 关闭调试日志，只显示交易日志
             'uptrend_min_gain': 0.30,  # 保持30%要求
-            'volume_dry_ratio': 0.7,   # 量窒息阈值调整为70%
+            'volume_dry_ratio': 0.7,  # 量窒息阈值调整为70%
         },
         log_trades=True,
         visualize=True,
@@ -340,6 +339,20 @@ def daily_routine():
     ]
 
     execute_routine(daily_steps, "daily_routine")
+
+
+def full_scan_routine():
+    """
+    一键执行完整的策略扫描和对比图生成流程
+    """
+    scan_steps = [
+        (strategy_scan, "执行突破策略扫描"),
+        (generate_comparison_charts, "生成突破策略对比图"),
+        (pullback_rebound_scan, "执行止跌反弹策略扫描"),
+        (generate_rebound_comparison_charts, "生成止跌反弹策略对比图"),
+    ]
+
+    execute_routine(scan_steps, "full_scan_routine")
 
 
 # 拉a股历史数据
@@ -575,7 +588,7 @@ def generate_comparison_charts(recent_days: int = 10):
         recent_days: 生成最近几天的对比图，默认10天
     """
     from bin.comparison_chart_generator import run_auto_generation
-    
+
     return run_auto_generation(base_dir='bin/candidate_stocks_breakout', recent_days=recent_days)
 
 
@@ -587,7 +600,7 @@ def generate_rebound_comparison_charts(recent_days: int = 10):
         recent_days: 生成最近几天的对比图，默认10天
     """
     from bin.comparison_chart_generator import run_auto_generation
-    
+
     return run_auto_generation(base_dir='bin/candidate_stocks_rebound', recent_days=recent_days)
 
 
@@ -616,20 +629,15 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
         print("❌ 分析失败或无数据")
 
 
-
-
-
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # backtrade_simulate()
-    # pullback_rebound_simulate()  # 止跌反弹策略回测
-    # run_psq_analysis()
+    full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
-    generate_rebound_comparison_charts()
+    # generate_rebound_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
@@ -653,6 +661,11 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # get_index_data()
     # check_stock_datas()
+
+    # === 策略回测 ===
+    # backtrade_simulate()
+    # pullback_rebound_simulate()  # 止跌反弹策略回测
+    # run_psq_analysis()
 
     # === 参数优化功能 ===
     # 1. 生成配置模板
