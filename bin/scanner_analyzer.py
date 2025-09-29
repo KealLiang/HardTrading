@@ -615,7 +615,8 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
             log_trades=True,
             visualize=True,
             signal_info=signal_info,  # 传递完整的信号信息
-            interactive_plot=False  # 禁用弹出图表
+            interactive_plot=False,  # 禁用弹出图表
+            output_path=output_path  # 传递输出路径
         )
 
     return final_signals

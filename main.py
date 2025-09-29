@@ -188,7 +188,8 @@ def strategy_scan(candidate_model='a'):
         stock_pool=None,
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
-        candidate_model=candidate_model
+        candidate_model=candidate_model,
+        output_path='bin/candidate_stocks_breakout'  # 指定输出目录
     )
 
 
@@ -212,7 +213,8 @@ def pullback_rebound_scan(candidate_model='a'):
         stock_pool=None,
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
-        candidate_model=candidate_model
+        candidate_model=candidate_model,
+        output_path='bin/candidate_stocks_rebound'  # 指定输出目录
     )
 
 

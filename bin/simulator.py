@@ -77,7 +77,8 @@ def calculate_benchmark(data, initial_amount, final_amount):
 
 def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None, filepath='./data/astocks',
              strategy=KDJ_MACD_Strategy, strategy_params=None,
-             log_trades=False, visualize=False, signal_info=None, interactive_plot=True):
+             log_trades=False, visualize=False, signal_info=None, interactive_plot=True,
+             output_path=None):  # 添加output_path参数
     """执行股票回测和可视化。
 
     参数:
@@ -92,6 +93,7 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
     visualize - 是否生成交易可视化
     signal_info - 信号信息列表，每个元素包含date, type, details
     interactive_plot - 是否显示交互式图表
+    output_path - (可选) 指定输出目录的基路径
     """
     print(f"使用股票代码: {code}, 预热期: {warm_up_days}")
 
@@ -153,12 +155,12 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
             # 使用第一个信号的日期来命名文件夹
             signal_date_str = pd.to_datetime(signal_info[0]['date']).strftime('%Y%m%d')
             folder_name = f"{code}_{signal_date_str}_{strategy.__name__}"
-            base_path = os.path.join('bin', 'candidate_stocks_result')
+            base_path = output_path if output_path else os.path.join('bin', 'candidate_stocks_result')
             output_dir = os.path.join(base_path, folder_name)
         else:
             # 普通回测的输出
             folder_name = f"{code}_{start_date_str}-{end_date_str}"
-            base_path = os.path.join('strategy', 'post_analysis')
+            base_path = output_path if output_path else os.path.join('strategy', 'post_analysis')
             output_dir = os.path.join(base_path, folder_name)
 
         os.makedirs(output_dir, exist_ok=True)
