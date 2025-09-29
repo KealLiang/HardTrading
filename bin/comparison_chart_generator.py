@@ -28,10 +28,34 @@ class ComparisonChartGenerator:
     def __init__(self, base_dir='bin/candidate_stocks_result'):
         self.base_dir = base_dir
         self.comparison_dir = os.path.join(base_dir, 'comparison_charts')
-        
+        self.strategy_name = self._get_strategy_name_from_summary()
+
         # 创建对比图输出目录
         os.makedirs(self.comparison_dir, exist_ok=True)
-    
+
+    def _get_strategy_name_from_summary(self) -> str:
+        """从最新的summary文件中解析策略名称"""
+        try:
+            summary_files = [f for f in os.listdir(self.base_dir) if f.startswith('scan_summary_') and f.endswith('.txt')]
+            if not summary_files:
+                return 'BreakoutStrategy'  # 默认值
+            
+            latest_summary = sorted(summary_files)[-1]
+            summary_path = os.path.join(self.base_dir, latest_summary)
+            
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                first_line = f.readline()
+            
+            match = re.search(r'扫描策略:\s*(\w+)', first_line)
+            if match:
+                strategy_name = match.group(1)
+                logging.info(f"从summary文件自动识别策略: {strategy_name}")
+                return strategy_name
+        except Exception as e:
+            logging.warning(f"自动识别策略名称失败: {e}, 将使用默认值")
+        
+        return 'BreakoutStrategy'
+
     def parse_scan_summary(self, summary_file_path: str) -> Dict[str, List[Tuple[str, str]]]:
         """
         解析scan_summary文件，提取股票代码和信号日期的对应关系
@@ -69,21 +93,20 @@ class ComparisonChartGenerator:
             
         return date_stocks_map
     
-    def find_stock_trade_images_by_log(self, stock_code: str, signal_date: str, strategy: str = 'BreakoutStrategy') -> List[Tuple[str, str]]:
+    def find_stock_trade_images_by_log(self, stock_code: str, signal_date: str) -> List[Tuple[str, str]]:
         """
         根据trade_log.csv精确查找指定股票和信号日期对应的图片
         
         Args:
             stock_code: 股票代码
             signal_date: 信号日期 (YYYY-MM-DD格式)
-            strategy: 策略名称
             
         Returns:
             List[Tuple[图片路径, 标签描述]]
         """
         # 转换日期格式 YYYY-MM-DD -> YYYYMMDD
         date_formatted = signal_date.replace('-', '')
-        folder_name = f"{stock_code}_{date_formatted}_{strategy}"
+        folder_name = f"{stock_code}_{date_formatted}_{self.strategy_name}"
         folder_path = os.path.join(self.base_dir, folder_name)
         
         if not os.path.exists(folder_path):
@@ -292,22 +315,22 @@ def main():
     generator.generate_recent_comparisons(summary_path, recent_days=10)
 
 
-def run_auto_generation(recent_days: int = 10) -> List[str]:
+def run_auto_generation(base_dir: str, recent_days: int = 10) -> List[str]:
     """
     自动查找最新summary文件并生成对比图
 
     Args:
+        base_dir: 扫描结果的基础目录
         recent_days: 生成最近几天的对比图
 
     Returns:
         生成的文件列表
     """
     # 自动查找最新的scan_summary文件
-    base_dir = 'bin/candidate_stocks_result'
     summary_files = [f for f in os.listdir(base_dir) if f.startswith('scan_summary_') and f.endswith('.txt')]
 
     if not summary_files:
-        print("没有找到scan_summary文件，请先运行strategy_scan()生成扫描结果")
+        print(f"在目录 {base_dir} 中没有找到scan_summary文件，请先运行扫描生成结果")
         return []
 
     # 选择最新的summary文件

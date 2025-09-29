@@ -575,8 +575,20 @@ def generate_comparison_charts(recent_days: int = 10):
         recent_days: 生成最近几天的对比图，默认10天
     """
     from bin.comparison_chart_generator import run_auto_generation
+    
+    return run_auto_generation(base_dir='bin/candidate_stocks_breakout', recent_days=recent_days)
 
-    return run_auto_generation(recent_days=recent_days)
+
+def generate_rebound_comparison_charts(recent_days: int = 10):
+    """
+    生成止跌反弹策略的股票信号对比图
+
+    Args:
+        recent_days: 生成最近几天的对比图，默认10天
+    """
+    from bin.comparison_chart_generator import run_auto_generation
+    
+    return run_auto_generation(base_dir='bin/candidate_stocks_rebound', recent_days=recent_days)
 
 
 def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
@@ -616,7 +628,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
-    pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    generate_rebound_comparison_charts()
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
