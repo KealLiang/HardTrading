@@ -39,6 +39,10 @@ class TMonitorConfigV2:
     KD_HIGH = 80
     KD_LOW = 20
     KD_CROSS_LOOKBACK = 3
+    # J-based thresholds (new)
+    J_HIGH = 100
+    J_LOW = 0
+    J_TURN_LOOKBACK = 3
     # 信号对齐容忍（单位：根K线）。允许 KDJ 与 MACD 背离在 ±N 根内完成配对
     ALIGN_TOLERANCE = 2
     # 峰/谷配对的最大回溯峰数量（仅在最近 M 个局部峰/谷内寻找参照）
@@ -220,28 +224,23 @@ class TMonitorV2:
         return False
 
     def _confirm_top_by_kdj(self, df, i):
-        # 允许在最近 ALIGN_TOLERANCE 根内存在顶部确认（仅回溯，不前瞻）
-        lookback = TMonitorConfigV2.ALIGN_TOLERANCE
-        start = max(0, i - lookback)
+        # 基于 J：高位区且 J 近几根出现回落
+        lookback = TMonitorConfigV2.J_TURN_LOOKBACK
+        start = max(1, i - lookback)
         for t in range(start, i + 1):
-            k, d, j = df['k'], df['d'], df['j']
-            if k.iloc[t] > TMonitorConfigV2.KD_HIGH and d.iloc[t] > TMonitorConfigV2.KD_HIGH:
-                if self._has_dead_cross_recent(k, d, t, TMonitorConfigV2.KD_CROSS_LOOKBACK):
-                    return True
-                if t >= 1 and j.iloc[t] < j.iloc[t - 1]:
-                    return True
+            j = df['j']
+            if j.iloc[t] > TMonitorConfigV2.J_HIGH and j.iloc[t] < j.iloc[t - 1]:
+                return True
         return False
 
     def _confirm_bottom_by_kdj(self, df, i):
-        lookback = TMonitorConfigV2.ALIGN_TOLERANCE
-        start = max(0, i - lookback)
+        lookback = TMonitorConfigV2.J_TURN_LOOKBACK
+        start = max(1, i - lookback)
         for t in range(start, i + 1):
-            k, d, j = df['k'], df['d'], df['j']
-            if k.iloc[t] < TMonitorConfigV2.KD_LOW and d.iloc[t] < TMonitorConfigV2.KD_LOW:
-                if self._has_golden_cross_recent(k, d, t, TMonitorConfigV2.KD_CROSS_LOOKBACK):
-                    return True
-                if t >= 1 and j.iloc[t] > j.iloc[t - 1]:
-                    return True
+            j = df['j']
+            if j.iloc[t] < TMonitorConfigV2.J_LOW and j.iloc[t] > j.iloc[t - 1]:
+                return True
+        return False
     def _enqueue_pending(self, side, node, i, price_diff, macd_diff):
         tol = TMonitorConfigV2.ALIGN_TOLERANCE
         try:
@@ -411,8 +410,8 @@ class TMonitorV2:
             if i - last_i < TMonitorConfigV2.WEAK_COOLDOWN_BARS * 2:
                 return
 
-        # 条件：高位/低位减速但未达背离
-        k, d = df['k'].iloc[i], df['d'].iloc[i]
+        # 条件：高位/低位减速但未达背离（基于 J）
+        j_now = df['j'].iloc[i]
         macd_now = df['macd'].iloc[i]
         macd_prev = df['macd'].iloc[i-1] if i >= 1 else macd_now
         dif_now = df['dif'].iloc[i]
@@ -421,12 +420,12 @@ class TMonitorV2:
         is_trough = self._is_local_trough(df, i, TMonitorConfigV2.EXTREME_WINDOW)
         hinted = False
         if side == 'SELL':
-            if k > TMonitorConfigV2.KD_HIGH and d > TMonitorConfigV2.KD_HIGH and is_peak:
+            if j_now > TMonitorConfigV2.J_HIGH and is_peak:
                 if (macd_now < macd_prev) or (dif_now <= dea_now):
                     if df['close'].iloc[i] > df['ema5'].iloc[i]:
                         hinted = True
         else:
-            if k < TMonitorConfigV2.KD_LOW and d < TMonitorConfigV2.KD_LOW and is_trough:
+            if j_now < TMonitorConfigV2.J_LOW and is_trough:
                 if (macd_now > macd_prev) or (dif_now >= dea_now):
                     if df['close'].iloc[i] < df['ema5'].iloc[i]:
                         hinted = True
@@ -798,8 +797,8 @@ class MonitorManagerV2:
 
 if __name__ == "__main__":
     IS_BACKTEST = False
-    backtest_start = "2025-08-25 09:30"
-    backtest_end = "2025-08-29 15:00"
+    backtest_start = "2025-09-22 09:30"
+    backtest_end = "2025-09-30 15:00"
     symbols = ['300852']
     # 可选：使用文本文件热加载自选股（每行一个6位代码，支持#注释）
     symbols_file = 'watchlist.txt'

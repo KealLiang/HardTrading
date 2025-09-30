@@ -3,44 +3,45 @@
 ### 1. 目标与变化点
 - 目标：在 1 分钟级别上对个股进行日内做T监控，输出买/卖预警
 - 主要变化：
-  1) 基于 MACD 背离，结合 KDJ 确认局部顶/底（核心）
+  1) 基于 MACD 背离，结合 KDJ 的 J 值进行顶部/底部确认（由原来的 K/D 区域与死叉/金叉改为 J 的高位回落/低位反弹）
   2) 移除双顶双底相关逻辑（降低复杂度与误报）
   3) 保留防重复机制
 
 ### 2. 输入与数据源
 - 实时：pytdx get_security_bars(category=7, 1分钟)
 - 回测：akshare stock_zh_a_minute(symbol=sh/szXXXXXX, period="1", adjust="qfq")
-- 股票代码：6位数字（如 '600519'）。内部用 utils.stock_util.convert_stock_code 转换为 sh/sz 代码（回测路径）
+- 股票代码：6位数字（如 '600519'）。内部用 `utils.stock_util.convert_stock_code` 转换为 sh/sz 代码（回测路径）
 
 ### 3. 指标与参数
 - MACD(12,26,9)：DIF=EMA12-EMA26，DEA=EMA(DIF,9)，MACD柱=2*(DIF-DEA)
 - KDJ(9,3,3)：
   - RSV = (C - L9) / (H9 - L9) * 100（实现中显式使用 float 与 numpy.nan，避免 pandas 将来版本的 dtype 降级告警）
   - K = EMA(RSV,3), D = EMA(K,3), J = 3K - 2D
-- 极值窗口 EXTREME_WINDOW：仅用过去 window 内数据判断“当前K是否为局部峰/谷”（默认120根）
+- 极值窗口 EXTREME_WINDOW：仅用过去 window 内数据判断“当前K线是否为局部峰/谷”（默认120根）
 - 滚动窗口 MAX_HISTORY_BARS：参与计算的最大K线数量（默认360）
 - 背离阈值：
   - 价格创新高/低阈值：2%（PRICE_DIFF_{SELL|BUY}_THR）
   - MACD差异阈值：15%（MACD_DIFF_THR），以相对前极值 MACD 的比例衡量
-- KDJ 确认：
-  - 顶部：高位区（K>80 且 D>80）并在最近 KD_CROSS_LOOKBACK 根内发生死叉（K 下穿 D）或 J 高位回落
-  - 底部：低位区（K<20 且 D<20）并在最近 KD_CROSS_LOOKBACK 根内发生金叉（K 上穿 D）或 J 低位反弹
-  - KD_CROSS_LOOKBACK 默认 3 根
-  - ALIGN_TOLERANCE：信号对齐容忍（单位：根K线），允许 KDJ 与 MACD 背离在 ±N 根内完成配对；默认 2 根
+- 基于 J 的确认（替代原 KD 高/低位+叉的口径）：
+  - 顶部：`J > J_HIGH` 且在 `J_TURN_LOOKBACK` 内出现回落（`J[t] < J[t-1]`）
+  - 底部：`J < J_LOW` 且在 `J_TURN_LOOKBACK` 内出现反弹（`J[t] > J[t-1]`）
+  - 配对容忍：`ALIGN_TOLERANCE`（MACD 背离候选与 J 确认之间允许的最大间隔，单位：根K线）
+  - 参数：`J_HIGH=100`、`J_LOW=0`、`J_TURN_LOOKBACK=3`、`ALIGN_TOLERANCE=2`
+  - 说明：`KD_CROSS_LOOKBACK` 仅为兼容保留，当前逻辑不再使用。
 - 防重复：
   - 同日同价或同时间戳信号去重
-  - 同方向同类型信号仅在价格偏离上次记录价超过 REPEAT_PRICE_CHANGE（默认5%）时允许重复
+  - 同方向同类型信号仅在价格偏离上次记录价超过 `REPEAT_PRICE_CHANGE=5%` 时允许重复
 
 ### 4. 触发规则（精简版）
 - 局部峰（卖出关注）
-  - 条件A：当前K为局部峰（HIGH 为最近 EXTREME_WINDOW 内最大值）
-  - 条件B：与历史任一峰比较，价格新高超过 PRICE_DIFF_SELL_THR 且 MACD 未创新高（下降至少 MACD_DIFF_THR）
-  - 条件C：KDJ 顶部确认（高位+死叉/回落在 KD_CROSS_LOOKBACK 内）
+  - 条件A：当前K线为局部峰（`HIGH` 为最近 `EXTREME_WINDOW` 内最大值）
+  - 条件B：与历史任一峰比较，价格新高超过 `PRICE_DIFF_SELL_THR` 且 MACD 未创新高（下降至少 `MACD_DIFF_THR`）
+  - 条件C：J 顶部确认（`J>J_HIGH` 且在 `J_TURN_LOOKBACK` 内回落），并与 MACD 背离候选在 `ALIGN_TOLERANCE` 内完成配对
   - 触发：SELL-背离
 - 局部谷（买入关注）
-  - 条件A：当前K为局部谷（LOW 为最近 EXTREME_WINDOW 内最小值）
-  - 条件B：与历史任一谷比较，价格新低超过 PRICE_DIFF_BUY_THR 且 MACD 未创新低（上升至少 MACD_DIFF_THR）
-  - 条件C：KDJ 底部确认（低位+金叉/反弹在 KD_CROSS_LOOKBACK 内）
+  - 条件A：当前K线为局部谷（`LOW` 为最近 `EXTREME_WINDOW` 内最小值）
+  - 条件B：与历史任一谷比较，价格新低超过 `PRICE_DIFF_BUY_THR` 且 MACD 未创新低（上升至少 `MACD_DIFF_THR`）
+  - 条件C：J 底部确认（`J<J_LOW` 且在 `J_TURN_LOOKBACK` 内反弹），并与 MACD 背离候选在 `ALIGN_TOLERANCE` 内完成配对
   - 触发：BUY-背离
 
 ### 5. 输出
@@ -51,8 +52,8 @@
     - 调试（DIAG=True）：
       【T警告】[股票名 代码] BUY/SELL-背离 价格变动：x% MACD变动：y% KDJ(K,D,J) 现价：p [时间] | path=…
       其中 path 含义：
-      - path=immediate MACD@t1->@t2：背离与KDJ确认在同一根/容忍回溯内即时满足（无待确认）；
-      - path=pending MACD@t1 KDJ@t2 lag=n：t1 为检测到 MACD 背离的候选时刻，t2 为 KDJ 补确认时刻；n 为 (t2−t1) 的分钟数，且 0 ≤ n ≤ ALIGN_TOLERANCE。
+      - path=immediate MACD@t1->@t2：背离与J确认在同一根/容忍回溯内即时满足（无待确认）；
+      - path=pending MACD@t1 KDJ@t2 lag=n：t1 为检测到 MACD 背离的候选时刻，t2 为 J 补确认时刻；n 为 (t2−t1) 的分钟数，且 0 ≤ n ≤ ALIGN_TOLERANCE。
 
 - 统一格式日志：
   - 【T警告】[股票名 代码] BUY/SELL-背离 价格变动:xx% MACD变动:xx% 现价:xx.xx [时间]
@@ -78,32 +79,34 @@
   manager.start()
   ```
 
-### 7. 关键实现要点（代码将按此实现）
-- 结构：TMonitorConfigV2 / TMonitorV2 / MonitorManagerV2，与 v1 类似
-- 指标计算：_calc_macd(df), _calc_kdj(df)
-- 极值判定：_is_local_peak(i)/_is_local_trough(i) 只用过去 window 内数据
-- 背离与KDJ确认：_confirm_top_by_kdj(df, i), _confirm_bottom_by_kdj(df, i)
-- 信号检测：_detect_signals(df)：遍历 i>=window，若峰/谷 -> 背离 -> KDJ确认 -> 触发
-- 防重复：同日同价/同时间戳去重 + 价格偏离阈值（REPEAT_PRICE_CHANGE）
+### 7. 关键实现要点
+- 结构：`TMonitorConfigV2` / `TMonitorV2` / `MonitorManagerV2`
+- 指标计算：`_calc_macd(df)`, `_calc_kdj(df)`
+- 极值判定：`_is_local_peak(i)` / `*_trough(i)` 只用过去 window 内数据
+- 背离与 J 确认：`_confirm_top_by_kdj(df, i)`、`_confirm_bottom_by_kdj(df, i)`（基于 J 值转折）
+- 信号检测：`_detect_signals(df)`：遍历 `i>=window`，若峰/谷 -> 背离 -> J 确认 -> 触发
+- 防重复：同日同价/同时间戳去重 + 价格偏离阈值（`REPEAT_PRICE_CHANGE`）
 
 ### 8. 参数表（默认值）与调参指引（宽松 vs 收紧）
 - EXTREME_WINDOW=120（窗口越大→更“收紧”：极值更严格，信号更少但更稳定；越小→更“宽松”）
-- MAX_HISTORY_BARS=360（仅影响计算窗口长度，一般不需改）
+- MAX_HISTORY_BARS=360（仅影响计算窗口长度）
 - PRICE_DIFF_BUY_THR=0.02，PRICE_DIFF_SELL_THR=0.02（价格创新高/低要求；提高→收紧，降低→宽松）
 - MACD_DIFF_THR=0.15（MACD 背离幅度；提高→收紧，降低→宽松）
-- KD_HIGH=80，KD_LOW=20（KDJ 高/低位判定；提高 KD_HIGH/降低 KD_LOW → 收紧；反之→宽松）
-- KD_CROSS_LOOKBACK=3（允许叉在近 N 根内出现；减小→收紧，增大→宽松）
-- ALIGN_TOLERANCE=2（KDJ 与 MACD 背离对齐的容忍度；减小→收紧，增大→宽松；为0表示必须同K线）
-- MAX_PEAK_LOOKBACK=60（仅在最近 M 个峰/谷内寻找参照；减小→收紧，增大→宽松；可按标的波动调节）
+- J_HIGH=100，J_LOW=0（J 高/低位判定；提高 J_HIGH/降低 J_LOW → 收紧；降低 J_HIGH/提高 J_LOW → 宽松）
+- J_TURN_LOOKBACK=3（J 转折检测窗口；减小→要求更“即时”的转折，略收紧；增大→更容易确认，略宽松）
+- ALIGN_TOLERANCE=2（MACD 背离候选与 J 确认的对齐容忍度；减小→收紧，增大→宽松；为0表示必须同K线）
+- KD_CROSS_LOOKBACK=3（兼容保留；当前逻辑不使用）
+- MAX_PEAK_LOOKBACK=60（仅在最近 M 个峰/谷内寻找参照；减小→收紧，增大→宽松）
 - REPEAT_PRICE_CHANGE=0.05（重复信号最小价格偏移；增大→更少重复，更收紧；减小→更频繁，更宽松）
-- MACD/KDJ 基本参数（12/26/9、9/3/3）按你习惯即可，不在此赘述
+
+调参建议：
+- 想减少误报（更“收紧”）：增大 EXTREME_WINDOW / 增大 PRICE_DIFF_* / 增大 MACD_DIFF_THR / 提高 J_HIGH、降低 J_LOW / 减小 ALIGN_TOLERANCE / 减小 J_TURN_LOOKBACK。
+- 想增加覆盖（更“宽松”）：减小 EXTREME_WINDOW / 降低 PRICE_DIFF_* / 降低 MACD_DIFF_THR / 降低 J_HIGH、提高 J_LOW / 增大 ALIGN_TOLERANCE / 增大 J_TURN_LOOKBACK。
 
 ### 9. 注意事项
 - 1分钟级别噪声较大，建议结合成交额过滤（例如 amount 放量时信号权重更高）后续可扩展
 - 回测与实时使用不同数据源，K线细节可能有差异，参数需要按交易标的和市场环境调优
 - 若 pytdx 连接不稳定，HOSTS 里可配置多个服务器轮询
-
-
 
 ### 10. 优化建议（不改代码也能先按此口径人工参考）
 - 成交量/额的“放量”建议（避免开收盘误判）
@@ -124,17 +127,15 @@
 
 ### 11. 可选增强：弱提示与仓位建议（Position Score）
 - 开关
-  - ENABLE_WEAK_HINTS（默认 True）：开启“高位/低位减速无背离”的弱提示
+  - ENABLE_WEAK_HINTS（默认 True）：开启“高位/低位减速无背离”的弱提示（基于 J 高/低位）
   - ENABLE_POSITION_SCORE（默认 True）：开启仓位建议（-1~1 映射到 10%/60%/100% 档位）
 - 弱提示逻辑（简要）
-  - SELL-减速：K、D 均处于高位区(K>D>KD_HIGH)，且 MACD 柱连续走弱或 DIF 接近/下穿 DEA；当根为局部峰但未满足背离阈值时提示
-  - BUY-减速：K、D 均处于低位区(K<D<KD_LOW)，且 MACD 柱连续走强或 DIF 接近/上穿 DEA；当根为局部谷但未满足背离阈值时提示
-  - 去重：为防止信号刷屏，增加动态冷却：在 N 根K线（WEAK_COOLDOWN_BARS，建议值10）的冷却期内，若价格重新触及短期均线（如反穿EMA5），则允许再次提示，否则将屏蔽。
+  - SELL-减速：`J>J_HIGH`，且 MACD 柱走弱或 DIF 接近/下穿 DEA；当根为局部峰但未满足背离阈值时提示
+  - BUY-减速：`J<J_LOW`，且 MACD 柱走强或 DIF 接近/上穿 DEA；当根为局部谷但未满足背离阈值时提示
+  - 去重：动态冷却 `WEAK_COOLDOWN_BARS` 与 `WEAK_MIN_PRICE_CHANGE`
   - 日志：【弱提示】[股票名 代码] SELL/BUY-减速 现价：p [时间]
 - 仓位建议 Position Score（仅在强信号触发时计算）
   - 评分释义与仓位映射：`score≤0.2 → 10%`、`0.2<score≤0.5 → 60%`、`score>0.5 → 100%`
-    - BUY 信号：百分比代表建议投入的仓位（如 60%）
-    - SELL 信号：百分比代表建议卖出的现有仓位比例（如 100% 表示清仓）
   - 组成（默认权重，可在代码内修改）：
     - 趋势（EMA5/EMA20）：trend=+1(多头阶梯 close>EMA5>EMA20)，-1(空头阶梯)，否则0；W_TREND=0.4
     - 布林带位置（20,2）：bb_pos=(close−mid)/(upper−mid)，BUY取 −bb_pos，SELL取 +bb_pos；W_BB=0.3
