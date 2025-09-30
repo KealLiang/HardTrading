@@ -440,10 +440,10 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     formatter = "%Y%m%d"
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "601068"  # 目标股票代码
-    start_date = datetime.strptime('20250407', formatter)
-    end_date = datetime.strptime('20250416', formatter)
-    trend_end_date = datetime.strptime('20250618', formatter)  # 被查找个股的趋势结束日期
+    target_stock_code = "301308"  # 目标股票代码
+    start_date = datetime.strptime('20250901', formatter)
+    end_date = datetime.strptime('20250929', formatter)
+    trend_end_date = datetime.strptime('20250929', formatter)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -632,7 +632,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()  # 一键执行策略扫描与对比图生成
+    # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
@@ -653,7 +653,7 @@ if __name__ == '__main__':
     # plot_stock_daily_prices()
     # get_hot_clouds()
     # find_dragon()
-    # find_similar_trends()
+    find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
