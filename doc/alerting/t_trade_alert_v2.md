@@ -63,11 +63,18 @@
 - 脚本运行（__main__）：
   - IS_BACKTEST=True/False
   - 回测区间：backtest_start/end，例如 "2025-08-26 09:30" ~ "2025-08-26 15:00"
-  - symbols=['002536','600111']
+  - 支持两种方式指定标的：
+    1) 直接传入列表：`symbols=['002536','600111']`
+    2) 文本文件热加载：`symbols_file='watchlist.txt'`（每行一个6位代码，支持 `#` 注释）。文件变更将自动应用，无需重启。
 - 库使用：
   ```python
   from alerting.t_trade_alert_v2 import MonitorManagerV2
   manager = MonitorManagerV2(['600519','000001'], is_backtest=False)
+  manager.start()
+  ```
+  或使用热加载：
+  ```python
+  manager = MonitorManagerV2([], is_backtest=False, symbols_file='watchlist.txt')
   manager.start()
   ```
 
@@ -117,37 +124,33 @@
 
 ### 11. 可选增强：弱提示与仓位建议（Position Score）
 - 开关
-  - ENABLE_WEAK_HINTS（默认 False）：开启“高位/低位减速无背离”的弱提示
-  - ENABLE_POSITION_SCORE（默认 False）：开启仓位建议（-1~1 映射到 10%~100% 区间）
+  - ENABLE_WEAK_HINTS（默认 True）：开启“高位/低位减速无背离”的弱提示
+  - ENABLE_POSITION_SCORE（默认 True）：开启仓位建议（-1~1 映射到 10%/60%/100% 档位）
 - 弱提示逻辑（简要）
   - SELL-减速：K、D 均处于高位区(K>D>KD_HIGH)，且 MACD 柱连续走弱或 DIF 接近/下穿 DEA；当根为局部峰但未满足背离阈值时提示
   - BUY-减速：K、D 均处于低位区(K<D<KD_LOW)，且 MACD 柱连续走强或 DIF 接近/上穿 DEA；当根为局部谷但未满足背离阈值时提示
-  - 去重：为防止信号刷屏，增加动态冷却：在 N 根K线（WEAK_COOLDOWN_BARS，建议值5）的冷却期内，若价格重新触及短期均线（如反穿EMA5），则允许再次提示，否则将屏蔽。
+  - 去重：为防止信号刷屏，增加动态冷却：在 N 根K线（WEAK_COOLDOWN_BARS，建议值10）的冷却期内，若价格重新触及短期均线（如反穿EMA5），则允许再次提示，否则将屏蔽。
   - 日志：【弱提示】[股票名 代码] SELL/BUY-减速 现价：p [时间]
 - 仓位建议 Position Score（仅在强信号触发时计算）
-  - `clip` 函数说明：这是一个来自Numpy库的函数，`clip(值, 最小值, 最大值)` 的作用是限制一个值在指定的范围内。如果值小于最小值，则返回最小值；如果值大于最大值，则返回最大值。在我们的评分计算中，它确保了最终的评分和因子值不会超出预设的边界（例如 -1 到 1）。
-  - 评分释义与仓位映射
-    - 最终信号会附加一个基于评分的仓位建议，该评分 `score` 的范围是 -1 到 1，综合评估了信号的“质量”，分值越高代表信号越强、环境越有利。
-    - 评分会按 `score≤0.2 → 10%`、`0.2<score≤0.5 → 60%`、`score>0.5 → 100%` 的规则映射为一个百分比，其含义需要根据信号方向来解读：
-    - **BUY 信号**: 百分比代表 **建议投入的仓位**。
-      - *示例*: `【T警告】... BUY信号 ... 建议仓位:60% (pos=0.4)`
-      - *解读*: 这是一个中等强度的买入信号，建议投入计划仓位的60%。
-    - **SELL 信号**: 百分比代表 **建议卖出的现有仓位比例**。
-      - *示例*: `【T警告】... SELL信号 ... 建议仓位:100% (pos=0.7)`
-      - *解读*: 这是一个非常强的卖出信号，建议卖出当前所持仓位的100%（即清仓）。
+  - 评分释义与仓位映射：`score≤0.2 → 10%`、`0.2<score≤0.5 → 60%`、`score>0.5 → 100%`
+    - BUY 信号：百分比代表建议投入的仓位（如 60%）
+    - SELL 信号：百分比代表建议卖出的现有仓位比例（如 100% 表示清仓）
   - 组成（默认权重，可在代码内修改）：
     - 趋势（EMA5/EMA20）：trend=+1(多头阶梯 close>EMA5>EMA20)，-1(空头阶梯)，否则0；W_TREND=0.4
     - 布林带位置（20,2）：bb_pos=(close−mid)/(upper−mid)，BUY取 −bb_pos，SELL取 +bb_pos；W_BB=0.3
-    - 量能（可选）：若有 vol，则 vol_ratio=vol/mean(vol,30)，vol_score≈clip((ratio−1)/(1.5−1),0,1)，BUY取 +，SELL取 +（趋势跟随口径）；W_VOL=0.2
-  - 汇总：score = clip((W_TREND*trend + W_BB*bb + W_VOL*vol) * atr_factor, −1, 1)
-  - 映射：score≤0.2→低仓(10~30%)；0.2~0.5→中仓(30~60%)；>0.5→高仓(60~100%)
+    - 量能（可选）：若有 vol，则 vol_ratio=vol/mean(vol,30)，vol_score≈clip((ratio−1)/(1.5−1),0,1)；W_VOL=0.2
+  - 汇总：`score = clip((W_TREND*trend + W_BB*bb + W_VOL*vol) * atr_factor, −1, 1)`
 
-  - 价格接近涨跌停时的保护：BUY 且距离涨停<0.3% 时将权重×0.5；SELL 且距离跌停<0.3% 时同理，避免不可成交或滑点异常。
-  - 最终得出 position_score∈[-1,1]，映射到建议仓位：
-    - score≤0.2：低仓（10%～30%）；0.2<score≤0.5：中仓（30%～60%）；score>0.5：高仓（60%～100%）。
-- A股市场特定注意点
-  - T+1 约束：更倾向于在“盈利持仓”上做 T（高抛低吸），对新开仓更保守。SELL 信号可用于减仓锁盈，BUY 信号用于回补或低吸。
-  - 涨跌停板机制：临近板价时降低信号权重，优先观察封单变化（可结合你的封单监控脚本）再决策。
-- 参数建议（结合 V2）
-  - 若标的波动大/强趋势（如小盘高β）：可适度“宽松”（ALIGN_TOLERANCE=2～3，KD_HIGH=85/KD_LOW=15，MACD_DIFF_THR=0.12～0.15）。
-  - 若标的稳健/量能分布平缓（如大盘蓝筹）：可“收紧”（ALIGN_TOLERANCE=0～1，KD_HIGH=80/KD_LOW=20，MACD_DIFF_THR=0.18～0.25）。
+### 12. 自选股热加载
+- 功能：通过文本文件（默认 `watchlist.txt`）维护待监控股票列表，支持热加载，无需重启。
+- 位置：可传绝对路径；相对路径以项目根目录为基准（代码中通过 `parent_dir` 解析）。
+- 文件格式：
+  - 每行一个 6 位股票代码（如 `600519`）
+  - 支持空行与以 `#` 开头的注释；支持行内注释（`600519  # 贵州茅台`）
+- 生效时机：文件保存后 5 秒内自动检测到变化并应用（可通过 `reload_interval_sec` 调整）。
+- 使用方式：
+  - 直接运行脚本：默认会尝试读取项目根目录下的 `watchlist.txt`；若不存在则回退到 `symbols` 列表参数
+  - 作为库：`MonitorManagerV2(symbols=[], symbols_file='watchlist.txt', is_backtest=False)`
+- 限制：
+  - 回测模式（is_backtest=True）不启用热加载
+  - 动态增删标的会在下一轮轮询后生效；移除标的的线程将在最多 1 分钟内优雅退出

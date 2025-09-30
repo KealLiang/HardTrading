@@ -610,35 +610,189 @@ class TMonitorV2:
 
 
 class MonitorManagerV2:
-    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, symbols_file=None, reload_interval_sec=5, max_workers_buffer=50):
         self.symbols = symbols
         self.stop_event = Event()
-        self.executor = ThreadPoolExecutor(max_workers=len(symbols))
         self.is_backtest = is_backtest
         self.backtest_start = backtest_start
         self.backtest_end = backtest_end
+        self.symbols_file = symbols_file
+        self.reload_interval_sec = reload_interval_sec
+        # 动态监控状态
+        self._monitor_events = {}  # symbol -> Event（单独停止）
+        self._monitor_futures = {}  # symbol -> Future
+        self._symbols_set = set()
+        self._symbols_file_path = None  # 解析后的实际监控文件路径
+        # 线程池预留缓冲，便于热加载新增标的
+        initial_count = len(symbols) if symbols else 0
+        self.executor = ThreadPoolExecutor(max_workers=max(1, initial_count + max_workers_buffer))
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
     def signal_handler(self, signum, frame):
         logging.info("接收到终止信号，开始优雅退出...")
         self.stop_event.set()
+        # 停止全部子监控
+        for ev in list(self._monitor_events.values()):
+            try:
+                ev.set()
+            except Exception:
+                pass
         self.executor.shutdown(wait=False)
         sys.exit(0)
 
+    def _resolve_symbols_file_path(self):
+        if not self.symbols_file:
+            return None
+        # 优先级：绝对路径 -> 运行时CWD相对路径 -> 项目根目录(parent_dir) -> alerting目录(current_dir)
+        candidates = []
+        p = self.symbols_file
+        try:
+            if os.path.isabs(p):
+                candidates.append(p)
+            else:
+                # as-is relative to current working directory
+                candidates.append(p)
+                # under project root
+                candidates.append(os.path.join(parent_dir, p))
+                # under alerting dir
+                candidates.append(os.path.join(current_dir, p))
+        except Exception:
+            return None
+        for c in candidates:
+            try:
+                if os.path.exists(c):
+                    return os.path.abspath(c)
+            except Exception:
+                continue
+        # 未找到则默认指向项目根目录路径，便于后续创建
+        try:
+            return os.path.abspath(os.path.join(parent_dir, p if not os.path.isabs(p) else p))
+        except Exception:
+            return None
+
+    def _read_symbols_from_file(self):
+        if not self.symbols_file:
+            return None
+        try:
+            path = self._symbols_file_path or self._resolve_symbols_file_path()
+            if not path or not os.path.exists(path):
+                return None
+            syms = []
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith('#'):
+                        continue
+                    # 支持行内注释
+                    s = s.split('#', 1)[0].strip()
+                    if len(s) == 6 and s.isdigit():
+                        syms.append(s)
+            return syms
+        except Exception as e:
+            logging.error(f"读取自选股文件失败: {e}")
+            return None
+
+    def _start_monitor(self, symbol):
+        if symbol in self._monitor_events:
+            return
+        ev = Event()
+        monitor = TMonitorV2(symbol, ev,
+                             push_msg=not self.is_backtest,
+                             is_backtest=self.is_backtest,
+                             backtest_start=self.backtest_start,
+                             backtest_end=self.backtest_end)
+        fut = self.executor.submit(monitor.run)
+        self._monitor_events[symbol] = ev
+        self._monitor_futures[symbol] = fut
+        logging.info(f"已启动监控: {symbol}")
+
+    def _stop_monitor(self, symbol):
+        ev = self._monitor_events.get(symbol)
+        if ev:
+            try:
+                ev.set()
+                logging.info(f"已请求停止监控: {symbol}")
+            except Exception:
+                pass
+        self._monitor_events.pop(symbol, None)
+        self._monitor_futures.pop(symbol, None)
+
+    def _reconcile_symbols(self, desired_symbols):
+        desired_set = set(desired_symbols)
+        # 停止已移除的
+        for sym in list(self._symbols_set - desired_set):
+            self._stop_monitor(sym)
+        # 启动新增的
+        for sym in sorted(desired_set - self._symbols_set):
+            self._start_monitor(sym)
+        self._symbols_set = set(self._monitor_events.keys())
+
+    def _watch_symbols_file(self):
+        if not self.symbols_file:
+            return
+        last_mtime = None
+        last_path = None
+        while not self.stop_event.is_set():
+            try:
+                # 每轮都重新解析一次，允许用户在不同目录创建/移动文件
+                path = self._resolve_symbols_file_path()
+                if path and path != last_path:
+                    self._symbols_file_path = path
+                    last_mtime = None  # 路径变更，强制下一次读取
+                    logging.info(f"开始监控自选股文件: {path}")
+                    last_path = path
+                if path and os.path.exists(path):
+                    mtime = os.path.getmtime(path)
+                    if last_mtime is None or mtime != last_mtime:
+                        syms = self._read_symbols_from_file()
+                        if syms is not None:
+                            logging.info("检测到自选股文件变更，重新加载...")
+                            self._reconcile_symbols(syms)
+                        last_mtime = mtime
+            except Exception as e:
+                logging.error(f"监控自选股文件时出错: {e}")
+            if self.stop_event.wait(timeout=self.reload_interval_sec):
+                break
+
     def start(self):
         futures = []
-        for symbol in self.symbols:
-            monitor = TMonitorV2(symbol, self.stop_event,
-                                 push_msg=not self.is_backtest,
-                                 is_backtest=self.is_backtest,
-                                 backtest_start=self.backtest_start,
-                                 backtest_end=self.backtest_end)
-            futures.append(self.executor.submit(monitor.run))
+        # 解析监控文件路径并提示
+        self._symbols_file_path = self._resolve_symbols_file_path()
+        if self.symbols_file:
+            logging.info(f"自选股文件配置: {self.symbols_file} -> 解析路径: {self._symbols_file_path}")
+        # 初始加载：优先从文件，其次使用传入列表
+        initial_symbols = self._read_symbols_from_file()
+        if initial_symbols is None:
+            initial_symbols = self.symbols or []
+            if self.symbols_file and self._symbols_file_path and not os.path.exists(self._symbols_file_path):
+                logging.info(f"未找到自选股文件，回退使用参数 symbols: {initial_symbols}")
+        else:
+            logging.info(f"从自选股文件加载初始标的: {initial_symbols}")
+        for symbol in initial_symbols:
+            self._start_monitor(symbol)
+        # 启动文件监控（仅实时模式）
+        watcher = None
+        if not self.is_backtest and self.symbols_file:
+            import threading as _threading
+            watcher = _threading.Thread(target=self._watch_symbols_file, daemon=True)
+            watcher.start()
         try:
             while not self.stop_event.is_set():
                 sys_time.sleep(1)
         finally:
+            # 统一停止
+            for ev in list(self._monitor_events.values()):
+                try:
+                    ev.set()
+                except Exception:
+                    pass
+            if watcher is not None:
+                self.stop_event.set()
+                try:
+                    watcher.join(timeout=2)
+                except Exception:
+                    pass
             self.executor.shutdown()
 
 
@@ -646,12 +800,16 @@ if __name__ == "__main__":
     IS_BACKTEST = False
     backtest_start = "2025-08-25 09:30"
     backtest_end = "2025-08-29 15:00"
-    symbols = ['603269', '300815']
+    symbols = ['300852']
+    # 可选：使用文本文件热加载自选股（每行一个6位代码，支持#注释）
+    symbols_file = 'watchlist.txt'
 
     manager = MonitorManagerV2(symbols,
                                is_backtest=IS_BACKTEST,
                                backtest_start=backtest_start,
-                               backtest_end=backtest_end)
+                               backtest_end=backtest_end,
+                               symbols_file=symbols_file,
+                               reload_interval_sec=5)
     logging.info("启动多股票监控V2...")
     manager.start()
 
