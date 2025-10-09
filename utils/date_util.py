@@ -3,8 +3,10 @@ import re
 from datetime import datetime, timedelta
 
 import pandas as pd
+
 try:
     import pandas_market_calendars as mcal
+
     # 预先初始化A股交易所日历对象
     SSE_CALENDAR = mcal.get_calendar('SSE')
 except ImportError:
@@ -16,6 +18,10 @@ except ImportError:
 _TRADING_DAYS_CACHE = None
 _CACHE_START_DATE = None
 _CACHE_END_DATE = None
+
+# 通用搜索窗口与上限
+_MAX_LOOKBACK_DAYS = 365  # 回溯上限（天）
+_MIN_INITIAL_WINDOW_DAYS = 30  # 初始窗口下限，覆盖常见长假
 
 
 def _init_trading_days_cache(start_date, end_date):
@@ -221,14 +227,35 @@ def get_n_trading_days_before(date: str, n: int) -> str:
     else:
         date_dt = datetime.strptime(date, '%Y%m%d')
 
-    prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=2 * n + 1), end_date=date_dt)
-    # 统一为带时区的Timestamp
+    # 日历不可用时的简化回退：仅按工作日回溯
+    if SSE_CALENDAR is None:
+        collected_days = []
+        current_dt = date_dt
+        looked = 0
+        while len(collected_days) < n + 1 and looked <= _MAX_LOOKBACK_DAYS:
+            if current_dt.weekday() < 5:  # 周一到周五
+                collected_days.append(current_dt)
+            current_dt -= timedelta(days=1)
+            looked += 1
+        if len(collected_days) < n + 1:
+            raise ValueError(f"历史交易日数量不足: len={len(collected_days)}, n+1={n + 1}")
+        return collected_days[-(n + 1)].strftime('%Y-%m-%d')
+
+    # 使用交易所日历，采用自适应回溯窗口，保证跨长假也能取到足够交易日
     date_dt_tz = pd.Timestamp(date_dt, tz='UTC')
-    prev_days = [d for d in prev_days if d <= date_dt_tz]
-    prev_days = sorted(prev_days)
-    if len(prev_days) < n + 1:
-        raise ValueError(f"历史交易日数量不足: len={len(prev_days)}, n+1={n + 1}")
-    return prev_days[-(n + 1)].strftime('%Y-%m-%d')
+    window_days = max(2 * n + 1, _MIN_INITIAL_WINDOW_DAYS)
+    prev_days = []
+
+    while window_days <= _MAX_LOOKBACK_DAYS:
+        start_dt = date_dt - timedelta(days=window_days)
+        prev_days = SSE_CALENDAR.valid_days(start_date=start_dt, end_date=date_dt)
+        prev_days = remove_holidays(prev_days)
+        prev_days = [d for d in prev_days if d <= date_dt_tz]
+        if len(prev_days) >= n + 1:
+            return prev_days[-(n + 1)].strftime('%Y-%m-%d')
+        window_days *= 2
+
+    raise ValueError(f"历史交易日数量不足: len={len(prev_days)}, n+1={n + 1}")
 
 
 def is_trading_day(date: str) -> bool:
