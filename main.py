@@ -174,10 +174,10 @@ def strategy_scan(candidate_model='a'):
         '*** 二次确认信号',
     ]
 
-    start_date = '20250630'
+    start_date = '20250730'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250910'  # 只看这个日期之后的
+    details_after_date = '20250915'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -200,9 +200,9 @@ def pullback_rebound_scan(candidate_model='a'):
         '止跌反弹信号',
     ]
 
-    start_date = '20250630'
+    start_date = '20250730'
     end_date = None
-    details_after_date = '20250901'  # 只看这个日期之后的
+    details_after_date = '20250915'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -361,7 +361,7 @@ def get_stock_datas():
     use_realtime = True
 
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250630', end_date=None, save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250830', end_date=None, save_path='./data/astocks',
                                     max_workers=8, stock_list=None, force_update=False, max_sleep_time=2000)
 
     # 根据参数选择不同的数据获取方式
@@ -478,7 +478,7 @@ def draw_ths_fupan():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250810'
+    start_date = '20250830'
     # end_date = '20250228'
     end_date = None
     # 在daily_routine中强制使用单线程，避免多线程冲突
@@ -486,7 +486,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250810'
+    start_date = '20250830'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -550,7 +550,7 @@ def update_synonym_groups():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250720"
+    start_date = "20250830"
     end_date = None
 
     process_zt_data(start_date, end_date, clean_output=True)
@@ -632,7 +632,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()  # 一键执行策略扫描与对比图生成
+    full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # strategy_scan('a')
     # generate_comparison_charts()
@@ -653,7 +653,7 @@ if __name__ == '__main__':
     # plot_stock_daily_prices()
     # get_hot_clouds()
     # find_dragon()
-    find_similar_trends()
+    # find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
