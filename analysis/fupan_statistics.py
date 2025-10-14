@@ -560,28 +560,55 @@ def compute_open_break_group_stats(stock_df, performance, date):
         perf_map = performance  # {code: {...}}
         group_labels = list(dict.fromkeys(df_tmp['开板组'].tolist()))  # 保留出现过的顺序
 
+        def is_valid_number(x):
+            try:
+                import math
+                return x is not None and not (isinstance(x, float) and (math.isnan(x)))
+            except Exception:
+                return False
+
         group_stats = {}
         for label in group_labels:
             codes_in_group = df_tmp.loc[df_tmp['开板组'] == label, '代码key'].tolist()
             open_vals = []
             close_vals = []
+            valid_count = 0
+            total_in_group = len(codes_in_group)
+            with_perf = 0
+            open_ok = 0
+            close_ok = 0
             for code_key in codes_in_group:
                 p = perf_map.get(code_key)
                 if p is None:
                     continue
-                if 't+1收入开盘盈利' in p:
-                    open_vals.append(p['t+1收入开盘盈利'])
-                if 't+1收入收盘盈利' in p:
-                    close_vals.append(p['t+1收入收盘盈利'])
+                with_perf += 1
+                ov = p.get('t+1收入开盘盈利')
+                cv = p.get('t+1收入收盘盈利')
+                if is_valid_number(ov):
+                    open_vals.append(ov)
+                    open_ok += 1
+                if is_valid_number(cv):
+                    close_vals.append(cv)
+                    close_ok += 1
+                # 样本数要求两者都有效
+                if is_valid_number(ov) and is_valid_number(cv):
+                    valid_count += 1
 
-            # 计算均值与样本数
+            # 计算均值与样本数（基于有效样本）
             open_mean = round(sum(open_vals) / len(open_vals), 2) if open_vals else None
             close_mean = round(sum(close_vals) / len(close_vals), 2) if close_vals else None
-            sample_size = len(set([c for c in codes_in_group if perf_map.get(c) is not None]))
 
             group_stats[f'开板{label}_开盘收益'] = open_mean
             group_stats[f'开板{label}_收盘收益'] = close_mean
-            group_stats[f'开板{label}_样本数'] = sample_size
+            group_stats[f'开板{label}_样本数'] = valid_count
+
+            # 可选调试输出：设置环境变量 OPEN_BREAK_DEBUG=1 时打印缺失概况
+            try:
+                import os
+                if os.getenv('OPEN_BREAK_DEBUG') == '1':
+                    print(f"[OPEN_BREAK_DEBUG][{date}] 组={label} 总数={total_in_group} 有绩效={with_perf} 开盘有效={open_ok} 收盘有效={close_ok} 有效样本(两者均有效)={valid_count}")
+            except Exception:
+                pass
 
         return group_stats
     except Exception as e:

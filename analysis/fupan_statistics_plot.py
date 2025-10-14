@@ -656,10 +656,10 @@ def plot_open_break_group_returns(df, save_path):
             color = cmap(i % 10)
             # 开盘收益：虚线+圆点
             if lbl in open_map:
-                plt.plot(x, df[open_map[lbl]], label=f'开板{lbl}-开盘', linestyle='--', marker='o', color=color)
+                plt.plot(x, df[open_map[lbl]], label=f'开板{lbl}-开盘', linestyle='-', marker='o', color=color)
             # 收盘收益：实线+方块
             if lbl in close_map:
-                plt.plot(x, df[close_map[lbl]], label=f'开板{lbl}-收盘', linestyle='-', marker='s', color=color, alpha=0.5)
+                plt.plot(x, df[close_map[lbl]], label=f'开板{lbl}-收盘', linestyle='--', marker='s', color=color, alpha=0.5)
 
         # 在顶部绘制样本数（按图例顺序，纵向堆叠）
         # 计算顶部基线为当前图中最大y值的上方少量位置
@@ -671,6 +671,12 @@ def plot_open_break_group_returns(df, save_path):
                 y_values.append(df[close_map[lbl]].max())
         ymax = max(y_values) if y_values else 0
         top_offset = (abs(ymax) + 1) * 0.08  # 顶部留白比例
+        # 计算注释文本的行距，并预留足够的y轴上边界，避免与标题重叠
+        dy = (abs(ymax) + 1) * 0.06
+        ax = plt.gca()
+        yl = ax.get_ylim()
+        upper_needed = ymax + top_offset + dy * 0.5
+        ax.set_ylim(yl[0], max(yl[1], upper_needed))
 
         for idx in range(len(df)):
             # 从上到下绘制，不同组依次向下偏移
@@ -687,16 +693,17 @@ def plot_open_break_group_returns(df, save_path):
                     continue
                 # 文本位置：x=idx, y=顶部基线 + 下移步长*j
                 base_y = ymax + top_offset
-                dy = (abs(ymax) + 1) * 0.06  # 行距
                 plt.text(x[idx], base_y - j * dy, f"{cnt}", ha='center', va='bottom', fontsize=7, color='black')
 
-        plt.title('按开板次数分组的T+1开/收盘收益（涨停样本）')
+        # 增加标题与图形之间的间距，避免与顶部注释重叠
+        plt.title('按开板次数分组的T+1开/收盘收益（涨停样本）', pad=20)
         plt.xlabel('日期')
         plt.ylabel('收益(%)')
         plt.xticks(x, date_labels, rotation=45, ha='right')
         plt.grid(alpha=0.3)
         plt.legend(ncol=2)
-        plt.tight_layout()
+        # 适当降低紧凑度顶部区域，给标题和顶部注释留出空间
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.savefig(f'{save_path}_open_break_returns.png')
         plt.close()
     except Exception as e:
