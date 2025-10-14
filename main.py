@@ -15,6 +15,7 @@ from strategy.panic_rebound_strategy import PanicReboundStrategy
 from strategy.pullback_rebound_strategy import PullbackReboundStrategy
 from strategy.scannable_pullback_rebound_strategy import ScannablePullbackReboundStrategy
 from strategy.regime_classifier_strategy import RegimeClassifierStrategy
+from strategy.weekly_volume_momentum_strategy import WeeklyVolumeMomentumStrategy
 
 from utils.logging_util import redirect_print_to_logger
 
@@ -163,6 +164,36 @@ def pullback_rebound_simulate():
         log_trades=True,
         visualize=True,
         interactive_plot=True,  # 弹出交互图
+    )
+
+
+# 周量能放大策略回测
+def weekly_volume_momentum_simulate():
+    """周量能放大 + 短期温和上行 策略回测示例"""
+    stock_code = '000009'  # 可替换标的
+    simulator.go_trade(
+        code=stock_code,
+        amount=100000,
+        startdate=datetime(2021, 1, 1),
+        enddate=datetime(2025, 10, 13),
+        strategy=WeeklyVolumeMomentumStrategy,
+        strategy_params={
+            'debug': True,
+            'week_window': 5,
+            'week_growth_ratio': 2.0,
+            'three_month_lookback_days': 60,
+            'three_month_max_change': 0.401,
+            'gap_open_exclude_pct': 0.05,
+            'daily_gain_upper_pct': 0.045,
+            'initial_stake_pct': 1.0,
+            'base_hold_days': 2,
+            'stop_loss_pct': 0.05,
+            'trigger_trailing_profit_pct': 0.09,
+            'trailing_drawdown_pct': 0.01,
+        },
+        log_trades=True,
+        visualize=True,
+        interactive_plot=True,
     )
 
 
@@ -665,6 +696,7 @@ if __name__ == '__main__':
     # === 策略回测 ===
     # backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
+    # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
 
     # === 参数优化功能 ===
