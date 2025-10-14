@@ -57,6 +57,9 @@ class FupanConfig:
                  '涨停封板时长', '涨停时间明细']
     }
 
+    # 涨停开板次数分组配置（最后一个表示"X+")
+    OPEN_BREAK_BUCKETS = [0, 1, 2, 3]
+
 
 class FupanDataAccess:
     """复盘数据访问类"""
@@ -509,6 +512,83 @@ def get_local_data(base_date, next_date, stock_code, data_path='data/astocks'):
 #         return None
 
 
+def compute_open_break_group_stats(stock_df, performance, date):
+    """
+    计算基于涨停开板次数的分组统计数据
+    Args:
+        stock_df: 包含涨停开板次数的DataFrame
+        performance: 次日表现数据字典
+        date: 日期，格式为 'YYYYMMDD'
+    Returns:
+        dict: 包含分组统计数据的字典
+    """
+    try:
+        # 确定列名
+        candidate_cols = [f'涨停开板次数[{date}]', '涨停开板次数']
+        open_break_col = None
+        for c in candidate_cols:
+            if c in stock_df.columns:
+                open_break_col = c
+                break
+
+        if open_break_col is None or stock_df.empty:
+            return {}
+
+        # 解析代码与开板次数
+        df_tmp = stock_df[['股票代码']].copy()
+        df_tmp['代码key'] = df_tmp['股票代码'].astype(str).apply(lambda x: x.split('.')[0])
+        df_tmp['开板次数_raw'] = pd.to_numeric(stock_df[open_break_col], errors='coerce')
+
+        buckets = getattr(FupanConfig, 'OPEN_BREAK_BUCKETS', [0, 1, 2, 3, 4])
+        last_bucket = buckets[-1] if buckets else 4
+
+        def map_to_bucket(v):
+            if pd.isna(v):
+                return None
+            for b in buckets[:-1]:
+                if v == b:
+                    return str(b)
+            # 最后一档为 X+
+            if v >= last_bucket:
+                return f"{last_bucket}+"
+            return None
+
+        df_tmp['开板组'] = df_tmp['开板次数_raw'].apply(map_to_bucket)
+        df_tmp = df_tmp.dropna(subset=['开板组'])
+
+        # 收集每组的收益
+        perf_map = performance  # {code: {...}}
+        group_labels = list(dict.fromkeys(df_tmp['开板组'].tolist()))  # 保留出现过的顺序
+
+        group_stats = {}
+        for label in group_labels:
+            codes_in_group = df_tmp.loc[df_tmp['开板组'] == label, '代码key'].tolist()
+            open_vals = []
+            close_vals = []
+            for code_key in codes_in_group:
+                p = perf_map.get(code_key)
+                if p is None:
+                    continue
+                if 't+1收入开盘盈利' in p:
+                    open_vals.append(p['t+1收入开盘盈利'])
+                if 't+1收入收盘盈利' in p:
+                    close_vals.append(p['t+1收入收盘盈利'])
+
+            # 计算均值与样本数
+            open_mean = round(sum(open_vals) / len(open_vals), 2) if open_vals else None
+            close_mean = round(sum(close_vals) / len(close_vals), 2) if close_vals else None
+            sample_size = len(set([c for c in codes_in_group if perf_map.get(c) is not None]))
+
+            group_stats[f'开板{label}_开盘收益'] = open_mean
+            group_stats[f'开板{label}_收盘收益'] = close_mean
+            group_stats[f'开板{label}_样本数'] = sample_size
+
+        return group_stats
+    except Exception as e:
+        print(f"计算开板次数分组统计失败: {str(e)}")
+        return {}
+
+
 def analyze_zt_stocks_performance(date, analysis_type='涨停'):
     """
     分析指定日期涨停股在次日的表现
@@ -597,6 +677,14 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             '次日高入收盘涨比': safe_ratio(high_close_profit),
             '详细数据': performance
         }
+
+        # 基于涨停开板次数的分组统计（仅对涨停分析执行）
+        if analysis_type == '涨停':
+            try:
+                group_stats = compute_open_break_group_stats(stock_df, performance, date)
+                stats.update(group_stats)
+            except Exception as e:
+                print(f"按开板次数分组统计失败: {str(e)}")
 
         return stats
     except Exception as e:

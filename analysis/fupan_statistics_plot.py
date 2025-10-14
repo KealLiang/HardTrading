@@ -568,6 +568,9 @@ def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=N
     # plot_limit_up_history_data(limit_up_df, save_path)
     plot_limit_up_key_metrics_combined(limit_up_df, save_path)
 
+    # 新增：绘制按开板次数分组的T+1收益时间序列
+    plot_open_break_group_returns(df, save_path)
+
 
 def plot_all(start_date=None, end_date=None, path='./excel/'):
     """绘制所有分析图表"""
@@ -595,6 +598,109 @@ def plot_all(start_date=None, end_date=None, path='./excel/'):
 
     # 生成所有图表
     plot_market_analysis(filtered_df, market_save_path, limit_up_df)
+
+
+# 新增：按开板次数分组的T+1收益时间序列可视化
+def plot_open_break_group_returns(df, save_path):
+    try:
+        import re
+        # 识别列：涨停_开板{label}_开盘收益 / 涨停_开板{label}_收盘收益 / 样本数
+        open_pattern = re.compile(r'^涨停_开板(\d\+?|\d\+?)_开盘收益$')
+        close_pattern = re.compile(r'^涨停_开板(\d\+?|\d\+?)_收盘收益$')
+        count_pattern = re.compile(r'^涨停_开板(\d\+?|\d\+?)_样本数$')
+
+        def collect_columns(pattern):
+            cols = []
+            labels = []
+            for col in df.columns:
+                m = pattern.match(str(col))
+                if m:
+                    cols.append(col)
+                    labels.append(m.group(1))
+            # 对标签进行自然排序，数字在前，X+在最后
+            def sort_key(x):
+                try:
+                    if x.endswith('+'):
+                        return (1, int(x[:-1]))
+                    return (0, int(x))
+                except:
+                    return (2, 999)
+            order = sorted(range(len(labels)), key=lambda i: sort_key(labels[i]))
+            return [cols[i] for i in order], [labels[i] for i in order]
+
+        open_cols, open_labels = collect_columns(open_pattern)
+        close_cols, close_labels = collect_columns(close_pattern)
+        count_cols, count_labels = collect_columns(count_pattern)
+
+        # 合并标签集，保持自然顺序
+        label_set = list(dict.fromkeys(open_labels + close_labels))
+        if not label_set:
+            return
+
+        # 构建 label -> 列名 的映射
+        open_map = {lbl: col for lbl, col in zip(open_labels, open_cols)}
+        close_map = {lbl: col for lbl, col in zip(close_labels, close_cols)}
+        count_map = {lbl: col for lbl, col in zip(count_labels, count_cols)}
+
+        # 统一x轴：使用位置索引+格式化日期标签（与其它图保持一致）
+        import numpy as np
+        x = np.arange(len(df))
+        date_labels = [d.strftime('%Y%m%d') if isinstance(d, pd.Timestamp) else d for d in df.index]
+
+        # 颜色映射
+        import matplotlib.pyplot as plt
+        cmap = plt.get_cmap('tab10')
+
+        plt.figure(figsize=(15, 6))
+        for i, lbl in enumerate(label_set):
+            color = cmap(i % 10)
+            # 开盘收益：虚线+圆点
+            if lbl in open_map:
+                plt.plot(x, df[open_map[lbl]], label=f'开板{lbl}-开盘', linestyle='--', marker='o', color=color)
+            # 收盘收益：实线+方块
+            if lbl in close_map:
+                plt.plot(x, df[close_map[lbl]], label=f'开板{lbl}-收盘', linestyle='-', marker='s', color=color, alpha=0.5)
+
+        # 在顶部绘制样本数（按图例顺序，纵向堆叠）
+        # 计算顶部基线为当前图中最大y值的上方少量位置
+        y_values = []
+        for lbl in label_set:
+            if lbl in open_map:
+                y_values.append(df[open_map[lbl]].max())
+            if lbl in close_map:
+                y_values.append(df[close_map[lbl]].max())
+        ymax = max(y_values) if y_values else 0
+        top_offset = (abs(ymax) + 1) * 0.08  # 顶部留白比例
+
+        for idx in range(len(df)):
+            # 从上到下绘制，不同组依次向下偏移
+            for j, lbl in enumerate(label_set):
+                cnt = None
+                if lbl in count_map:
+                    val = df[count_map[lbl]].iloc[idx]
+                    if pd.notna(val):
+                        try:
+                            cnt = int(val)
+                        except:
+                            cnt = None
+                if cnt is None:
+                    continue
+                # 文本位置：x=idx, y=顶部基线 + 下移步长*j
+                base_y = ymax + top_offset
+                dy = (abs(ymax) + 1) * 0.06  # 行距
+                plt.text(x[idx], base_y - j * dy, f"{cnt}", ha='center', va='bottom', fontsize=7, color='black')
+
+        plt.title('按开板次数分组的T+1开/收盘收益（涨停样本）')
+        plt.xlabel('日期')
+        plt.ylabel('收益(%)')
+        plt.xticks(x, date_labels, rotation=45, ha='right')
+        plt.grid(alpha=0.3)
+        plt.legend(ncol=2)
+        plt.tight_layout()
+        plt.savefig(f'{save_path}_open_break_returns.png')
+        plt.close()
+    except Exception as e:
+        print(f'绘制开板分组收益图失败: {str(e)}')
 
 
 if __name__ == "__main__":
