@@ -671,9 +671,9 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    find_candidate_stocks_weekly_growth()
-    # strategy_scan('a')
-    # generate_comparison_charts()
+    # find_candidate_stocks_weekly_growth()
+    strategy_scan('b')
+    generate_comparison_charts()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts()
     # get_stock_datas()

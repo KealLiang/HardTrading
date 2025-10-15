@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 # --- Constants ---
 DEFAULT_DATA_PATH = './data/astocks'
 DEFAULT_CANDIDATE_FILE = 'bin/candidate_stocks.txt'
-SHOUBAN_CANDIDATE_FILE = 'bin/candidate_stocks_ready.txt'
+OTHER_CANDIDATE_FILE = 'bin/candidate_stocks_weekly_growth.txt'
 DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
 
 # 扫描最少需要的数据天数
@@ -421,7 +421,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         if candidate_model == 'a':
             stock_pool = DEFAULT_CANDIDATE_FILE
         elif candidate_model == 'b':
-            stock_pool = SHOUBAN_CANDIDATE_FILE
+            stock_pool = OTHER_CANDIDATE_FILE
         else:
             raise ValueError(f"无法识别的候选模式: {candidate_model}")
 
