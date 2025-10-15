@@ -1,0 +1,28 @@
+{
+  "window_titles": [
+    "通达信",
+    "金融终端",
+    "行情"
+  ],
+  "fengdan_header_point": [
+    564,
+    80
+  ],
+  "screenshot_region": [
+    7,
+    43,
+    1228,
+    1451
+  ],
+  "save_dir": "data/screenshots/auction",
+  "sort_click_count": 2,
+  "auction_times": [
+    "09:15:30",
+    "09:20:30",
+    "09:25:30"
+  ],
+  "use_block_input": true,
+  "restore_mouse": true,
+  "minimize_after_capture": true,
+  "ak_shortcut": "67"
+}

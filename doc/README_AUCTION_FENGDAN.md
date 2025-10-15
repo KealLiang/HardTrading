@@ -178,8 +178,9 @@ analyzer.plot_fengdan_distribution('20250914')
 ```
 
 ### AuctionScheduler
+
 ```python
-from alerting.auction_scheduler import AuctionScheduler
+from automation.auction_scheduler import AuctionScheduler
 
 scheduler = AuctionScheduler()
 
