@@ -252,6 +252,12 @@ def find_candidate_stocks():
     run_filter()
 
 
+def find_candidate_stocks_weekly_growth():
+    # 使用新的“周量增+当日条件”筛选器
+    from bin.weekly_growth_scanner import run_filter as run_weekly_filter
+    run_weekly_filter()
+
+
 # 获取热点概念词云
 def get_hot_clouds():
     hot_words_cloud(0)
@@ -663,8 +669,9 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()  # 一键执行策略扫描与对比图生成
+    # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
+    find_candidate_stocks_weekly_growth()
     # strategy_scan('a')
     # generate_comparison_charts()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
