@@ -670,12 +670,12 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth()
-    strategy_scan('b')
-    generate_comparison_charts('b')
+    # strategy_scan('b')
+    # generate_comparison_charts('b')
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts()
     # get_stock_datas()
