@@ -17,12 +17,17 @@
   "save_dir": "data/screenshots/auction",
   "sort_click_count": 2,
   "auction_times": [
-    "09:15:30",
-    "09:20:30",
+    "09:15:05",
+    "09:20:10",
     "09:25:30"
   ],
   "use_block_input": true,
   "restore_mouse": true,
   "minimize_after_capture": true,
-  "ak_shortcut": "67"
+  "ak_shortcut": "67",
+  "image_format": "webp",
+  "jpeg_quality": 30,
+  "webp_quality": 22,
+  "webp_method": 6,
+  "downscale_ratio": 0.6
 }

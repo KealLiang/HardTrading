@@ -45,6 +45,7 @@ from typing import Dict, List, Optional, Tuple
 # 第三方
 import pyautogui as pag
 import schedule
+from PIL import Image
 
 # 常量配置（可被配置文件覆盖）
 DEFAULT_CONFIG = {
@@ -68,7 +69,14 @@ DEFAULT_CONFIG = {
     "restore_mouse": True,                 # 执行后恢复鼠标位置
     "minimize_after_capture": True,        # 截图完成后最小化通达信
     # 键盘精灵快捷跳转
-    "ak_shortcut": "67"                   # 跳转到『A股』的快捷键（输入后回车）
+    "ak_shortcut": "67",                  # 跳转到『A股』的快捷键（输入后回车）
+    # 截图压缩
+    "image_format": "webp",               # webp | jpeg | png
+    "jpeg_quality": 35,                    # 0-95，越低越小
+    "webp_quality": 30,                    # 0-100，越低越小
+    "webp_method": 6,                      # 0-6，越高越慢体积越小
+    "png_optimize": True,                  # PNG 优化
+    "downscale_ratio": 1.0                 # 可选缩放比例（例如 0.8 可进一步减小体积）
 }
 
 CONFIG_PATH = os.path.join("config", "tdx_screenshot.json")
@@ -196,12 +204,62 @@ class TDXScreenshotter:
 
         today = datetime.now().strftime('%Y%m%d')
         tag = time_tag or datetime.now().strftime('%H%M')
-        filename = f"{today}_{tag}.png"
+
+        fmt = str(self.cfg.get("image_format", "webp")).lower()
+        ext_map = {"jpeg": "jpg", "jpg": "jpg", "webp": "webp", "png": "png"}
+        ext = ext_map.get(fmt, "webp")
+        filename = f"{today}_{tag}.{ext}"
         save_path = os.path.join(self.cfg["save_dir"], filename)
 
         image = pag.screenshot(region=region)
-        image.save(save_path)
-        self.logger.info(f"截图完成: {save_path}")
+
+        # 可选缩放，进一步减小文件体积
+        try:
+            ratio = float(self.cfg.get("downscale_ratio", 1.0))
+        except Exception:
+            ratio = 1.0
+        if ratio and ratio < 1.0:
+            w, h = image.size
+            new_w = max(1, int(w * ratio))
+            new_h = max(1, int(h * ratio))
+            image = image.resize((new_w, new_h), resample=Image.LANCZOS)
+
+        # 保存时按格式压缩
+        try:
+            if fmt in ("jpeg", "jpg"):
+                params = {
+                    "quality": int(self.cfg.get("jpeg_quality", 35)),
+                    "optimize": True,
+                    "progressive": True,
+                    "subsampling": "4:2:0",
+                }
+                if image.mode in ("RGBA", "P"):
+                    image = image.convert("RGB")
+                image.save(save_path, format="JPEG", **params)
+            elif fmt == "png":
+                params = {
+                    "optimize": bool(self.cfg.get("png_optimize", True)),
+                    "compress_level": 9,
+                }
+                image.save(save_path, format="PNG", **params)
+            else:  # webp 默认
+                params = {
+                    "quality": int(self.cfg.get("webp_quality", 30)),
+                    "method": int(self.cfg.get("webp_method", 6)),
+                }
+                image.save(save_path, format="WEBP", **params)
+        except Exception as e:
+            # 回退为 PNG 保存，避免因格式不支持导致丢图
+            fallback_path = os.path.splitext(save_path)[0] + ".png"
+            image.save(fallback_path, format="PNG", optimize=True, compress_level=9)
+            self.logger.warning(f"图片保存失败，已回退为 PNG：{fallback_path}，错误：{e}")
+            return fallback_path
+
+        try:
+            size_kb = os.path.getsize(save_path) / 1024.0
+            self.logger.info(f"截图完成: {save_path} ({size_kb:.1f} KB)")
+        except Exception:
+            self.logger.info(f"截图完成: {save_path}")
         return save_path
 
     def run_once(self, time_point: Optional[str] = None) -> None:
@@ -349,4 +407,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # python automation/tdx_auction_screenshot.py snap
     main() 
