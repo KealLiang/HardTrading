@@ -219,7 +219,7 @@ def strategy_scan(candidate_model='a'):
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
         candidate_model=candidate_model,
-        output_path='bin/candidate_stocks_breakout'  # 指定输出目录
+        output_path=f'bin/candidate_stocks_breakout_{candidate_model}'  # 指定输出目录，按模型区分
     )
 
 
@@ -244,7 +244,7 @@ def pullback_rebound_scan(candidate_model='a'):
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
         candidate_model=candidate_model,
-        output_path='bin/candidate_stocks_rebound'  # 指定输出目录
+        output_path=f'bin/candidate_stocks_rebound_{candidate_model}'  # 指定输出目录，按模型区分
     )
 
 
@@ -378,15 +378,15 @@ def daily_routine():
     execute_routine(daily_steps, "daily_routine")
 
 
-def full_scan_routine():
+def full_scan_routine(candidate_model='a'):
     """
     一键执行完整的策略扫描和对比图生成流程
     """
     scan_steps = [
-        (strategy_scan, "执行突破策略扫描"),
-        (generate_comparison_charts, "生成突破策略对比图"),
-        (pullback_rebound_scan, "执行止跌反弹策略扫描"),
-        (generate_rebound_comparison_charts, "生成止跌反弹策略对比图"),
+        (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
+        (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
+        (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
+        (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
     ]
 
     execute_routine(scan_steps, "full_scan_routine")
@@ -617,28 +617,30 @@ def generate_ladder_chart():
                        sheet_name=sheet_name, create_leader_sheet=True, create_volume_sheet=True)
 
 
-def generate_comparison_charts(recent_days: int = 10):
+def generate_comparison_charts(candidate_model: str = 'a', recent_days: int = 10):
     """
     生成股票信号对比图 - 根据信号日期分组，便于对比查看
 
     Args:
+        candidate_model: 使用的候选集模型标识（如 'a'、'b'），用于区分输出目录
         recent_days: 生成最近几天的对比图，默认10天
     """
     from bin.comparison_chart_generator import run_auto_generation
+    base_dir = f'bin/candidate_stocks_breakout_{candidate_model}'
+    return run_auto_generation(base_dir=base_dir, recent_days=recent_days)
 
-    return run_auto_generation(base_dir='bin/candidate_stocks_breakout', recent_days=recent_days)
 
-
-def generate_rebound_comparison_charts(recent_days: int = 10):
+def generate_rebound_comparison_charts(candidate_model: str = 'a', recent_days: int = 10):
     """
     生成止跌反弹策略的股票信号对比图
 
     Args:
+        candidate_model: 使用的候选集模型标识（如 'a'、'b'），用于区分输出目录
         recent_days: 生成最近几天的对比图，默认10天
     """
     from bin.comparison_chart_generator import run_auto_generation
-
-    return run_auto_generation(base_dir='bin/candidate_stocks_rebound', recent_days=recent_days)
+    base_dir = f'bin/candidate_stocks_rebound_{candidate_model}'
+    return run_auto_generation(base_dir=base_dir, recent_days=recent_days)
 
 
 def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
@@ -673,7 +675,7 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth()
     strategy_scan('b')
-    generate_comparison_charts()
+    generate_comparison_charts('b')
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts()
     # get_stock_datas()
