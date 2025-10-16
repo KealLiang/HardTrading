@@ -25,9 +25,8 @@
   "restore_mouse": true,
   "minimize_after_capture": true,
   "ak_shortcut": "67",
-  "image_format": "webp",
-  "jpeg_quality": 30,
-  "webp_quality": 22,
-  "webp_method": 6,
-  "downscale_ratio": 0.6
+  "image_format": "jpeg",
+  "jpeg_quality": 20,
+  "downscale_ratio": 0.6,
+  "convert_to_grayscale": false
 }

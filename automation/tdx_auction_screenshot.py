@@ -76,7 +76,8 @@ DEFAULT_CONFIG = {
     "webp_quality": 30,                    # 0-100，越低越小
     "webp_method": 6,                      # 0-6，越高越慢体积越小
     "png_optimize": True,                  # PNG 优化
-    "downscale_ratio": 1.0                 # 可选缩放比例（例如 0.8 可进一步减小体积）
+    "downscale_ratio": 1.0,                # 可选缩放比例（例如 0.8 可进一步减小体积）
+    "convert_to_grayscale": False          # 将图片转为灰度，显著压缩体积
 }
 
 CONFIG_PATH = os.path.join("config", "tdx_screenshot.json")
@@ -233,8 +234,13 @@ class TDXScreenshotter:
                     "progressive": True,
                     "subsampling": "4:2:0",
                 }
-                if image.mode in ("RGBA", "P"):
-                    image = image.convert("RGB")
+                if bool(self.cfg.get("convert_to_grayscale", False)):
+                    # 灰度模式体积更小，适合以文本为主的截图
+                    if image.mode != "L":
+                        image = image.convert("L")
+                else:
+                    if image.mode in ("RGBA", "P"):
+                        image = image.convert("RGB")
                 image.save(save_path, format="JPEG", **params)
             elif fmt == "png":
                 params = {
