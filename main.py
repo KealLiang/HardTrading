@@ -387,6 +387,9 @@ def full_scan_routine(candidate_model='a'):
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
         (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
         (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
+        (lambda: find_candidate_stocks_weekly_growth(), "筛选周增长的候选股"),
+        (lambda: strategy_scan('b'), "执行突破策略扫描b"),
+        (lambda: generate_comparison_charts('b'), "生成突破策略对比图b"),
     ]
 
     execute_routine(scan_steps, "full_scan_routine")
@@ -670,14 +673,14 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth()
     # strategy_scan('b')
     # generate_comparison_charts('b')
-    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
-    # generate_rebound_comparison_charts()
+    pullback_rebound_scan('b')  # 止跌反弹策略扫描
+    generate_rebound_comparison_charts('b')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
