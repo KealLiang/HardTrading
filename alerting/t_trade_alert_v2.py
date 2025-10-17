@@ -109,6 +109,8 @@ class TMonitorV2:
 
         # 实时监控：跟踪已处理的信号，避免重复触发
         self._processed_signals = set()  # 存储已触发信号的唯一标识
+        # 弱提示去重：记录已输出的弱提示时间点
+        self._weak_hints_printed = set()  # 存储已输出弱提示的唯一标识（时间戳+方向）
 
     def _get_stock_name(self):
         try:
@@ -392,6 +394,15 @@ class TMonitorV2:
     def _maybe_weak_hint(self, df, i, side):
         if not TMonitorConfigV2.ENABLE_WEAK_HINTS:
             return
+        
+        # 获取当前时间戳，用于去重
+        ts = df['datetime'].iloc[i]
+        hint_key = f"{side}_{ts}"
+        
+        # 【BUG修复】回测模式下防止重复输出相同时间点的弱提示
+        if hint_key in self._weak_hints_printed:
+            return
+        
         # 冷却与最小变动去重
         cache = getattr(self, '_weak_cache', {'BUY': {'last_i': -9999, 'last_p': None}, 'SELL': {'last_i': -9999, 'last_p': None}})
         last_i = cache[side]['last_i']
@@ -431,9 +442,13 @@ class TMonitorV2:
                         hinted = True
         if not hinted:
             return
+        
         # 输出弱提示日志
-        ts = df['datetime'].iloc[i]
         logging.info(f"【弱提示】[{self.stock_name} {self.symbol}] {side}-减速 现价：{price:.2f} [{ts}]")
+        
+        # 记录已输出，防止回测模式下重复
+        self._weak_hints_printed.add(hint_key)
+        
         # 更新缓存
         cache[side]['last_i'] = i
         cache[side]['last_p'] = price
@@ -585,18 +600,41 @@ class TMonitorV2:
         if df is None or df.empty:
             logging.error("指定时间段内没有数据")
             return
-        # 单次准备 + 单次扫描，避免 O(n^2) 重复计算造成卡顿
         df = df.sort_values('datetime').reset_index(drop=True)
         if len(df) < TMonitorConfigV2.EXTREME_WINDOW:
             logging.warning("样本不足，跳过回测")
             return
+        
+        # 【BUG修复】采用滚动窗口模式，与实时模式保持一致
+        # 一次性计算全量指标（避免重复计算）
         df = self._prepare_indicators(df)
-        # 预计算滚动极值，供局部峰/谷判定
         window = TMonitorConfigV2.EXTREME_WINDOW
         df['_rh'] = df['high'].rolling(window, min_periods=1).max()
         df['_rl'] = df['low'].rolling(window, min_periods=1).min()
-        # 单次检测（流式逻辑不看未来，等价于逐根推进）
-        self._detect_signals(df)
+        
+        # 模拟实时模式的滚动窗口处理
+        for current_index in range(len(df)):
+            if self.stop_event.is_set():
+                break
+            
+            # 始终截取最近 MAX_HISTORY_BARS 的数据，保持与实时模式一致
+            window_start = max(0, current_index + 1 - TMonitorConfigV2.MAX_HISTORY_BARS)
+            df_current = df.iloc[window_start:current_index + 1].copy()
+            
+            # 提前跳过不足计算窗口的阶段
+            if len(df_current) < TMonitorConfigV2.EXTREME_WINDOW:
+                continue
+            
+            # 删除全量数据预计算的滚动极值，强制基于当前窗口重新计算
+            if '_rh' in df_current.columns:
+                df_current = df_current.drop(columns=['_rh', '_rl'])
+            
+            # 使用已计算的指标进行信号检测
+            self._detect_signals(df_current)
+            
+            # 模拟实时处理间隔
+            sys_time.sleep(0.001)
+        
         logging.info(f"[回测 {self.symbol}] 回测结束")
 
     def run(self):

@@ -489,6 +489,11 @@ class TMonitor:
             if len(df_current) < TMonitorConfig.EXTREME_WINDOW:
                 continue
 
+            # 【BUG修复】删除全量数据预计算的滚动极值，强制基于当前窗口重新计算
+            # 确保与实时模式一致（实时模式每次都是基于360根窗口计算）
+            if '_rh' in df_current.columns:
+                df_current = df_current.drop(columns=['_rh', '_rl'])
+
             # 使用已计算的指标进行背离检测（避免重复计算）
             self._detect_divergence(df_current)
 
