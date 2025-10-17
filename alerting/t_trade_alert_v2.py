@@ -796,9 +796,9 @@ class MonitorManagerV2:
 
 
 if __name__ == "__main__":
-    IS_BACKTEST = False
-    backtest_start = "2025-09-22 09:30"
-    backtest_end = "2025-09-30 15:00"
+    IS_BACKTEST = True
+    backtest_start = "2025-10-13 09:30"
+    backtest_end = "2025-10-17 15:00"
     symbols = ['300852']
     # 可选：使用文本文件热加载自选股（每行一个6位代码，支持#注释）
     symbols_file = 'watchlist.txt'
