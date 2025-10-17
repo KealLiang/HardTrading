@@ -590,7 +590,7 @@ def update_synonym_groups():
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250830"
+    start_date = "20250930"
     end_date = None
 
     process_zt_data(start_date, end_date, clean_output=True)
@@ -674,13 +674,13 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()  # 一键执行策略扫描与对比图生成
+    full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth()
     # strategy_scan('b')
     # generate_comparison_charts('b')
-    pullback_rebound_scan('b')  # 止跌反弹策略扫描
-    generate_rebound_comparison_charts('b')
+    # pullback_rebound_scan('b')  # 止跌反弹策略扫描
+    # generate_rebound_comparison_charts('b')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
