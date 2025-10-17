@@ -161,8 +161,18 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 	return True, '✓ 通过全部筛选条件'
 
 
-def run_filter():
-	"""扫描并输出候选股到 OUTPUT_FILE。"""
+def run_filter(offset_days: int = 0):
+	"""
+	扫描并输出候选股到文件。
+	
+	Args:
+		offset_days: 时间偏移量（天数），默认0
+			- 0: 以T日为基准（今天），使用截至T日的数据
+			- 1: 以T-1日为基准（昨天），使用截至T-1日的数据
+			- N: 以T-N日为基准，使用截至T-N日的数据
+			
+		⚠️ 注意：扫描T-N日时，只使用截至T-N日的数据，不使用未来数据
+	"""
 	if not os.path.exists(DATA_DIR):
 		print(f"错误: 数据目录 '{DATA_DIR}' 不存在。")
 		return
@@ -172,8 +182,15 @@ def run_filter():
 		print(f"错误: 数据目录 '{DATA_DIR}' 中没有找到CSV文件。")
 		return
 
+	# 打印扫描配置
+	if offset_days > 0:
+		print(f"⏰ 时间偏移: {offset_days}天 (扫描T-{offset_days}日的数据)")
+	else:
+		print(f"⏰ 扫描当前数据 (T日)")
+	
 	print(f"开始扫描 {len(stock_files)} 只股票...")
 	candidate_stocks: list[str] = []
+	base_date = None  # 基准日期
 
 	for filename in tqdm(stock_files, desc='扫描进度'):
 		# 非ST股
@@ -185,24 +202,43 @@ def run_filter():
 		df = read_stock_data(file_path)
 		if df is None or df.empty:
 			continue
+		
+		# 应用时间偏移：截取到T-offset_days日
+		if offset_days > 0:
+			if len(df) <= offset_days:
+				continue  # 数据不足，跳过
+			df = df.iloc[:-offset_days]
+		
+		# 记录基准日期（第一次遇到有效数据时）
+		if base_date is None and not df.empty:
+			base_date = df.index[-1]
 
 		is_candidate, reason = analyze_stock(df.copy(), code)
 		if is_candidate:
 			candidate_stocks.append(code)
 			tqdm.write(f"  [+] 候选: {code} - {reason}")
 
+	# 构建输出文件名（包含基准日期）
+	if base_date is not None:
+		date_str = base_date.strftime('%Y%m%d')
+		output_file = OUTPUT_FILE.replace('.txt', f'_{date_str}.txt')
+	else:
+		output_file = OUTPUT_FILE
+		date_str = "未知"
+	
 	print("\n" + "=" * 50)
+	print(f"📅 基准日期: {date_str}")
 	print(f"扫描完成！发现 {len(candidate_stocks)} 只候选股票。")
 	print("=" * 50)
 
 	if candidate_stocks:
-		output_dir = os.path.dirname(OUTPUT_FILE)
+		output_dir = os.path.dirname(output_file)
 		if not os.path.exists(output_dir):
 			os.makedirs(output_dir)
-		with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+		with open(output_file, 'w', encoding='utf-8') as f:
 			for code in candidate_stocks:
 				f.write(code + '\n')
-		print(f"候选股列表已保存到: {OUTPUT_FILE}")
+		print(f"候选股列表已保存到: {output_file}")
 	else:
 		print('未发现符合条件的候选股。')
 

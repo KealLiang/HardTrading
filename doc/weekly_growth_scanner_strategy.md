@@ -98,37 +98,99 @@ WEEK_WINDOW = 5                                      # 周期窗口：5个交易
 
 ---
 
+## ⏰ 时间偏移功能
+
+### 功能说明
+
+**时间偏移功能**允许您扫描历史日期的数据，用于验证策略有效性和回测分析。
+
+**核心概念**：
+- `offset_days=0`：以T日为基准（今天），使用截至T日的数据
+- `offset_days=1`：以T-1日为基准（昨天），使用截至T-1日的数据  
+- `offset_days=N`：以T-N日为基准，使用截至T-N日的数据
+
+**⚠️ 重要**：扫描T-N日时，只使用截至T-N日的数据，**不使用未来数据**，确保回测真实性。
+
+### 使用场景
+
+1. **验证策略有效性**：扫描昨天的数据，看看筛选出的股票今天表现如何
+2. **回测分析**：扫描过去一周/一月的数据，统计策略胜率
+3. **对比分析**：对比不同日期筛选出的股票池
+
+### 输出文件命名规则
+
+输出文件名自动包含基准日期，避免覆盖：
+
+```
+./bin/candidate_stocks_weekly_growth_20251017.txt  # T日（offset_days=0）
+./bin/candidate_stocks_weekly_growth_20251016.txt  # T-1日（offset_days=1）
+./bin/candidate_stocks_weekly_growth_20251015.txt  # T-2日（offset_days=2）
+```
+
+---
+
 ## 🚀 使用方法
 
-### 1. 基本用法
+### 1. 基本用法（扫描当前数据）
 
 在 `main.py` 中调用：
 
 ```python
-def find_candidate_stocks_weekly_growth():
-    from bin.weekly_growth_scanner import run_filter as run_weekly_filter
-    run_weekly_filter()
+# 扫描T日（今天）
+find_candidate_stocks_weekly_growth()
 
-# 执行
-if __name__ == '__main__':
-    find_candidate_stocks_weekly_growth()
+# 或显式指定
+find_candidate_stocks_weekly_growth(offset_days=0)
 ```
 
-### 2. 直接运行
+### 2. 使用时间偏移（扫描历史数据）
+
+```python
+# 扫描T-1日（昨天）
+find_candidate_stocks_weekly_growth(offset_days=1)
+
+# 扫描T-5日（5天前）
+find_candidate_stocks_weekly_growth(offset_days=5)
+
+# 批量扫描最近7天
+for i in range(7):
+    print(f"\n{'='*60}")
+    print(f"扫描T-{i}日")
+    print('='*60)
+    find_candidate_stocks_weekly_growth(offset_days=i)
+```
+
+### 3. 直接运行脚本
 
 ```bash
 # 激活虚拟环境
 conda activate trading
 
-# 运行扫描
+# 扫描当前数据（默认）
 python bin/weekly_growth_scanner.py
+
+# 注意：命令行暂不支持offset_days参数，需在代码中修改
 ```
 
-### 3. 输出结果
+### 4. 代码中修改默认参数
 
-扫描完成后，候选股代码将保存至：
+如需修改 `weekly_growth_scanner.py` 的默认行为，编辑文件末尾：
+
+```python
+if __name__ == '__main__':
+    run_filter(offset_days=1)  # 改为扫描T-1日
 ```
-./bin/candidate_stocks_weekly_growth.txt
+
+### 5. 输出结果
+
+扫描完成后，候选股代码将保存至带日期的文件：
+
+```
+# offset_days=0（T日，假设今天是2025-10-17）
+./bin/candidate_stocks_weekly_growth_20251017.txt
+
+# offset_days=1（T-1日）
+./bin/candidate_stocks_weekly_growth_20251016.txt
 ```
 
 文件格式：每行一个股票代码
@@ -137,6 +199,21 @@ python bin/weekly_growth_scanner.py
 000001
 300001
 ...
+```
+
+**输出示例**：
+```
+⏰ 时间偏移: 1天 (扫描T-1日的数据)
+开始扫描 5234 只股票...
+扫描进度: 100%|██████████| 5234/5234
+  [+] 候选: 600000 - ✓ 通过全部筛选条件
+  [+] 候选: 000001 - ✓ 通过全部筛选条件
+
+==================================================
+📅 基准日期: 20251016
+扫描完成！发现 15 只候选股票。
+==================================================
+候选股列表已保存到: ./bin/candidate_stocks_weekly_growth_20251016.txt
 ```
 
 ---
@@ -265,9 +342,9 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 ## 🔗 相关文件
 
 - **策略文件**: `bin/weekly_growth_scanner.py`
-- **主入口**: `main.py::find_candidate_stocks_weekly_growth()`
+- **主入口**: `main.py::find_candidate_stocks_weekly_growth(offset_days=0)`
 - **数据目录**: `./data/astocks/`
-- **输出文件**: `./bin/candidate_stocks_weekly_growth.txt`
+- **输出文件**: `./bin/candidate_stocks_weekly_growth_YYYYMMDD.txt`（自动包含日期）
 - **工具函数**: `utils/stock_util.py::stock_limit_ratio()`
 
 ---
@@ -279,6 +356,7 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 **Q: 扫描结果为空？**
 - 检查数据目录是否存在且有数据文件
 - 检查数据是否是最新的（包含T日数据）
+- 如果使用offset_days，确保有足够的历史数据
 - 尝试放宽筛选条件（如降低成交量增长率要求）
 
 **Q: 数据读取错误？**
@@ -288,11 +366,22 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 **Q: 如何调整策略参数？**
 - 参考"配置参数"章节，修改对应常量或阈值
 
+**Q: 如何验证策略有效性？**
+- 使用时间偏移功能，扫描历史数据：`find_candidate_stocks_weekly_growth(offset_days=1)`
+- 对比筛选出的股票在后续几天的表现
+- 建议批量扫描最近7-30天，统计胜率和平均收益
+
+**Q: offset_days的数据会使用未来数据吗？**
+- 不会！offset_days=N时，只使用截至T-N日的数据
+- 相当于"穿越"到T-N日执行扫描，只能看到当时的数据
+- 这确保了回测的真实性和可信度
+
 ---
 
 ## 📅 文档版本
 
-- **版本**: v1.0
+- **版本**: v1.1
 - **创建日期**: 2025-10-17
 - **最后更新**: 2025-10-17
+- **更新内容**: 新增时间偏移功能，支持扫描历史数据验证策略
 - **维护者**: Trading Team 

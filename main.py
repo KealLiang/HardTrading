@@ -252,10 +252,19 @@ def find_candidate_stocks():
     run_filter()
 
 
-def find_candidate_stocks_weekly_growth():
-    # 使用新的“周量增+当日条件”筛选器
+def find_candidate_stocks_weekly_growth(offset_days: int = 0):
+    """
+    周成交量增长策略选股
+    
+    Args:
+        offset_days: 时间偏移量（天数），默认0
+            - 0: 以T日为基准（今天）
+            - 1: 以T-1日为基准（昨天）
+            - N: 以T-N日为基准
+    """
+    # 使用新的"周量增+当日条件"筛选器
     from bin.weekly_growth_scanner import run_filter as run_weekly_filter
-    run_weekly_filter()
+    run_weekly_filter(offset_days=offset_days)
 
 
 # 获取热点概念词云
@@ -676,7 +685,7 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    # find_candidate_stocks_weekly_growth()
+    find_candidate_stocks_weekly_growth(offset_days=0)
     strategy_scan('b')
     generate_comparison_charts('b')
     # pullback_rebound_scan('b')  # 止跌反弹策略扫描
