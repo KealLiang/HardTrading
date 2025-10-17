@@ -9,6 +9,7 @@ from utils.stock_util import stock_limit_ratio
 DATA_DIR = './data/astocks'
 OUTPUT_FILE = './bin/candidate_stocks_weekly_growth.txt'
 MIN_DATA_LEN = 30  # 至少要有基本数据
+WEEK_WINDOW = 5  # 周期窗口：5个交易日为一周
 
 
 def read_stock_data(file_path):
@@ -44,15 +45,25 @@ def _is_st_filename(filename: str) -> bool:
 
 
 def _passes_weekly_volume_growth(df: pd.DataFrame) -> bool:
-	"""自然周(周日为周终)维度计算周成交量，最近一周较上一周增长>100%"""
-	weekly_volume = df['volume'].resample('W-SUN').sum()
-	if len(weekly_volume) < 2:
+	"""
+	以WEEK_WINDOW个交易日为周期计算周成交量环比增长率
+	本周=最近WEEK_WINDOW个交易日，上周=前一个WEEK_WINDOW周期
+	增长率 > 100%
+	"""
+	min_required = WEEK_WINDOW * 2  # 至少需要2个完整周期的数据
+	if len(df) < min_required:
 		return False
-	last_week_volume = weekly_volume.iloc[-1]
-	prev_week_volume = weekly_volume.iloc[-2]
+	
+	# 本周：最近WEEK_WINDOW个交易日的成交量总和
+	recent_week_volume = df['volume'].iloc[-WEEK_WINDOW:].sum()
+	
+	# 上周：前一个WEEK_WINDOW周期的成交量总和
+	prev_week_volume = df['volume'].iloc[-WEEK_WINDOW*2:-WEEK_WINDOW].sum()
+	
 	if prev_week_volume <= 0:
 		return False
-	growth_rate = (last_week_volume - prev_week_volume) / prev_week_volume
+	
+	growth_rate = (recent_week_volume - prev_week_volume) / prev_week_volume
 	return growth_rate > 1.0
 
 
@@ -75,27 +86,67 @@ def _passes_three_month_return(df: pd.DataFrame) -> bool:
 
 def _passes_today_constraints(df: pd.DataFrame, code: str) -> bool:
 	"""
-	今日未涨停，且 当前价>前收 且 涨幅<4.5%
-	涨停价按A股规则四舍五入到两位小数: round(prev_close * (1+limit_ratio), 2)
+	当日(T日)条件检查 - 用于T日收盘后筛选、T+1日买入的场景
+	
+	检查T日的表现是否符合条件（在T日收盘后，所有数据已知）：
+	1. 排除高开5%以上：⚠️ 无法在扫描时实现（需T+1日开盘时判断）
+	2. 今日未涨停：T日收盘价 < T日涨停价
+	3. 当前价 > 前日收盘价：T日收盘 > T-1日收盘（小幅上涨）
+	4. 涨幅 < 4.5%：T日涨幅 < 4.5%（温和上涨，不追高）
+	
+	策略意图：选择T日表现温和、未涨停的股票，在T+1日买入
+	⚠️ 注意：T+1日开盘时需人工/程序判断是否高开5%以上，若是则放弃买入
+	涨停价按A股规则四舍五入到两位小数: round(T-1日收盘 * (1+limit_ratio), 2)
 	"""
 	if len(df) < 2:
 		return False
-	prev_close = float(df['close'].iloc[-2])
-	today_close = float(df['close'].iloc[-1])
+	prev_close = float(df['close'].iloc[-2])  # T-1日收盘价
+	today_close = float(df['close'].iloc[-1])  # T日收盘价（当前价）
 	limit_ratio = float(stock_limit_ratio(code))
 	limit_up_price = round(prev_close * (1.0 + limit_ratio), 2)
-	# 今日未涨停: 收盘价严格小于涨停价
+	
+	# 1. 排除高开5%以上
+	# ⚠️ 此条件指的是T+1日开盘相对T日收盘不能高开5%以上
+	#    但在T日收盘后无法预知T+1日开盘价，因此此条件无法在扫描时实现
+	#    需要在T+1日开盘时人工或程序判断，超过5%高开则放弃买入
+	# 
+	# 实现示例（在T+1日开盘后执行）：
+	# next_day_open = get_realtime_price(code)  # 获取实时开盘价
+	# gap_open_pct = (next_day_open - today_close) / today_close
+	# if gap_open_pct >= 0.05:
+	#     print(f"{code} 高开{gap_open_pct*100:.2f}%，放弃买入")
+	#     return False
+	
+	# 2. 今日(T日)未涨停: T日收盘价 < T日涨停价(基于T-1日收盘计算)
 	if not (today_close < limit_up_price):
 		return False
-	# 当前价>前日收盘价 且 涨幅<4.5%
+	
+	# 3. 当前价(T日收盘) > 前日收盘价(T-1日收盘)
 	if today_close <= prev_close:
 		return False
+	
+	# 4. 涨幅 < 4.5%：(T日收盘 - T-1日收盘) / T-1日收盘
 	pct_change = (today_close - prev_close) / prev_close
 	return pct_change < 0.045
 
 
 def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
-	"""按新规则筛选股票。"""
+	"""
+	筛选股票的完整策略 - 用于T日收盘后筛选、T+1日买入的场景
+	
+	扫描时可实现的条件（基于T日及之前的数据）：
+	1. 周成交量环比增长率 > 100%（基于WEEK_WINDOW个交易日周期，量能放大）
+	2. 近3个月区间涨跌幅 < 40.1%（避免追高位股）
+	3. T日未涨停
+	4. T日收盘 > T-1日收盘（小幅上涨）
+	5. T日涨幅 < 4.5%（温和上涨，不追高）
+	6. 非ST股（在调用侧已过滤）
+	
+	⚠️ T+1日开盘时需额外判断：
+	- 排除高开5%以上：若T+1日开盘相对T日收盘高开>=5%，则放弃买入
+	
+	选股意图：量能放大 + 位置不高 + T日表现温和 → T+1日买入机会
+	"""
 	if len(df) < MIN_DATA_LEN:
 		return False, '数据不足'
 	# 条件1: 周成交量环比增长>100%
@@ -104,10 +155,10 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 	# 条件2: 近3个月区间涨跌幅<40.1%
 	if not _passes_three_month_return(df):
 		return False, '近3个月涨跌幅不满足'
-	# 条件3: 今日未涨停 + 涨幅<4.5% 且 >0
+	# 条件3-5: 排除高开5%以上 + 今日未涨停 + 当前价>前收 + 涨幅<4.5%
 	if not _passes_today_constraints(df, code):
-		return False, '当日价格/涨停条件不满足'
-	return True, '通过周量增+三月涨幅+当日条件筛选'
+		return False, '当日条件不满足(高开/涨停/涨幅)'
+	return True, '✓ 通过全部筛选条件'
 
 
 def run_filter():
