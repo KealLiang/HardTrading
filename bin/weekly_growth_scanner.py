@@ -1,4 +1,5 @@
 import os
+import shutil
 
 import pandas as pd
 from tqdm import tqdm
@@ -235,10 +236,16 @@ def run_filter(offset_days: int = 0):
 		output_dir = os.path.dirname(output_file)
 		if not os.path.exists(output_dir):
 			os.makedirs(output_dir)
+		
+		# 保存到带日期的文件
 		with open(output_file, 'w', encoding='utf-8') as f:
 			for code in candidate_stocks:
 				f.write(code + '\n')
 		print(f"候选股列表已保存到: {output_file}")
+		
+		# 自动复制到不带日期的文件（供后续流程使用）
+		shutil.copy2(output_file, OUTPUT_FILE)
+		print(f"✓ 已同步到: {OUTPUT_FILE} (供strategy_scan使用)")
 	else:
 		print('未发现符合条件的候选股。')
 

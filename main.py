@@ -685,7 +685,7 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    find_candidate_stocks_weekly_growth(offset_days=0)
+    find_candidate_stocks_weekly_growth(offset_days=3)
     strategy_scan('b')
     generate_comparison_charts('b')
     # pullback_rebound_scan('b')  # 止跌反弹策略扫描

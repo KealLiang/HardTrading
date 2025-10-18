@@ -127,6 +127,13 @@ WEEK_WINDOW = 5                                      # 周期窗口：5个交易
 ./bin/candidate_stocks_weekly_growth_20251015.txt  # T-2日（offset_days=2）
 ```
 
+**自动同步功能**：扫描完成后，会自动将最新结果复制到：
+```
+./bin/candidate_stocks_weekly_growth.txt  # 不带日期（供后续流程使用）
+```
+
+这样可以无缝衔接后续的 `strategy_scan` 和 `generate_comparison_charts` 流程。
+
 ---
 
 ## 🚀 使用方法
@@ -214,6 +221,73 @@ if __name__ == '__main__':
 扫描完成！发现 15 只候选股票。
 ==================================================
 候选股列表已保存到: ./bin/candidate_stocks_weekly_growth_20251016.txt
+✓ 已同步到: ./bin/candidate_stocks_weekly_growth.txt (供strategy_scan使用)
+```
+
+**自动同步说明**：
+- 带日期的文件：`candidate_stocks_weekly_growth_20251016.txt` - 历史记录，不会被覆盖
+- 不带日期的文件：`candidate_stocks_weekly_growth.txt` - 最新结果，供后续流程使用
+
+---
+
+## 🔄 完整工作流
+
+### 典型使用流程
+
+```python
+# 步骤1: 扫描候选股（自动同步到不带日期的文件）
+find_candidate_stocks_weekly_growth()
+# 或使用时间偏移
+find_candidate_stocks_weekly_growth(offset_days=2)
+
+# 步骤2: 对候选股应用策略扫描（读取不带日期的文件）
+strategy_scan('b')
+
+# 步骤3: 生成对比图表
+generate_comparison_charts('b')
+```
+
+### 文件流转示意
+
+```
+find_candidate_stocks_weekly_growth(offset_days=2)
+    ↓
+生成两个文件：
+    ├─ ./bin/candidate_stocks_weekly_growth_20251015.txt  (历史记录)
+    └─ ./bin/candidate_stocks_weekly_growth.txt           (最新结果，自动同步)
+    ↓
+strategy_scan('b')  读取 → candidate_stocks_weekly_growth.txt
+    ↓
+生成策略信号文件
+    ↓
+generate_comparison_charts('b')
+    ↓
+生成对比图表
+```
+
+### 优势
+
+✅ **无需手动复制**：自动将最新扫描结果同步到固定文件名  
+✅ **历史可追溯**：带日期的文件保留所有历史扫描记录  
+✅ **流程无缝**：后续流程直接使用固定文件名，无需修改  
+✅ **灵活回测**：可使用 `offset_days` 回测历史数据
+
+### 完整工作流演示脚本
+
+提供了完整的演示脚本 `examples/weekly_growth_workflow_demo.py`：
+
+```bash
+# 演示当日完整工作流
+python examples/weekly_growth_workflow_demo.py --demo current
+
+# 演示历史数据验证
+python examples/weekly_growth_workflow_demo.py --demo historical
+
+# 演示批量分析
+python examples/weekly_growth_workflow_demo.py --demo batch
+
+# 查看文件流转说明
+python examples/weekly_growth_workflow_demo.py --demo files
 ```
 
 ---
@@ -380,8 +454,10 @@ def analyze_stock(df: pd.DataFrame, code: str) -> tuple[bool, str]:
 
 ## 📅 文档版本
 
-- **版本**: v1.1
+- **版本**: v1.2
 - **创建日期**: 2025-10-17
 - **最后更新**: 2025-10-17
-- **更新内容**: 新增时间偏移功能，支持扫描历史数据验证策略
+- **更新内容**: 
+  - v1.1: 新增时间偏移功能，支持扫描历史数据验证策略
+  - v1.2: 新增自动文件同步功能，无缝衔接后续工作流
 - **维护者**: Trading Team 
