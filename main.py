@@ -267,6 +267,42 @@ def find_candidate_stocks_weekly_growth(offset_days: int = 0):
     run_weekly_filter(offset_days=offset_days)
 
 
+def analyze_weekly_growth_win_rate(scan_file: str = None, high_ratio: float = 0.25, close_ratio: float = 0.75):
+    """
+    分析周成交量增长策略的胜率
+    
+    Args:
+        scan_file: 扫描文件路径（默认分析最新文件）
+        high_ratio: T+2日高点卖出比例（默认0.25，即1/4）
+        close_ratio: T+2日收盘卖出比例（默认0.75，即3/4）
+    
+    交易逻辑:
+        - T日收盘后扫描
+        - T+1日开盘价买入
+        - T+2日高点卖出 high_ratio 仓位
+        - T+2日收盘卖出 close_ratio 仓位
+    """
+    from bin.weekly_growth_win_rate_analyzer import analyze_latest_or_specified
+    return analyze_latest_or_specified(scan_file, high_ratio, close_ratio)
+
+
+def batch_analyze_weekly_growth_win_rate(directory: str = 'bin/candidate_temp', 
+                                         pattern: str = r'candidate_stocks_weekly_growth_\d{8}\.txt$',
+                                         high_ratio: float = 0.25, 
+                                         close_ratio: float = 0.75):
+    """
+    批量分析目录下所有扫描文件的胜率
+    
+    Args:
+        directory: 扫描文件目录（默认bin/candidate_temp）
+        pattern: 文件名正则匹配模式（默认只匹配weekly_growth格式）
+        high_ratio: T+2日高点卖出比例（默认0.25）
+        close_ratio: T+2日收盘卖出比例（默认0.75）
+    """
+    from bin.weekly_growth_win_rate_analyzer import batch_analyze_with_pattern
+    return batch_analyze_with_pattern(directory, pattern, high_ratio, close_ratio)
+
+
 # 获取热点概念词云
 def get_hot_clouds():
     hot_words_cloud(0)
@@ -685,9 +721,10 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    find_candidate_stocks_weekly_growth(offset_days=3)
+    # find_candidate_stocks_weekly_growth(offset_days=4)
     strategy_scan('b')
     generate_comparison_charts('b')
+    # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('b')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('b')
     # get_stock_datas()
