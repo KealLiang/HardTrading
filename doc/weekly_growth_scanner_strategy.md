@@ -122,14 +122,14 @@ WEEK_WINDOW = 5                                      # 周期窗口：5个交易
 输出文件名自动包含基准日期，避免覆盖：
 
 ```
-./bin/candidate_stocks_weekly_growth_20251017.txt  # T日（offset_days=0）
-./bin/candidate_stocks_weekly_growth_20251016.txt  # T-1日（offset_days=1）
-./bin/candidate_stocks_weekly_growth_20251015.txt  # T-2日（offset_days=2）
+./bin/candidate_temp/candidate_stocks_weekly_growth_20251017.txt  # T日（offset_days=0）
+./bin/candidate_temp/candidate_stocks_weekly_growth_20251016.txt  # T-1日（offset_days=1）
+./bin/candidate_temp/candidate_stocks_weekly_growth_20251015.txt  # T-2日（offset_days=2）
 ```
 
 **自动同步功能**：扫描完成后，会自动将最新结果复制到：
 ```
-./bin/candidate_stocks_weekly_growth.txt  # 不带日期（供后续流程使用）
+./bin/candidate_temp/candidate_stocks_weekly_growth.txt  # 不带日期（供后续流程使用）
 ```
 
 这样可以无缝衔接后续的 `strategy_scan` 和 `generate_comparison_charts` 流程。

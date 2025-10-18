@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 # --- 可配置参数 ---
 DATA_DIR = './data/astocks'  # 股票数据目录
-OUTPUT_FILE = './bin/candidate_stocks_ready.txt'  # 候选股输出文件
+OUTPUT_FILE = './bin/candidate_temp/candidate_stocks_ready.txt'  # 候选股输出文件
 MIN_DATA_LEN = 200  # 股票需要的最少交易日数据
 # --- 阶段一: 背景筛选 ---
 MIN_AVG_AMOUNT = 30_000_000  # 最小20日平均成交额 (3000万)

@@ -48,7 +48,7 @@ def demo_historical_validation():
     find_candidate_stocks_weekly_growth(offset_days=5)
     
     print("\n提示: 现在可以查看这些候选股在后续5天的实际表现，验证策略有效性")
-    print("文件位置: ./bin/candidate_stocks_weekly_growth_{date}.txt")
+    print("文件位置: ./bin/candidate_temp/candidate_stocks_weekly_growth_{date}.txt")
 
 
 def demo_batch_analysis():
@@ -79,11 +79,11 @@ def demo_file_flow():
 
 1. find_candidate_stocks_weekly_growth(offset_days=2)
    生成两个文件:
-   ├─ ./bin/candidate_stocks_weekly_growth_20251015.txt  (历史记录)
-   └─ ./bin/candidate_stocks_weekly_growth.txt           (最新结果，自动同步)
+   ├─ ./bin/candidate_temp/candidate_stocks_weekly_growth_20251015.txt  (历史记录)
+   └─ ./bin/candidate_temp/candidate_stocks_weekly_growth.txt           (最新结果，自动同步)
 
 2. strategy_scan('b')
-   读取: ./bin/candidate_stocks_weekly_growth.txt
+   读取: ./bin/candidate_temp/candidate_stocks_weekly_growth.txt
    生成: ./bin/candidate_stocks_breakout_b/...
 
 3. generate_comparison_charts('b')

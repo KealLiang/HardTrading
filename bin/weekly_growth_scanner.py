@@ -8,7 +8,7 @@ from utils.stock_util import stock_limit_ratio
 
 # --- Config ---
 DATA_DIR = './data/astocks'
-OUTPUT_FILE = './bin/candidate_stocks_weekly_growth.txt'
+OUTPUT_FILE = './bin/candidate_temp/candidate_stocks_weekly_growth.txt'
 MIN_DATA_LEN = 30  # 至少要有基本数据
 WEEK_WINDOW = 5  # 周期窗口：5个交易日为一周
 
