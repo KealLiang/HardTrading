@@ -533,10 +533,10 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     formatter = "%Y%m%d"
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "301308"  # 目标股票代码
-    start_date = datetime.strptime('20250901', formatter)
-    end_date = datetime.strptime('20250929', formatter)
-    trend_end_date = datetime.strptime('20250929', formatter)  # 被查找个股的趋势结束日期
+    target_stock_code = "601212"  # 目标股票代码
+    start_date = datetime.strptime('20250815', formatter)
+    end_date = datetime.strptime('20251014', formatter)
+    trend_end_date = datetime.strptime('20251014', formatter)  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -550,8 +550,24 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted",
-                              trend_end_date=trend_end_date, same_market=True)
+    
+    # ============= 相似度计算方法说明 =============
+    # method可选值：
+    # - "close_price": 仅收盘价相关性（最快但最粗糙）
+    # - "weighted": 原加权相关性（快速，适合粗略筛选）
+    # - "enhanced_weighted": 增强版加权相关性（推荐！考虑量价配合和阶段性特征）
+    # - "dtw": DTW动态时间规整（最精确但最慢）
+    
+    # ============= 优化参数说明 =============
+    # use_prefilter=True: 开启预筛选（候选数>100时推荐，可过滤70%不相关股票）
+    
+    find_other_similar_trends(
+        target_stock_code, start_date, end_date, stock_codes, data_dir, 
+        method="enhanced_weighted",  # 使用增强版方法
+        trend_end_date=trend_end_date, 
+        same_market=True,
+        use_prefilter=True  # 开启预筛选
+    )
 
 
 def fetch_ths_fupan():
@@ -730,8 +746,8 @@ if __name__ == '__main__':
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=5)
-    strategy_scan('b')
-    generate_comparison_charts('b')
+    # strategy_scan('b')
+    # generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('b')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('b')
@@ -750,7 +766,7 @@ if __name__ == '__main__':
     # plot_stock_daily_prices()
     # get_hot_clouds()
     # find_dragon()
-    # find_similar_trends()
+    find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()

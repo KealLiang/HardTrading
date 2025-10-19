@@ -107,6 +107,149 @@ def compute_weighted_correlation(target_data, stock_data):
     return round(final_corr, 4)
 
 
+def compute_enhanced_weighted_correlation(target_data, stock_data):
+    """
+    增强版加权相关度计算：考虑量价配合、阶段性特征和绝对量级
+    
+    改进点：
+    1. 分段计算相似度（前、中、后三段）
+    2. 增加量价配合特征（涨跌幅 vs 成交量变化）
+    3. 考虑绝对量级（成交量放大倍数、涨幅绝对值）
+    4. 加入动量和趋势一致性
+    
+    参数:
+    target_data: DataFrame - 目标股票的数据
+    stock_data: DataFrame - 候选股票的数据
+    
+    返回:
+    float - 增强版相似度得分（0-1之间）
+    """
+    def extract_features(df):
+        """提取增强特征"""
+        df = df.copy()
+        
+        # 基础特征标准化（相对首日）
+        base_close = df['收盘'].iloc[0]
+        df['norm_close'] = df['收盘'] / base_close
+        
+        # 涨跌幅
+        df['pct_change'] = df['收盘'].pct_change().fillna(0)
+        
+        # 成交量变化率（相对前一日）
+        df['vol_change'] = df['成交量'].pct_change().fillna(0)
+        
+        # 量价配合度：涨跌幅 * 成交量变化率（同向为正，反向为负）
+        df['volume_price_sync'] = df['pct_change'] * df['vol_change']
+        
+        # 成交量相对平均值的倍数
+        df['vol_ratio'] = df['成交量'] / df['成交量'].rolling(window=min(5, len(df)), min_periods=1).mean()
+        
+        # 累计涨幅
+        df['cumulative_return'] = (df['收盘'] / df['收盘'].iloc[0] - 1) * 100
+        
+        # 振幅
+        df['amplitude'] = (df['最高'] - df['最低']) / df['最低'].shift(1).fillna(df['最低'].iloc[0])
+        
+        return df
+    
+    def segment_correlation(target_features, stock_features, segment_name):
+        """计算单个分段的综合相似度"""
+        scores = []
+        
+        # 1. 价格走势相关性（权重30%）
+        price_corr = np.corrcoef(
+            target_features['norm_close'].values,
+            stock_features['norm_close'].values
+        )[0, 1]
+        scores.append(('price', price_corr, 0.30))
+        
+        # 2. 量价配合相关性（权重25%）
+        vp_corr = np.corrcoef(
+            target_features['volume_price_sync'].values,
+            stock_features['volume_price_sync'].values
+        )[0, 1]
+        scores.append(('vp_sync', vp_corr, 0.25))
+        
+        # 3. 成交量放大倍数相关性（权重20%）
+        vol_ratio_corr = np.corrcoef(
+            target_features['vol_ratio'].values,
+            stock_features['vol_ratio'].values
+        )[0, 1]
+        scores.append(('vol_ratio', vol_ratio_corr, 0.20))
+        
+        # 4. 累计涨幅相似度（权重15%）- 考虑绝对量级
+        target_cum_return = target_features['cumulative_return'].iloc[-1]
+        stock_cum_return = stock_features['cumulative_return'].iloc[-1]
+        # 使用高斯相似度：差异越小越接近1
+        return_similarity = np.exp(-((target_cum_return - stock_cum_return) ** 2) / (2 * 50 ** 2))
+        scores.append(('cumulative_return', return_similarity, 0.15))
+        
+        # 5. 振幅相关性（权重10%）
+        amp_corr = np.corrcoef(
+            target_features['amplitude'].fillna(0).values,
+            stock_features['amplitude'].fillna(0).values
+        )[0, 1]
+        scores.append(('amplitude', amp_corr, 0.10))
+        
+        # 计算加权得分（处理NaN）
+        weighted_score = sum(
+            max(0, score if not np.isnan(score) else 0) * weight
+            for _, score, weight in scores
+        )
+        
+        return weighted_score, {name: score for name, score, _ in scores}
+    
+    try:
+        # 提取特征
+        target_features = extract_features(target_data)
+        stock_features = extract_features(stock_data)
+        
+        # 确保长度一致
+        min_len = min(len(target_features), len(stock_features))
+        target_features = target_features.iloc[:min_len]
+        stock_features = stock_features.iloc[:min_len]
+        
+        if min_len < 5:
+            logging.debug("数据长度不足，跳过计算")
+            return 0.0
+        
+        # 分段计算（前1/3、中1/3、后1/3）
+        segment_size = max(3, min_len // 3)
+        segments = {
+            '前段': (0, segment_size),
+            '中段': (segment_size, segment_size * 2),
+            '后段': (segment_size * 2, min_len)
+        }
+        
+        segment_scores = {}
+        segment_weights = {'前段': 0.35, '中段': 0.30, '后段': 0.35}  # 前后段权重更高
+        
+        for seg_name, (start, end) in segments.items():
+            if end - start < 3:  # 分段太小则跳过
+                continue
+            seg_score, seg_details = segment_correlation(
+                target_features.iloc[start:end],
+                stock_features.iloc[start:end],
+                seg_name
+            )
+            segment_scores[seg_name] = (seg_score, seg_details)
+        
+        # 计算最终加权得分
+        final_score = sum(
+            score * segment_weights.get(seg_name, 0)
+            for seg_name, (score, _) in segment_scores.items()
+        )
+        
+        # 归一化到0-1区间
+        final_score = max(0, min(1, final_score))
+        
+        return round(final_score, 4)
+        
+    except Exception as e:
+        logging.error(f"增强相似度计算失败: {str(e)}")
+        return 0.0
+
+
 def compute_shape_dtw(target_data, stock_data):
     """
     增强版形态DTW相似度计算
@@ -214,6 +357,8 @@ def compute_similarity_by_method(target_data, aligned_stock, method):
         return compute_correlation(target_data, aligned_stock)
     elif method == "weighted":
         return compute_weighted_correlation(target_data, aligned_stock)
+    elif method == "enhanced_weighted":
+        return compute_enhanced_weighted_correlation(target_data, aligned_stock)
     elif method == "dtw":
         return compute_shape_dtw(target_data, aligned_stock)
     else:
@@ -221,7 +366,62 @@ def compute_similarity_by_method(target_data, aligned_stock, method):
         return None
 
 
-def calculate_similarity(target_data, stock_codes, data_dir, method="close_price"):
+def pre_filter_candidates(target_data, stock_codes, data_dir, filter_ratio=0.3):
+    """
+    预筛选候选股票（快速粗筛）
+    
+    使用简单的累计涨幅和成交量总和来快速过滤明显不相关的股票
+    只保留前 filter_ratio 比例的候选股
+    
+    参数:
+    target_data: DataFrame - 目标股票数据
+    stock_codes: list - 候选股票代码
+    data_dir: str - 数据目录
+    filter_ratio: float - 保留比例（0-1）
+    
+    返回:
+    list - 筛选后的股票代码列表
+    """
+    # 计算目标股票的基本特征
+    target_return = (target_data['收盘'].iloc[-1] / target_data['收盘'].iloc[0] - 1) * 100
+    target_vol_sum = target_data['成交量'].sum()
+    target_volatility = target_data['收盘'].pct_change().std() * 100
+    
+    candidates_scores = []
+    
+    for stock_code in stock_codes:
+        stock_data = read_stock_data(stock_code, data_dir)
+        if stock_data is None:
+            continue
+            
+        aligned_stock = align_dataframes(target_data, stock_data)
+        if aligned_stock is None:
+            continue
+            
+        # 计算简单的相似度得分
+        stock_return = (aligned_stock['收盘'].iloc[-1] / aligned_stock['收盘'].iloc[0] - 1) * 100
+        stock_vol_sum = aligned_stock['成交量'].sum()
+        stock_volatility = aligned_stock['收盘'].pct_change().std() * 100
+        
+        # 距离得分（越小越好）
+        return_diff = abs(target_return - stock_return)
+        vol_diff = abs(np.log1p(target_vol_sum) - np.log1p(stock_vol_sum))  # 对数空间比较
+        volatility_diff = abs(target_volatility - stock_volatility)
+        
+        # 综合得分（距离的倒数）
+        score = 1 / (1 + return_diff + vol_diff + volatility_diff)
+        candidates_scores.append((stock_code, score))
+    
+    # 排序并保留前 filter_ratio
+    candidates_scores.sort(key=lambda x: x[1], reverse=True)
+    keep_count = max(10, int(len(candidates_scores) * filter_ratio))  # 至少保留10只
+    filtered_codes = [code for code, _ in candidates_scores[:keep_count]]
+    
+    logging.info(f"预筛选：从 {len(stock_codes)} 只股票筛选出 {len(filtered_codes)} 只候选")
+    return filtered_codes
+
+
+def calculate_similarity(target_data, stock_codes, data_dir, method="close_price", use_prefilter=False):
     """
     计算同时段相似股票趋势
 
@@ -229,23 +429,26 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
     target_data: DataFrame - 目标股票的数据
     stock_codes: list - 候选股票代码列表
     data_dir: str - 数据文件路径
-    method: str - 使用的相似度计算方法（"close_price" 或 "weighted"）
+    method: str - 使用的相似度计算方法
+    use_prefilter: bool - 是否使用预筛选（默认False，候选数>100时建议开启）
 
     返回:
     list - 包含股票代码和相似度的元组列表
     """
+    # 预筛选（可选）
+    if use_prefilter and len(stock_codes) > 100:
+        stock_codes = pre_filter_candidates(target_data, stock_codes, data_dir, filter_ratio=0.3)
+    
     similarity_results = []
-
-    for stock_code in tqdm(stock_codes, "寻找相似走势v1"):
+    
+    for stock_code in tqdm(stock_codes, desc="寻找相似走势"):
         stock_data = read_stock_data(stock_code, data_dir)
 
         if stock_data is None:
             logging.warning(f"未找到股票 {stock_code} 的数据文件，跳过。")
             continue
-        if stock_data is None:
-            continue
 
-        # 直接对齐到目标日期范围（不再预先过滤时间段）
+        # 直接对齐到目标日期范围
         aligned_stock = align_dataframes(target_data, stock_data)
         if aligned_stock is None:
             logging.debug(f"股票 {stock_code} 数据缺口过大，无法对齐，已跳过")
@@ -456,7 +659,7 @@ def cal_window_size(start_date, end_date):
 
 
 def find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes=None, data_dir=".",
-                              method="close_price", trend_end_date=None, same_market=False):
+                              method="close_price", trend_end_date=None, same_market=False, use_prefilter=False):
     """
     主函数：寻找历史相似走势
 
@@ -466,9 +669,10 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     end_date: datetime - 结束日期
     stock_codes: list - 候选股票代码列表（可选）
     data_dir: str - 数据文件路径
-    method: str - 使用的相似度计算方法
+    method: str - 使用的相似度计算方法（支持："close_price", "weighted", "enhanced_weighted", "dtw"）
     trend_end_date: datetime - 趋势结束日期（用于寻找其他时间段）
     same_market: bool - 是否只查找同一市场的股票
+    use_prefilter: bool - 是否使用预筛选快速过滤候选股（默认False，候选数>100时建议开启）
     """
     logging.info("开始加载目标股票数据...")
     target_file = next(
@@ -516,7 +720,9 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     # 分两种模式处理
     if trend_end_date is None:
         # 原逻辑：同时段相似
-        similarity_results = calculate_similarity(target_data, stock_codes, data_dir, method)
+        similarity_results = calculate_similarity(
+            target_data, stock_codes, data_dir, method, use_prefilter=use_prefilter
+        )
     else:
         # 新逻辑：其他时间段相似
         similarity_results = calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_end_date,
