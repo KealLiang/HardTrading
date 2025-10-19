@@ -286,9 +286,9 @@ def analyze_weekly_growth_win_rate(scan_file: str = None, high_ratio: float = 0.
     return analyze_latest_or_specified(scan_file, high_ratio, close_ratio)
 
 
-def batch_analyze_weekly_growth_win_rate(directory: str = 'bin/candidate_temp', 
+def batch_analyze_weekly_growth_win_rate(directory: str = 'bin/candidate_temp',
                                          pattern: str = r'candidate_stocks_weekly_growth_\d{8}\.txt$',
-                                         high_ratio: float = 0.25, 
+                                         high_ratio: float = 0.25,
                                          close_ratio: float = 0.75):
     """
     批量分析目录下所有扫描文件的胜率，生成单一汇总报告
@@ -533,9 +533,8 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
     target_stock_code = "601212"  # 目标股票代码
-    start_date = '20250815'  # 直接使用字符串格式 YYYYMMDD
-    end_date = '20251014'
-    trend_end_date = '20251014'  # 被查找个股的趋势结束日期
+    start_date = '20250815'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
+    end_date = '20251014'  # 目标股票的结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -549,19 +548,31 @@ def find_similar_trends():
     #     "001227"
     # ]
     stock_codes = None
-    
+
     # ============= 相似度计算方法说明 =============
     # method可选值：
     # - "close_price": 仅收盘价相关性（最快但最粗糙）
     # - "weighted": 原加权相关性（快速，适合粗略筛选）
     # - "enhanced_weighted": 增强版加权相关性（推荐！考虑量价配合和阶段性特征）
     # - "dtw": DTW动态时间规整（最精确但最慢）
-    
-    # ============= 增强匹配关注量价关系 =============
+
+    # ============= 执行相似趋势查找（先选择模式） =============
+    # 模式1: 单一结束日期（适合确定某个时点的相似走势）
+    trend_end_date = '20251014'  # 被查找股票的趋势结束日期
+    trend_date_range = None  # 设为None表示使用单一日期模式
+    search_step = None  # 单一日期无步长
+
+    # 模式2: 时间段扫描（适合查找历史上任意时期的相似走势）⭐推荐
+    # trend_end_date = None
+    # trend_date_range = ('20250716', '20251016')  # 在这个时间段内滑动窗口查找
+    # search_step = 5  # ⚠️ 步长设置影响结果，小步长极大影响性能：如果单一日期能找到高相似度，但时间段找不到，说明步长太大了！
+
     find_other_similar_trends(
-        target_stock_code, start_date, end_date, stock_codes, data_dir, 
+        target_stock_code, start_date, end_date, stock_codes, data_dir,
         method="enhanced_weighted",  # 使用增强版方法
-        trend_end_date=trend_end_date, 
+        trend_end_date=trend_end_date,  # 模式1参数
+        trend_date_range=trend_date_range,  # 模式2参数（优先级更高）
+        search_step=search_step,  # 可选：自定义步长（仅模式2有效）
         same_market=True
     )
 

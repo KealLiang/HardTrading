@@ -32,7 +32,7 @@ def build_file_mapping(data_dir):
     dict - {股票代码: 完整文件路径}
     """
     file_mapping = {}
-    
+
     try:
         files = os.listdir(data_dir)
         for file in files:
@@ -40,12 +40,13 @@ def build_file_mapping(data_dir):
                 # 提取股票代码（文件名格式：代码_名称.csv）
                 stock_code = file.split('_')[0]
                 file_mapping[stock_code] = os.path.join(data_dir, file)
-        
+
         logging.info(f"文件映射表构建完成：共 {len(file_mapping)} 只股票")
     except Exception as e:
         logging.error(f"构建文件映射表失败: {e}")
-    
+
     return file_mapping
+
 
 # 定义列名对应的英文名称
 col_mapping = {
@@ -90,7 +91,7 @@ def load_stock_data_fast(stock_code, file_mapping):
     if not file_path:
         logging.debug(f"文件映射表中未找到股票 {stock_code}")
         return None
-    
+
     return load_stock_data(file_path)
 
 
@@ -175,95 +176,96 @@ def compute_enhanced_weighted_correlation(target_data, stock_data):
     返回:
     float - 增强版相似度得分（0-1之间）
     """
+
     def extract_features(df):
         """提取增强特征"""
         df = df.copy()
-        
+
         # 基础特征标准化（相对首日）
         base_close = df['收盘'].iloc[0]
         df['norm_close'] = df['收盘'] / base_close
-        
+
         # 涨跌幅
         df['pct_change'] = df['收盘'].pct_change().fillna(0)
-        
+
         # 成交量变化率（相对前一日）
         df['vol_change'] = df['成交量'].pct_change().fillna(0)
-        
+
         # 量价配合度：涨跌幅 * 成交量变化率（同向为正，反向为负）
         df['volume_price_sync'] = df['pct_change'] * df['vol_change']
-        
+
         # 成交量相对平均值的倍数
         df['vol_ratio'] = df['成交量'] / df['成交量'].rolling(window=min(5, len(df)), min_periods=1).mean()
-        
+
         # 累计涨幅
         df['cumulative_return'] = (df['收盘'] / df['收盘'].iloc[0] - 1) * 100
-        
+
         # 振幅
         df['amplitude'] = (df['最高'] - df['最低']) / df['最低'].shift(1).fillna(df['最低'].iloc[0])
-        
+
         return df
-    
+
     def segment_correlation(target_features, stock_features, segment_name):
         """计算单个分段的综合相似度"""
         scores = []
-        
+
         # 1. 价格走势相关性（权重30%）
         price_corr = np.corrcoef(
             target_features['norm_close'].values,
             stock_features['norm_close'].values
         )[0, 1]
         scores.append(('price', price_corr, 0.30))
-        
+
         # 2. 量价配合相关性（权重25%）
         vp_corr = np.corrcoef(
             target_features['volume_price_sync'].values,
             stock_features['volume_price_sync'].values
         )[0, 1]
         scores.append(('vp_sync', vp_corr, 0.25))
-        
+
         # 3. 成交量放大倍数相关性（权重20%）
         vol_ratio_corr = np.corrcoef(
             target_features['vol_ratio'].values,
             stock_features['vol_ratio'].values
         )[0, 1]
         scores.append(('vol_ratio', vol_ratio_corr, 0.20))
-        
+
         # 4. 累计涨幅相似度（权重15%）- 考虑绝对量级
         target_cum_return = target_features['cumulative_return'].iloc[-1]
         stock_cum_return = stock_features['cumulative_return'].iloc[-1]
         # 使用高斯相似度：差异越小越接近1
         return_similarity = np.exp(-((target_cum_return - stock_cum_return) ** 2) / (2 * 50 ** 2))
         scores.append(('cumulative_return', return_similarity, 0.15))
-        
+
         # 5. 振幅相关性（权重10%）
         amp_corr = np.corrcoef(
             target_features['amplitude'].fillna(0).values,
             stock_features['amplitude'].fillna(0).values
         )[0, 1]
         scores.append(('amplitude', amp_corr, 0.10))
-        
+
         # 计算加权得分（处理NaN）
         weighted_score = sum(
             max(0, score if not np.isnan(score) else 0) * weight
             for _, score, weight in scores
         )
-        
+
         return weighted_score, {name: score for name, score, _ in scores}
-    
+
     try:
         # 提取特征
         target_features = extract_features(target_data)
         stock_features = extract_features(stock_data)
-        
+
         # 确保长度一致
         min_len = min(len(target_features), len(stock_features))
         target_features = target_features.iloc[:min_len]
         stock_features = stock_features.iloc[:min_len]
-        
+
         if min_len < 5:
             logging.debug("数据长度不足，跳过计算")
             return 0.0
-        
+
         # 分段计算（前1/3、中1/3、后1/3）
         segment_size = max(3, min_len // 3)
         segments = {
@@ -271,10 +273,10 @@ def compute_enhanced_weighted_correlation(target_data, stock_data):
             '中段': (segment_size, segment_size * 2),
             '后段': (segment_size * 2, min_len)
         }
-        
+
         segment_scores = {}
         segment_weights = {'前段': 0.35, '中段': 0.30, '后段': 0.35}  # 前后段权重更高
-        
+
         for seg_name, (start, end) in segments.items():
             if end - start < 3:  # 分段太小则跳过
                 continue
@@ -284,18 +286,18 @@ def compute_enhanced_weighted_correlation(target_data, stock_data):
                 seg_name
             )
             segment_scores[seg_name] = (seg_score, seg_details)
-        
+
         # 计算最终加权得分
         final_score = sum(
             score * segment_weights.get(seg_name, 0)
             for seg_name, (score, _) in segment_scores.items()
         )
-        
+
         # 归一化到0-1区间
         final_score = max(0, min(1, final_score))
-        
+
         return round(final_score, 4)
-        
+
     except Exception as e:
         logging.error(f"增强相似度计算失败: {str(e)}")
         return 0.0
@@ -432,7 +434,7 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
     list - 包含股票代码和相似度的元组列表
     """
     similarity_results = []
-    
+
     for stock_code in tqdm(stock_codes, desc="寻找相似走势"):
         # 使用文件映射表快速读取（如果提供）
         if file_mapping:
@@ -470,15 +472,25 @@ def calculate_similarity(target_data, stock_codes, data_dir, method="close_price
 
 
 def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_end_date,
-                            window_size, file_mapping=None):
+                            window_size, file_mapping=None, trend_range_start=None,
+                            trend_range_end=None, search_step=None):
     """
     计算不同时段的相似股票趋势（性能优化版）
+    
+    参数:
+    trend_range_start/trend_range_end: 时间段扫描参数（可选）
+    search_step: 滑动窗口步长（默认=window_size）
     
     性能优化：
     1. 使用预构建的文件映射表，避免重复扫描目录
     2. 去掉了双重os.listdir调用
+    3. 支持时间段滑动窗口扫描
     """
     similarity_results = []
+
+    # 时间段扫描模式
+    use_range_scan = (trend_range_start is not None and trend_range_end is not None)
+
     for stock_code in tqdm(stock_codes, desc="寻找相似走势v2"):
         try:
             # 优化：使用文件映射表快速加载（避免双重扫描）
@@ -486,7 +498,7 @@ def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_en
                 stock_data = load_stock_data_fast(stock_code, file_mapping)
             else:
                 stock_data = read_stock_data(stock_code, data_dir)
-            
+
             if stock_data is None:
                 logging.debug(f"未找到股票 {stock_code} 的数据文件，跳过。")
                 continue
@@ -494,41 +506,80 @@ def calculate_similarity_v2(data_dir, method, stock_codes, target_data, trend_en
             # 预处理：按日期排序并重置索引
             stock_data = stock_data.sort_values('日期').reset_index(drop=True)
 
-            # 获取候选股票可用的最大日期
-            mask = (stock_data['日期'] <= trend_end_date)
-            if not mask.any():
-                logging.debug(f"股票 {stock_code} 在 {trend_end_date} 前无数据，跳过")
-                continue
+            if use_range_scan:
+                # === 时间段滑动窗口扫描模式 ===
+                # 筛选在时间段范围内的数据
+                mask = (stock_data['日期'] >= trend_range_start) & (stock_data['日期'] <= trend_range_end)
+                if not mask.any():
+                    logging.debug(f"股票 {stock_code} 在指定时间段内无数据，跳过")
+                    continue
 
-            # 确定调整后的结束日期
-            adjusted_end_date = stock_data[mask]['日期'].max()
+                range_data = stock_data[mask].reset_index(drop=True)
 
-            # 找到结束日期的位置
-            end_idx = stock_data.index[stock_data['日期'] == adjusted_end_date].tolist()
-            if not end_idx:
-                continue
-            end_idx = end_idx[0]
+                # 滑动窗口扫描
+                for start_idx in range(0, len(range_data) - window_size + 1, search_step):
+                    end_idx = start_idx + window_size - 1
 
-            # 计算起始位置
-            start_idx = end_idx - (window_size - 1)
-            if start_idx < 0:
-                logging.debug(f"股票 {stock_code} 在 {adjusted_end_date} 前交易日不足，跳过")
-                continue
+                    # 截取窗口
+                    candidate_window = range_data.iloc[start_idx:end_idx + 1].copy()
 
-            # 截取时间窗口
-            candidate_window = stock_data.iloc[start_idx:end_idx + 1].copy()
+                    # 验证窗口长度
+                    if len(candidate_window) != window_size:
+                        continue
 
-            # 验证窗口长度
-            if len(candidate_window) != window_size:
-                logging.debug(f"股票 {stock_code} 有效窗口长度不足，跳过")
-                continue
+                    # 计算相似度
+                    correlation = compute_similarity_by_method(target_data, candidate_window, method)
+                    if correlation is None:
+                        continue
 
-            # 计算相似度
-            correlation = compute_similarity_by_method(target_data, candidate_window, method)
-            if correlation is None:
-                return []
+                    # 记录结果（包含窗口的日期范围信息）
+                    window_start_date = candidate_window.iloc[0]['日期']
+                    window_end_date = candidate_window.iloc[-1]['日期']
+                    # 使用元组格式：(原始代码, 窗口结束日期, 相似度, 数据)
+                    # 这样既保留了原始代码用于查找股票名，又记录了具体的历史时期
+                    similarity_results.append((
+                        stock_code,  # 保持原始代码格式
+                        correlation,
+                        candidate_window,
+                        window_end_date  # 额外记录窗口结束日期
+                    ))
+            else:
+                # === 单一结束日期模式（原有逻辑，向后兼容） ===
+                # 获取候选股票可用的最大日期
+                mask = (stock_data['日期'] <= trend_end_date)
+                if not mask.any():
+                    logging.debug(f"股票 {stock_code} 在 {trend_end_date} 前无数据，跳过")
+                    continue
 
-            similarity_results.append((stock_code, correlation, candidate_window))
+                # 确定调整后的结束日期
+                adjusted_end_date = stock_data[mask]['日期'].max()
+
+                # 找到结束日期的位置
+                end_idx = stock_data.index[stock_data['日期'] == adjusted_end_date].tolist()
+                if not end_idx:
+                    continue
+                end_idx = end_idx[0]
+
+                # 计算起始位置
+                start_idx = end_idx - (window_size - 1)
+                if start_idx < 0:
+                    logging.debug(f"股票 {stock_code} 在 {adjusted_end_date} 前交易日不足，跳过")
+                    continue
+
+                # 截取时间窗口
+                candidate_window = stock_data.iloc[start_idx:end_idx + 1].copy()
+
+                # 验证窗口长度
+                if len(candidate_window) != window_size:
+                    logging.debug(f"股票 {stock_code} 有效窗口长度不足，跳过")
+                    continue
+
+                # 计算相似度
+                correlation = compute_similarity_by_method(target_data, candidate_window, method)
+                if correlation is None:
+                    return []
+
+                similarity_results.append((stock_code, correlation, candidate_window))
 
         except Exception as e:
             logging.error(f"处理股票 {stock_code} 时发生异常: {str(e)}")
@@ -658,7 +709,8 @@ def cal_window_size(start_date, end_date):
 
 
 def find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes=None, data_dir=".",
-                              method="close_price", trend_end_date=None, same_market=False):
+                              method="close_price", trend_end_date=None, trend_date_range=None,
+                              search_step=None, same_market=False):
     """
     主函数：寻找历史相似走势（性能优化版）
 
@@ -670,12 +722,15 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法（支持："close_price", "weighted", "enhanced_weighted", "dtw"）
     trend_end_date: str或datetime - 趋势结束日期（用于寻找其他时间段，格式：'YYYYMMDD' 或 datetime对象）
+    trend_date_range: tuple/list - 趋势时间段（优先级高于trend_end_date），格式：('开始日期', '结束日期')
+    search_step: int - 滑动窗口步长（默认=window_size，即不重叠；可设为更小值增加采样密度）
     same_market: bool - 是否只查找同一市场的股票
     
     性能优化：
     1. 预先构建文件映射表，避免重复扫描目录（提速50-100倍）
     2. 去掉了预筛选机制（反而增加IO负担）
     3. 优化了V2版本的双重扫描问题
+    4. 支持时间段扫描，默认使用不重叠窗口（步长=窗口大小）
     """
     # 日期参数处理：支持字符串和datetime对象
     if isinstance(start_date, str):
@@ -684,11 +739,29 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
         end_date = datetime.strptime(end_date, '%Y%m%d')
     if trend_end_date is not None and isinstance(trend_end_date, str):
         trend_end_date = datetime.strptime(trend_end_date, '%Y%m%d')
-    
+
+    # 处理 trend_date_range 参数
+    if trend_date_range is not None:
+        if len(trend_date_range) != 2:
+            raise ValueError("trend_date_range 必须是包含两个日期的元组或列表")
+
+        range_start, range_end = trend_date_range
+        if isinstance(range_start, str):
+            range_start = datetime.strptime(range_start, '%Y%m%d')
+        if isinstance(range_end, str):
+            range_end = datetime.strptime(range_end, '%Y%m%d')
+
+        # trend_date_range 优先级高于 trend_end_date
+        trend_end_date = None
+        logging.info(f"使用时间段扫描模式: {range_start.date()} 至 {range_end.date()}")
+    else:
+        range_start = None
+        range_end = None
+
     # ===== 性能优化：预先构建文件映射表 =====
     logging.info("正在构建文件映射表...")
     file_mapping = build_file_mapping(data_dir)
-    
+
     logging.info("开始加载目标股票数据...")
     target_data = load_stock_data_fast(target_stock_code, file_mapping)
     if target_data is None:
@@ -730,16 +803,31 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
             logging.error(f"确定目标股票市场时出错: {str(e)}")
             # 如果无法确定目标股票的市场，则不进行过滤
 
-    # 分两种模式处理
-    if trend_end_date is None:
-        # 原逻辑：同时段相似
+    # 分三种模式处理
+    if trend_end_date is None and range_start is None:
+        # 模式1：同时段相似
         similarity_results = calculate_similarity(
             target_data, stock_codes, data_dir, method, file_mapping=file_mapping
         )
-    else:
-        # 新逻辑：其他时间段相似（优化：传递文件映射表）
+    elif range_start is not None:
+        # 模式2：时间段扫描（新增）
+        # 默认步长 = window_size（不重叠）
+        if search_step is None:
+            search_step = window_size
+            logging.info(f"使用默认步长: {search_step} 个交易日（不重叠窗口）")
+        else:
+            logging.info(f"使用自定义步长: {search_step} 个交易日")
+
         similarity_results = calculate_similarity_v2(
-            data_dir, method, stock_codes, target_data, trend_end_date, window_size, file_mapping=file_mapping
+            data_dir, method, stock_codes, target_data, trend_end_date, window_size,
+            file_mapping=file_mapping, trend_range_start=range_start, trend_range_end=range_end,
+            search_step=search_step
+        )
+    else:
+        # 模式3：单一结束日期（向后兼容）
+        similarity_results = calculate_similarity_v2(
+            data_dir, method, stock_codes, target_data, trend_end_date, window_size,
+            file_mapping=file_mapping
         )
 
     # 按相似度排序
@@ -747,16 +835,35 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
 
     logging.info("相似走势计算完成，结果如下：")
     top_similar = similarity_results[:10]
-    for stock_code, correlation, _ in top_similar:
-        logging.info(f"股票代码: {stock_code}, 相似度: {correlation:.4f}")
+
+    # 判断结果格式（时间段模式有4个元素，单一日期模式有3个元素）
+    has_date_info = len(top_similar[0]) == 4 if top_similar else False
+
+    for result in top_similar:
+        stock_code = result[0]
+        correlation = result[1]
+        if has_date_info:
+            window_end_date = result[3]
+            logging.info(
+                f"股票代码: {stock_code}, 历史时期: {window_end_date.strftime('%Y-%m-%d')}, 相似度: {correlation:.4f}")
+        else:
+            logging.info(f"股票代码: {stock_code}, 相似度: {correlation:.4f}")
 
     # 绘制并保存K线图
     if top_similar:
         stock_info_dict = get_stock_info_dict(data_dir)
         dataframes = [target_data] + [result[2] for result in top_similar]
-        labels = [f"A目标股票_{target_stock_code}"] + [
-            f"{stock_info_dict.get(result[0], '未知')}_{result[0]}_{result[1]:.4f}"
-            for result in top_similar]
+
+        # 根据结果格式生成标签
+        if has_date_info:
+            labels = [f"A目标股票_{target_stock_code}"] + [
+                f"{stock_info_dict.get(result[0], '未知')}_{result[0]}_{result[3].strftime('%Y%m%d')}_{result[1]:.4f}"
+                for result in top_similar]
+        else:
+            labels = [f"A目标股票_{target_stock_code}"] + [
+                f"{stock_info_dict.get(result[0], '未知')}_{result[0]}_{result[1]:.4f}"
+                for result in top_similar]
+
         plot_kline(dataframes, labels, output_dir="./kline_charts/other_similar")
 
 
@@ -778,7 +885,7 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
         start_date = datetime.strptime(start_date, '%Y%m%d')
     if isinstance(end_date, str):
         end_date = datetime.strptime(end_date, '%Y%m%d')
-    
+
     # 加载目标股票数据
     target_file = next(
         (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{target_stock_code}_")), None)
@@ -866,6 +973,15 @@ if __name__ == "__main__":
     # 2.寻找同时期相似个股（不限制市场）
     # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, method="weighted")
 
-    # 3.寻找同市场内的相似个股
+    # 3.寻找同市场内的相似个股（单一结束日期）
     # find_other_similar_trends(target_stock_code, start_date, end_date, stock_codes, data_dir, 
-    #                          method="weighted", same_market=True)
+    #                          method="weighted", trend_end_date="20241212", same_market=True)
+
+    # 4.寻找历史任意时期的相似走势（时间段扫描）⭐推荐
+    # find_other_similar_trends(
+    #     target_stock_code, start_date, end_date, stock_codes, data_dir,
+    #     method="enhanced_weighted",
+    #     trend_date_range=("20200101", "20241231"),  # 在此时间段内滑动窗口查找
+    #     search_step=None,  # None=不重叠窗口，也可设为10、20等
+    #     same_market=True
+    # )
