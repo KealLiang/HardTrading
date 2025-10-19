@@ -28,7 +28,7 @@ from analysis.daily_group import find_stocks_by_hot_themes
 from analysis.dejavu import process_dejavu_data
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
-from analysis.seek_historical_similar import find_other_similar_trends
+from analysis.seek_historical_similar import find_other_similar_trends, find_self_similar_windows
 from analysis.stock_price_plotter import plot_multiple_stocks
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
 from analysis.whimsical import process_zt_data
@@ -531,16 +531,15 @@ def get_stock_concept_and_industry():
 
 
 def find_similar_trends():
-    formatter = "%Y%m%d"
     data_dir = "./data/astocks"  # 数据文件所在目录
     target_stock_code = "601212"  # 目标股票代码
-    start_date = datetime.strptime('20250815', formatter)
-    end_date = datetime.strptime('20251014', formatter)
-    trend_end_date = datetime.strptime('20251014', formatter)  # 被查找个股的趋势结束日期
+    start_date = '20250815'  # 直接使用字符串格式 YYYYMMDD
+    end_date = '20251014'
+    trend_end_date = '20251014'  # 被查找个股的趋势结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
-    # find_self_similar_windows(target_index_code, start_date, end_date, "./data/indexes", method="weighted")
+    # find_self_similar_windows(target_index_code, '20250815', '20251014', "./data/indexes", method="weighted")
 
     # 2.寻找同时期相似个股
     # 可选股票代码列表

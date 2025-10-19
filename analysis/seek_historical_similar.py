@@ -664,12 +664,12 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
 
     参数:
     target_stock_code: str - 目标股票代码
-    start_date: datetime - 起始日期
-    end_date: datetime - 结束日期
+    start_date: str或datetime - 起始日期（格式：'YYYYMMDD' 或 datetime对象）
+    end_date: str或datetime - 结束日期（格式：'YYYYMMDD' 或 datetime对象）
     stock_codes: list - 候选股票代码列表（可选）
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法（支持："close_price", "weighted", "enhanced_weighted", "dtw"）
-    trend_end_date: datetime - 趋势结束日期（用于寻找其他时间段）
+    trend_end_date: str或datetime - 趋势结束日期（用于寻找其他时间段，格式：'YYYYMMDD' 或 datetime对象）
     same_market: bool - 是否只查找同一市场的股票
     
     性能优化：
@@ -677,6 +677,14 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
     2. 去掉了预筛选机制（反而增加IO负担）
     3. 优化了V2版本的双重扫描问题
     """
+    # 日期参数处理：支持字符串和datetime对象
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y%m%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y%m%d')
+    if trend_end_date is not None and isinstance(trend_end_date, str):
+        trend_end_date = datetime.strptime(trend_end_date, '%Y%m%d')
+    
     # ===== 性能优化：预先构建文件映射表 =====
     logging.info("正在构建文件映射表...")
     file_mapping = build_file_mapping(data_dir)
@@ -759,12 +767,18 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
 
     参数:
     target_stock_code: str - 目标股票代码
-    start_date: datetime - 起始日期
-    end_date: datetime - 结束日期
+    start_date: str或datetime - 起始日期（格式：'YYYYMMDD' 或 datetime对象）
+    end_date: str或datetime - 结束日期（格式：'YYYYMMDD' 或 datetime对象）
     data_dir: str - 数据文件路径
     method: str - 使用的相似度计算方法（"close_price" 或 "weighted"）
     future_days: int - 未来天数，用于绘制相似区间后的预测数据
     """
+    # 日期参数处理：支持字符串和datetime对象
+    if isinstance(start_date, str):
+        start_date = datetime.strptime(start_date, '%Y%m%d')
+    if isinstance(end_date, str):
+        end_date = datetime.strptime(end_date, '%Y%m%d')
+    
     # 加载目标股票数据
     target_file = next(
         (os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.startswith(f"{target_stock_code}_")), None)
@@ -833,8 +847,8 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
 # 示例调用
 if __name__ == "__main__":
     target_stock_code = "000001"  # 目标股票代码
-    start_date = datetime.strptime("2024-11-01", "%Y-%m-%d")
-    end_date = datetime.strptime("2024-12-12", "%Y-%m-%d")
+    start_date = "20241101"  # 直接使用字符串格式 YYYYMMDD
+    end_date = "20241212"
 
     # 可选股票代码列表
     stock_codes = [
