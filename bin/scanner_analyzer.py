@@ -320,8 +320,17 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
 
         dataframe = dataframe.loc[required_data_start:scan_end_date_obj]
 
+        # 清理停牌数据（包含NaN的行）
+        # 保留原始行数用于日志
+        original_len = len(dataframe)
+        dataframe = dataframe.dropna(subset=['open', 'close', 'high', 'low'])
+        cleaned_len = len(dataframe)
+
+        if original_len != cleaned_len:
+            logging.debug(f"股票 {code} 清理了 {original_len - cleaned_len} 行停牌数据")
+
         if dataframe.empty or len(dataframe) < MIN_REQUIRED_DAYS:  # 至少要有x天的数据才有分析意义
-            logging.error("数据不足，停止分析")
+            logging.warning(f"股票 {code} 数据不足（有效数据 {len(dataframe)} 行，需要至少 {MIN_REQUIRED_DAYS} 行）")
             return None
 
         data_feed = ExtendedPandasData(dataname=dataframe)
@@ -376,17 +385,78 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
                  f"日期范围: [{start_date}, {end_date}]")
 
     all_signals = []
+    scanned_count = 0  # 成功扫描的股票数量
+    error_count = 0  # 出错的股票数量
+    no_signal_count = 0  # 无信号的股票数量
+
+    # 记录每只股票的扫描状态
+    scan_details = []
 
     with tqdm(total=len(stock_list), desc="扫描进度") as pbar:
         for code in stock_list:
             signals = _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path,
                                                   start_date, end_date, signal_patterns)
-            if signals:
+            if signals is None:
+                # 扫描出错（数据不足或异常）
+                error_count += 1
+                scan_details.append({'code': code, 'status': 'ERROR', 'signal_count': 0})
+                logging.debug(f"股票 {code} 扫描出错或数据不足")
+            elif signals:
+                # 找到信号
                 all_signals.extend(signals)
+                scanned_count += 1
+                scan_details.append({'code': code, 'status': 'FOUND', 'signal_count': len(signals)})
+                logging.debug(f"股票 {code} 找到 {len(signals)} 个信号")
+            else:
+                # 扫描成功但无信号
+                no_signal_count += 1
+                scan_details.append({'code': code, 'status': 'NO_SIGNAL', 'signal_count': 0})
+                logging.debug(f"股票 {code} 扫描完成但无信号")
+
             pbar.update(1)
 
     logging.info(
-        f"扫描完成。共在 {len(set(s['code'] for s in all_signals))} 只股票中找到 {len(all_signals)} 个买入信号。")
+        f"扫描完成。共扫描 {len(stock_list)} 只股票: "
+        f"找到信号 {scanned_count} 只, 无信号 {no_signal_count} 只, 出错/数据不足 {error_count} 只。"
+        f"共找到 {len(all_signals)} 个买入信号。")
+
+    # 保存扫描明细报告（仅在有扫描数据时）
+    if scan_details:
+        from datetime import datetime
+        detail_file = f'bin/scan_details_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        try:
+            with open(detail_file, 'w', encoding='utf-8') as f:
+                f.write(f"策略: {strategy_class.__name__}\n")
+                f.write(f"扫描日期范围: {start_date} 到 {end_date}\n")
+                f.write(f"信号模式: {signal_patterns}\n")
+                f.write(f"总计: {len(stock_list)} 只股票\n")
+                f.write(f"  - 找到信号: {scanned_count} 只\n")
+                f.write(f"  - 无信号: {no_signal_count} 只\n")
+                f.write(f"  - 出错/数据不足: {error_count} 只\n")
+                f.write("\n" + "=" * 60 + "\n")
+                f.write("详细扫描结果:\n")
+                f.write("=" * 60 + "\n\n")
+
+                # 按状态分组输出
+                for status_label, status_code in [
+                    ("找到信号的股票", "FOUND"),
+                    ("无信号的股票", "NO_SIGNAL"),
+                    ("出错/数据不足的股票", "ERROR")
+                ]:
+                    status_stocks = [d for d in scan_details if d['status'] == status_code]
+                    if status_stocks:
+                        f.write(f"\n{status_label} ({len(status_stocks)} 只):\n")
+                        f.write("-" * 40 + "\n")
+                        for detail in status_stocks:
+                            if detail['signal_count'] > 0:
+                                f.write(f"  {detail['code']} - 信号数: {detail['signal_count']}\n")
+                            else:
+                                f.write(f"  {detail['code']}\n")
+
+            logging.info(f"扫描明细已保存到: {detail_file}")
+        except Exception as e:
+            logging.warning(f"保存扫描明细失败: {e}")
+
     return all_signals
 
 
@@ -448,7 +518,7 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
     # --- 4. 使用原始信号生成完整的摘要日志（先去重） ---
     summary_path = os.path.join(output_path, f"scan_summary_{scan_start_date}-{end_date_str}.txt")
     raw_signals.sort(key=lambda x: x['datetime'], reverse=True)
-    
+
     # 对原始信号进行去重，确保同一只股票在同一天只出现一次
     unique_signals = []
     seen = set()
@@ -457,13 +527,14 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         if key not in seen:
             seen.add(key)
             unique_signals.append(signal)
-    
+
     logging.info(f"去重后，信号数量从 {len(raw_signals)} 减少到 {len(unique_signals)}")
-    
+
     with open(summary_path, 'w', encoding='utf-8') as f:
         f.write(f"扫描策略: {scan_strategy.__name__}\n")
         f.write(f"扫描范围: {start_date_fmt} to {end_date_fmt}\n")
-        f.write(f"总计发现 {len(unique_signals)} 个去重后信号，涉及 {len(set(s['code'] for s in unique_signals))} 只股票。\n")
+        f.write(
+            f"总计发现 {len(unique_signals)} 个去重后信号，涉及 {len(set(s['code'] for s in unique_signals))} 只股票。\n")
         f.write("-" * 50 + "\n")
         for signal in unique_signals:
             code = signal['code']

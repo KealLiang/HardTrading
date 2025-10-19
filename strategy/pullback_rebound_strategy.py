@@ -7,11 +7,19 @@ class PullbackReboundStrategy(bt.Strategy):
     
     策略逻辑：
     1. 识别经历量价齐升主升浪后的回调
-    2. 在回调过程中寻找企稳信号：
-       a. 量价背离：下跌中出现上涨并缩量
-       b. 量窒息：进一步缩量
-       c. 收红K线：开始上涨，尾盘买入
-    3. 简单止盈止损，主要吃反弹段利润
+    2. 在回调过程中寻找三个企稳信号（累积跟踪，不要求同一天出现）：
+       a. 量价背离：价格下跌但成交量放大（异常现象，可能是底部）
+          - 正常：价升量涨、价跌量缩
+          - 背离：价升量缩、价跌量增 ← 策略关注点
+       b. 量窒息：满足以下任一条件
+          - 波段内成交量最小（下跌波段 或 最近5~12根K线的盘整波段）
+          - 成交量 < 120日均量
+       c. 企稳K线：收红K线或止跌（多头开始反击）
+    3. 当三个信号都出现过后，触发买入（信号可以不按顺序出现）
+    4. 止盈止损：
+       - 止盈：涨幅达到12%
+       - 止损：跌幅超过5%
+       - 时间止损：持有超过10天
     """
     
     params = (
@@ -22,7 +30,7 @@ class PullbackReboundStrategy(bt.Strategy):
         ('volume_surge_ratio', 1.5),     # 主升浪期间放量倍数
         
         # -- 回调识别参数 --
-        ('pullback_max_ratio', 0.15),    # 最大回调幅度15%
+        ('pullback_max_ratio', 0.5),     # 最大回调幅度（超过则过度）
         ('pullback_max_days', 15),       # 最大回调天数（调整为15天）
         ('pullback_min_days', 3),        # 最小回调天数
         
@@ -49,6 +57,10 @@ class PullbackReboundStrategy(bt.Strategy):
         self.volume_ma = bt.indicators.SimpleMovingAverage(
             self.data.volume, period=self.p.volume_ma_period
         )
+        # 120日均量（用于量窒息判断）
+        self.volume_120ma = bt.indicators.SimpleMovingAverage(
+            self.data.volume, period=120
+        )
         
         # -- 状态变量 --
         self.strategy_state = 'SCANNING'  # SCANNING, WAITING_PULLBACK, MONITORING_STABILIZATION, POSITION_HELD
@@ -56,6 +68,11 @@ class PullbackReboundStrategy(bt.Strategy):
         self.uptrend_high_date = None     # 主升浪高点日期
         self.pullback_start_date = None   # 回调开始日期
         self.pullback_low_price = float('inf')  # 回调期间最低价
+        
+        # -- 企稳信号跟踪（在回调期间累积）--
+        self.signal_divergence_seen = False   # 是否出现过量价背离
+        self.signal_volume_dry_seen = False   # 是否出现过量窒息
+        self.signal_stabilization_seen = False # 是否出现过企稳K线
         
         # -- 交易状态 --
         self.order = None
@@ -73,7 +90,9 @@ class PullbackReboundStrategy(bt.Strategy):
     def log(self, txt, dt=None):
         """日志输出"""
         dt = dt or self.datas[0].datetime.date(0)
-        print(f'{dt.isoformat()} - {txt}')
+        # 获取股票代码
+        stock_code = getattr(self.data, '_name', 'UNKNOWN')
+        print(f'[{stock_code}] {dt.isoformat()} - {txt}')
     
     def notify_order(self, order):
         """订单状态通知"""
@@ -139,7 +158,12 @@ class PullbackReboundStrategy(bt.Strategy):
             self._handle_position()
     
     def _scan_for_uptrend(self):
-        """扫描主升浪"""
+        """
+        扫描主升浪
+        
+        这是策略的第一步，也是必要前提条件。
+        只有识别到符合条件的主升浪，才会进入后续的回调监控阶段。
+        """
         # 需要足够的历史数据
         if len(self) < self.p.uptrend_period:
             return
@@ -211,10 +235,15 @@ class PullbackReboundStrategy(bt.Strategy):
             self.log(f'*** 检测到主升浪，高点: {self.uptrend_high_price:.2f}, 涨幅: {period_gain:.2%} ***')
     
     def _wait_for_pullback(self):
-        """等待回调"""
+        """
+        等待回调
+        
+        前提条件：已经识别到主升浪（uptrend_high_price > 0）
+        此阶段持续跟踪主升浪高点，直到出现回调信号
+        """
         current_price = self.data.close[0]
         
-        # 更新主升浪高点
+        # 更新主升浪高点（主升浪可能继续创新高）
         if current_price > self.uptrend_high_price:
             self.uptrend_high_price = current_price
             self.uptrend_high_date = self.datas[0].datetime.date(0)
@@ -227,10 +256,33 @@ class PullbackReboundStrategy(bt.Strategy):
             self.pullback_start_date = self.datas[0].datetime.date(0)
             self.pullback_low_price = current_price
             self.strategy_state = 'MONITORING_STABILIZATION'
+            
+            # 重置企稳信号状态（开始新的回调监控）
+            self.signal_divergence_seen = False
+            self.signal_volume_dry_seen = False
+            self.signal_stabilization_seen = False
+            
             self.log(f'*** 开始回调，从 {self.uptrend_high_price:.2f} 回调至 {current_price:.2f} ({pullback_ratio:.2%}) ***')
     
     def _monitor_stabilization(self):
-        """监控企稳信号"""
+        """
+        监控企稳信号（累积跟踪）
+        
+        前提条件：
+        1. 已经识别到主升浪（uptrend_high_price > 0）
+        2. 已经开始回调（pullback_start_date 已设置）
+        
+        策略逻辑：
+        - 在回调期间，持续检查三个信号：量价背离、量窒息、企稳K线
+        - 这三个信号不要求同一天出现，只要在回调期间都出现过即可
+        - 当三个信号都出现过后，触发买入
+        """
+        # 前提条件验证：必须有有效的主升浪数据
+        if self.uptrend_high_price <= 0 or self.pullback_start_date is None:
+            self.log('⚠️ 警告：缺少主升浪数据，重新扫描')
+            self._reset_strategy_state()
+            return
+        
         current_price = self.data.close[0]
         current_volume = self.data.volume[0]
         
@@ -247,110 +299,308 @@ class PullbackReboundStrategy(bt.Strategy):
             self._reset_strategy_state()
             return
         
-        # 检查企稳信号
+        # 检查企稳信号（至少回调3天后才开始检查）
         if days_since_pullback >= self.p.pullback_min_days:
-            if self._check_stabilization_signals():
+            # 更新信号状态（累积跟踪）
+            self._update_signal_status()
+            
+            # 检查是否三个信号都已出现
+            if self._all_signals_seen():
                 # 当天收盘买入（模拟尾盘买入）
                 self._execute_buy_signal_eod()
             elif self._check_pre_stabilization_signals():
-                # 预警信号：明天可能出现买点
+                # 预警信号：接近满足条件
                 self._log_warning_signal()
     
-    def _check_stabilization_signals(self):
-        """检查企稳信号abc"""
-        if len(self) < self.p.stabilization_days:
-            return False
+    def _update_signal_status(self):
+        """
+        更新信号状态（每日检查并累积）
         
-        # a. 量价背离：最近几日价格新低但成交量萎缩
-        volume_divergence = self._check_volume_price_divergence()
+        在回调期间，每天检查三个信号是否出现，一旦出现就标记为True
+        """
+        # 1. 检查量价背离：价跌量增
+        if not self.signal_divergence_seen:
+            if self._check_volume_price_divergence():
+                self.signal_divergence_seen = True
+                self.log(f'✓ 量价背离信号出现 - 价跌量增')
         
-        # b. 量窒息：成交量低于均量阈值
-        volume_dry = self.data.volume[0] < self.volume_ma[0] * self.p.volume_dry_ratio
+        # 2. 检查量窒息：波段内成交量最小 或 低于120日均量
+        if not self.signal_volume_dry_seen:
+            dry_result = self._check_volume_dry()
+            if dry_result['is_dry']:
+                self.signal_volume_dry_seen = True
+                self.log(f'✓ 量窒息信号出现 - {dry_result["reason"]}')
         
-        # c. 收红K线：当日收盘价高于开盘价
-        red_candle = self.data.close[0] > self.data.open[0]
+        # 3. 检查企稳K线
+        if not self.signal_stabilization_seen:
+            # 方式1：收红K线（收盘>开盘）
+            is_red_candle = self.data.close[0] > self.data.open[0]
+            # 方式2：收盘价高于前日收盘价（止跌）
+            prev_close = self.data.close[-1] if len(self) > 0 else 0
+            is_price_up = self.data.close[0] > prev_close if prev_close > 0 else False
+            
+            if is_red_candle or is_price_up:
+                self.signal_stabilization_seen = True
+                stab_type = []
+                if is_red_candle:
+                    stab_type.append('红K')
+                if is_price_up:
+                    stab_type.append('止跌')
+                self.log(f'✓ 企稳K线信号出现 - {"/".join(stab_type)}')
         
-        if volume_divergence and volume_dry and red_candle:
-            # 正常交易日志（非debug）
-            self.log(f'*** 企稳信号确认: 量价背离={volume_divergence}, 量窒息={volume_dry}, 红K线={red_candle} ***')
-            return True
-        else:
-            # 总是显示企稳信号检查结果（用于调试）
-            self.log(f'企稳信号检查 - 量价背离: {volume_divergence}, 量窒息: {volume_dry}, 红K线: {red_candle}')
+        # 显示当前信号进度（仅在未全部满足时显示）
+        if not self._all_signals_seen():
+            signals = []
+            if self.signal_divergence_seen:
+                signals.append('量价背离✓')
+            else:
+                signals.append('量价背离✗')
+            
+            if self.signal_volume_dry_seen:
+                signals.append('量窒息✓')
+            else:
+                signals.append('量窒息✗')
+            
+            if self.signal_stabilization_seen:
+                signals.append('企稳K线✓')
+            else:
+                signals.append('企稳K线✗')
+            
+            self.log(f'企稳信号进度: {" | ".join(signals)}')
+    
+    def _all_signals_seen(self):
+        """检查是否三个信号都已出现"""
+        all_seen = (self.signal_divergence_seen and 
+                   self.signal_volume_dry_seen and 
+                   self.signal_stabilization_seen)
         
-        return False
+        if all_seen:
+            # 首次满足时输出确认信息
+            pullback_ratio = (self.uptrend_high_price - self.data.close[0]) / self.uptrend_high_price
+            self.log(
+                f'*** 三个企稳信号已全部出现 ***'
+                f'; 主升浪高点: {self.uptrend_high_price:.2f}'
+                f'; 当前价格: {self.data.close[0]:.2f} (回调 {pullback_ratio:.2%})'
+            )
+        
+        return all_seen
+    
+    def _check_volume_dry(self):
+        """
+        检查量窒息
+        
+        量窒息定义（满足任一条件）：
+        a. 最近一个波段内成交量最小
+           - 下跌波段：从回调开始到现在
+           - 盘整波段：最近5~12根K线
+        b. 成交量 < 120日均量
+        
+        返回：{'is_dry': bool, 'reason': str}
+        """
+        current_volume = self.data.volume[0]
+        
+        # 条件b：成交量 < 120日均量
+        if len(self) >= 120:
+            volume_120ma = self.volume_120ma[0]
+            if current_volume < volume_120ma:
+                return {
+                    'is_dry': True,
+                    'reason': f'成交量({current_volume:.0f}) < 120日均量({volume_120ma:.0f})'
+                }
+        
+        # 条件a：波段内成交量最小
+        # 首先判断当前是下跌波段还是盘整波段
+        wave_type, wave_volumes = self._identify_wave_type()
+        
+        if wave_type and wave_volumes:
+            min_volume = min(wave_volumes)
+            if current_volume <= min_volume:
+                return {
+                    'is_dry': True,
+                    'reason': f'{wave_type}波段内成交量最小({current_volume:.0f})'
+                }
+        
+        return {'is_dry': False, 'reason': ''}
+    
+    def _identify_wave_type(self):
+        """
+        识别当前波段类型
+        
+        返回：(wave_type, volumes)
+        - wave_type: '下跌' 或 '盘整'
+        - volumes: 波段内的成交量列表
+        """
+        current_price = self.data.close[0]
+        
+        # 方法1：如果在回调监控阶段，且从回调开始有足够数据
+        if self.pullback_start_date and self.strategy_state == 'MONITORING_STABILIZATION':
+            days_since_pullback = (self.datas[0].datetime.date(0) - self.pullback_start_date).days
+            
+            # 获取从回调开始到现在的数据
+            if days_since_pullback >= 3 and days_since_pullback <= len(self):
+                pullback_volumes = [self.data.volume[-i] for i in range(days_since_pullback, 0, -1)]
+                pullback_volumes.append(self.data.volume[0])
+                pullback_prices = [self.data.close[-i] for i in range(days_since_pullback, 0, -1)]
+                pullback_prices.append(current_price)
+                
+                # 判断是下跌还是盘整
+                price_start = pullback_prices[0]
+                price_end = current_price
+                price_high = max(pullback_prices)
+                price_low = min(pullback_prices)
+                price_range = (price_high - price_low) / price_low if price_low > 0 else 0
+                
+                # 如果价格波动小于5%，认为是盘整
+                if price_range < 0.05:
+                    # 盘整波段：使用最近5~12根K线
+                    consolidation_period = min(12, len(self))
+                    consolidation_volumes = [self.data.volume[-i] for i in range(consolidation_period, 0, -1)]
+                    consolidation_volumes.append(self.data.volume[0])
+                    return ('盘整', consolidation_volumes)
+                else:
+                    # 下跌波段：使用整个回调期间
+                    return ('下跌', pullback_volumes)
+        
+        # 方法2：默认检查最近5~12根K线（盘整波段）
+        consolidation_period = min(12, len(self))
+        if consolidation_period >= 5:
+            consolidation_volumes = [self.data.volume[-i] for i in range(consolidation_period, 0, -1)]
+            consolidation_volumes.append(self.data.volume[0])
+            return ('盘整', consolidation_volumes)
+        
+        return (None, None)
     
     def _check_volume_price_divergence(self):
-        """检查量价背离"""
-        if len(self) < self.p.divergence_days:
+        """
+        检查量价背离：价格下跌 + 成交量放大（异常现象）
+        
+        正常的量价关系：
+        - 价升量涨（正常）
+        - 价跌量缩（正常）
+        
+        量价背离（异常，值得关注）：
+        - 价升量缩
+        - 价跌量增 ← 这个策略关注的重点
+        
+        当价格下跌但成交量反而放大时，说明：
+        - 可能是恐慌盘集中释放，底部临近
+        - 或主力吸筹，承接抛压
+        """
+        if len(self) < 2:  # 需要至少2天数据来比较
             return False
 
-        # 检查最近几日是否出现价格相对低位但成交量萎缩
-        recent_prices = [self.data.close[-i] for i in range(self.p.divergence_days)]
-        recent_volumes = [self.data.volume[-i] for i in range(self.p.divergence_days)]
-
-        # 价格在相对低位（放宽条件：在最近几日的下半部分）
         current_price = self.data.close[0]
-        recent_min = min(recent_prices)
-        recent_max = max(recent_prices)
-        price_range = recent_max - recent_min
-
-        # 如果价格在最近几日的下65%区间内，认为是相对低位
-        is_relative_low = current_price <= recent_min + price_range * 0.65
-
-        # 成交量萎缩（放宽条件）
+        prev_price = self.data.close[-1]
         current_volume = self.data.volume[0]
-        avg_recent_volume = sum(recent_volumes) / len(recent_volumes)
-        is_volume_shrinking = current_volume < avg_recent_volume * 0.9
+        prev_volume = self.data.volume[-1]
 
-        return is_relative_low and is_volume_shrinking
+        # 1. 确认处于回调状态
+        if self.uptrend_high_price <= 0:
+            return False
+        
+        # 2. 价格下跌：当前收盘价低于前一日收盘价
+        is_price_down = current_price < prev_price
+        
+        # 3. 成交量放大：当前成交量明显高于前一日或高于均量
+        # 方式1：相对于前日放量
+        is_volume_surge_vs_prev = current_volume > prev_volume * 1.2
+        # 方式2：相对于均量放量（但不能太夸张，说明是在缩量过程中的相对放量）
+        volume_vs_ma = current_volume / self.volume_ma[0] if self.volume_ma[0] > 0 else 0
+        is_volume_surge_vs_ma = volume_vs_ma > 0.8  # 相对于均量不能太低
+        
+        # 量价背离：价跌 + 放量
+        is_divergence = is_price_down and (is_volume_surge_vs_prev or is_volume_surge_vs_ma)
+        
+        # 调试信息
+        if self.p.debug and is_divergence:
+            self.log(
+                f'[量价背离] 价格: {prev_price:.2f}→{current_price:.2f} ({(current_price/prev_price-1)*100:.2f}%), '
+                f'成交量: {prev_volume:.0f}→{current_volume:.0f} ({(current_volume/prev_volume-1)*100:.2f}%), '
+                f'量/均量: {volume_vs_ma:.2f}'
+            )
+
+        return is_divergence
 
     def _check_pre_stabilization_signals(self):
-        """检查预警信号：接近企稳但还差一点"""
-        if len(self) < self.p.stabilization_days:
-            return False
-
-        # 检查是否接近企稳条件
-        volume_divergence = self._check_volume_price_divergence()
-        volume_dry = self.data.volume[0] < self.volume_ma[0] * (self.p.volume_dry_ratio + 0.1)  # 放宽10%
-
-        # 如果量价背离已满足，且成交量接近窒息，就发出预警
-        return volume_divergence and volume_dry
+        """检查预警信号：已经出现部分信号"""
+        # 计算已出现的信号数量
+        signals_count = sum([
+            self.signal_divergence_seen,
+            self.signal_volume_dry_seen,
+            self.signal_stabilization_seen
+        ])
+        
+        # 如果已经出现了2个信号，返回True触发预警
+        return signals_count == 2
 
     def _log_warning_signal(self):
-        """记录预警信号"""
-        self.log(f'⚠️ 预警信号：接近企稳条件，明日关注是否收红K线 @ {self.data.close[0]:.2f}')
+        """记录预警信号：已有2个信号，差最后1个"""
+        missing = []
+        if not self.signal_divergence_seen:
+            missing.append('量价背离')
+        if not self.signal_volume_dry_seen:
+            missing.append('量窒息')
+        if not self.signal_stabilization_seen:
+            missing.append('企稳K线')
+        
+        self.log(f'⚠️ 预警：已有2个信号，还差{missing[0]} @ {self.data.close[0]:.2f}')
 
     def _execute_buy_signal_eod(self):
-        """执行尾盘买入信号（当天收盘价买入）"""
+        """
+        执行尾盘买入信号（当天收盘价买入）
+        
+        前提条件：必须先经历主升浪，然后回调企稳
+        """
+        # 再次验证前提条件
+        if self.uptrend_high_price <= 0:
+            self.log('⚠️ 警告：无主升浪数据，取消买入')
+            return
+        
+        current_price = self.data.close[0]
+        pullback_ratio = (self.uptrend_high_price - current_price) / self.uptrend_high_price
+        
         stake = self.broker.getvalue() * self.p.initial_stake_pct
-        size = int(stake / self.data.close[0])
+        size = int(stake / current_price)
 
         if size > 0:
             # 简单买入（下一个bar开盘）
             self.order = self.buy(size=size)
-            self.log(f'*** 止跌反弹买入信号触发 @ {self.data.close[0]:.2f} ***')
+            self.log(
+                f'*** 止跌反弹买入信号触发 @ {current_price:.2f} ***'
+                f'; 主升浪高点: {self.uptrend_high_price:.2f} ({self.uptrend_high_date})'
+                f'; 回调幅度: {pullback_ratio:.2%}'
+                f'; 买入仓位: {self.p.initial_stake_pct:.0%}'
+            )
     
     def _handle_position(self):
-        """处理持仓的止盈止损"""
+        """
+        处理持仓的止盈止损
+        
+        止盈止损逻辑：
+        1. 止盈：盈利达到12%（profit_target），落袋为安
+        2. 止损：亏损超过5%（stop_loss），及时止损
+        3. 时间止损：持有超过10天（max_hold_days），避免资金占用过久
+        
+        优先级：止盈 > 止损 > 时间止损
+        """
         current_price = self.data.close[0]
         
-        # 计算盈亏比例
+        # 计算当前盈亏比例
         pnl_ratio = (current_price - self.buy_price) / self.buy_price
         
-        # 止盈
+        # 1. 止盈：盈利达到目标
         if pnl_ratio >= self.p.profit_target:
             self.log(f'止盈卖出: 盈利 {pnl_ratio:.2%}')
             self.order = self.close()
             return
         
-        # 止损
+        # 2. 止损：亏损超过阈值
         if pnl_ratio <= -self.p.stop_loss:
             self.log(f'止损卖出: 亏损 {pnl_ratio:.2%}')
             self.order = self.close()
             return
         
-        # 时间止损
+        # 3. 时间止损：持有天数超限
         if self.hold_days >= self.p.max_hold_days:
             self.log(f'时间止损: 持有 {self.hold_days} 天')
             self.order = self.close()
@@ -366,3 +616,8 @@ class PullbackReboundStrategy(bt.Strategy):
         self.buy_price = 0.0
         self.buy_date = None
         self.hold_days = 0
+        
+        # 重置企稳信号状态
+        self.signal_divergence_seen = False
+        self.signal_volume_dry_seen = False
+        self.signal_stabilization_seen = False

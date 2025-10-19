@@ -28,20 +28,26 @@ class ScannablePullbackReboundStrategy(PullbackReboundStrategy):
         # 调用父类的log方法，保持原有打印行为
         super().log(txt, dt=dt)
 
-    def _execute_buy_signal(self):
+    def _execute_buy_signal_eod(self):
         """重写买入信号执行，增加信号发射功能"""
         # 发射信号给扫描器
         if self.signal_callback:
+            # 获取股票代码
+            stock_code = getattr(self.data, '_name', 'UNKNOWN')
             signal_info = {
+                'stock_code': stock_code,
                 'date': self.datas[0].datetime.date(0),
                 'type': '止跌反弹信号',
+                'price': self.data.close[0],
+                'uptrend_high': self.uptrend_high_price,
+                'pullback_ratio': (self.uptrend_high_price - self.data.close[0]) / self.uptrend_high_price,
                 'details': f'价格: {self.data.close[0]:.2f}, 主升浪高点: {self.uptrend_high_price:.2f}',
                 'score': self._calculate_signal_score()
             }
             self.signal_callback(signal_info)
         
         # 调用父类的买入逻辑
-        super()._execute_buy_signal()
+        super()._execute_buy_signal_eod()
 
     def _calculate_signal_score(self):
         """计算信号评分"""

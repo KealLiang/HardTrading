@@ -533,8 +533,8 @@ def get_stock_concept_and_industry():
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
     target_stock_code = "601212"  # 目标股票代码
-    start_date = '20250815'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
-    end_date = '20251014'  # 目标股票的结束日期
+    start_date = '20250822'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
+    end_date = '20251017'  # 目标股票的结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -558,13 +558,13 @@ def find_similar_trends():
 
     # ============= 执行相似趋势查找（先选择模式） =============
     # 模式1: 单一结束日期（适合确定某个时点的相似走势）
-    trend_end_date = '20251014'  # 被查找股票的趋势结束日期
+    trend_end_date = '20251017'  # 被查找股票的趋势结束日期
     trend_date_range = None  # 设为None表示使用单一日期模式
     search_step = None  # 单一日期无步长
 
     # 模式2: 时间段扫描（适合查找历史上任意时期的相似走势）⭐推荐
     # trend_end_date = None
-    # trend_date_range = ('20250716', '20251016')  # 在这个时间段内滑动窗口查找
+    # trend_date_range = ('20250716', '20251015')  # 在这个时间段内滑动窗口查找
     # search_step = 5  # ⚠️ 步长设置影响结果，小步长极大影响性能：如果单一日期能找到高相似度，但时间段找不到，说明步长太大了！
 
     find_other_similar_trends(
@@ -752,12 +752,12 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    # find_candidate_stocks_weekly_growth(offset_days=5)
+    # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
     # generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
-    # pullback_rebound_scan('b')  # 止跌反弹策略扫描
-    # generate_rebound_comparison_charts('b')
+    pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    generate_rebound_comparison_charts('a')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
@@ -773,7 +773,7 @@ if __name__ == '__main__':
     # plot_stock_daily_prices()
     # get_hot_clouds()
     # find_dragon()
-    find_similar_trends()
+    # find_similar_trends()
     # get_stock_concept_and_industry()
     # fetch_and_filter_top_yybph()
     # get_top_yyb_trades()
