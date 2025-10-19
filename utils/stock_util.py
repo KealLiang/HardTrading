@@ -20,7 +20,8 @@ def stock_limit_ratio(stock_code: str) -> float:
     if market in market_ratios:
         return market_ratios[market]
     elif market == 'neeq':
-        raise ValueError(f"新三板股票({stock_code})不适用常规涨跌停限制。")
+        print(f"【警告】新三板股票({stock_code})不适用常规涨跌停限制。")
+        return 1
     else:
         # 对于债券等未明确分类的，默认按主板的10%处理或抛出异常，这里选择抛出异常以更严谨
         raise ValueError(f"无法确定股票代码 {stock_code} 的涨跌停限制。")
