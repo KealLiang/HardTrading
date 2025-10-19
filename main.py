@@ -291,13 +291,21 @@ def batch_analyze_weekly_growth_win_rate(directory: str = 'bin/candidate_temp',
                                          high_ratio: float = 0.25, 
                                          close_ratio: float = 0.75):
     """
-    批量分析目录下所有扫描文件的胜率
+    批量分析目录下所有扫描文件的胜率，生成单一汇总报告
     
     Args:
         directory: 扫描文件目录（默认bin/candidate_temp）
         pattern: 文件名正则匹配模式（默认只匹配weekly_growth格式）
         high_ratio: T+2日高点卖出比例（默认0.25）
         close_ratio: T+2日收盘卖出比例（默认0.75）
+    
+    Returns:
+        str: 生成的批量报告文件路径
+    
+    报告内容:
+        - 整体汇总统计
+        - 各日期统计数据
+        - 附录：每个日期的盈利TOP3和亏损TOP3
     """
     from bin.weekly_growth_win_rate_analyzer import batch_analyze_with_pattern
     return batch_analyze_with_pattern(directory, pattern, high_ratio, close_ratio)
@@ -721,7 +729,7 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
-    # find_candidate_stocks_weekly_growth(offset_days=4)
+    # find_candidate_stocks_weekly_growth(offset_days=5)
     strategy_scan('b')
     generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()

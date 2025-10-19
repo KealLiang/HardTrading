@@ -433,6 +433,109 @@ class WinRateAnalyzer:
 			
 		except Exception as e:
 			print(f"\n❌ 保存Markdown失败: {e}")
+	
+	def save_batch_report_to_markdown(self, reports_with_dates: List[Tuple[str, AnalysisReport]], output_file: str, strategy: SellStrategy):
+		"""
+		保存批量分析报告到单个Markdown文件
+		
+		Args:
+			reports_with_dates: (base_date, report) 的列表
+			output_file: 输出文件路径
+			strategy: 卖出策略
+		"""
+		try:
+			with open(output_file, 'w', encoding='utf-8') as f:
+				# 标题
+				f.write(f"# 批量胜率分析报告\n\n")
+				f.write(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+				f.write(f"**分析时间范围**: {reports_with_dates[0][0]} ~ {reports_with_dates[-1][0]}\n\n")
+				f.write(f"**卖出策略**: {strategy.description}\n\n")
+				f.write(f"**分析日期数量**: {len(reports_with_dates)}\n\n")
+				
+				# 汇总统计
+				total_valid = sum(r.valid_count for _, r in reports_with_dates)
+				total_profitable = sum(r.profitable_count for _, r in reports_with_dates)
+				overall_win_rate = total_profitable / total_valid if total_valid > 0 else 0
+				avg_return = np.mean([r.avg_return for _, r in reports_with_dates if r.valid_count > 0])
+				
+				f.write(f"## 📈 整体汇总\n\n")
+				f.write(f"| 指标 | 数值 |\n")
+				f.write(f"|------|------|\n")
+				f.write(f"| 分析日期数 | {len(reports_with_dates)} |\n")
+				f.write(f"| 总有效交易 | {total_valid} |\n")
+				f.write(f"| 总盈利次数 | {total_profitable} |\n")
+				f.write(f"| **整体胜率** | **{overall_win_rate*100:.2f}%** |\n")
+				f.write(f"| 平均收益率 | {avg_return*100:.2f}% |\n")
+				
+				# 各日期的统计数据
+				f.write(f"\n## 📊 各日期统计数据\n\n")
+				
+				for base_date, report in reports_with_dates:
+					f.write(f"### 📅 {base_date}\n\n")
+					
+					if report.valid_count == 0:
+						f.write(f"⚠️ 该日期没有有效交易数据\n\n")
+						continue
+					
+					# 统计表格
+					f.write(f"| 指标 | 数值 |\n")
+					f.write(f"|------|------|\n")
+					f.write(f"| 总数量 | {report.total_count} |\n")
+					f.write(f"| 有效交易 | {report.valid_count} |\n")
+					f.write(f"| 数据错误 | {report.error_count} |\n")
+					f.write(f"| 盈利数量 | {report.profitable_count} ({report.profitable_count/report.valid_count*100:.2f}%) |\n")
+					f.write(f"| 亏损数量 | {report.loss_count} ({report.loss_count/report.valid_count*100:.2f}%) |\n")
+					f.write(f"| 持平数量 | {report.breakeven_count} |\n")
+					f.write(f"| **胜率** | **{report.win_rate*100:.2f}%** |\n")
+					f.write(f"| 平均收益率 | {report.avg_return*100:.2f}% |\n")
+					f.write(f"| 平均盈利 | {report.avg_profit*100:.2f}% |\n")
+					f.write(f"| 平均亏损 | {report.avg_loss*100:.2f}% |\n")
+					f.write(f"| 最大收益 | {report.max_return*100:.2f}% |\n")
+					f.write(f"| 最大亏损 | {report.min_return*100:.2f}% |\n")
+					f.write(f"| 中位数收益 | {report.median_return*100:.2f}% |\n")
+					f.write(f"| 收益率标准差 | {report.return_std*100:.2f}% |\n")
+					f.write(f"| 盈亏比 | {report.profit_loss_ratio:.2f} |\n")
+					f.write(f"\n")
+				
+				# 附录：极值交易记录
+				f.write(f"## 📋 附录：极值交易记录\n\n")
+				f.write(f"*每个日期的盈利最大前3和亏损最大后3的交易记录*\n\n")
+				
+				for base_date, report in reports_with_dates:
+					if report.valid_count == 0:
+						continue
+					
+					f.write(f"### {base_date}\n\n")
+					
+					# 获取有效的交易结果并排序
+					valid_results = [r for r in report.trade_results if not r.error_msg]
+					sorted_results = sorted(valid_results, key=lambda x: x.return_rate, reverse=True)
+					
+					# 盈利TOP3
+					top3_profits = sorted_results[:3]
+					if top3_profits:
+						f.write(f"**💰 盈利TOP3**\n\n")
+						f.write(f"| 股票代码 | 买入价 | 卖出价 | 收益率 | T+1收盘 | T+2最高 | T+2收盘 |\n")
+						f.write(f"|---------|--------|--------|--------|---------|---------|----------|\n")
+						for r in top3_profits:
+							f.write(f"| {r.code} | {r.buy_price:.2f} | {r.sell_price:.2f} | {r.return_rate*100:.2f}% | {r.t1_close:.2f} | {r.t2_high:.2f} | {r.t2_close:.2f} |\n")
+						f.write(f"\n")
+					
+					# 亏损TOP3
+					top3_losses = sorted_results[-3:] if len(sorted_results) >= 3 else []
+					top3_losses.reverse()  # 从最亏到次亏
+					if top3_losses:
+						f.write(f"**📉 亏损TOP3**\n\n")
+						f.write(f"| 股票代码 | 买入价 | 卖出价 | 收益率 | T+1收盘 | T+2最高 | T+2收盘 |\n")
+						f.write(f"|---------|--------|--------|--------|---------|---------|----------|\n")
+						for r in top3_losses:
+							f.write(f"| {r.code} | {r.buy_price:.2f} | {r.sell_price:.2f} | {r.return_rate*100:.2f}% | {r.t1_close:.2f} | {r.t2_high:.2f} | {r.t2_close:.2f} |\n")
+						f.write(f"\n")
+			
+			print(f"\n✅ 批量报告已保存到: {output_file}")
+			
+		except Exception as e:
+			print(f"\n❌ 保存批量报告失败: {e}")
 
 
 # ==================== 主函数 ====================
@@ -527,20 +630,27 @@ def batch_analyze_with_pattern(directory: str = 'bin/candidate_temp',
 	print(f"🔍 匹配模式: {pattern}\n")
 	
 	analyzer = WinRateAnalyzer()
-	all_reports = []
+	reports_with_dates = []
 	
 	for scan_file in sorted(scan_files):
 		report = analyzer.analyze_scan_file(scan_file, strategy)
 		analyzer.print_report(report, detail_level=0)
 		
-		# 保存单个报告
-		output_file = scan_file.replace('.txt', '_analysis.md')
-		analyzer.save_report_to_markdown(report, output_file)
+		# 从文件名提取基准日期
+		filename = os.path.basename(scan_file)
+		base_date_str = filename.split('_')[-1].replace('.txt', '')
 		
-		all_reports.append(report)
+		reports_with_dates.append((base_date_str, report))
 	
-	# 汇总统计
-	print_summary_statistics(all_reports)
+	# 生成统一的批量报告
+	timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+	batch_output_file = os.path.join(directory, f'batch_analysis_{timestamp}.md')
+	analyzer.save_batch_report_to_markdown(reports_with_dates, batch_output_file, strategy)
+	
+	# 控制台打印汇总统计
+	print_summary_statistics([r for _, r in reports_with_dates])
+	
+	return batch_output_file
 
 
 def print_summary_statistics(reports: List[AnalysisReport]):
