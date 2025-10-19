@@ -558,15 +558,12 @@ def find_similar_trends():
     # - "enhanced_weighted": 增强版加权相关性（推荐！考虑量价配合和阶段性特征）
     # - "dtw": DTW动态时间规整（最精确但最慢）
     
-    # ============= 优化参数说明 =============
-    # use_prefilter=True: 开启预筛选（候选数>100时推荐，可过滤70%不相关股票）
-    
+    # ============= 增强匹配关注量价关系 =============
     find_other_similar_trends(
         target_stock_code, start_date, end_date, stock_codes, data_dir, 
         method="enhanced_weighted",  # 使用增强版方法
         trend_end_date=trend_end_date, 
-        same_market=True,
-        use_prefilter=True  # 开启预筛选
+        same_market=True
     )
 
 
