@@ -34,11 +34,6 @@ class PullbackReboundStrategy(bt.Strategy):
         ('pullback_max_days', 15),       # 最大回调天数（调整为15天）
         ('pullback_min_days', 3),        # 最小回调天数
         
-        # -- 企稳信号参数 --
-        ('volume_dry_ratio', 0.6),       # 量窒息阈值（相对均量）
-        ('stabilization_days', 4),       # 企稳信号观察期
-        ('divergence_days', 3),          # 量价背离观察期
-        
         # -- 交易参数 --
         ('initial_stake_pct', 0.8),      # 初始仓位比例
         ('profit_target', 0.12),         # 止盈目标12%

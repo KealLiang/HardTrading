@@ -148,18 +148,38 @@ def backtrade_simulate():
 
 # 止跌反弹策略回测
 def pullback_rebound_simulate():
-    """止跌反弹策略回测示例"""
+    """
+    止跌反弹策略回测示例
+    
+    策略说明：
+    - 识别主升浪后的回调企稳机会
+    - 通过量价背离、量窒息、企稳K线三个信号判断反弹时机
+    - 止盈12%、止损5%、最大持有10天
+    """
     stock_code = '603986'  # 可以替换为其他股票代码
     simulator.go_trade(
         code=stock_code,
         amount=100000,
-        startdate=datetime(2023, 9, 25),  # 修正时间范围
-        enddate=datetime(2025, 9, 17),
+        startdate=datetime(2025, 1, 1),
+        enddate=datetime(2025, 10, 17),
         strategy=PullbackReboundStrategy,
         strategy_params={
-            'debug': False,  # 关闭调试日志，只显示交易日志
-            'uptrend_min_gain': 0.30,  # 保持30%要求
-            'volume_dry_ratio': 0.7,  # 量窒息阈值调整为70%
+            # -- 调试参数 --
+            'debug': False,  # 是否开启详细日志
+            
+            # -- 主升浪识别参数（可调整）--
+            'uptrend_min_gain': 0.30,  # 主升浪最小涨幅30%，越大越严格
+            'volume_surge_ratio': 1.5,  # 主升浪放量倍数，越大要求越高
+            
+            # -- 回调识别参数（可调整）--
+            # 'pullback_max_ratio': 0.5,  # 最大回调幅度50%
+            # 'pullback_max_days': 15,    # 最大回调天数15天
+            
+            # -- 交易参数（可调整）--
+            # 'initial_stake_pct': 0.8,   # 初始仓位80%
+            # 'profit_target': 0.12,      # 止盈目标12%
+            # 'stop_loss': 0.05,          # 止损比例5%
+            # 'max_hold_days': 10,        # 最大持有天数10天
         },
         log_trades=True,
         visualize=True,
@@ -756,8 +776,8 @@ if __name__ == '__main__':
     # strategy_scan('b')
     # generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
-    pullback_rebound_scan('a')  # 止跌反弹策略扫描
-    generate_rebound_comparison_charts('a')
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    # generate_rebound_comparison_charts('a')
     # get_stock_datas()
     # fetch_ths_fupan()
     # draw_ths_fupan()
@@ -784,7 +804,7 @@ if __name__ == '__main__':
 
     # === 策略回测 ===
     # backtrade_simulate()
-    # pullback_rebound_simulate()  # 止跌反弹策略回测
+    pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
 

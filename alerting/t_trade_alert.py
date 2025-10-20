@@ -707,7 +707,7 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
     backtest_start = "2025-10-13 09:30"
