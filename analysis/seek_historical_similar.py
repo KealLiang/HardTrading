@@ -651,6 +651,15 @@ def plot_kline(dataframes, stock_labels, split_dates=None, output_dir="kline_cha
         # 转换为适合 mplfinance 的格式
         df_mpf = df[['日期', '开盘', '最高', '最低', '收盘', '成交量']].rename(columns=col_mapping).copy()
         df_mpf.set_index('date', inplace=True)
+        
+        # 清理数据：删除包含NaN或Inf的行
+        df_mpf = df_mpf.replace([np.inf, -np.inf], np.nan)  # 先将Inf转换为NaN
+        df_mpf = df_mpf.dropna()  # 删除包含NaN的行
+        
+        # 如果数据为空，跳过绘图
+        if df_mpf.empty:
+            logging.warning(f"股票 {label} 的数据全部为NaN，跳过绘图")
+            continue
 
         # 配置样式
         custom_colors = mpf.make_marketcolors(
@@ -830,6 +839,9 @@ def find_other_similar_trends(target_stock_code, start_date, end_date, stock_cod
             file_mapping=file_mapping
         )
 
+    # 过滤掉相似度为NaN或Inf的结果
+    similarity_results = [r for r in similarity_results if not (np.isnan(r[1]) or np.isinf(r[1]))]
+    
     # 按相似度排序
     similarity_results.sort(key=lambda x: x[1], reverse=True)
 
@@ -934,6 +946,9 @@ def find_self_similar_windows(target_stock_code, start_date, end_date, data_dir=
         merged_data = pd.concat([window_data, future_data], ignore_index=True)
         similarity_results.append((window_start, window_end, correlation, merged_data))
 
+    # 过滤掉相似度为NaN或Inf的结果
+    similarity_results = [r for r in similarity_results if not (np.isnan(r[2]) or np.isinf(r[2]))]
+    
     # 按相似度排序并获取前5个窗口
     similarity_results.sort(key=lambda x: x[2], reverse=True)
     top_windows = similarity_results[:5]

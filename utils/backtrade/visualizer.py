@@ -307,6 +307,13 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
         print(f"警告: 交易 {trade_id} 在 {stock_code} 中找不到指定的绘图日期范围，已跳过。")
         return
 
+    # 清理停牌数据（包含NaN的行），确保 Open, High, Low, Close 数据完整
+    chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    
+    if chart_df.empty:
+        print(f"警告: 交易 {trade_id} 清理停牌数据后无有效数据，已跳过。")
+        return
+
     # 准备买卖点标记
     buy_markers = [float('nan')] * len(chart_df)
     sell_markers = [float('nan')] * len(chart_df)
@@ -405,6 +412,13 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
 
     if chart_df.empty:
         print(f"警告: 在 {stock_code} 中找不到指定的信号绘图日期范围，已跳过。")
+        return
+
+    # 清理停牌数据（包含NaN的行），确保 Open, High, Low, Close 数据完整
+    chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    
+    if chart_df.empty:
+        print(f"警告: {stock_code} 清理停牌数据后无有效数据，已跳过。")
         return
 
     # 获取信号标记
