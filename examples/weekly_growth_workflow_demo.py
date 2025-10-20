@@ -123,7 +123,7 @@ if __name__ == '__main__':
             demo_historical_validation()
         
         print("\n" + "=" * 80)
-        print("📚 更多信息请参考: doc/weekly_growth_scanner_strategy.md")
+        print("📚 更多信息请参考: docs/weekly_growth_scanner_strategy.md")
         print("=" * 80)
         
     except KeyboardInterrupt:

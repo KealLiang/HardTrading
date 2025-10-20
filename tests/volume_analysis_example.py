@@ -67,4 +67,4 @@ if __name__ == "__main__":
     print("- 要启用成交量分析，请在main.py中设置 create_volume_sheet=True")
     print("- 成交量分析工作表会自动添加'_成交量分析'后缀")
     print("- 颜色梯度已针对成交量变化特点进行优化")
-    print("- 详细说明请参考 doc/VOLUME_ANALYSIS_DOC.md")
+    print("- 详细说明请参考 docs/VOLUME_ANALYSIS_DOC.md")
