@@ -31,6 +31,12 @@ DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
 # 扫描最少需要的数据天数
 MIN_REQUIRED_DAYS = simulator.warm_up_days
 
+# 针对特定策略的最小数据要求（策略名称: 最小天数）
+STRATEGY_MIN_DAYS = {
+    'PullbackReboundStrategy': 120,  # 止跌反弹策略使用120日均量，需要至少120天数据
+    'ScannablePullbackReboundStrategy': 120,  # 可扫描版本同样需要120天
+}
+
 
 # --- Analyzers ---
 class SignalCaptureAnalyzer(bt.Analyzer):
@@ -314,8 +320,12 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
         if dataframe is None or dataframe.empty:
             return None
 
+        # 根据策略类确定最小数据天数
+        strategy_name = strategy_class.__name__
+        min_days = STRATEGY_MIN_DAYS.get(strategy_name, MIN_REQUIRED_DAYS)
+
         # 截取所需的数据段，以减少不必要的计算，并防止日志中出现过旧的信息
-        required_data_start = date_util.get_n_trading_days_before(scan_start_date, MIN_REQUIRED_DAYS)
+        required_data_start = date_util.get_n_trading_days_before(scan_start_date, min_days)
         scan_end_date_obj = pd.to_datetime(scan_end_date)
 
         dataframe = dataframe.loc[required_data_start:scan_end_date_obj]
@@ -329,8 +339,8 @@ def _scan_single_stock_analyzer(code, strategy_class, strategy_params, data_path
         if original_len != cleaned_len:
             logging.debug(f"股票 {code} 清理了 {original_len - cleaned_len} 行停牌数据")
 
-        if dataframe.empty or len(dataframe) < MIN_REQUIRED_DAYS:  # 至少要有x天的数据才有分析意义
-            logging.warning(f"股票 {code} 数据不足（有效数据 {len(dataframe)} 行，需要至少 {MIN_REQUIRED_DAYS} 行）")
+        if dataframe.empty or len(dataframe) < min_days:  # 至少要有x天的数据才有分析意义
+            logging.warning(f"股票 {code} 数据不足（有效数据 {len(dataframe)} 行，需要至少 {min_days} 行）")
             return None
 
         data_feed = ExtendedPandasData(dataname=dataframe)

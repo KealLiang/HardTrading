@@ -52,10 +52,8 @@ class PullbackReboundStrategy(bt.Strategy):
         self.volume_ma = bt.indicators.SimpleMovingAverage(
             self.data.volume, period=self.p.volume_ma_period
         )
-        # 120日均量（用于量窒息判断）
-        self.volume_120ma = bt.indicators.SimpleMovingAverage(
-            self.data.volume, period=120
-        )
+        # 注意：不使用backtrader的120日均量指标，改为手动计算
+        # 这样可以避免minperiod的限制，让策略在数据不足120天时仍能运行
         
         # -- 状态变量 --
         self.strategy_state = 'SCANNING'  # SCANNING, WAITING_PULLBACK, MONITORING_STABILIZATION, POSITION_HELD
@@ -388,20 +386,28 @@ class PullbackReboundStrategy(bt.Strategy):
         a. 最近一个波段内成交量最小
            - 下跌波段：从回调开始到现在
            - 盘整波段：最近5~12根K线
-        b. 成交量 < 120日均量
+        b. 成交量 < 120日均量（需要至少120天数据）
         
         返回：{'is_dry': bool, 'reason': str}
         """
         current_volume = self.data.volume[0]
         
         # 条件b：成交量 < 120日均量
+        # 手动计算120日均量，避免backtrader指标的minperiod限制
         if len(self) >= 120:
-            volume_120ma = self.volume_120ma[0]
-            if current_volume < volume_120ma:
-                return {
-                    'is_dry': True,
-                    'reason': f'成交量({current_volume:.0f}) < 120日均量({volume_120ma:.0f})'
-                }
+            try:
+                # 手动计算最近120天的平均成交量
+                volumes_120 = [self.data.volume[-i] for i in range(119, -1, -1)]
+                volume_120ma = sum(volumes_120) / 120
+                
+                if current_volume < volume_120ma:
+                    return {
+                        'is_dry': True,
+                        'reason': f'成交量({current_volume:.0f}) < 120日均量({volume_120ma:.0f})'
+                    }
+            except (IndexError, TypeError):
+                # 如果数据访问出错，跳过此条件，继续检查其他条件
+                pass
         
         # 条件a：波段内成交量最小
         # 首先判断当前是下跌波段还是盘整波段
