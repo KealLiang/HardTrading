@@ -552,9 +552,9 @@ def get_stock_concept_and_industry():
 
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "601212"  # 目标股票代码
-    start_date = '20250822'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
-    end_date = '20251017'  # 目标股票的结束日期
+    target_stock_code = "600382"  # 目标股票代码
+    start_date = '20250905'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
+    end_date = '20251020'  # 目标股票的结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -578,7 +578,7 @@ def find_similar_trends():
 
     # ============= 执行相似趋势查找（先选择模式） =============
     # 模式1: 单一结束日期（适合确定某个时点的相似走势）
-    trend_end_date = '20251017'  # 被查找股票的趋势结束日期
+    trend_end_date = '20251015'  # 被查找股票的趋势结束日期
     trend_date_range = None  # 设为None表示使用单一日期模式
     search_step = None  # 单一日期无步长
 
@@ -589,7 +589,7 @@ def find_similar_trends():
 
     find_other_similar_trends(
         target_stock_code, start_date, end_date, stock_codes, data_dir,
-        method="enhanced_weighted",  # 使用增强版方法
+        method="weighted",  # 使用增强版方法
         trend_end_date=trend_end_date,  # 模式1参数
         trend_date_range=trend_date_range,  # 模式2参数（优先级更高）
         search_step=search_step,  # 可选：自定义步长（仅模式2有效）
@@ -773,8 +773,8 @@ if __name__ == '__main__':
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    # strategy_scan('b')
-    # generate_comparison_charts('b')
+    strategy_scan('b')
+    generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')
@@ -804,7 +804,7 @@ if __name__ == '__main__':
 
     # === 策略回测 ===
     # backtrade_simulate()
-    pullback_rebound_simulate()  # 止跌反弹策略回测
+    # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
 
