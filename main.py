@@ -164,10 +164,10 @@ def batch_backtest_from_stock_list():
     - 策略批量验证
     """
     # 股票列表文件路径（支持CSV或TXT格式）
-    stock_list_file = 'data/stock_list.txt'  # 可以替换为你的文件路径
-    
+    stock_list_file = 'data/batch_backtest/all_astocks.txt'  # 可以替换为你的文件路径
+
     # 如果没有现成文件，也可以直接使用代码列表（见下面的batch_backtest_from_codes函数）
-    
+
     report_path = batch_backtest_from_file(
         stock_list_file=stock_list_file,
         strategy_class=BreakoutStrategyV2,
@@ -182,7 +182,7 @@ def batch_backtest_from_stock_list():
         max_workers=None,  # None表示自动使用CPU核心数-1，也可手动指定如4、8等
         resume=False  # 是否断点续传（跳过已完成的股票）
     )
-    
+
     print(f"\n批量回测完成！报告路径: {report_path}")
 
 
@@ -195,11 +195,11 @@ def batch_backtest_from_codes():
     """
     # 方式1: 手动指定股票列表
     stock_codes = ['300033', '300059', '000062', '300204', '600610']
-    
+
     # 方式2: 从其他来源获取（示例：读取某个板块的所有股票）
     # from fetch.astock_concept import get_concept_stocks
     # stock_codes = get_concept_stocks('新能源车')
-    
+
     report_path = batch_backtest_from_list(
         stock_codes=stock_codes,
         strategy_class=BreakoutStrategyV2,
@@ -211,8 +211,27 @@ def batch_backtest_from_codes():
         output_dir='bin/batch_backtest_results',
         max_workers=4  # 可根据CPU核心数调整
     )
-    
+
     print(f"\n批量回测完成！报告路径: {report_path}")
+
+
+# 生成批量回测用的股票列表
+def generate_stock_lists():
+    """
+    从数据目录生成股票列表文件，为批量回测做准备
+    
+    功能：
+    - 生成全部A股列表
+    - 按市场分类（沪市、深市、北交所）
+    - 按板块分类（主板、创业板、科创板）
+    
+    输出目录：data/batch_backtest/
+    """
+    from bin.generate_stock_list import (
+        generate_all
+    )
+
+    generate_all()
 
 
 # 止跌反弹策略回测
@@ -235,15 +254,15 @@ def pullback_rebound_simulate():
         strategy_params={
             # -- 调试参数 --
             'debug': False,  # 是否开启详细日志
-            
+
             # -- 主升浪识别参数（可调整）--
             'uptrend_min_gain': 0.30,  # 主升浪最小涨幅30%，越大越严格
             'volume_surge_ratio': 1.5,  # 主升浪放量倍数，越大要求越高
-            
+
             # -- 回调识别参数（可调整）--
             # 'pullback_max_ratio': 0.5,  # 最大回调幅度50%
             # 'pullback_max_days': 15,    # 最大回调天数15天
-            
+
             # -- 交易参数（可调整）--
             # 'initial_stake_pct': 0.8,   # 初始仓位80%
             # 'profit_target': 0.12,      # 止盈目标12%
@@ -872,12 +891,13 @@ if __name__ == '__main__':
     # check_stock_datas()
 
     # === 策略回测 ===
-    backtrade_simulate()
+    # backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
-    
+
     # === 大批量回测（新功能）===
+    generate_stock_lists()  # 生成批量回测用的股票列表文件（首次使用前运行一次）
     # batch_backtest_from_stock_list()  # 从文件读取股票列表进行批量回测
     # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
 
