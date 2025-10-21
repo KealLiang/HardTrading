@@ -227,11 +227,42 @@ def generate_stock_lists():
     
     输出目录：data/batch_backtest/
     """
-    from bin.generate_stock_list import (
-        generate_all
-    )
-
+    from bin.generate_stock_list import generate_all
     generate_all()
+
+
+# 从复盘数据生成批量回测候选股
+def generate_fupan_candidates():
+    """
+    从复盘数据文件提取热门股作为批量回测候选
+    
+    功能：
+    - 从 excel/fupan_stocks.xlsx 提取指定类型的股票
+    - 支持按日期范围筛选
+    - 支持多个sheet组合（如连板+首板+大涨）
+    
+    使用场景：
+    - 回测特定时期的热门股表现
+    - 验证策略在强势股上的效果
+    - 缩小回测范围提高效率
+    """
+    from bin.generate_stock_list import generate_fupan_stock_list
+    
+    # 示例1: 提取多种类型的热门股
+    generate_fupan_stock_list(
+        sheet_names=['连板数据', '默默上涨', '关注度榜', '非主关注度榜'],
+        start_date='20250901',
+        end_date='20251020',
+        output_prefix='hot_stocks_202509'
+    )
+    
+    # 示例2: 提取所有类型的股票（不限日期）
+    # generate_fupan_stock_list(
+    #     sheet_names=None,  # None表示所有sheet
+    #     start_date=None,   # None表示从最早开始
+    #     end_date=None,     # None表示到最晚
+    #     output_prefix='all_fupan_stocks'
+    # )
 
 
 # 止跌反弹策略回测
@@ -890,14 +921,15 @@ if __name__ == '__main__':
     # get_index_data()
     # check_stock_datas()
 
-    # === 策略回测 ===
+        # === 策略回测 ===
     # backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
-
+    
     # === 大批量回测（新功能）===
-    generate_stock_lists()  # 生成批量回测用的股票列表文件（首次使用前运行一次）
+    # generate_stock_lists()  # 生成全部A股列表文件（首次使用前运行一次）
+    generate_fupan_candidates()  # 从复盘数据提取热门股候选（可反复运行）
     # batch_backtest_from_stock_list()  # 从文件读取股票列表进行批量回测
     # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
 

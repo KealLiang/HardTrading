@@ -2,11 +2,13 @@
 股票列表生成工具
 
 从已下载的股票数据中提取股票代码列表，保存为TXT或CSV文件
+支持从复盘数据文件中提取热门股候选
 """
 
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from datetime import datetime
 
 import pandas as pd
 
@@ -231,6 +233,191 @@ def generate_board_stock_lists(data_dir: str = './data/astocks', output_dir: str
             save_stock_list_csv(stocks, csv_file)
 
             print()
+
+
+def extract_stocks_from_fupan(
+    fupan_file: str = 'excel/fupan_stocks.xlsx',
+    sheet_names: List[str] = None,
+    start_date: str = None,
+    end_date: str = None
+) -> List[Tuple[str, str]]:
+    """
+    从复盘数据文件中提取股票代码
+    
+    Args:
+        fupan_file: 复盘数据文件路径
+        sheet_names: 要提取的sheet名称列表，如 ['连板数据', '首板数据']
+                    None表示提取所有sheet
+        start_date: 开始日期，格式'YYYYMMDD'，None表示从最早日期开始
+        end_date: 结束日期，格式'YYYYMMDD'，None表示到最晚日期
+        
+    Returns:
+        [(股票代码, 股票名称), ...]
+    """
+    if not os.path.exists(fupan_file):
+        print(f"复盘文件不存在: {fupan_file}")
+        return []
+    
+    # 转换日期格式 YYYYMMDD -> YYYY年MM月DD日
+    def format_date(date_str):
+        if date_str:
+            dt = datetime.strptime(date_str, '%Y%m%d')
+            return dt.strftime('%Y年%m月%d日')
+        return None
+    
+    start_date_formatted = format_date(start_date) if start_date else None
+    end_date_formatted = format_date(end_date) if end_date else None
+    
+    # 读取Excel文件
+    excel_file = pd.ExcelFile(fupan_file)
+    
+    # 确定要处理的sheet
+    if sheet_names is None:
+        sheets_to_process = excel_file.sheet_names
+    else:
+        sheets_to_process = [s for s in sheet_names if s in excel_file.sheet_names]
+        missing_sheets = [s for s in sheet_names if s not in excel_file.sheet_names]
+        if missing_sheets:
+            print(f"警告: 以下sheet不存在: {missing_sheets}")
+    
+    print(f"从 {fupan_file} 提取股票...")
+    print(f"Sheet: {sheets_to_process}")
+    print(f"日期范围: {start_date_formatted or '最早'} 至 {end_date_formatted or '最晚'}")
+    
+    # 用于存储所有股票代码和名称
+    stock_dict = {}  # {代码: 名称}
+    
+    # 遍历每个sheet
+    for sheet_name in sheets_to_process:
+        print(f"\n处理 {sheet_name}...")
+        
+        try:
+            df = pd.read_excel(fupan_file, sheet_name=sheet_name, index_col=0)
+            
+            if df.empty:
+                print(f"  {sheet_name} 为空，跳过")
+                continue
+            
+            # 筛选日期范围内的列
+            selected_columns = []
+            for col in df.columns:
+                # 日期列格式：'YYYY年MM月DD日'
+                if start_date_formatted and col < start_date_formatted:
+                    continue
+                if end_date_formatted and col > end_date_formatted:
+                    continue
+                selected_columns.append(col)
+            
+            if not selected_columns:
+                print(f"  {sheet_name} 中没有符合日期范围的数据")
+                continue
+            
+            print(f"  找到 {len(selected_columns)} 个日期列")
+            
+            # 从选中的列中提取股票代码
+            for col in selected_columns:
+                for cell_value in df[col].dropna():
+                    if pd.isna(cell_value) or cell_value == '':
+                        continue
+                    
+                    # 单元格内容格式：'股票代码; 股票名称; 其他字段...'
+                    parts = str(cell_value).split(';')
+                    if len(parts) >= 2:
+                        code_raw = parts[0].strip()
+                        name = parts[1].strip()
+                        
+                        # 处理股票代码：去掉市场后缀（如 .SH, .SZ）
+                        # 格式可能是：605255.SH, 002195.SZ, 300308.SZ, 688261.SH
+                        if '.' in code_raw:
+                            code = code_raw.split('.')[0]
+                        else:
+                            code = code_raw
+                        
+                        # 验证股票代码格式（6位数字）
+                        if code.isdigit() and len(code) == 6:
+                            if code not in stock_dict:
+                                stock_dict[code] = name
+            
+            print(f"  提取到 {len(stock_dict)} 只股票（累计去重后）")
+        
+        except Exception as e:
+            print(f"  处理 {sheet_name} 时出错: {e}")
+            continue
+    
+    # 转换为列表并排序
+    stock_list = [(code, name) for code, name in stock_dict.items()]
+    stock_list.sort(key=lambda x: x[0])
+    
+    print(f"\n总计提取到 {len(stock_list)} 只唯一股票")
+    
+    return stock_list
+
+
+def generate_fupan_stock_list(
+    fupan_file: str = 'excel/fupan_stocks.xlsx',
+    sheet_names: List[str] = None,
+    start_date: str = None,
+    end_date: str = None,
+    output_dir: str = 'data/batch_backtest',
+    output_prefix: str = 'fupan_stocks'
+):
+    """
+    从复盘数据文件提取股票并生成列表文件
+    
+    Args:
+        fupan_file: 复盘数据文件路径
+        sheet_names: 要提取的sheet名称列表
+        start_date: 开始日期，格式'YYYYMMDD'
+        end_date: 结束日期，格式'YYYYMMDD'
+        output_dir: 输出目录
+        output_prefix: 输出文件名前缀
+    
+    Examples:
+        # 提取连板数据中的股票
+        generate_fupan_stock_list(
+            sheet_names=['连板数据'],
+            start_date='20250101',
+            end_date='20250131',
+            output_prefix='lianban_202501'
+        )
+        
+        # 提取多个类型的股票
+        generate_fupan_stock_list(
+            sheet_names=['连板数据', '首板数据', '大涨数据'],
+            start_date='20250101',
+            output_prefix='hot_stocks'
+        )
+    """
+    # 提取股票列表
+    stock_list = extract_stocks_from_fupan(fupan_file, sheet_names, start_date, end_date)
+    
+    if not stock_list:
+        print("未提取到任何股票！")
+        return
+    
+    # 确保输出目录存在
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 生成文件名
+    date_suffix = ''
+    if start_date and end_date:
+        date_suffix = f'_{start_date}_{end_date}'
+    elif start_date:
+        date_suffix = f'_{start_date}_latest'
+    elif end_date:
+        date_suffix = f'_earliest_{end_date}'
+    
+    # 保存为TXT
+    txt_file = os.path.join(output_dir, f'{output_prefix}{date_suffix}.txt')
+    save_stock_list_txt(stock_list, txt_file)
+    
+    # 保存为CSV
+    csv_file = os.path.join(output_dir, f'{output_prefix}{date_suffix}.csv')
+    save_stock_list_csv(stock_list, csv_file)
+    
+    print(f"\n已生成复盘股票列表:")
+    print(f"  TXT: {txt_file}")
+    print(f"  CSV: {csv_file}")
 
 
 def generate_all():
