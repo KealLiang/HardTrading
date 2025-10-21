@@ -2388,9 +2388,133 @@ def _get_leader_sheet_info(wb, last_trading_day_in_run):
     return leader_sheets_info
 
 
-def manage_leader_sheets(wb, last_trading_day_in_run):
+def copy_worksheet(source_ws, target_ws):
+    """
+    复制工作表的内容和样式
+    
+    Args:
+        source_ws: 源工作表
+        target_ws: 目标工作表
+    """
+    # 复制列宽
+    for col_letter, dim in source_ws.column_dimensions.items():
+        target_ws.column_dimensions[col_letter].width = dim.width
+    
+    # 复制行高
+    for row_idx, dim in source_ws.row_dimensions.items():
+        if dim.height:
+            target_ws.row_dimensions[row_idx].height = dim.height
+    
+    # 复制单元格内容和样式
+    for row in source_ws.iter_rows():
+        for cell in row:
+            target_cell = target_ws[cell.coordinate]
+            
+            # 复制值
+            if cell.value is not None:
+                target_cell.value = cell.value
+            
+            # 复制样式
+            if cell.has_style:
+                target_cell.font = cell.font.copy()
+                target_cell.border = cell.border.copy()
+                target_cell.fill = cell.fill.copy()
+                target_cell.number_format = cell.number_format
+                target_cell.protection = cell.protection.copy()
+                target_cell.alignment = cell.alignment.copy()
+            
+            # 复制备注
+            if cell.comment:
+                target_cell.comment = cell.comment
+    
+    # 复制合并单元格
+    for merged_range in source_ws.merged_cells.ranges:
+        target_ws.merge_cells(str(merged_range))
+    
+    # 复制冻结窗格
+    if source_ws.freeze_panes:
+        target_ws.freeze_panes = source_ws.freeze_panes
+
+
+def archive_leader_sheets(wb, sheets_to_archive, output_file):
+    """
+    将要删除的龙头工作表归档到单独的Excel文件中
+    
+    Args:
+        wb: 当前工作簿
+        sheets_to_archive: 要归档的工作表信息列表 [{'name': 'sheet_name', 'date': datetime_obj}, ...]
+        output_file: 当前输出文件路径
+    """
+    if not sheets_to_archive:
+        return
+    
+    # 生成归档文件路径
+    output_dir = os.path.dirname(output_file)
+    base_name = os.path.splitext(os.path.basename(output_file))[0]
+    archive_file = os.path.join(output_dir, f"{base_name}_龙头归档.xlsx")
+    
+    print(f"开始归档 {len(sheets_to_archive)} 个龙头工作表到: {archive_file}")
+    
+    # 加载或创建归档工作簿
+    if os.path.exists(archive_file):
+        try:
+            archive_wb = load_workbook(archive_file)
+            print(f"加载已有归档文件: {archive_file}")
+        except Exception as e:
+            print(f"加载归档文件失败: {e}，创建新的归档文件")
+            archive_wb = Workbook()
+            # 删除默认的Sheet
+            if 'Sheet' in archive_wb.sheetnames:
+                archive_wb.remove(archive_wb['Sheet'])
+    else:
+        archive_wb = Workbook()
+        # 删除默认的Sheet
+        if 'Sheet' in archive_wb.sheetnames:
+            archive_wb.remove(archive_wb['Sheet'])
+        print(f"创建新的归档文件: {archive_file}")
+    
+    # 复制要归档的工作表
+    archived_count = 0
+    for sheet_info in sheets_to_archive:
+        sheet_name = sheet_info['name']
+        
+        # 如果归档文件中已存在同名sheet，跳过（避免重复归档）
+        if sheet_name in archive_wb.sheetnames:
+            print(f"  归档文件中已存在工作表 {sheet_name}，跳过")
+            continue
+        
+        try:
+            # 复制工作表
+            source_ws = wb[sheet_name]
+            target_ws = archive_wb.create_sheet(title=sheet_name)
+            
+            # 复制内容和样式
+            copy_worksheet(source_ws, target_ws)
+            
+            archived_count += 1
+            print(f"  已归档工作表: {sheet_name} (日期: {sheet_info['date'].strftime('%Y-%m-%d')})")
+        except Exception as e:
+            print(f"  归档工作表 {sheet_name} 时出错: {e}")
+    
+    # 保存归档文件
+    if archived_count > 0:
+        try:
+            archive_wb.save(archive_file)
+            print(f"成功归档 {archived_count} 个工作表到: {archive_file}")
+        except Exception as e:
+            print(f"保存归档文件时出错: {e}")
+    else:
+        print("没有新的工作表需要归档")
+
+
+def manage_leader_sheets(wb, last_trading_day_in_run, output_file=OUTPUT_FILE):
     """
     管理龙头工作表数量，删除超过数量限制的最旧的工作表
+    
+    Args:
+        wb: 工作簿对象
+        last_trading_day_in_run: 本次运行的最后交易日
+        output_file: 输出文件路径，用于生成归档文件名
     """
     leader_sheets_info = _get_leader_sheet_info(wb, last_trading_day_in_run)
 
@@ -2399,6 +2523,11 @@ def manage_leader_sheets(wb, last_trading_day_in_run):
         leader_sheets_info.sort(key=lambda x: x['date'])
         # 确定要删除的工作表
         sheets_to_delete = leader_sheets_info[:len(leader_sheets_info) - MAX_LEADER_SHEETS]
+        
+        # 在删除之前，先归档这些工作表
+        archive_leader_sheets(wb, sheets_to_delete, output_file)
+        
+        # 删除工作表
         for sheet_info in sheets_to_delete:
             if sheet_info['name'] in wb.sheetnames:
                 wb.remove(wb[sheet_info['name']])
@@ -2768,7 +2897,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         # 管理龙头sheet并回填历史数据
         last_day_str = date_mapping[formatted_trading_days[-1]]
         last_trading_day_obj = datetime.strptime(last_day_str, '%Y%m%d')
-        manage_leader_sheets(wb, last_trading_day_obj)
+        manage_leader_sheets(wb, last_trading_day_obj, output_file)
         backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
 
     # 创建指数数据工作表
