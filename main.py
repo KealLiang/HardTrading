@@ -889,7 +889,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()  # 一键执行策略扫描与对比图生成
+    full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
@@ -929,7 +929,7 @@ if __name__ == '__main__':
     
     # === 大批量回测（新功能）===
     # generate_stock_lists()  # 生成全部A股列表文件（首次使用前运行一次）
-    generate_fupan_candidates()  # 从复盘数据提取热门股候选（可反复运行）
+    # generate_fupan_candidates()  # 从复盘数据提取热门股候选（可反复运行）
     # batch_backtest_from_stock_list()  # 从文件读取股票列表进行批量回测
     # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
 
