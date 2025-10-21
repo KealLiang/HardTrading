@@ -26,7 +26,7 @@
   "minimize_after_capture": true,
   "ak_shortcut": "67",
   "image_format": "jpeg",
-  "jpeg_quality": 20,
+  "jpeg_quality": 15,
   "downscale_ratio": 0.6,
   "convert_to_grayscale": false
 }

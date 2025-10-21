@@ -21,31 +21,52 @@
 
 3) 启动定时器（建议在竞价前启动，09:15/09:20/09:25 自动截图）：
    python automation/tdx_auction_screenshot.py start
+   或者在 PyCharm 中直接右键运行此脚本（默认就是 start 命令）
 
 4) 手动立即截图（便于调试）：
    python automation/tdx_auction_screenshot.py snap
+
+5) 使用自定义配置文件：
+   python automation/tdx_auction_screenshot.py --config /path/to/config.json start
 
 文件与目录：
 - 配置：config/tdx_screenshot.json
 - 截图：data/screenshots/auction/YYYYMMDD_0915.png 等
 - 日志：logs/tdx_screenshot.log
 
+特性：
+- ✅ 自动定位项目根目录，支持在任意目录下运行
+- ✅ 支持 PyCharm 直接点击运行（无需命令行参数）
+- ✅ 支持自定义配置文件路径
+
 作者：Trading System
 创建时间：2025-10-15
+更新时间：2025-10-21
 """
 
-import os
-import sys
+import argparse
 import json
-import time
 import logging
+import os
+import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 # 第三方
 import pyautogui as pag
 import schedule
 from PIL import Image
+
+
+# ========== 路径自动定位 ==========
+def get_project_root() -> Path:
+    """获取项目根目录（脚本所在目录的父目录）"""
+    return Path(__file__).resolve().parent.parent
+
+
+# 项目根目录
+PROJECT_ROOT = get_project_root()
 
 # 常量配置（可被配置文件覆盖）
 DEFAULT_CONFIG = {
@@ -55,7 +76,7 @@ DEFAULT_CONFIG = {
         "行情",
     ],
     # 需要用户校准的坐标与区域
-    "fengdan_header_point": [0, 0],       # 「封单额」表头点击坐标
+    "fengdan_header_point": [0, 0],  # 「封单额」表头点击坐标
     # 屏幕区域：left, top, width, height
     "screenshot_region": [0, 0, 0, 0],
     # 存储目录
@@ -65,23 +86,24 @@ DEFAULT_CONFIG = {
     # 时间点
     "auction_times": ["09:15:00", "09:20:00", "09:25:00"],
     # 执行期行为
-    "use_block_input": True,               # 执行期间临时阻断用户鼠标/键盘输入
-    "restore_mouse": True,                 # 执行后恢复鼠标位置
-    "minimize_after_capture": True,        # 截图完成后最小化通达信
+    "use_block_input": True,  # 执行期间临时阻断用户鼠标/键盘输入
+    "restore_mouse": True,  # 执行后恢复鼠标位置
+    "minimize_after_capture": True,  # 截图完成后最小化通达信
     # 键盘精灵快捷跳转
-    "ak_shortcut": "67",                  # 跳转到『A股』的快捷键（输入后回车）
+    "ak_shortcut": "67",  # 跳转到『A股』的快捷键（输入后回车）
     # 截图压缩
-    "image_format": "webp",               # webp | jpeg | png
-    "jpeg_quality": 35,                    # 0-95，越低越小
-    "webp_quality": 30,                    # 0-100，越低越小
-    "webp_method": 6,                      # 0-6，越高越慢体积越小
-    "png_optimize": True,                  # PNG 优化
-    "downscale_ratio": 1.0,                # 可选缩放比例（例如 0.8 可进一步减小体积）
-    "convert_to_grayscale": False          # 将图片转为灰度，显著压缩体积
+    "image_format": "webp",  # webp | jpeg | png
+    "jpeg_quality": 35,  # 0-95，越低越小
+    "webp_quality": 30,  # 0-100，越低越小
+    "webp_method": 6,  # 0-6，越高越慢体积越小
+    "png_optimize": True,  # PNG 优化
+    "downscale_ratio": 1.0,  # 可选缩放比例（例如 0.8 可进一步减小体积）
+    "convert_to_grayscale": False  # 将图片转为灰度，显著压缩体积
 }
 
-CONFIG_PATH = os.path.join("config", "tdx_screenshot.json")
-LOG_PATH = os.path.join("logs", "tdx_screenshot.log")
+# 使用绝对路径，基于项目根目录
+CONFIG_PATH = str(PROJECT_ROOT / "config" / "tdx_screenshot.json")
+LOG_PATH = str(PROJECT_ROOT / "logs" / "tdx_screenshot.log")
 
 
 class ConfigManager:
@@ -126,7 +148,12 @@ class TDXScreenshotter:
 
     def __init__(self, config: ConfigManager):
         self.cfg = config
-        os.makedirs(self.cfg["save_dir"], exist_ok=True)
+        # 确保 save_dir 使用绝对路径
+        save_dir = self.cfg["save_dir"]
+        if not os.path.isabs(save_dir):
+            save_dir = str(PROJECT_ROOT / save_dir)
+        os.makedirs(save_dir, exist_ok=True)
+        self.cfg.config["save_dir"] = save_dir  # 更新为绝对路径
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 
         logging.basicConfig(
@@ -194,7 +221,8 @@ class TDXScreenshotter:
         except Exception:
             pass
         # 多次点击确保按降序排列
-        self._safe_click(tuple(self.cfg["fengdan_header_point"]), "封单额表头", clicks=max(1, int(self.cfg.get("sort_click_count", 2))) )
+        self._safe_click(tuple(self.cfg["fengdan_header_point"]), "封单额表头",
+                         clicks=max(1, int(self.cfg.get("sort_click_count", 2))))
 
     def take_screenshot(self, time_tag: Optional[str] = None) -> Optional[str]:
         """根据配置区域截图，返回保存路径。"""
@@ -384,35 +412,57 @@ def interactive_calibrate(cfg: ConfigManager) -> None:
     print("校准完成，已保存到:", CONFIG_PATH)
 
 
-def main():
-    cfg = ConfigManager()
+def run_auto():
+    parser = argparse.ArgumentParser(
+        description="通达信集合竞价自动截图器",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用示例:
+  python automation/tdx_auction_screenshot.py start              # 启动定时截图
+  python automation/tdx_auction_screenshot.py snap               # 立即截图一次
+  python automation/tdx_auction_screenshot.py calibrate          # 校准坐标
+  python automation/tdx_auction_screenshot.py --config custom.json start  # 使用自定义配置
+        """
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="start",
+        choices=["start", "run", "scheduler", "snap", "shot", "once", "calibrate", "config", "status"],
+        help="执行命令 (默认: start)"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=CONFIG_PATH,
+        help=f"配置文件路径 (默认: {CONFIG_PATH})"
+    )
+
+    args = parser.parse_args()
+
+    # 加载配置
+    cfg = ConfigManager(args.config)
     shooter = TDXScreenshotter(cfg)
 
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1].lower()
-        if cmd in ("start", "run", "scheduler"):
-            scheduler = TDXAuctionScreenshotScheduler(shooter)
-            scheduler.start()
-        elif cmd in ("snap", "shot", "once"):
-            shooter.run_once()
-        elif cmd in ("calibrate", "config"):
-            interactive_calibrate(cfg)
-        elif cmd == "status":
-            next_run = schedule.next_run() if schedule.jobs else None
-            print("调度器状态：")
-            print("  运行中: 否 (仅查询状态，未启动)")
-            print("  计划时间:", ", ".join(cfg["auction_times"]))
-            print("  下次运行:", next_run)
-        else:
-            print(f"未知命令: {cmd}")
-            print("可用命令: start | snap | calibrate | status")
-    else:
-        # 默认启动调度器
+    cmd = args.command.lower()
+    if cmd in ("start", "run", "scheduler"):
         scheduler = TDXAuctionScreenshotScheduler(shooter)
         scheduler.start()
+    elif cmd in ("snap", "shot", "once"):
+        shooter.run_once()
+    elif cmd in ("calibrate", "config"):
+        interactive_calibrate(cfg)
+    elif cmd == "status":
+        next_run = schedule.next_run() if schedule.jobs else None
+        print("调度器状态：")
+        print("  运行中: 否 (仅查询状态，未启动)")
+        print("  计划时间:", ", ".join(cfg["auction_times"]))
+        print("  下次运行:", next_run)
+        print("  配置文件:", args.config)
+        print("  项目根目录:", PROJECT_ROOT)
 
 
 if __name__ == "__main__":
     # python automation/tdx_auction_screenshot.py snap
     # python automation/tdx_auction_screenshot.py start
-    main()
+    run_auto()
