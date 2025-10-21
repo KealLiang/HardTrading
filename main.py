@@ -49,6 +49,7 @@ from utils.synonym_manager import SynonymManager
 from bin.experiment_runner import run_comparison_experiment
 from bin.psq_analyzer import run_psq_analysis_report
 from bin.parameter_optimizer import ParameterOptimizer
+from bin.batch_backtester import batch_backtest_from_file, batch_backtest_from_list
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -144,6 +145,74 @@ def backtrade_simulate():
         visualize=True,
         interactive_plot=True,  # 弹出交互图
     )
+
+
+# 大批量回测（从文件读取股票列表）
+def batch_backtest_from_stock_list():
+    """
+    大批量股票回测 - 从文件读取股票列表
+    
+    特点：
+    1. 支持从CSV/TXT文件读取股票列表
+    2. 多进程并行回测，大幅提升性能
+    3. 只输出汇总统计，不生成详细图表
+    4. 生成Excel汇总报告，包含统计分析
+    
+    使用场景：
+    - 全市场扫描（如5000只A股）
+    - 板块批量回测
+    - 策略批量验证
+    """
+    # 股票列表文件路径（支持CSV或TXT格式）
+    stock_list_file = 'data/stock_list.txt'  # 可以替换为你的文件路径
+    
+    # 如果没有现成文件，也可以直接使用代码列表（见下面的batch_backtest_from_codes函数）
+    
+    report_path = batch_backtest_from_file(
+        stock_list_file=stock_list_file,
+        strategy_class=BreakoutStrategyV2,
+        strategy_params={
+            'debug': False,  # 批量回测建议关闭详细日志
+        },
+        startdate=datetime(2022, 1, 1),
+        enddate=datetime(2025, 10, 21),
+        amount=100000,
+        data_dir='./data/astocks',
+        output_dir='bin/batch_backtest_results',
+        max_workers=None,  # None表示自动使用CPU核心数-1，也可手动指定如4、8等
+        resume=False  # 是否断点续传（跳过已完成的股票）
+    )
+    
+    print(f"\n批量回测完成！报告路径: {report_path}")
+
+
+# 大批量回测（直接使用代码列表）
+def batch_backtest_from_codes():
+    """
+    大批量股票回测 - 直接提供股票代码列表
+    
+    适合代码不多的场景，或者动态生成股票池的场景
+    """
+    # 方式1: 手动指定股票列表
+    stock_codes = ['300033', '300059', '000062', '300204', '600610']
+    
+    # 方式2: 从其他来源获取（示例：读取某个板块的所有股票）
+    # from fetch.astock_concept import get_concept_stocks
+    # stock_codes = get_concept_stocks('新能源车')
+    
+    report_path = batch_backtest_from_list(
+        stock_codes=stock_codes,
+        strategy_class=BreakoutStrategyV2,
+        strategy_params={'debug': False},
+        startdate=datetime(2022, 1, 1),
+        enddate=datetime(2025, 10, 21),
+        amount=100000,
+        data_dir='./data/astocks',
+        output_dir='bin/batch_backtest_results',
+        max_workers=4  # 可根据CPU核心数调整
+    )
+    
+    print(f"\n批量回测完成！报告路径: {report_path}")
 
 
 # 止跌反弹策略回测
@@ -773,8 +842,8 @@ if __name__ == '__main__':
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    strategy_scan('b')
-    generate_comparison_charts('b')
+    # strategy_scan('b')
+    # generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')
@@ -803,10 +872,14 @@ if __name__ == '__main__':
     # check_stock_datas()
 
     # === 策略回测 ===
-    # backtrade_simulate()
+    backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
+    
+    # === 大批量回测（新功能）===
+    # batch_backtest_from_stock_list()  # 从文件读取股票列表进行批量回测
+    # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
 
     # === 参数优化功能 ===
     # 1. 生成配置模板
