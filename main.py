@@ -347,7 +347,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250730'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20250920'  # 只看这个日期之后的
+    details_after_date = '20251010'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -372,7 +372,7 @@ def pullback_rebound_scan(candidate_model='a'):
 
     start_date = '20250730'
     end_date = None
-    details_after_date = '20250920'  # 只看这个日期之后的
+    details_after_date = '20251010'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
