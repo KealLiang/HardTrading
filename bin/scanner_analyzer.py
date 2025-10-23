@@ -433,7 +433,8 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
     # 保存扫描明细报告（仅在有扫描数据时）
     if scan_details:
         from datetime import datetime
-        detail_file = f'bin/scan_details_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        detail_file = f'bin/scan_detail/scan_details_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        os.makedirs(os.path.dirname(detail_file), exist_ok=True)
         try:
             with open(detail_file, 'w', encoding='utf-8') as f:
                 f.write(f"策略: {strategy_class.__name__}\n")
