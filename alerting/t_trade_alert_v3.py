@@ -25,75 +25,15 @@ from utils.stock_util import convert_stock_code
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-class EmotionState(Enum):
-    """市场情绪状态（基于量能异动+布林带趋势）"""
-    NORMAL = 'normal'           # 正常波动
-    MAIN_RALLY = 'main_rally'   # 主升浪（频繁触上轨+中轨上行）
-    MAIN_DROP = 'main_drop'     # 主跌浪（频繁触下轨+中轨下行）
-    EUPHORIA = 'euphoria'       # 情绪高涨（价升量涨）
-    PANIC = 'panic'             # 恐慌杀跌（价跌量涨）
-
-
-class ParamSet:
-    """参数组：根据市场情绪状态动态切换"""
-    
-    # 标准参数组（正常波动）
-    NORMAL = {
-        'name': '📊正常',
-        'rsi_oversold': 30,
-        'rsi_overbought': 70,
-        'bb_tolerance': 1.005,  # 布林带容差收紧（必须真正触及）
-        'volume_confirm': 1.3,  # 量能确认倍数提高
-        'need_stabilize': True,
-    }
-    
-    # 主升浪参数组（频繁触上轨+趋势向上）
-    MAIN_RALLY = {
-        'name': '🚀主升',
-        'rsi_oversold': 30,
-        'rsi_overbought': 999,  # 主升浪不卖（除非背离）
-        'bb_tolerance': 1.005,
-        'volume_confirm': 1.3,
-        'need_stabilize': True,
-        'only_divergence_sell': True,  # 只在量价背离时卖出
-    }
-    
-    # 主跌浪参数组（频繁触下轨+趋势向下）
-    MAIN_DROP = {
-        'name': '📉主跌',
-        'rsi_oversold': 15,  # 主跌浪不抄底
-        'rsi_overbought': 60,  # 反弹即卖
-        'bb_tolerance': 0.98,  # 必须明确跌破
-        'volume_confirm': 1.5,
-        'need_stabilize': True,
-        'need_strong_stabilize': True,  # 需要极强企稳
-    }
-    
-    # 情绪高涨参数组（价升量涨但未形成主升浪）
-    EUPHORIA = {
-        'name': '🔥高涨',
-        'rsi_oversold': 25,
-        'rsi_overbought': 80,
-        'bb_tolerance': 1.01,
-        'volume_confirm': 1.5,
-        'need_stabilize': True,
-        'prioritize_divergence': True,
-    }
-    
-    # 恐慌杀跌参数组（价跌量涨但未形成主跌浪）
-    PANIC = {
-        'name': '💥恐慌',
-        'rsi_oversold': 20,
-        'rsi_overbought': 65,
-        'bb_tolerance': 0.99,
-        'volume_confirm': 1.5,
-        'need_stabilize': True,
-        'need_strong_stabilize': True,
-    }
+class SignalStrength(Enum):
+    """信号强度分级"""
+    STRONG = '⭐⭐⭐强'
+    MEDIUM = '⭐⭐中'
+    WEAK = '⭐弱'
 
 
 class TMonitorConfig:
-    """监控器配置"""
+    """监控器配置（纯信号模式 - 对称参数）"""
     HOSTS = [
         ('117.34.114.27', 7709),
         ('202.96.138.90', 7709),
@@ -108,23 +48,29 @@ class TMonitorConfig:
     BB_PERIOD = 20
     BB_STD = 2
 
-    # 量能异动识别
-    VOLUME_ANOMALY_RATIO = 1.5  # 量能异动阈值（相对基准）
-    PRICE_CHANGE_THRESHOLD = 0.01  # 价格变化阈值1%
+    # === 核心信号阈值（对称设计，保证买卖平衡）===
+    RSI_OVERSOLD = 30      # 超卖阈值
+    RSI_OVERBOUGHT = 70    # 超买阈值（对称）
+    RSI_EXTREME_OVERSOLD = 15   # 极度超卖
+    RSI_EXTREME_OVERBOUGHT = 85  # 极度超买（对称）
+    
+    BB_TOLERANCE = 1.003   # 布林带容差（必须接近轨道）
+    
+    # === 量价确认参数（微调以平衡买卖）===
+    VOLUME_CONFIRM_BUY = 1.2    # 买入量能确认（放量1.2倍，稍宽松）
+    VOLUME_CONFIRM_SELL = 1.3   # 卖出量能确认（放量1.3倍，稍严格）
+    VOLUME_SURGE_RATIO = 1.5    # 放量突破倍数
+    
+    # 量价背离检测（收紧，减少卖出信号）
+    DIVERGENCE_PRICE_CHANGE = 0.015  # 价格变化1.5%（提高）
+    DIVERGENCE_VOLUME_CHANGE = -0.25 # 量能缩减25%（提高）
 
-    # 布林带趋势识别（实时检测，而非事后识别）
-    BB_TREND_PERIOD = 10  # 检测近N根K线（10分钟窗口，快速响应）
-    BB_MID_SLOPE_THRESHOLD = 0.0015  # 中轨斜率阈值0.15%
-    TOUCH_BAND_RATIO = 0.3  # 近N根K线中触及轨道比例（30%=10根中3次）
-    BB_ACCEL_PERIOD = 5  # 加速度检测窗口（最近5根）
-    BB_ACCEL_RATIO = 1.5  # 加速比率（最近5根斜率 > 前5根的1.5倍）
-
-    # 冷却机制（基于价格变化）
-    SIGNAL_COOLDOWN_SECONDS = 180  # 3分钟冷却（1分钟K线波动大）
-    REPEAT_PRICE_CHANGE = 0.015  # 价格变化1.5%才允许重复信号
+    # 冷却机制
+    SIGNAL_COOLDOWN_SECONDS = 180  # 3分钟冷却
+    REPEAT_PRICE_CHANGE = 0.015    # 价格变化1.5%才允许重复
 
     # 仓位控制
-    MAX_TRADES_PER_DAY = 5  # 每日最多交易次数
+    MAX_TRADES_PER_DAY = 5
 
     # 涨跌停判断
     LIMIT_UP_THRESHOLD = 0.099
@@ -180,7 +126,7 @@ class PositionManager:
 
 
 class TMonitorV3:
-    """V3做T监控器：纯1分钟K线+量能异动识别+动态参数"""
+    """V3做T监控器：纯信号模式 - RSI+布林带+量价确认"""
 
     def __init__(self, symbol, stop_event,
                  push_msg=True, is_backtest=False,
@@ -300,10 +246,7 @@ class TMonitorV3:
     def _prepare_indicators(self, df):
         """计算所有技术指标"""
         df = df.copy()
-        
-        # 确保成交量是数字类型
         df['vol'] = pd.to_numeric(df['vol'], errors='coerce')
-        
         df['rsi14'] = self._calc_rsi(df['close'], TMonitorConfig.RSI_PERIOD)
         df['bb_upper'], df['bb_mid'], df['bb_lower'] = self._calc_bollinger(
             df['close'], TMonitorConfig.BB_PERIOD, TMonitorConfig.BB_STD)
@@ -333,121 +276,38 @@ class TMonitorV3:
             try:
                 time_diff = (current_time - last_time).total_seconds()
                 if time_diff < TMonitorConfig.SIGNAL_COOLDOWN_SECONDS:
-                    # 在冷却期内，检查价格变化
                     if last_price:
                         price_change = abs(current_price - last_price) / last_price
                         if price_change < TMonitorConfig.REPEAT_PRICE_CHANGE:
-                            return False, f"冷却期内且价格变化不足({price_change:.2%})"
+                            return False, f"冷却期内且价格变化不足"
             except Exception:
                 pass
 
         return True, "允许触发"
 
-    def _detect_market_state(self, df_1m, i):
-        """
-        综合检测市场状态（布林带趋势 + 量能异动）
-        :return: (state, reason, volume_ratio)
-        """
-        if i < TMonitorConfig.BB_TREND_PERIOD:
-            return EmotionState.NORMAL, None, 1.0
+    def _check_volume_divergence(self, df_1m, i):
+        """检查量价背离"""
+        if i < 5:
+            return False
         
         try:
-            # 1. 检测布林带趋势（实时识别，而非事后）
-            recent_period = df_1m.iloc[i-TMonitorConfig.BB_TREND_PERIOD+1:i+1].copy()
-            period_count = len(recent_period)
-            current_close = df_1m['close'].iloc[i]
-            current_bb_upper = df_1m['bb_upper'].iloc[i]
-            current_bb_lower = df_1m['bb_lower'].iloc[i]
-            
-            # A. 布林带中轨斜率（整体趋势）
-            bb_mid_first = recent_period['bb_mid'].iloc[0]
-            bb_mid_last = recent_period['bb_mid'].iloc[-1]
-            bb_mid_slope = (bb_mid_last - bb_mid_first) / bb_mid_first
-            
-            # B. 价格加速度（最近是否加速上涨/下跌）
-            if i >= TMonitorConfig.BB_TREND_PERIOD + TMonitorConfig.BB_ACCEL_PERIOD:
-                # 前5根K线的斜率
-                earlier_5 = df_1m.iloc[i-TMonitorConfig.BB_TREND_PERIOD-TMonitorConfig.BB_ACCEL_PERIOD+1:i-TMonitorConfig.BB_ACCEL_PERIOD+1]
-                earlier_slope = (earlier_5['close'].iloc[-1] - earlier_5['close'].iloc[0]) / earlier_5['close'].iloc[0]
-                
-                # 最近5根K线的斜率
-                recent_5 = df_1m.iloc[i-TMonitorConfig.BB_ACCEL_PERIOD+1:i+1]
-                recent_slope = (recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0]
-                
-                # 加速比率
-                has_acceleration_up = recent_slope > abs(earlier_slope) * TMonitorConfig.BB_ACCEL_RATIO and recent_slope > 0.005
-                has_acceleration_down = recent_slope < -abs(earlier_slope) * TMonitorConfig.BB_ACCEL_RATIO and recent_slope < -0.005
-            else:
-                has_acceleration_up = False
-                has_acceleration_down = False
-            
-            # C. 统计触及上下轨次数和比例
-            touch_upper_count = (recent_period['close'] >= recent_period['bb_upper'] * 0.995).sum()
-            touch_lower_count = (recent_period['close'] <= recent_period['bb_lower'] * 1.005).sum()
-            touch_upper_ratio = touch_upper_count / period_count
-            touch_lower_ratio = touch_lower_count / period_count
-            
-            # D. 当前位置判断（必须正在触及轨道，而非已经离开）
-            is_currently_at_upper = current_close >= current_bb_upper * 0.995
-            is_currently_at_lower = current_close <= current_bb_lower * 1.005
-            
-            # === 判断主升浪 ===
-            # 条件1：中轨上行
-            # 条件2：频繁触上轨
-            # 条件3：当前正在触及上轨（确保是实时的）
-            # 条件4（可选）：有加速度（更强的信号）
-            is_bb_uptrend = bb_mid_slope > TMonitorConfig.BB_MID_SLOPE_THRESHOLD
-            is_frequent_touch_upper = touch_upper_ratio >= TMonitorConfig.TOUCH_BAND_RATIO
-            
-            if is_bb_uptrend and is_frequent_touch_upper and is_currently_at_upper:
-                reason = f"主升浪(触上轨{touch_upper_count}/{period_count},中轨涨{bb_mid_slope*100:.2f}%"
-                if has_acceleration_up:
-                    reason += ",加速中"
-                reason += ")"
-                return EmotionState.MAIN_RALLY, reason, 1.0
-            
-            # === 判断主跌浪 ===
-            is_bb_downtrend = bb_mid_slope < -TMonitorConfig.BB_MID_SLOPE_THRESHOLD
-            is_frequent_touch_lower = touch_lower_ratio >= TMonitorConfig.TOUCH_BAND_RATIO
-            
-            if is_bb_downtrend and is_frequent_touch_lower and is_currently_at_lower:
-                reason = f"主跌浪(触下轨{touch_lower_count}/{period_count},中轨跌{abs(bb_mid_slope)*100:.2f}%"
-                if has_acceleration_down:
-                    reason += ",加速中"
-                reason += ")"
-                return EmotionState.MAIN_DROP, reason, 1.0
-            
-            # 2. 量能异动检测（作为辅助）
             recent_5 = df_1m.iloc[i-4:i+1].copy()
-            baseline_10 = df_1m.iloc[i-9:i-4].copy()
-            
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
-            baseline_10['vol'] = pd.to_numeric(baseline_10['vol'], errors='coerce')
             
-            recent_vol_avg = recent_5['vol'].mean()
-            baseline_vol_avg = baseline_10['vol'].mean()
+            price_change = (recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0]
+            vol_change = (recent_5['vol'].iloc[-1] - recent_5['vol'].iloc[0]) / (recent_5['vol'].iloc[0] + 1e-10)
             
-            if pd.isna(recent_vol_avg) or pd.isna(baseline_vol_avg) or baseline_vol_avg == 0:
-                return EmotionState.NORMAL, None, 1.0
+            # 顶背离：价涨量缩
+            if price_change > TMonitorConfig.DIVERGENCE_PRICE_CHANGE and vol_change < TMonitorConfig.DIVERGENCE_VOLUME_CHANGE:
+                return True
             
-            volume_ratio = recent_vol_avg / baseline_vol_avg
-            price_change_5 = (recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0]
-            
-            # 量能异动（未形成主升/主跌浪的情况）
-            if volume_ratio > TMonitorConfig.VOLUME_ANOMALY_RATIO:
-                if price_change_5 > TMonitorConfig.PRICE_CHANGE_THRESHOLD:
-                    return EmotionState.EUPHORIA, f"价升量涨(量比{volume_ratio:.1f})", volume_ratio
-                elif price_change_5 < -TMonitorConfig.PRICE_CHANGE_THRESHOLD:
-                    return EmotionState.PANIC, f"价跌量涨(量比{volume_ratio:.1f})", volume_ratio
-            
-        except Exception as e:
-            if self.is_backtest:
-                tqdm.write(f"[警告] 市场状态检测失败: {e}")
+        except Exception:
+            pass
         
-        return EmotionState.NORMAL, None, 1.0
+        return False
 
-    def _check_buy_volume_confirm(self, df_1m, i, params):
-        """买入量价确认"""
+    def _check_buy_volume_confirm(self, df_1m, i):
+        """买入量价确认：缩量后放量企稳"""
         if i < 5:
             return False, "数据不足"
         
@@ -455,41 +315,39 @@ class TMonitorV3:
             recent_5 = df_1m.iloc[i-4:i+1].copy()
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
-            vol_early = recent_5['vol'].iloc[:3].mean()
-            vol_late = recent_5['vol'].iloc[-2:].mean()
+            vol_early_3 = recent_5['vol'].iloc[:3].mean()
+            vol_late_2 = recent_5['vol'].iloc[-2:].mean()
             
-            if pd.isna(vol_early) or pd.isna(vol_late) or vol_early == 0:
+            if pd.isna(vol_early_3) or pd.isna(vol_late_2) or vol_early_3 == 0:
                 return False, "量能数据异常"
             
-            # 量能确认
-            if vol_late < vol_early * params['volume_confirm']:
-                return False, f"买入量能不足({vol_late:.0f}/{vol_early:.0f})"
+            # 1. 量能确认：近2根放量
+            if vol_late_2 < vol_early_3 * TMonitorConfig.VOLUME_CONFIRM_BUY:
+                return False, f"买入量能不足"
             
-            # 企稳确认
-            if params.get('need_stabilize'):
-                latest = recent_5.iloc[-1]
-                
-                # 恐慌模式：需要强企稳（连续2根阳线）
-                if params.get('need_strong_stabilize'):
-                    prev = recent_5.iloc[-2]
-                    if not (latest['close'] > latest['open'] and prev['close'] > prev['open']):
-                        return False, "未见强企稳（需连续2阳）"
-                else:
-                    # 正常模式：阳线或长下影
-                    body = latest['close'] - latest['open']
-                    lower_shadow = min(latest['open'], latest['close']) - latest['low']
-                    if not (body > 0 or lower_shadow > abs(body) * 2):
-                        return False, "K线未见企稳信号"
+            # 2. K线企稳：阳线、长下影或十字星
+            latest = recent_5.iloc[-1]
+            body = latest['close'] - latest['open']
+            lower_shadow = min(latest['open'], latest['close']) - latest['low']
+            body_pct = abs(body) / latest['close']
+            
+            # 放宽企稳条件：阳线 OR 长下影 OR 小实体(<0.5%)
+            is_stabilized = (body > 0 or 
+                           lower_shadow > abs(body) * 2 or 
+                           body_pct < 0.005)
+            
+            if not is_stabilized:
+                return False, "未见企稳信号"
             
             return True, "量价确认买入✓"
             
         except Exception as e:
             if self.is_backtest:
                 tqdm.write(f"[警告] 买入量价确认失败: {e}")
-            return False, "量价确认异常"
+            return False, "确认异常"
 
-    def _check_sell_volume_confirm(self, df_1m, i, params):
-        """卖出量价确认"""
+    def _check_sell_volume_confirm(self, df_1m, i):
+        """卖出量价确认：放量或背离"""
         if i < 5:
             return False, "数据不足"
         
@@ -503,62 +361,59 @@ class TMonitorV3:
             if pd.isna(vol_ma5) or pd.isna(latest_vol) or vol_ma5 == 0:
                 return False, "量能数据异常"
             
-            # 高位放量
-            if latest_vol > vol_ma5 * params['volume_confirm']:
-                return True, "高位放量确认卖出✓"
+            # 1. 放量确认
+            if latest_vol > vol_ma5 * TMonitorConfig.VOLUME_CONFIRM_SELL:
+                return True, "放量确认卖出✓"
             
-            # 或者量价背离
-            is_divergence, _ = self._check_volume_divergence(df_1m, i)
-            if is_divergence:
-                return True, "量价背离确认卖出✓"
+            # 2. 量价背离
+            if self._check_volume_divergence(df_1m, i):
+                return True, "量价背离卖出✓"
             
-            return False, f"卖出量能不足({latest_vol:.0f}/{vol_ma5:.0f})"
+            return False, f"卖出量能不足"
             
         except Exception as e:
             if self.is_backtest:
                 tqdm.write(f"[警告] 卖出量价确认失败: {e}")
-            return False, "量价确认异常"
+            return False, "确认异常"
 
-    def _check_volume_divergence(self, df_1m, i):
-        """检查量价背离"""
-        if i < 5:
-            return False, None
-        
-        try:
-            recent_5 = df_1m.iloc[i-4:i+1].copy()
-            recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
-            
-            price_change = (recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0]
-            vol_change = (recent_5['vol'].iloc[-1] - recent_5['vol'].iloc[0]) / (recent_5['vol'].iloc[0] + 1e-10)
-            
-            # 价涨量缩（顶背离）
-            if price_change > 0.01 and vol_change < -0.2:
-                return True, f"顶背离(价+{price_change:.1%},量{vol_change:.1%})"
-            
-        except Exception:
-            pass
-        
-        return False, None
-
-    def _calc_signal_strength(self, rsi, signal_type, params):
-        """计算信号强度"""
+    def _calc_signal_strength(self, rsi, signal_type, bb_dist):
+        """
+        计算信号强度（供未来评分系统使用）
+        :param rsi: RSI值
+        :param signal_type: 'BUY' or 'SELL'
+        :param bb_dist: 布林带偏离度
+        :return: 0-100分数
+        """
         score = 50
         
         if signal_type == 'BUY':
             # RSI越低，分数越高
-            if rsi < 20:
+            if rsi < TMonitorConfig.RSI_EXTREME_OVERSOLD:
                 score += 30
             elif rsi < 25:
                 score += 20
-            elif rsi < 30:
+            elif rsi < TMonitorConfig.RSI_OVERSOLD:
                 score += 10
+            
+            # 布林带偏离度
+            if bb_dist < -0.01:  # 跌破下轨1%
+                score += 20
+            elif bb_dist < 0:
+                score += 10
+        
         else:  # SELL
             # RSI越高，分数越高
-            if rsi > 80:
+            if rsi > TMonitorConfig.RSI_EXTREME_OVERBOUGHT:
                 score += 30
             elif rsi > 75:
                 score += 20
-            elif rsi > 70:
+            elif rsi > TMonitorConfig.RSI_OVERBOUGHT:
+                score += 10
+            
+            # 布林带偏离度
+            if bb_dist > 0.01:  # 突破上轨1%
+                score += 20
+            elif bb_dist > 0:
                 score += 10
         
         return min(100, max(0, score))
@@ -571,24 +426,7 @@ class TMonitorV3:
         if i < TMonitorConfig.RSI_PERIOD:
             return None, None, 0
         
-        # 1. 检测市场状态（布林带趋势 + 量能异动）
-        market_state, state_reason, vol_ratio = self._detect_market_state(df_1m, i)
-        
-        # 2. 选择参数组
-        if market_state == EmotionState.MAIN_RALLY:
-            params = ParamSet.MAIN_RALLY
-        elif market_state == EmotionState.MAIN_DROP:
-            params = ParamSet.MAIN_DROP
-        elif market_state == EmotionState.EUPHORIA:
-            params = ParamSet.EUPHORIA
-        elif market_state == EmotionState.PANIC:
-            params = ParamSet.PANIC
-        else:
-            params = ParamSet.NORMAL
-        
-        state_tag = params['name']
-        
-        # 3. 技术指标
+        # 1. 技术指标
         close = df_1m['close'].iloc[i]
         rsi = df_1m['rsi14'].iloc[i]
         bb_upper = df_1m['bb_upper'].iloc[i]
@@ -616,60 +454,31 @@ class TMonitorV3:
         if self._is_limit_down(close, reference_price):
             return None, "跌停，不杀", 0
         
-        # 4. 买入信号判断
-        if rsi < params['rsi_oversold'] and close <= bb_lower * params['bb_tolerance']:
-            # 主跌浪：极度谨慎，几乎不买
-            if market_state == EmotionState.MAIN_DROP:
-                return None, "主跌浪中，不抄底", 0
-            
+        # 2. 买入信号判断
+        if rsi < TMonitorConfig.RSI_OVERSOLD and close <= bb_lower * TMonitorConfig.BB_TOLERANCE:
             # 量价确认
-            confirmed, confirm_msg = self._check_buy_volume_confirm(df_1m, i, params)
+            confirmed, confirm_msg = self._check_buy_volume_confirm(df_1m, i)
             if confirmed:
                 # 冷却检查
                 allowed, cooldown_msg = self._check_signal_cooldown('BUY', ts, close)
                 if allowed:
-                    strength = self._calc_signal_strength(rsi, 'BUY', params)
-                    reason = f"{state_tag} 超卖买入(RSI:{rsi:.1f})"
-                    if state_reason:
-                        reason += f" | {state_reason}"
+                    strength = self._calc_signal_strength(rsi, 'BUY', (close - bb_lower) / bb_lower)
+                    reason = f"超卖买入(RSI:{rsi:.1f})"
                     return 'BUY', reason, strength
                 else:
                     return None, cooldown_msg, 0
             else:
                 return None, confirm_msg, 0
         
-        # 5. 卖出信号判断
-        elif rsi > params['rsi_overbought'] and close >= bb_upper * (2 - params['bb_tolerance']):
-            # 主升浪：只在量价背离时卖出
-            if market_state == EmotionState.MAIN_RALLY:
-                if params.get('only_divergence_sell'):
-                    is_divergence, div_reason = self._check_volume_divergence(df_1m, i)
-                    if is_divergence:
-                        allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
-                        if allowed:
-                            strength = self._calc_signal_strength(rsi, 'SELL', params) + 20
-                            return 'SELL', f"{state_tag} {div_reason}", strength
-                    else:
-                        return None, "主升浪中，持股待涨", 0
-            
-            # 情绪高涨时，优先看量价背离
-            if market_state == EmotionState.EUPHORIA and params.get('prioritize_divergence'):
-                is_divergence, div_reason = self._check_volume_divergence(df_1m, i)
-                if is_divergence:
-                    allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
-                    if allowed:
-                        strength = self._calc_signal_strength(rsi, 'SELL', params) + 10
-                        return 'SELL', f"{state_tag} {div_reason}", strength
-            
-            # 常规卖出量价确认
-            confirmed, confirm_msg = self._check_sell_volume_confirm(df_1m, i, params)
+        # 3. 卖出信号判断
+        elif rsi > TMonitorConfig.RSI_OVERBOUGHT and close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE):
+            # 量价确认
+            confirmed, confirm_msg = self._check_sell_volume_confirm(df_1m, i)
             if confirmed:
                 allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
                 if allowed:
-                    strength = self._calc_signal_strength(rsi, 'SELL', params)
-                    reason = f"{state_tag} 超买卖出(RSI:{rsi:.1f})"
-                    if state_reason:
-                        reason += f" | {state_reason}"
+                    strength = self._calc_signal_strength(rsi, 'SELL', (bb_upper - close) / bb_upper)
+                    reason = f"超买卖出(RSI:{rsi:.1f})"
                     return 'SELL', reason, strength
                 else:
                     return None, cooldown_msg, 0
@@ -708,8 +517,8 @@ class TMonitorV3:
             else:
                 strength_tag = " ⭐弱"
         
-        prefix = "【历史信号】" if is_historical else "【T警告-V3】"
-        msg = (f"{prefix}[{self.stock_name} {self.symbol}] {signal_type}信号{strength_tag}！ "
+        prefix = "【历史信号】" if is_historical else "【V3信号】"
+        msg = (f"{prefix}[{self.stock_name} {self.symbol}] {signal_type}{strength_tag} | "
                f"{reason} | 现价:{price:.2f} [{ts}]")
 
         if self.is_backtest:
@@ -1099,6 +908,6 @@ if __name__ == "__main__":
     )
 
     logging.info("=" * 60)
-    logging.info("启动V3做T监控 - 1分钟K线+量能异动识别")
+    logging.info("启动V3做T监控 - 纯信号模式 (RSI+布林带+量价)")
     logging.info("=" * 60)
     manager.start()
