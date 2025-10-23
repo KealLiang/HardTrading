@@ -557,7 +557,8 @@ def daily_routine():
     """
     # 定义日常流程步骤
     daily_steps = [
-        (get_stock_datas, "拉取A股交易数据"),
+        # (get_stock_datas, "拉取A股交易数据"),
+        (get_index_data, "拉取各大指数数据"),
         (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
         (generate_ladder_chart, "生成热门股天梯"),
@@ -603,9 +604,6 @@ def get_stock_datas():
     else:
         # 使用历史数据接口获取数据（原有逻辑）
         data_fetcher.fetch_and_save_data()
-
-    # 获取指数数据
-    get_index_data()
 
 
 def get_stock_minute_datas():
@@ -889,7 +887,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()  # 一键执行策略扫描与对比图生成
+    # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
@@ -898,6 +896,7 @@ if __name__ == '__main__':
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')
     # get_stock_datas()
+    get_index_data()
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
@@ -918,7 +917,6 @@ if __name__ == '__main__':
     # get_top_yyb_trades()
     # get_lhb_datas()
     # get_stock_minute_datas()
-    # get_index_data()
     # check_stock_datas()
 
         # === 策略回测 ===
