@@ -500,7 +500,22 @@ class TMonitor:
             # 模拟实时模式的处理间隔
             sys_time.sleep(0.001)  # 可根据需要调整
 
+        # 回测统计输出
         logging.info(f"[回测 {self.symbol}] 回测结束")
+        
+        # 统计输出（参考v3格式）
+        buy_signals = len(self.triggered_buy_signals)
+        sell_signals = len(self.triggered_sell_signals)
+        total_signals = buy_signals + sell_signals
+        
+        tqdm.write(f"\n{'='*60}")
+        tqdm.write(f"[{self.stock_name} {self.symbol}] 回测数据统计:")
+        tqdm.write(f"  回测时间段: {self.backtest_start} ~ {self.backtest_end}")
+        tqdm.write(f"  K线总数: {len(df)}")
+        if len(df) > 0:
+            tqdm.write(f"  价格范围: {df['close'].min():.2f} ~ {df['close'].max():.2f}")
+        tqdm.write(f"  触发信号: {buy_signals}买 / {sell_signals}卖 (共{total_signals}个)")
+        tqdm.write(f"{'='*60}\n")
 
     def run(self):
         """根据模式开关启动实时监控或回测模式"""
@@ -687,8 +702,15 @@ class MonitorManager:
             watcher.start()
 
         try:
-            while not self.stop_event.is_set():
-                sys_time.sleep(1)
+            if self.is_backtest:
+                # 回测模式：等待所有任务完成后自动退出
+                for fut in self._monitor_futures.values():
+                    fut.result()
+                logging.info("回测完成，程序退出")
+            else:
+                # 实时模式：持续运行直到收到停止信号
+                while not self.stop_event.is_set():
+                    sys_time.sleep(1)
         finally:
             # 统一停止
             for ev in list(self._monitor_events.values()):
@@ -707,11 +729,11 @@ class MonitorManager:
 
 if __name__ == "__main__":
     # 示例用法：通过开关控制实时监控还是回测
-    IS_BACKTEST = False  # True 表示回测模式，False 表示实时监控
+    IS_BACKTEST = True  # True 表示回测模式，False 表示实时监控
 
     # 若为回测模式，指定回测起止时间（格式根据实际情况确定）
-    backtest_start = "2025-10-13 09:30"
-    backtest_end = "2025-10-17 15:00"
+    backtest_start = "2025-10-20 09:30"
+    backtest_end = "2025-10-23 15:00"
     symbols = ['300852']
     symbols_file = 'watchlist.txt'
 
