@@ -2,10 +2,10 @@
 日内交易可视化工具（1分钟K线）
 用于可视化做T监控系统的回测结果
 """
-import os
 import logging
-from datetime import datetime
+import os
 import warnings
+from datetime import datetime
 
 # 设置非交互式后端，避免多线程警告
 import matplotlib
@@ -35,24 +35,24 @@ class IntradayVisualizer:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.style = self._setup_style()
-    
+
     @staticmethod
     def _get_font_properties():
         """获取中文字体"""
         # 尝试多个可能的字体路径
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-        
+
         font_candidates = [
             'fonts/微软雅黑.ttf',  # 当前工作目录
             os.path.join(project_root, 'fonts/微软雅黑.ttf'),  # 项目根目录
             os.path.join(os.getcwd(), 'fonts/微软雅黑.ttf'),  # 绝对路径
         ]
-        
+
         for font_path in font_candidates:
             if os.path.exists(font_path):
                 return FontProperties(fname=font_path)
-        
+
         # 备用字体
         import matplotlib.font_manager as fm
         font_paths = ['msyh.ttc', 'SimHei.ttf', 'PingFang.ttc']
@@ -60,7 +60,7 @@ class IntradayVisualizer:
             found_path = fm.findfont(font_name, fallback_to_default=True)
             if found_path and os.path.basename(found_path).lower() in font_name.lower():
                 return FontProperties(fname=found_path)
-        
+
         return None
 
     def _setup_style(self):
@@ -167,20 +167,20 @@ class IntradayVisualizer:
         """创建信号标记（根据评分强度使用不同颜色）"""
         # 检查是否所有信号都有评分（向后兼容）
         has_scoring = all('strength' in s and s['strength'] is not None for s in signals)
-        
+
         if not has_scoring:
             # 无评分模式：使用原始逻辑（完全兼容旧版本）
             return self._create_signal_markers_legacy(chart_df, signals)
-        
+
         # 有评分模式：按强度分层显示
         # 分别为不同强度创建标记数组
-        buy_strong = [float('nan')] * len(chart_df)   # 强买入
-        buy_medium = [float('nan')] * len(chart_df)   # 中买入
-        buy_weak = [float('nan')] * len(chart_df)     # 弱买入
-        
+        buy_strong = [float('nan')] * len(chart_df)  # 强买入
+        buy_medium = [float('nan')] * len(chart_df)  # 中买入
+        buy_weak = [float('nan')] * len(chart_df)  # 弱买入
+
         sell_strong = [float('nan')] * len(chart_df)  # 强卖出
         sell_medium = [float('nan')] * len(chart_df)  # 中卖出
-        sell_weak = [float('nan')] * len(chart_df)    # 弱卖出
+        sell_weak = [float('nan')] * len(chart_df)  # 弱卖出
 
         has_buy_strong = False
         has_buy_medium = False
@@ -188,7 +188,7 @@ class IntradayVisualizer:
         has_sell_strong = False
         has_sell_medium = False
         has_sell_weak = False
-        
+
         # 用于存储标注信息（时间索引 -> 信号信息）
         annotation_info = {}
 
@@ -214,7 +214,7 @@ class IntradayVisualizer:
                         strength_level = 'medium'
                     else:
                         strength_level = 'weak'
-                    
+
                     if signal_type == 'BUY':
                         # 买入信号标记在K线下方
                         marker_pos = chart_df.iloc[idx]['Low'] * 0.998
@@ -227,7 +227,7 @@ class IntradayVisualizer:
                         else:
                             buy_weak[idx] = marker_pos
                             has_buy_weak = True
-                        
+
                         # 记录标注信息（买入标注在下方）
                         annotation_info[idx] = {
                             'type': 'BUY',
@@ -235,7 +235,7 @@ class IntradayVisualizer:
                             'price': chart_df.iloc[idx]['Low'],
                             'time': chart_df.index[idx]
                         }
-                        
+
                     elif signal_type == 'SELL':
                         # 卖出信号标记在K线上方
                         marker_pos = chart_df.iloc[idx]['High'] * 1.002
@@ -248,7 +248,7 @@ class IntradayVisualizer:
                         else:
                             sell_weak[idx] = marker_pos
                             has_sell_weak = True
-                        
+
                         # 记录标注信息（卖出标注在上方）
                         annotation_info[idx] = {
                             'type': 'SELL',
@@ -256,7 +256,7 @@ class IntradayVisualizer:
                             'price': chart_df.iloc[idx]['High'],
                             'time': chart_df.index[idx]
                         }
-                        
+
             except Exception as e:
                 print(f"警告: 信号标记失败 {signal_time}: {e}")
                 continue
@@ -276,7 +276,7 @@ class IntradayVisualizer:
                     label='买入[强]'
                 )
             )
-        
+
         if has_buy_medium:
             addplots.append(
                 mpf.make_addplot(
@@ -288,7 +288,7 @@ class IntradayVisualizer:
                     label='买入[中]'
                 )
             )
-        
+
         if has_buy_weak:
             addplots.append(
                 mpf.make_addplot(
@@ -313,7 +313,7 @@ class IntradayVisualizer:
                     label='卖出[强]'
                 )
             )
-        
+
         if has_sell_medium:
             addplots.append(
                 mpf.make_addplot(
@@ -325,7 +325,7 @@ class IntradayVisualizer:
                     label='卖出[中]'
                 )
             )
-        
+
         if has_sell_weak:
             addplots.append(
                 mpf.make_addplot(
@@ -413,10 +413,10 @@ class IntradayVisualizer:
         sell_signals = [s for s in signals if s['type'] == 'SELL']
 
         stock_display = f"{symbol} {stock_name}" if stock_name else symbol
-        
+
         # 检查是否有评分
         has_scoring = all('strength' in s and s['strength'] is not None for s in signals)
-        
+
         if has_scoring:
             # 有评分模式：统计强度分布
             strong_signals = [s for s in signals if s.get('strength', 0) >= 85]
@@ -468,7 +468,7 @@ class IntradayVisualizer:
 
         # 添加图例
         axes[0].legend(loc='upper left', fontsize=10)
-        
+
         # 添加评分标注
         if annotation_info:
             self._add_score_annotations(axes[0], chart_df, annotation_info)
@@ -509,18 +509,18 @@ class IntradayVisualizer:
 
         fig.autofmt_xdate(rotation=45)
 
-        # 保存图表
+        # 保存图表（降低DPI以提升渲染速度）
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        
-        # 等待图片完全写入磁盘
+
+        # 等待图片完全写入磁盘（增加等待时间确保大图表完成渲染）
         import time
-        time.sleep(0.5)
-        
+        time.sleep(1)
+
         plt.close(fig)
 
         print(f"✓ 已生成回测图表: {output_path}")
         return output_path
-    
+
     def _add_score_annotations(self, ax, chart_df, annotation_info):
         """
         在信号箭头旁添加评分标注
@@ -532,11 +532,11 @@ class IntradayVisualizer:
         # 获取字体属性
         font_prop = self._get_font_properties()
         font_params = {'fontproperties': font_prop} if font_prop else {}
-        
+
         for idx, info in annotation_info.items():
             signal_type = info['type']
             strength = info['strength']
-            
+
             # 根据评分强度设置颜色
             if strength >= 85:
                 text_color = '#4B0082'  # 靛青（强）
@@ -547,7 +547,7 @@ class IntradayVisualizer:
             else:
                 text_color = '#696969'  # 灰色（弱）
                 bg_color = '#FAFAFA'
-            
+
             # 计算标注位置
             if signal_type == 'BUY':
                 # 买入标注在箭头下方
@@ -557,11 +557,11 @@ class IntradayVisualizer:
                 # 卖出标注在箭头上方
                 y_offset = 0.015  # 向上偏移1.5%
                 va = 'bottom'
-            
+
             # 获取价格范围用于计算偏移
             price_range = chart_df['High'].max() - chart_df['Low'].min()
             y_pos = info['price'] * (1 + y_offset)
-            
+
             # 添加评分文本（带背景框）
             ax.text(
                 idx, y_pos,
@@ -640,7 +640,7 @@ def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
         current_file = os.path.abspath(__file__)
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
         output_dir = os.path.join(project_root, 'alerting', 'backtest_results')
-    
+
     visualizer = IntradayVisualizer(output_dir=output_dir)
     return visualizer.plot_backtest_result(
         df_1m=df_1m,
