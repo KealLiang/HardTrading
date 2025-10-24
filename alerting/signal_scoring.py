@@ -9,9 +9,10 @@
 2. 价格位置（30分）：相对近期高低点的位置
 3. 趋势偏离程度（15分）：布林带/均线偏离
 4. 量能形态+动量（35分）：量价关系+拉升/下跌期判断
-5. 🆕 做T适用性调整（-30到+10）：
+5. 🆕 做T适用性调整（-55到+10）：
    - 趋势惩罚（0-30扣分）：强趋势中逆向操作风险高
    - 波动率评估（-10到+10）：波动适中时做T机会好
+   - 横盘惩罚（0-15扣分）：价格变动小时的密集信号
 
 评分阈值：
 - ⭐⭐⭐强: 85+分
@@ -19,7 +20,7 @@
 - ⭐弱:     <65分
 
 作者：基于v3版本的评分逻辑抽取
-日期：2025-10-24（v1.1: 新增做T适用性评估）
+日期：2025-10-24（v1.1: 新增做T适用性评估；v1.2: 新增横盘密集信号惩罚）
 """
 
 import pandas as pd
@@ -56,6 +57,16 @@ class SignalScorer:
     TREND_WINDOW_MID = 60    # 中期趋势窗口（60分钟）
     TREND_STRONG_THRESHOLD = 0.06  # 强趋势阈值（6%）
     TREND_MODERATE_THRESHOLD = 0.03  # 温和趋势阈值（3%）
+    
+    # 横盘密集信号惩罚参数
+    CONSOLIDATION_WINDOW = 10  # 横盘检测窗口（10根K线）
+    CONSOLIDATION_RANGE_EXTREME = 0.01  # 极窄幅横盘（1%）
+    CONSOLIDATION_RANGE_NARROW = 0.015  # 窄幅横盘（1.5%）
+    CONSOLIDATION_RANGE_MILD = 0.025    # 轻微横盘（2.5%）
+    CONSOLIDATION_DIRECTION_THRESHOLD = 0.3  # 方向一致性阈值（30%）
+    CONSOLIDATION_PENALTY_EXTREME = 15  # 极窄幅横盘扣分
+    CONSOLIDATION_PENALTY_NARROW = 10   # 窄幅横盘扣分
+    CONSOLIDATION_PENALTY_MILD = 5      # 轻微横盘扣分
     
     @staticmethod
     def _calc_trend_penalty(df, signal_type):
@@ -183,6 +194,54 @@ class SignalScorer:
             return 0
     
     @staticmethod
+    def _calc_consolidation_penalty(df, signal_type):
+        """
+        计算横盘密集信号惩罚（价格变动小时的重复信号）
+        
+        原理：价格在小范围内横盘时，频繁触发的信号做T价值很低
+        - 检查最近N根K线的价格波动幅度
+        - 如果波动很小（横盘），则扣分
+        
+        返回: 0-15的扣分
+        """
+        if len(df) < SignalScorer.CONSOLIDATION_WINDOW:
+            return 0
+        
+        try:
+            recent_n = df['close'].iloc[-SignalScorer.CONSOLIDATION_WINDOW:].values
+            
+            # 计算N根K线的价格波动幅度（极差/均值）
+            price_range = (recent_n.max() - recent_n.min()) / recent_n.mean()
+            
+            # 计算价格变动趋势（是否单边移动）
+            price_changes = pd.Series(recent_n).diff().dropna()
+            direction_consistency = abs(price_changes.sum()) / (abs(price_changes).sum() + 1e-6)
+            
+            # 横盘判断：波动小 + 无明显方向
+            is_consolidating = (price_range < SignalScorer.CONSOLIDATION_RANGE_NARROW and 
+                              direction_consistency < SignalScorer.CONSOLIDATION_DIRECTION_THRESHOLD)
+            
+            if is_consolidating:
+                # 极窄幅横盘
+                if price_range < SignalScorer.CONSOLIDATION_RANGE_EXTREME:
+                    return SignalScorer.CONSOLIDATION_PENALTY_EXTREME
+                # 窄幅横盘
+                elif price_range < SignalScorer.CONSOLIDATION_RANGE_NARROW:
+                    return SignalScorer.CONSOLIDATION_PENALTY_NARROW
+                else:
+                    return SignalScorer.CONSOLIDATION_PENALTY_MILD
+            
+            # 轻微横盘（波动范围稍大但无明显方向）
+            elif (price_range < SignalScorer.CONSOLIDATION_RANGE_MILD and 
+                  direction_consistency < 0.4):
+                return SignalScorer.CONSOLIDATION_PENALTY_MILD
+            
+            return 0
+        
+        except Exception:
+            return 0
+    
+    @staticmethod
     def calc_signal_strength(df, i, signal_type, 
                             indicator_score=None,
                             bb_upper=None, bb_lower=None,
@@ -249,6 +308,10 @@ class SignalScorer:
                 # 波动率评估（-10到+10）- 波动适中时做T机会好
                 volatility_bonus = SignalScorer._calc_volatility_bonus(df_work, signal_type)
                 score += volatility_bonus
+                
+                # 🆕 横盘密集信号惩罚（0-15扣分）- 价格变动小时的重复信号
+                consolidation_penalty = SignalScorer._calc_consolidation_penalty(df_work, signal_type)
+                score -= consolidation_penalty
             
             final_score = min(100, max(0, score))
             strength = SignalScorer._score_to_strength(final_score)

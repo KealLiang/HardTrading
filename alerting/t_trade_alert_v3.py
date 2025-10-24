@@ -71,7 +71,7 @@ class TMonitorConfig:
     MAX_TRADES_PER_DAY = 5
     
     # 🆕 信号质量过滤（做T适用性）
-    MIN_SIGNAL_SCORE = 0  # 最低信号分数阈值（0=不过滤，建议55-65）
+    MIN_SIGNAL_SCORE = 55  # 最低信号分数阈值（0=不过滤，建议55-65）
     # 说明：设置为55可过滤弱信号，设置为65只保留中强信号
 
     # 涨跌停判断
