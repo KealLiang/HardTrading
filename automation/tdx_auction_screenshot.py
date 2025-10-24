@@ -356,24 +356,41 @@ class TDXAuctionScreenshotScheduler:
         self.shooter = shooter
         self.auction_times: List[str] = self.shooter.cfg["auction_times"]
         self.is_running = False
+        self.completed_times = set()  # 记录已完成的时间点
+
+    def _run_and_track(self, time_point: str) -> None:
+        """执行截图并记录完成状态"""
+        self.shooter.run_once(time_point)
+        self.completed_times.add(time_point)
+        logging.info(f"已完成 {len(self.completed_times)}/{len(self.auction_times)} 个时间点")
+        
+        # 检查是否所有任务都已完成
+        if len(self.completed_times) >= len(self.auction_times):
+            logging.info("✅ 所有截图任务已完成，程序将自动停止")
+            self.is_running = False
 
     def schedule_daily(self) -> None:
         schedule.clear()
         for t in self.auction_times:
-            schedule.every().day.at(t).do(self.shooter.run_once, t)
+            schedule.every().day.at(t).do(self._run_and_track, t)
             logging.info(f"已设置定时截图: {t}")
 
     def start(self) -> None:
         self.schedule_daily()
         self.is_running = True
+        self.completed_times.clear()  # 清空已完成记录
         logging.info("🚀 通达信集合竞价自动截图器已启动")
         for t in self.auction_times:
             logging.info(f"  📅 {t} 自动截图")
+        logging.info("💡 完成所有时间点后将自动停止")
         try:
             while self.is_running:
                 schedule.run_pending()
                 time.sleep(1)
+            # 正常完成所有任务后的停止
+            self.stop()
         except KeyboardInterrupt:
+            logging.info("⚠️ 用户手动中断")
             self.stop()
 
     def stop(self) -> None:
