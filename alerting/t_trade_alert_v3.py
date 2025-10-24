@@ -376,47 +376,242 @@ class TMonitorV3:
                 tqdm.write(f"[警告] 卖出量价确认失败: {e}")
             return False, "确认异常"
 
-    def _calc_signal_strength(self, rsi, signal_type, bb_dist):
+    def _calc_signal_strength(self, df_1m, i, signal_type):
         """
-        计算信号强度（供未来评分系统使用）
-        :param rsi: RSI值
+        计算信号强度（多维度评分）
+        :param df_1m: 1分钟K线数据
+        :param i: 当前索引
         :param signal_type: 'BUY' or 'SELL'
-        :param bb_dist: 布林带偏离度
         :return: 0-100分数
         """
-        score = 50
+        if i < 20:
+            return 50
         
-        if signal_type == 'BUY':
-            # RSI越低，分数越高
-            if rsi < TMonitorConfig.RSI_EXTREME_OVERSOLD:
-                score += 30
-            elif rsi < 25:
-                score += 20
-            elif rsi < TMonitorConfig.RSI_OVERSOLD:
-                score += 10
+        try:
+            # 基础指标
+            close = df_1m['close'].iloc[i]
+            rsi = df_1m['rsi14'].iloc[i]
+            bb_upper = df_1m['bb_upper'].iloc[i]
+            bb_lower = df_1m['bb_lower'].iloc[i]
             
-            # 布林带偏离度
-            if bb_dist < -0.01:  # 跌破下轨1%
-                score += 20
-            elif bb_dist < 0:
-                score += 10
-        
-        else:  # SELL
-            # RSI越高，分数越高
-            if rsi > TMonitorConfig.RSI_EXTREME_OVERBOUGHT:
-                score += 30
-            elif rsi > 75:
-                score += 20
-            elif rsi > TMonitorConfig.RSI_OVERBOUGHT:
-                score += 10
+            # 确保量能数据为数值类型
+            df_copy_20 = df_1m.iloc[max(0, i-20):i+1].copy()
+            df_copy_20['vol'] = pd.to_numeric(df_copy_20['vol'], errors='coerce')
             
-            # 布林带偏离度
-            if bb_dist > 0.01:  # 突破上轨1%
-                score += 20
-            elif bb_dist > 0:
-                score += 10
-        
-        return min(100, max(0, score))
+            current_vol = df_copy_20['vol'].iloc[-1]
+            vol_ma20 = df_copy_20['vol'].mean()
+            
+            # 价格位置：使用60根K线窗口（更准确判断真实高低位）
+            df_copy_60 = df_1m.iloc[max(0, i-60):i+1].copy()
+            recent_high = df_copy_60['high'].max()
+            recent_low = df_copy_60['low'].min()
+            price_position = (close - recent_low) / (recent_high - recent_low + 1e-6)
+            
+            score = 40  # 降低基础分
+            
+            if signal_type == 'BUY':
+                # === 买入评分（对称于卖出逻辑）===
+                
+                # 1. RSI超卖程度（20分）
+                if rsi < 15:
+                    score += 20
+                elif rsi < 20:
+                    score += 14
+                elif rsi < 25:
+                    score += 8
+                elif rsi < 30:
+                    score += 3
+                
+                # 2. 价格位置（30分）：关键！越低越好
+                if price_position < 0.08:  # 极低位（<8%）
+                    score += 30
+                elif price_position < 0.15:  # 低位
+                    score += 20
+                elif price_position < 0.25:  # 中低位
+                    score += 10
+                elif price_position < 0.35:  # 中位偏下
+                    score += 3
+                else:
+                    score -= 10  # 高位抄底扣分！
+                
+                # 3. 布林带偏离（15分）
+                bb_dist = (close - bb_lower) / bb_lower
+                if bb_dist < -0.015:
+                    score += 15
+                elif bb_dist < -0.008:
+                    score += 10
+                elif bb_dist < 0:
+                    score += 5
+                
+                # 4. 量能形态（35分）+ 下跌期判断（关键！）
+                vol_ratio = current_vol / (vol_ma20 + 1e-6)
+                
+                # 检查是否在快速下跌期（近10根K线跌幅）
+                is_falling = False
+                if len(df_copy_20) >= 10:
+                    recent_10_close = df_copy_20['close'].iloc[-10:].values
+                    price_drop_10 = (recent_10_close[-1] - recent_10_close[0]) / recent_10_close[0]
+                    is_falling = price_drop_10 < -0.02  # 下跌超过2%
+                    
+                    # 量能形态评分（区分洗盘 vs 主跌浪）
+                    if vol_ratio > 2.5:
+                        # 巨量：极低位非下跌期才给高分
+                        if price_position < 0.04 and not is_falling:
+                            score += 35  # 恐慌盘出尽，见底
+                        elif price_position < 0.10:
+                            score += 20
+                        elif price_position < 0.25:
+                            score += 12
+                        else:
+                            score += 5  # 高位放量下跌，危险
+                    
+                    # 温和放量（1.2-2.0x）：企稳反弹信号
+                    elif 1.2 <= vol_ratio <= 2.0:
+                        if price_position < 0.15 and not is_falling:
+                            score += 30  # 低位放量企稳，强信号
+                        elif price_position < 0.15:
+                            score += 15  # 低位但仍在跌
+                        else:
+                            score += 12
+                    
+                    # 缩量（<1.2x）：分两种情况
+                    elif vol_ratio < 1.2:
+                        # 极低位缩量：可能衰竭见底
+                        if price_position < 0.10 and vol_ratio < 0.5:
+                            score += 28  # 缩量见底
+                        # 下跌中缩量：可能是洗盘（好事）
+                        elif is_falling and vol_ratio < 0.8:
+                            score += 18  # 价跌量缩，洗盘特征
+                        else:
+                            score += 8
+                    
+                    else:
+                        score += 10
+                    
+                    # 核心修正：下跌期的评分调整（对称于拉升期）
+                    if is_falling:
+                        # 如果已经在极低位（<5%），说明下跌即将结束，不降级
+                        if price_position < 0.05:
+                            # 极低位下跌：轻微降级（可能是最后杀跌）
+                            penalty = int(score * 0.15)  # 仅扣除15%
+                            score -= penalty
+                        # 下跌中途：大幅降低评分
+                        else:
+                            penalty = int(score * 0.45)  # 扣除45%
+                            score -= penalty
+                            
+                else:
+                    # 数据不足时保守评分
+                    if vol_ratio > 2.5:
+                        score += 10
+                    elif 1.2 <= vol_ratio <= 2.0 and price_position < 0.15:
+                        score += 20
+                    elif vol_ratio > 1.2:
+                        score += 12
+                    else:
+                        score += 8
+            
+            else:  # SELL
+                # === 卖出评分 ===
+                
+                # 1. RSI超买程度（20分）
+                if rsi > 85:
+                    score += 20
+                elif rsi > 80:
+                    score += 14
+                elif rsi > 75:
+                    score += 8
+                elif rsi > 70:
+                    score += 3
+                
+                # 2. 价格位置（30分）：关键！越高越危险
+                if price_position > 0.92:  # 极度高位
+                    score += 30
+                elif price_position > 0.85:  # 高位
+                    score += 20
+                elif price_position > 0.75:  # 中高位
+                    score += 10
+                elif price_position > 0.65:  # 中位偏上
+                    score += 3
+                else:
+                    score -= 10  # 半山腰扣分！
+                
+                # 3. 布林带偏离（15分）
+                bb_dist = (close - bb_upper) / bb_upper
+                if bb_dist > 0.015:
+                    score += 15
+                elif bb_dist > 0.008:
+                    score += 10
+                elif bb_dist > 0:
+                    score += 5
+                
+                # 4. 量能形态（35分）+ 拉升期判断（关键！）
+                vol_ratio = current_vol / (vol_ma20 + 1e-6)
+                
+                # 检查是否在快速拉升期（近10根K线涨幅）
+                is_surging = False
+                if len(df_copy_20) >= 10:
+                    recent_10_close = df_copy_20['close'].iloc[-10:].values
+                    price_surge_10 = (recent_10_close[-1] - recent_10_close[0]) / recent_10_close[0]
+                    is_surging = price_surge_10 > 0.02  # 2%以上算快速拉升
+                    
+                    # 量能形态评分
+                    if vol_ratio > 3.0:
+                        # 巨量：高位非拉升期才给高分
+                        if price_position > 0.96 and not is_surging:
+                            score += 35
+                        elif price_position > 0.90:
+                            score += 20
+                        elif price_position > 0.75:
+                            score += 12
+                        else:
+                            score += 5
+                    
+                    # 温和放量（1.3-2.5x）
+                    elif 1.3 <= vol_ratio <= 2.5:
+                        if price_position > 0.85 and not is_surging:
+                            score += 30
+                        elif price_position > 0.85:
+                            score += 15
+                        else:
+                            score += 12
+                    
+                    # 缩量（<1.3x）+ 高位 → 量价背离
+                    elif vol_ratio < 1.3 and price_position > 0.85:
+                        score += 28
+                    
+                    else:
+                        score += 10
+                        
+                    # 核心修正：拉升期的评分调整
+                    if is_surging:
+                        # 如果已经在极高位（>95%），说明拉升即将结束，不降级
+                        if price_position < 0.95:
+                            # 拉升中途：大幅降低评分
+                            penalty = int(score * 0.45)  # 扣除当前分数的45%
+                            score -= penalty
+                        # 极高位拉升：轻微降级（可能是最后冲刺）
+                        else:
+                            penalty = int(score * 0.15)  # 仅扣除15%
+                            score -= penalty
+                        
+                else:
+                    # 数据不足时保守评分
+                    if vol_ratio > 3.0:
+                        score += 10
+                    elif vol_ratio > 1.5 and price_position > 0.85:
+                        score += 20
+                    elif vol_ratio > 1.3:
+                        score += 12
+                    else:
+                        score += 8
+            
+            return min(100, max(0, score))
+            
+        except Exception as e:
+            if self.is_backtest:
+                tqdm.write(f"[警告] 评分计算失败: {e}")
+            return 50
 
     def _generate_signal(self, df_1m, i):
         """
@@ -462,7 +657,7 @@ class TMonitorV3:
                 # 冷却检查
                 allowed, cooldown_msg = self._check_signal_cooldown('BUY', ts, close)
                 if allowed:
-                    strength = self._calc_signal_strength(rsi, 'BUY', (close - bb_lower) / bb_lower)
+                    strength = self._calc_signal_strength(df_1m, i, 'BUY')
                     reason = f"超卖买入(RSI:{rsi:.1f})"
                     return 'BUY', reason, strength
                 else:
@@ -477,7 +672,7 @@ class TMonitorV3:
             if confirmed:
                 allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
                 if allowed:
-                    strength = self._calc_signal_strength(rsi, 'SELL', (bb_upper - close) / bb_upper)
+                    strength = self._calc_signal_strength(df_1m, i, 'SELL')
                     reason = f"超买卖出(RSI:{rsi:.1f})"
                     return 'SELL', reason, strength
                 else:
@@ -510,9 +705,9 @@ class TMonitorV3:
         # 格式化输出（增加强度标识）
         strength_tag = ""
         if strength is not None:
-            if strength >= 80:
+            if strength >= 85:
                 strength_tag = " ⭐⭐⭐强"
-            elif strength >= 60:
+            elif strength >= 65:
                 strength_tag = " ⭐⭐中"
             else:
                 strength_tag = " ⭐弱"
