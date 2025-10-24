@@ -4,11 +4,14 @@
 基于量价关系和技术指标的多维度信号强度评分系统。
 可供各版本监控策略共用。
 
-评分维度（总100分）：
+评分维度（总100分 + 做T适用性调整）：
 1. 技术指标超买/超卖程度（20分）：RSI/MACD/KDJ等
 2. 价格位置（30分）：相对近期高低点的位置
 3. 趋势偏离程度（15分）：布林带/均线偏离
 4. 量能形态+动量（35分）：量价关系+拉升/下跌期判断
+5. 🆕 做T适用性调整（-30到+10）：
+   - 趋势惩罚（0-30扣分）：强趋势中逆向操作风险高
+   - 波动率评估（-10到+10）：波动适中时做T机会好
 
 评分阈值：
 - ⭐⭐⭐强: 85+分
@@ -16,7 +19,7 @@
 - ⭐弱:     <65分
 
 作者：基于v3版本的评分逻辑抽取
-日期：2025-10-24
+日期：2025-10-24（v1.1: 新增做T适用性评估）
 """
 
 import pandas as pd
@@ -48,11 +51,143 @@ class SignalScorer:
     MOMENTUM_PENALTY_MID = 0.45  # 中途降级45%
     MOMENTUM_PENALTY_EXTREME = 0.15  # 极端位置仅降级15%
     
+    # 🆕 做T适用性评估参数
+    TREND_WINDOW_SHORT = 30  # 短期趋势窗口（30分钟）
+    TREND_WINDOW_MID = 60    # 中期趋势窗口（60分钟）
+    TREND_STRONG_THRESHOLD = 0.06  # 强趋势阈值（6%）
+    TREND_MODERATE_THRESHOLD = 0.03  # 温和趋势阈值（3%）
+    
+    @staticmethod
+    def _calc_trend_penalty(df, signal_type):
+        """
+        计算趋势惩罚（做T风险评估）
+        
+        原理：做T适合震荡行情，在强趋势中逆向操作风险高
+        - 下跌趋势抄底：可能继续下跌
+        - 上涨趋势卖出：可能错过后续涨幅
+        
+        返回: 0-30的扣分
+        """
+        if len(df) < SignalScorer.TREND_WINDOW_MID:
+            return 0
+        
+        try:
+            # 计算30根和60根K线的趋势
+            close_series = df['close'].values
+            recent_30 = close_series[-SignalScorer.TREND_WINDOW_SHORT:]
+            recent_60 = close_series[-SignalScorer.TREND_WINDOW_MID:]
+            
+            trend_30 = (recent_30[-1] - recent_30[0]) / recent_30[0]
+            trend_60 = (recent_60[-1] - recent_60[0]) / recent_60[0]
+            
+            # 计算趋势一致性（单向运动的K线占比）
+            price_changes = pd.Series(recent_30).diff().dropna()
+            
+            if signal_type == 'BUY':
+                # 评估下跌趋势风险
+                if trend_30 < -SignalScorer.TREND_STRONG_THRESHOLD and trend_60 < -SignalScorer.TREND_STRONG_THRESHOLD:
+                    # 短中期都在强势下跌（30根-6%，60根-6%）
+                    falling_ratio = (price_changes < 0).sum() / len(price_changes)
+                    if falling_ratio > 0.65:  # 65%以上K线下跌
+                        return 25  # 强下跌趋势，抄底风险很高
+                    else:
+                        return 15  # 虽在下跌但有反弹
+                
+                elif trend_30 < -SignalScorer.TREND_MODERATE_THRESHOLD or trend_60 < -SignalScorer.TREND_MODERATE_THRESHOLD:
+                    # 温和下跌（3%-6%）
+                    falling_ratio = (price_changes < 0).sum() / len(price_changes)
+                    if falling_ratio > 0.60:
+                        return 12
+                    else:
+                        return 6
+            
+            else:  # SELL
+                # 评估上涨趋势风险
+                if trend_30 > SignalScorer.TREND_STRONG_THRESHOLD and trend_60 > SignalScorer.TREND_STRONG_THRESHOLD:
+                    # 短中期都在强势上涨
+                    rising_ratio = (price_changes > 0).sum() / len(price_changes)
+                    if rising_ratio > 0.65:  # 65%以上K线上涨
+                        return 20  # 强上涨趋势，过早卖出风险高
+                    else:
+                        return 12  # 虽在上涨但有回调
+                
+                elif trend_30 > SignalScorer.TREND_MODERATE_THRESHOLD or trend_60 > SignalScorer.TREND_MODERATE_THRESHOLD:
+                    # 温和上涨
+                    rising_ratio = (price_changes > 0).sum() / len(price_changes)
+                    if rising_ratio > 0.60:
+                        return 10
+                    else:
+                        return 5
+            
+            return 0  # 震荡行情，做T友好
+            
+        except Exception:
+            return 0
+    
+    @staticmethod
+    def _calc_volatility_bonus(df, signal_type):
+        """
+        计算波动率加分（做T机会评估）
+        
+        原理：做T需要足够的短期波动才能获利
+        - 波动过小：无利可图
+        - 波动适中：做T机会好
+        - 波动过大：风险高
+        
+        返回: -10到+10的调整分
+        """
+        if len(df) < 20:
+            return 0
+        
+        try:
+            recent_20 = df['close'].iloc[-20:].values
+            
+            # 计算20根K线的波动率（标准差/均值）
+            volatility = pd.Series(recent_20).std() / pd.Series(recent_20).mean()
+            
+            # 计算当前价格相对MA20的偏离度
+            ma_20 = recent_20.mean()
+            current = recent_20[-1]
+            deviation = abs(current - ma_20) / ma_20
+            
+            if signal_type == 'BUY':
+                # 买入信号：希望价格已偏离均线（有回归空间），且波动适中
+                if deviation > 0.03 and 0.01 < volatility < 0.04:
+                    # 偏离3%以上 + 适中波动
+                    return 8
+                elif deviation > 0.02 and 0.01 < volatility < 0.05:
+                    return 5
+                elif volatility < 0.008:
+                    # 波动太小，做T无意义
+                    return -8
+                elif volatility > 0.06:
+                    # 波动太大，风险过高
+                    return -5
+                else:
+                    return 0
+            
+            else:  # SELL
+                # 卖出信号：希望价格已偏离均线（有回调压力），且波动适中
+                if deviation > 0.03 and 0.01 < volatility < 0.04:
+                    return 8
+                elif deviation > 0.02 and 0.01 < volatility < 0.05:
+                    return 5
+                elif volatility < 0.008:
+                    return -8
+                elif volatility > 0.06:
+                    return -5
+                else:
+                    return 0
+        
+        except Exception:
+            return 0
+    
     @staticmethod
     def calc_signal_strength(df, i, signal_type, 
                             indicator_score=None,
                             bb_upper=None, bb_lower=None,
-                            vol_ma_period=20):
+                            vol_ma_period=20,
+                            enable_trend_filter=True):
         """
         计算信号强度（通用评分）
         
@@ -64,6 +199,7 @@ class SignalScorer:
             bb_upper: 布林带上轨列名或Series，用于计算偏离度
             bb_lower: 布林带下轨列名或Series，用于计算偏离度
             vol_ma_period: 成交量均线周期，默认20
+            enable_trend_filter: 是否启用做T适用性评估（趋势+波动率），默认True
             
         Returns:
             score: 0-100分数
@@ -103,6 +239,16 @@ class SignalScorer:
                     df_work, price_position, vol_ratio, close,
                     indicator_score, bb_upper
                 )
+            
+            # 🆕 做T适用性调整
+            if enable_trend_filter:
+                # 趋势惩罚（0-30扣分）- 强趋势中逆向操作风险高
+                trend_penalty = SignalScorer._calc_trend_penalty(df_work, signal_type)
+                score -= trend_penalty
+                
+                # 波动率评估（-10到+10）- 波动适中时做T机会好
+                volatility_bonus = SignalScorer._calc_volatility_bonus(df_work, signal_type)
+                score += volatility_bonus
             
             final_score = min(100, max(0, score))
             strength = SignalScorer._score_to_strength(final_score)

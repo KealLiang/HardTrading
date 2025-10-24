@@ -69,6 +69,10 @@ class TMonitorConfig:
 
     # 仓位控制
     MAX_TRADES_PER_DAY = 5
+    
+    # 🆕 信号质量过滤（做T适用性）
+    MIN_SIGNAL_SCORE = 0  # 最低信号分数阈值（0=不过滤，建议55-65）
+    # 说明：设置为55可过滤弱信号，设置为65只保留中强信号
 
     # 涨跌停判断
     # 移除硬编码阈值，改为动态获取（通过 stock_limit_ratio 方法）
@@ -248,7 +252,13 @@ class TMonitorV3:
     def _prepare_indicators(self, df):
         """计算所有技术指标"""
         df = df.copy()
+        # 确保数值类型
+        df['close'] = pd.to_numeric(df['close'], errors='coerce')
+        df['open'] = pd.to_numeric(df['open'], errors='coerce')
+        df['high'] = pd.to_numeric(df['high'], errors='coerce')
+        df['low'] = pd.to_numeric(df['low'], errors='coerce')
         df['vol'] = pd.to_numeric(df['vol'], errors='coerce')
+        
         df['rsi14'] = self._calc_rsi(df['close'], TMonitorConfig.RSI_PERIOD)
         df['bb_upper'], df['bb_mid'], df['bb_lower'] = self._calc_bollinger(
             df['close'], TMonitorConfig.BB_PERIOD, TMonitorConfig.BB_STD)
@@ -557,6 +567,11 @@ class TMonitorV3:
                 allowed, cooldown_msg = self._check_signal_cooldown('BUY', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'BUY')
+                    
+                    # 🆕 分数过滤
+                    if TMonitorConfig.MIN_SIGNAL_SCORE > 0 and strength < TMonitorConfig.MIN_SIGNAL_SCORE:
+                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE})", 0
+                    
                     reason = f"{buy_reason_prefix}买入(RSI:{rsi:.1f})"
                     return 'BUY', reason, strength
                 else:
@@ -605,6 +620,11 @@ class TMonitorV3:
                 allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'SELL')
+                    
+                    # 🆕 分数过滤
+                    if TMonitorConfig.MIN_SIGNAL_SCORE > 0 and strength < TMonitorConfig.MIN_SIGNAL_SCORE:
+                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE})", 0
+                    
                     reason = f"{sell_reason_prefix}卖出(RSI:{rsi:.1f})"
                     return 'SELL', reason, strength
                 else:
@@ -1040,7 +1060,7 @@ if __name__ == "__main__":
 
     # 回测时间段
     backtest_start = "2025-10-20 09:30"
-    backtest_end = "2025-10-23 15:00"
+    backtest_end = "2025-10-24 15:00"
 
     # 股票列表
     symbols = ['300852']
