@@ -21,6 +21,7 @@ sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
+from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log_frequency = 5  # 日志输出频率
@@ -81,10 +82,11 @@ class TMonitor:
     """做T监控器核心类"""
 
     def __init__(self, symbol, stop_event, is_calc_trend, push_msg=True, is_backtest=False, backtest_start=None,
-                 backtest_end=None):
+                 backtest_end=None, enable_visualization=True):
         """
         初始化监控器
         :param symbol: 股票代码（如：'000001'）
+        :param enable_visualization: 是否启用可视化（仅回测模式有效）
         """
         self.symbol = symbol
         self.full_symbol = convert_stock_code(self.symbol)
@@ -99,6 +101,7 @@ class TMonitor:
         self.is_backtest = is_backtest
         self.backtest_start = backtest_start
         self.backtest_end = backtest_end
+        self.enable_visualization = enable_visualization
 
         # 存储已触发的信号时间，避免重复触发
         self.triggered_buy_signals = []
@@ -112,6 +115,9 @@ class TMonitor:
             'price': None  # 上次记录的价格
         }
         self.trend_cache = {}  # 格式: { "up_1700000000": {price:10.5, timestamp:...}, ... }
+        
+        # 回测数据缓存（用于可视化）
+        self.backtest_kline_data = None
 
     def _get_stock_info(self):
         """获取股票基本信息"""
@@ -164,10 +170,15 @@ class TMonitor:
             # 筛选指定时间段数据
             start_dt = pd.to_datetime(start_time)
             end_dt = pd.to_datetime(end_time)
-            df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+            df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)].copy()
             # 确保时间升序排序
             df = df.sort_values(by='datetime').reset_index(drop=True)
-            return df
+            # 重命名列并转换数据类型
+            df.rename(columns={'volume': 'vol'}, inplace=True)
+            # 确保数值列为数值类型
+            for col in ['open', 'high', 'low', 'close', 'vol']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
         except Exception as e:
             print(f"获取历史数据失败: {str(e)}")
             return None
@@ -467,6 +478,9 @@ class TMonitor:
 
         # 确保数据按时间升序排列
         df = df.sort_values('datetime').reset_index(drop=True)
+        
+        # 缓存K线数据用于可视化
+        self.backtest_kline_data = df.copy()
 
         # 一次性计算全部指标，避免重复计算
         df['dif'], df['dea'], df['macd'] = self._calculate_macd(df)
@@ -516,6 +530,42 @@ class TMonitor:
             tqdm.write(f"  价格范围: {df['close'].min():.2f} ~ {df['close'].max():.2f}")
         tqdm.write(f"  触发信号: {buy_signals}买 / {sell_signals}卖 (共{total_signals}个)")
         tqdm.write(f"{'='*60}\n")
+        
+        # 生成可视化图表
+        if self.enable_visualization and total_signals > 0:
+            try:
+                tqdm.write(f"[{self.symbol}] 正在生成回测可视化图表...")
+                # 转换信号格式
+                signals = []
+                for sig in self.triggered_buy_signals:
+                    signals.append({
+                        'type': 'BUY',
+                        'price': sig['price'],
+                        'time': sig['time'],
+                        'reason': 'MACD背离',
+                        'strength': 50
+                    })
+                for sig in self.triggered_sell_signals:
+                    signals.append({
+                        'type': 'SELL',
+                        'price': sig['price'],
+                        'time': sig['time'],
+                        'reason': 'MACD背离',
+                        'strength': 50
+                    })
+                
+                plot_intraday_backtest(
+                    df_1m=self.backtest_kline_data,
+                    signals=signals,
+                    symbol=self.symbol,
+                    stock_name=self.stock_name,
+                    backtest_start=self.backtest_start,
+                    backtest_end=self.backtest_end
+                )
+            except Exception as e:
+                tqdm.write(f"[警告] {self.symbol} 可视化失败: {e}")
+                import traceback
+                traceback.print_exc()
 
     def run(self):
         """根据模式开关启动实时监控或回测模式"""
@@ -531,7 +581,7 @@ class TMonitor:
 class MonitorManager:
     """多股票监控管理器"""
 
-    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, is_calc_trend=False, symbols_file=None, reload_interval_sec=5, max_workers_buffer=50):
+    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, is_calc_trend=False, symbols_file=None, reload_interval_sec=5, max_workers_buffer=50, enable_visualization=True):
         self.symbols = symbols
         self.stop_event = Event()
         # 线程池预留缓冲，便于热加载新增标的
@@ -543,6 +593,7 @@ class MonitorManager:
         self.is_calc_trend = is_calc_trend
         self.symbols_file = symbols_file
         self.reload_interval_sec = reload_interval_sec
+        self.enable_visualization = enable_visualization
         # 动态监控状态
         self._monitor_events = {}  # symbol -> Event（单独停止）
         self._monitor_futures = {}  # symbol -> Future
@@ -623,7 +674,8 @@ class MonitorManager:
                            push_msg=not self.is_backtest,
                            is_backtest=self.is_backtest,
                            backtest_start=self.backtest_start,
-                           backtest_end=self.backtest_end)
+                           backtest_end=self.backtest_end,
+                           enable_visualization=self.enable_visualization)
         fut = self.executor.submit(monitor.run)
         self._monitor_events[symbol] = ev
         self._monitor_futures[symbol] = fut

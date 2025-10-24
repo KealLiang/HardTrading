@@ -19,6 +19,7 @@ sys.path.insert(0, parent_dir)
 
 from alerting.push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
+from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -88,7 +89,7 @@ def is_duplicated(new_node, triggered_signals):
 
 
 class TMonitorV2:
-    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None):
+    def __init__(self, symbol, stop_event, push_msg=True, is_backtest=False, backtest_start=None, backtest_end=None, enable_visualization=True):
         self.symbol = symbol
         self.full_symbol = convert_stock_code(self.symbol)
         self.api = TdxHq_API()
@@ -99,6 +100,7 @@ class TMonitorV2:
         self.is_backtest = is_backtest
         self.backtest_start = backtest_start
         self.backtest_end = backtest_end
+        self.enable_visualization = enable_visualization
 
         self.triggered_buy_signals = []
         self.triggered_sell_signals = []
@@ -111,6 +113,9 @@ class TMonitorV2:
         self._processed_signals = set()  # 存储已触发信号的唯一标识
         # 弱提示去重：记录已输出的弱提示时间点
         self._weak_hints_printed = set()  # 存储已输出弱提示的唯一标识（时间戳+方向）
+        
+        # 回测数据缓存（用于可视化）
+        self.backtest_kline_data = None
 
     def _get_stock_name(self):
         try:
@@ -156,8 +161,11 @@ class TMonitorV2:
             end_dt = pd.to_datetime(end_time)
             df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)].copy()
             df = df.sort_values(by='datetime').reset_index(drop=True)
-            df.rename(columns={'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'vol'}, inplace=True)
-            return df[['datetime', 'open', 'high', 'low', 'close']]
+            df.rename(columns={'volume': 'vol'}, inplace=True)
+            # 确保数值列为数值类型
+            for col in ['open', 'high', 'low', 'close', 'vol']:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
         except Exception as e:
             logging.error(f"获取历史数据失败: {e}")
             return None
@@ -605,6 +613,9 @@ class TMonitorV2:
             logging.warning("样本不足，跳过回测")
             return
         
+        # 缓存K线数据用于可视化
+        self.backtest_kline_data = df.copy()
+        
         # 【BUG修复】采用滚动窗口模式，与实时模式保持一致
         # 一次性计算全量指标（避免重复计算）
         df = self._prepare_indicators(df)
@@ -651,6 +662,42 @@ class TMonitorV2:
             tqdm.write(f"  价格范围: {df['close'].min():.2f} ~ {df['close'].max():.2f}")
         tqdm.write(f"  触发信号: {buy_signals}买 / {sell_signals}卖 (共{total_signals}个)")
         tqdm.write(f"{'='*60}\n")
+        
+        # 生成可视化图表
+        if self.enable_visualization and total_signals > 0:
+            try:
+                tqdm.write(f"[{self.symbol}] 正在生成回测可视化图表...")
+                # 转换信号格式
+                signals = []
+                for sig in self.triggered_buy_signals:
+                    signals.append({
+                        'type': 'BUY',
+                        'price': sig['price'],
+                        'time': sig['time'],
+                        'reason': 'MACD+KDJ背离',
+                        'strength': 50
+                    })
+                for sig in self.triggered_sell_signals:
+                    signals.append({
+                        'type': 'SELL',
+                        'price': sig['price'],
+                        'time': sig['time'],
+                        'reason': 'MACD+KDJ背离',
+                        'strength': 50
+                    })
+                
+                plot_intraday_backtest(
+                    df_1m=self.backtest_kline_data,
+                    signals=signals,
+                    symbol=self.symbol,
+                    stock_name=self.stock_name,
+                    backtest_start=self.backtest_start,
+                    backtest_end=self.backtest_end
+                )
+            except Exception as e:
+                tqdm.write(f"[警告] {self.symbol} 可视化失败: {e}")
+                import traceback
+                traceback.print_exc()
 
     def run(self):
         if self.is_backtest:
@@ -662,7 +709,7 @@ class TMonitorV2:
 
 
 class MonitorManagerV2:
-    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, symbols_file=None, reload_interval_sec=5, max_workers_buffer=50):
+    def __init__(self, symbols, is_backtest=False, backtest_start=None, backtest_end=None, symbols_file=None, reload_interval_sec=5, max_workers_buffer=50, enable_visualization=True):
         self.symbols = symbols
         self.stop_event = Event()
         self.is_backtest = is_backtest
@@ -670,6 +717,7 @@ class MonitorManagerV2:
         self.backtest_end = backtest_end
         self.symbols_file = symbols_file
         self.reload_interval_sec = reload_interval_sec
+        self.enable_visualization = enable_visualization
         # 动态监控状态
         self._monitor_events = {}  # symbol -> Event（单独停止）
         self._monitor_futures = {}  # symbol -> Future
@@ -753,7 +801,8 @@ class MonitorManagerV2:
                              push_msg=not self.is_backtest,
                              is_backtest=self.is_backtest,
                              backtest_start=self.backtest_start,
-                             backtest_end=self.backtest_end)
+                             backtest_end=self.backtest_end,
+                             enable_visualization=self.enable_visualization)
         fut = self.executor.submit(monitor.run)
         self._monitor_events[symbol] = ev
         self._monitor_futures[symbol] = fut

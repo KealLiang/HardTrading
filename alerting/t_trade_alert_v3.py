@@ -21,15 +21,10 @@ sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code
+from alerting.signal_scoring import SignalScorer, SignalStrength, calc_rsi_indicator_score
+from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
-class SignalStrength(Enum):
-    """信号强度分级"""
-    STRONG = '⭐⭐⭐强'
-    MEDIUM = '⭐⭐中'
-    WEAK = '⭐弱'
 
 
 class TMonitorConfig:
@@ -54,7 +49,7 @@ class TMonitorConfig:
     RSI_EXTREME_OVERSOLD = 15   # 极度超卖
     RSI_EXTREME_OVERBOUGHT = 85  # 极度超买（对称）
     
-    BB_TOLERANCE = 1.003   # 布林带容差（必须接近轨道）
+    BB_TOLERANCE = 1.01   # 布林带容差（必须接近轨道）
     
     # === 量价确认参数（微调以平衡买卖）===
     VOLUME_CONFIRM_BUY = 1.2    # 买入量能确认（放量1.2倍，稍宽松）
@@ -131,7 +126,7 @@ class TMonitorV3:
     def __init__(self, symbol, stop_event,
                  push_msg=True, is_backtest=False,
                  backtest_start=None, backtest_end=None,
-                 position_manager=None):
+                 position_manager=None, enable_visualization=True):
         """
         初始化V3监控器
         :param symbol: 股票代码
@@ -139,6 +134,7 @@ class TMonitorV3:
         :param push_msg: 是否推送消息
         :param is_backtest: 是否回测模式
         :param position_manager: 仓位管理器
+        :param enable_visualization: 是否启用可视化（仅回测模式有效）
         """
         self.symbol = symbol
         self.full_symbol = convert_stock_code(self.symbol)
@@ -150,6 +146,7 @@ class TMonitorV3:
         self.is_backtest = is_backtest
         self.backtest_start = backtest_start
         self.backtest_end = backtest_end
+        self.enable_visualization = enable_visualization
 
         # 仓位管理
         self.position_mgr = position_manager or PositionManager()
@@ -161,6 +158,9 @@ class TMonitorV3:
 
         # 实时模式去重
         self._processed_signals = set()
+        
+        # 回测数据缓存（用于可视化）
+        self.backtest_kline_data = None
 
     def _get_stock_name(self):
         """获取股票名称"""
@@ -378,7 +378,7 @@ class TMonitorV3:
 
     def _calc_signal_strength(self, df_1m, i, signal_type):
         """
-        计算信号强度（多维度评分）
+        计算信号强度（使用独立评分模块）
         :param df_1m: 1分钟K线数据
         :param i: 当前索引
         :param signal_type: 'BUY' or 'SELL'
@@ -388,225 +388,22 @@ class TMonitorV3:
             return 50
         
         try:
-            # 基础指标
-            close = df_1m['close'].iloc[i]
+            # 计算RSI指标得分（0-20分）
             rsi = df_1m['rsi14'].iloc[i]
-            bb_upper = df_1m['bb_upper'].iloc[i]
-            bb_lower = df_1m['bb_lower'].iloc[i]
+            indicator_score = calc_rsi_indicator_score(rsi, signal_type)
             
-            # 确保量能数据为数值类型
-            df_copy_20 = df_1m.iloc[max(0, i-20):i+1].copy()
-            df_copy_20['vol'] = pd.to_numeric(df_copy_20['vol'], errors='coerce')
+            # 调用通用评分器
+            score, strength = SignalScorer.calc_signal_strength(
+                df=df_1m,
+                i=i,
+                signal_type=signal_type,
+                indicator_score=indicator_score,
+                bb_upper=df_1m['bb_upper'],
+                bb_lower=df_1m['bb_lower'],
+                vol_ma_period=20
+            )
             
-            current_vol = df_copy_20['vol'].iloc[-1]
-            vol_ma20 = df_copy_20['vol'].mean()
-            
-            # 价格位置：使用60根K线窗口（更准确判断真实高低位）
-            df_copy_60 = df_1m.iloc[max(0, i-60):i+1].copy()
-            recent_high = df_copy_60['high'].max()
-            recent_low = df_copy_60['low'].min()
-            price_position = (close - recent_low) / (recent_high - recent_low + 1e-6)
-            
-            score = 40  # 降低基础分
-            
-            if signal_type == 'BUY':
-                # === 买入评分（对称于卖出逻辑）===
-                
-                # 1. RSI超卖程度（20分）
-                if rsi < 15:
-                    score += 20
-                elif rsi < 20:
-                    score += 14
-                elif rsi < 25:
-                    score += 8
-                elif rsi < 30:
-                    score += 3
-                
-                # 2. 价格位置（30分）：关键！越低越好
-                if price_position < 0.08:  # 极低位（<8%）
-                    score += 30
-                elif price_position < 0.15:  # 低位
-                    score += 20
-                elif price_position < 0.25:  # 中低位
-                    score += 10
-                elif price_position < 0.35:  # 中位偏下
-                    score += 3
-                else:
-                    score -= 10  # 高位抄底扣分！
-                
-                # 3. 布林带偏离（15分）
-                bb_dist = (close - bb_lower) / bb_lower
-                if bb_dist < -0.015:
-                    score += 15
-                elif bb_dist < -0.008:
-                    score += 10
-                elif bb_dist < 0:
-                    score += 5
-                
-                # 4. 量能形态（35分）+ 下跌期判断（关键！）
-                vol_ratio = current_vol / (vol_ma20 + 1e-6)
-                
-                # 检查是否在快速下跌期（近10根K线跌幅）
-                is_falling = False
-                if len(df_copy_20) >= 10:
-                    recent_10_close = df_copy_20['close'].iloc[-10:].values
-                    price_drop_10 = (recent_10_close[-1] - recent_10_close[0]) / recent_10_close[0]
-                    is_falling = price_drop_10 < -0.02  # 下跌超过2%
-                    
-                    # 量能形态评分（区分洗盘 vs 主跌浪）
-                    if vol_ratio > 2.5:
-                        # 巨量：极低位非下跌期才给高分
-                        if price_position < 0.04 and not is_falling:
-                            score += 35  # 恐慌盘出尽，见底
-                        elif price_position < 0.10:
-                            score += 20
-                        elif price_position < 0.25:
-                            score += 12
-                        else:
-                            score += 5  # 高位放量下跌，危险
-                    
-                    # 温和放量（1.2-2.0x）：企稳反弹信号
-                    elif 1.2 <= vol_ratio <= 2.0:
-                        if price_position < 0.15 and not is_falling:
-                            score += 30  # 低位放量企稳，强信号
-                        elif price_position < 0.15:
-                            score += 15  # 低位但仍在跌
-                        else:
-                            score += 12
-                    
-                    # 缩量（<1.2x）：分两种情况
-                    elif vol_ratio < 1.2:
-                        # 极低位缩量：可能衰竭见底
-                        if price_position < 0.10 and vol_ratio < 0.5:
-                            score += 28  # 缩量见底
-                        # 下跌中缩量：可能是洗盘（好事）
-                        elif is_falling and vol_ratio < 0.8:
-                            score += 18  # 价跌量缩，洗盘特征
-                        else:
-                            score += 8
-                    
-                    else:
-                        score += 10
-                    
-                    # 核心修正：下跌期的评分调整（对称于拉升期）
-                    if is_falling:
-                        # 如果已经在极低位（<5%），说明下跌即将结束，不降级
-                        if price_position < 0.05:
-                            # 极低位下跌：轻微降级（可能是最后杀跌）
-                            penalty = int(score * 0.15)  # 仅扣除15%
-                            score -= penalty
-                        # 下跌中途：大幅降低评分
-                        else:
-                            penalty = int(score * 0.45)  # 扣除45%
-                            score -= penalty
-                            
-                else:
-                    # 数据不足时保守评分
-                    if vol_ratio > 2.5:
-                        score += 10
-                    elif 1.2 <= vol_ratio <= 2.0 and price_position < 0.15:
-                        score += 20
-                    elif vol_ratio > 1.2:
-                        score += 12
-                    else:
-                        score += 8
-            
-            else:  # SELL
-                # === 卖出评分 ===
-                
-                # 1. RSI超买程度（20分）
-                if rsi > 85:
-                    score += 20
-                elif rsi > 80:
-                    score += 14
-                elif rsi > 75:
-                    score += 8
-                elif rsi > 70:
-                    score += 3
-                
-                # 2. 价格位置（30分）：关键！越高越危险
-                if price_position > 0.92:  # 极度高位
-                    score += 30
-                elif price_position > 0.85:  # 高位
-                    score += 20
-                elif price_position > 0.75:  # 中高位
-                    score += 10
-                elif price_position > 0.65:  # 中位偏上
-                    score += 3
-                else:
-                    score -= 10  # 半山腰扣分！
-                
-                # 3. 布林带偏离（15分）
-                bb_dist = (close - bb_upper) / bb_upper
-                if bb_dist > 0.015:
-                    score += 15
-                elif bb_dist > 0.008:
-                    score += 10
-                elif bb_dist > 0:
-                    score += 5
-                
-                # 4. 量能形态（35分）+ 拉升期判断（关键！）
-                vol_ratio = current_vol / (vol_ma20 + 1e-6)
-                
-                # 检查是否在快速拉升期（近10根K线涨幅）
-                is_surging = False
-                if len(df_copy_20) >= 10:
-                    recent_10_close = df_copy_20['close'].iloc[-10:].values
-                    price_surge_10 = (recent_10_close[-1] - recent_10_close[0]) / recent_10_close[0]
-                    is_surging = price_surge_10 > 0.02  # 2%以上算快速拉升
-                    
-                    # 量能形态评分
-                    if vol_ratio > 3.0:
-                        # 巨量：高位非拉升期才给高分
-                        if price_position > 0.96 and not is_surging:
-                            score += 35
-                        elif price_position > 0.90:
-                            score += 20
-                        elif price_position > 0.75:
-                            score += 12
-                        else:
-                            score += 5
-                    
-                    # 温和放量（1.3-2.5x）
-                    elif 1.3 <= vol_ratio <= 2.5:
-                        if price_position > 0.85 and not is_surging:
-                            score += 30
-                        elif price_position > 0.85:
-                            score += 15
-                        else:
-                            score += 12
-                    
-                    # 缩量（<1.3x）+ 高位 → 量价背离
-                    elif vol_ratio < 1.3 and price_position > 0.85:
-                        score += 28
-                    
-                    else:
-                        score += 10
-                        
-                    # 核心修正：拉升期的评分调整
-                    if is_surging:
-                        # 如果已经在极高位（>95%），说明拉升即将结束，不降级
-                        if price_position < 0.95:
-                            # 拉升中途：大幅降低评分
-                            penalty = int(score * 0.45)  # 扣除当前分数的45%
-                            score -= penalty
-                        # 极高位拉升：轻微降级（可能是最后冲刺）
-                        else:
-                            penalty = int(score * 0.15)  # 仅扣除15%
-                            score -= penalty
-                        
-                else:
-                    # 数据不足时保守评分
-                    if vol_ratio > 3.0:
-                        score += 10
-                    elif vol_ratio > 1.5 and price_position > 0.85:
-                        score += 20
-                    elif vol_ratio > 1.3:
-                        score += 12
-                    else:
-                        score += 8
-            
-            return min(100, max(0, score))
+            return score
             
         except Exception as e:
             if self.is_backtest:
@@ -815,6 +612,9 @@ class TMonitorV3:
 
         # 准备指标
         df_1m = self._prepare_indicators(df_1m)
+        
+        # 缓存K线数据用于可视化
+        self.backtest_kline_data = df_1m.copy()
 
         logging.info(f"[回测 {self.symbol}] 1分钟K线数:{len(df_1m)}")
 
@@ -855,6 +655,23 @@ class TMonitorV3:
             sell_signals = [s for s in self.triggered_signals if s['type'] == 'SELL']
             tqdm.write(f"  触发信号: {len(buy_signals)}买 / {len(sell_signals)}卖")
             tqdm.write(f"{'='*60}\n")
+        
+        # 生成可视化图表
+        if self.enable_visualization and self.triggered_signals:
+            try:
+                tqdm.write(f"[{self.symbol}] 正在生成回测可视化图表...")
+                plot_intraday_backtest(
+                    df_1m=self.backtest_kline_data,
+                    signals=self.triggered_signals,
+                    symbol=self.symbol,
+                    stock_name=self.stock_name,
+                    backtest_start=self.backtest_start,
+                    backtest_end=self.backtest_end
+                )
+            except Exception as e:
+                tqdm.write(f"[警告] {self.symbol} 可视化失败: {e}")
+                import traceback
+                traceback.print_exc()
 
     def run(self):
         """启动监控"""
@@ -874,11 +691,12 @@ class MonitorManagerV3:
 
     def __init__(self, symbols,
                  is_backtest=False, backtest_start=None, backtest_end=None,
-                 symbols_file=None, reload_interval_sec=5):
+                 symbols_file=None, reload_interval_sec=5, enable_visualization=True):
         """
         :param symbols: 股票代码列表
         :param is_backtest: 是否回测
         :param symbols_file: 自选股文件路径
+        :param enable_visualization: 是否启用可视化（仅回测模式）
         """
         self.symbols = symbols
         self.stop_event = Event()
@@ -887,6 +705,7 @@ class MonitorManagerV3:
         self.backtest_end = backtest_end
         self.symbols_file = symbols_file
         self.reload_interval_sec = reload_interval_sec
+        self.enable_visualization = enable_visualization
 
         # 动态监控状态
         self._monitor_events = {}
@@ -980,7 +799,8 @@ class MonitorManagerV3:
             is_backtest=self.is_backtest,
             backtest_start=self.backtest_start,
             backtest_end=self.backtest_end,
-            position_manager=position_mgr
+            position_manager=position_mgr,
+            enable_visualization=self.enable_visualization
         )
         fut = self.executor.submit(monitor.run)
         self._monitor_events[symbol] = ev
