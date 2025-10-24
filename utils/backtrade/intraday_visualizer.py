@@ -3,12 +3,18 @@
 用于可视化做T监控系统的回测结果
 """
 import os
+import logging
 from datetime import datetime
+import warnings
 
 # 设置非交互式后端，避免多线程警告
 import matplotlib
 
 matplotlib.use('Agg')
+
+# 抑制matplotlib字体警告
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 import matplotlib.pyplot as plt
 import mplfinance as mpf
@@ -21,7 +27,7 @@ plt.rcParams['axes.unicode_minus'] = False
 class IntradayVisualizer:
     """日内交易可视化器（1分钟K线）"""
 
-    def __init__(self, output_dir='alerting/backtest_results'):
+    def __init__(self, output_dir='backtest_results'):
         """
         初始化可视化器
         :param output_dir: 输出目录
@@ -29,14 +35,24 @@ class IntradayVisualizer:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
         self.style = self._setup_style()
-
+    
     @staticmethod
     def _get_font_properties():
         """获取中文字体"""
-        font_path = 'fonts/微软雅黑.ttf'
-        if os.path.exists(font_path):
-            return FontProperties(fname=font_path)
-
+        # 尝试多个可能的字体路径
+        current_file = os.path.abspath(__file__)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        
+        font_candidates = [
+            'fonts/微软雅黑.ttf',  # 当前工作目录
+            os.path.join(project_root, 'fonts/微软雅黑.ttf'),  # 项目根目录
+            os.path.join(os.getcwd(), 'fonts/微软雅黑.ttf'),  # 绝对路径
+        ]
+        
+        for font_path in font_candidates:
+            if os.path.exists(font_path):
+                return FontProperties(fname=font_path)
+        
         # 备用字体
         import matplotlib.font_manager as fm
         font_paths = ['msyh.ttc', 'SimHei.ttf', 'PingFang.ttc']
@@ -44,7 +60,7 @@ class IntradayVisualizer:
             found_path = fm.findfont(font_name, fallback_to_default=True)
             if found_path and os.path.basename(found_path).lower() in font_name.lower():
                 return FontProperties(fname=found_path)
-
+        
         return None
 
     def _setup_style(self):
@@ -349,7 +365,7 @@ class IntradayVisualizer:
 
 def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
                            backtest_start=None, backtest_end=None,
-                           output_dir='alerting/backtest_results'):
+                           output_dir=None):
     """
     快速函数：绘制单个股票的日内回测结果
     
@@ -359,9 +375,15 @@ def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
     :param stock_name: 股票名称
     :param backtest_start: 回测开始时间
     :param backtest_end: 回测结束时间
-    :param output_dir: 输出目录
+    :param output_dir: 输出目录（默认为项目根目录下的 alerting/backtest_results）
     :return: 输出文件路径
     """
+    # 智能路径解析：确保无论从哪里运行都保存到正确位置
+    if output_dir is None:
+        current_file = os.path.abspath(__file__)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        output_dir = os.path.join(project_root, 'alerting', 'backtest_results')
+    
     visualizer = IntradayVisualizer(output_dir=output_dir)
     return visualizer.plot_backtest_result(
         df_1m=df_1m,

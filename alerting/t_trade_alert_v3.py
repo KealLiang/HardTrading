@@ -295,6 +295,17 @@ class TMonitorV3:
         
         try:
             recent_5 = df_1m.iloc[i-4:i+1].copy()
+            
+            # 跨日检测：确保recent_5在同一交易日
+            current_date = recent_5['datetime'].iloc[-1].date() if hasattr(recent_5['datetime'].iloc[-1], 'date') else recent_5['datetime'].iloc[-1]
+            first_date = recent_5['datetime'].iloc[0].date() if hasattr(recent_5['datetime'].iloc[0], 'date') else recent_5['datetime'].iloc[0]
+            
+            if current_date != first_date:
+                # 跨日了，只使用当日数据
+                recent_5 = recent_5[recent_5['datetime'].apply(lambda x: (x.date() if hasattr(x, 'date') else x) == current_date)]
+                if len(recent_5) < 3:  # 当日数据不足
+                    return False
+            
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
             price_change = (recent_5['close'].iloc[-1] - recent_5['close'].iloc[0]) / recent_5['close'].iloc[0]
@@ -316,6 +327,17 @@ class TMonitorV3:
         
         try:
             recent_5 = df_1m.iloc[i-4:i+1].copy()
+            
+            # 跨日检测：确保recent_5在同一交易日
+            current_date = recent_5['datetime'].iloc[-1].date() if hasattr(recent_5['datetime'].iloc[-1], 'date') else recent_5['datetime'].iloc[-1]
+            first_date = recent_5['datetime'].iloc[0].date() if hasattr(recent_5['datetime'].iloc[0], 'date') else recent_5['datetime'].iloc[0]
+            
+            if current_date != first_date:
+                # 跨日了，只使用当日数据
+                recent_5 = recent_5[recent_5['datetime'].apply(lambda x: (x.date() if hasattr(x, 'date') else x) == current_date)]
+                if len(recent_5) < 3:  # 当日数据不足3根
+                    return False, "当日数据不足"
+            
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
             vol_early_3 = recent_5['vol'].iloc[:3].mean()
@@ -362,6 +384,17 @@ class TMonitorV3:
         
         try:
             recent_5 = df_1m.iloc[i-4:i+1].copy()
+            
+            # 跨日检测：确保recent_5在同一交易日
+            current_date = recent_5['datetime'].iloc[-1].date() if hasattr(recent_5['datetime'].iloc[-1], 'date') else recent_5['datetime'].iloc[-1]
+            first_date = recent_5['datetime'].iloc[0].date() if hasattr(recent_5['datetime'].iloc[0], 'date') else recent_5['datetime'].iloc[0]
+            
+            if current_date != first_date:
+                # 跨日了，只使用当日数据
+                recent_5 = recent_5[recent_5['datetime'].apply(lambda x: (x.date() if hasattr(x, 'date') else x) == current_date)]
+                if len(recent_5) < 3:  # 当日数据不足3根
+                    return False, "当日数据不足"
+            
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
             vol_ma5 = recent_5['vol'].mean()
@@ -441,6 +474,18 @@ class TMonitorV3:
         
         # 右侧/混合模式需要历史RSI
         if mode in ['RIGHT', 'HYBRID']:
+            # 检查前2根K线是否在同一交易日
+            ts_prev = df_1m['datetime'].iloc[i-1]
+            ts_prev2 = df_1m['datetime'].iloc[i-2]
+            date_current = ts.date() if hasattr(ts, 'date') else ts
+            date_prev = ts_prev.date() if hasattr(ts_prev, 'date') else ts_prev
+            date_prev2 = ts_prev2.date() if hasattr(ts_prev2, 'date') else ts_prev2
+            
+            # 如果跨日，则不使用右侧/混合逻辑（回退到左侧）
+            if date_current != date_prev or date_current != date_prev2:
+                # 当日数据不足，跳过此K线
+                return None, "当日数据不足（跨日）", 0
+            
             rsi_prev = df_1m['rsi14'].iloc[i-1]
             rsi_prev2 = df_1m['rsi14'].iloc[i-2]
         
