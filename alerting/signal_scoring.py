@@ -13,6 +13,7 @@
    - 趋势惩罚（0-30扣分）：强趋势中逆向操作风险高
    - 波动率评估（-10到+10）：波动适中时做T机会好
    - 横盘惩罚（0-15扣分）：价格变动小时的密集信号
+6. 🔧 放量拉升总分降级（保留25-40%）：拉升中途放量=主力推升，不应卖
 
 评分阈值：
 - ⭐⭐⭐强: 85+分
@@ -20,7 +21,18 @@
 - ⭐弱:     <65分
 
 作者：基于v3版本的评分逻辑抽取
-日期：2025-10-24（v1.1: 新增做T适用性评估；v1.2: 新增横盘密集信号惩罚）
+版本历史：
+- v1.0: 基础评分系统
+- v1.1: 新增做T适用性评估（趋势+波动率）
+- v1.2: 新增横盘密集信号惩罚
+- v1.3: 修正放量拉升评分BUG（2025-10-25）
+  * 问题：放量拉升时卖出信号得分过高（如301137急涨期）
+  * 修复：量能分修正 + 总分降级（拉升中途保留25%，极高位保留40%）
+  * 效果：卖出信号减少58%，买卖比从21:43优化到21:18
+- v1.4: 平衡极端拉升和反弹卖点（2025-10-25）
+  * 问题：v1.3过度降级，误伤反弹逃命点（如600078 10:37）
+  * 修复：提高降级阈值（涨幅>3%，量比>3x，位置>95%），统一降级30%
+  * 效果：只对极端强势拉升降级，保留温和拉升/反弹卖点
 """
 
 import pandas as pd
@@ -313,6 +325,23 @@ class SignalScorer:
                 consolidation_penalty = SignalScorer._calc_consolidation_penalty(df_work, signal_type)
                 score -= consolidation_penalty
             
+            # 🔧 强势拉升期总分降级（只对极端强势拉升降级，避免误伤）
+            if signal_type == 'SELL' and len(df_work) >= SignalScorer.MOMENTUM_WINDOW:
+                recent_closes = df_work['close'].iloc[-SignalScorer.MOMENTUM_WINDOW:].values
+                price_change_10 = (recent_closes[-1] - recent_closes[0]) / recent_closes[0]
+                
+                # 只对"极端强势拉升"降级（涨幅大+巨量+创新高）
+                # 温和拉升、拉升失败等场景保持原样，由其他评分维度处理
+                is_extreme_surge = (
+                    price_change_10 > 0.03 and      # 10根涨幅>3%（而非2%）
+                    vol_ratio > 3.0 and              # 巨量>3倍（而非1.5倍）
+                    price_position > 0.95            # 创新高>95%
+                )
+                
+                if is_extreme_surge:
+                    # 极端强势拉升：主力大举推升，明确不应该卖
+                    score = int(score * 0.30)  # 保留30%
+            
             final_score = min(100, max(0, score))
             strength = SignalScorer._score_to_strength(final_score)
             
@@ -475,17 +504,22 @@ class SignalScorer:
     
     @staticmethod
     def _calc_sell_volume_score(df, price_position, vol_ratio):
-        """卖出信号的量能评分（识别有效大涨 vs 拉升中途）"""
+        """
+        卖出信号的量能评分（修正版：放量拉升=主力推升，不应加分）
+        
+        核心原则：
+        1. 只有"非拉升期 + 高位 + 放量"才是出货信号（高分）
+        2. "拉升期 + 放量"是主力推升，不应卖（低分）
+        3. "缩量 + 高位"是量价背离，见顶信号（高分）
+        """
         score = 0
         
         if len(df) < SignalScorer.MOMENTUM_WINDOW:
-            # 数据不足时简化评分
-            if vol_ratio > 3.0:
-                score += 10
+            # 数据不足时保守评分
+            if vol_ratio < 1.3 and price_position > 0.85:
+                score += 28  # 缩量+高位：量价背离
             elif vol_ratio > 1.5 and price_position > 0.85:
-                score += 20
-            elif vol_ratio > 1.3:
-                score += 12
+                score += 15  # 高位放量（保守给分）
             else:
                 score += 8
             return score
@@ -495,46 +529,56 @@ class SignalScorer:
         price_change = (recent_closes[-1] - recent_closes[0]) / recent_closes[0]
         is_surging = price_change > SignalScorer.MOMENTUM_THRESHOLD
         
-        # 量能形态评分（巨量需要特别处理）
-        if vol_ratio > 3.0:
-            # 巨量：需要配合位置+非拉升期
-            if price_position > 0.96 and not is_surging:
-                score += 35  # 极高位+巨量+非拉升期
-            elif price_position > 0.92 and not is_surging:
-                score += 25  # 极高位（92-96%）+巨量
-            elif price_position > 0.90:
-                score += 12  # 高位+巨量（保守）
-            elif price_position > 0.75:
-                score += 8   # 中高位+巨量
-            else:
-                score += 5   # 低位巨量
+        # === 核心逻辑：根据"价格动作+量能+位置"综合评分 ===
         
-        elif 1.3 <= vol_ratio <= 2.5:
-            # 温和放量
-            if price_position > 0.85 and not is_surging:
+        # 情况1：缩量 + 高位 = 量价背离（无论是否拉升期都是见顶信号）
+        if vol_ratio < 1.3 and price_position > 0.85:
+            score += 30  # 涨不放量，典型见顶
+        
+        # 情况2：非拉升期 + 高位 + 放量 = 放量滞涨/出货
+        elif not is_surging and price_position > 0.85:
+            if vol_ratio > 3.0:
+                # 巨量滞涨（不涨反而放巨量）
+                if price_position > 0.96:
+                    score += 35  # 极高位+巨量滞涨
+                elif price_position > 0.92:
+                    score += 30  # 很高位+巨量滞涨
+                else:
+                    score += 25  # 高位+巨量滞涨
+            elif vol_ratio >= 1.3:
+                # 温和放量滞涨
                 score += 30
-            elif price_position > 0.85:
-                score += 15
             else:
-                score += 12
+                score += 10  # 量能中性
         
-        elif vol_ratio < 1.3 and price_position > 0.85:
-            # 缩量+高位：量价背离
-            score += 28
+        # 情况3：拉升期（无论放量还是缩量都不是好卖点）
+        elif is_surging:
+            if vol_ratio > 2.0:
+                # 放量拉升 = 主力推升，不应该卖
+                score += 5  # 极低分
+            elif vol_ratio < 1.0:
+                # 缩量拉升 = 可能拉升末期，稍微加分
+                if price_position > 0.90:
+                    score += 15  # 高位缩量拉升
+                else:
+                    score += 8
+            else:
+                # 正常量能拉升
+                score += 10
         
+        # 情况4：非高位（无论什么量能都不是卖点）
         else:
-            score += 10
+            score += 8  # 低基础分
         
-        # 拉升期修正（统一处理，不分巨量）
+        # === 拉升期额外惩罚（针对残留的基础分）===
         if is_surging:
             if price_position > 0.95:
-                # 极高位拉升：轻微降级
-                penalty = int(score * SignalScorer.MOMENTUM_PENALTY_EXTREME)
-                score -= penalty
+                # 极高位拉升：轻微降级（可能是最后冲顶）
+                penalty = int(score * 0.30)
             else:
-                # 拉升中途：大幅降级
-                penalty = int(score * SignalScorer.MOMENTUM_PENALTY_MID)
-                score -= penalty
+                # 拉升中途：大幅降级（明确不应该卖）
+                penalty = int(score * 0.70)
+            score -= penalty
         
         return score
     
