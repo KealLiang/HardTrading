@@ -496,13 +496,16 @@ class TMonitorV3:
             date_prev = ts_prev.date() if hasattr(ts_prev, 'date') else ts_prev
             date_prev2 = ts_prev2.date() if hasattr(ts_prev2, 'date') else ts_prev2
             
-            # 如果跨日，则不使用右侧/混合逻辑（回退到左侧）
-            if date_current != date_prev or date_current != date_prev2:
-                # 当日数据不足，跳过此K线
-                return None, "当日数据不足（跨日）", 0
+            is_cross_day = (date_current != date_prev or date_current != date_prev2)
             
-            rsi_prev = df_1m['rsi14'].iloc[i-1]
-            rsi_prev2 = df_1m['rsi14'].iloc[i-2]
+            if is_cross_day:
+                # 🔧 跨日时回退到左侧模式（避免开盘前2-3分钟信号缺失）
+                # 说明：开盘初期（如09:31-09:32）前2根K线是前一日的，
+                # 若直接跳过会导致高质量信号（如RSI>80）被过滤
+                mode = 'LEFT'
+            else:
+                rsi_prev = df_1m['rsi14'].iloc[i-1]
+                rsi_prev2 = df_1m['rsi14'].iloc[i-2]
         
         # 获取当日基准价（用于涨跌停判断）
         current_date = ts.date() if hasattr(ts, 'date') else ts
@@ -658,11 +661,11 @@ class TMonitorV3:
         strength_tag = ""
         if strength is not None:
             if strength >= 85:
-                strength_tag = " ⭐⭐⭐强"
+                strength_tag = " ***[强]"
             elif strength >= 65:
-                strength_tag = " ⭐⭐中"
+                strength_tag = " **[中]"
             else:
-                strength_tag = " ⭐弱"
+                strength_tag = " *[弱]"
         
         prefix = "【历史信号】" if is_historical else "【V3信号】"
         msg = (f"{prefix}[{self.stock_name} {self.symbol}] {signal_type}{strength_tag} | "

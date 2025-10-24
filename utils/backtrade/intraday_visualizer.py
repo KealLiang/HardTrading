@@ -511,6 +511,11 @@ class IntradayVisualizer:
 
         # 保存图表
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        
+        # 等待图片完全写入磁盘
+        import time
+        time.sleep(0.5)
+        
         plt.close(fig)
 
         print(f"✓ 已生成回测图表: {output_path}")
@@ -534,11 +539,11 @@ class IntradayVisualizer:
             
             # 根据评分强度设置颜色
             if strength >= 85:
-                text_color = '#006400'  # 深绿/深红（强）
-                bg_color = '#E0FFE0' if signal_type == 'BUY' else '#FFE0E0'
+                text_color = '#4B0082'  # 靛青（强）
+                bg_color = '#FFEFD5' if signal_type == 'BUY' else '#E1FFFF'
             elif strength >= 65:
-                text_color = '#228B22'  # 中绿/中红（中）
-                bg_color = '#F0FFF0' if signal_type == 'BUY' else '#FFF0F0'
+                text_color = '#483D8B'  # 岩色（中）
+                bg_color = '#FFDEAD' if signal_type == 'BUY' else '#F0FFFF'
             else:
                 text_color = '#696969'  # 灰色（弱）
                 bg_color = '#FAFAFA'
