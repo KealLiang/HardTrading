@@ -20,7 +20,7 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
-from utils.stock_util import convert_stock_code
+from utils.stock_util import convert_stock_code, stock_limit_ratio
 from alerting.signal_scoring import SignalScorer, SignalStrength, calc_rsi_indicator_score
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
@@ -65,14 +65,13 @@ class TMonitorConfig:
 
     # 冷却机制（优化：高位震荡可连续卖出）
     SIGNAL_COOLDOWN_SECONDS = 60   # 1分钟冷却（从3分钟缩短）
-    REPEAT_PRICE_CHANGE = 0.008    # 价格变化0.8%即可重复（从1.5%降低）
+    REPEAT_PRICE_CHANGE = 0.01    # 价格变化1%即可重复（从1.5%降低）
 
     # 仓位控制
     MAX_TRADES_PER_DAY = 5
 
     # 涨跌停判断
-    LIMIT_UP_THRESHOLD = 0.099
-    LIMIT_DOWN_THRESHOLD = -0.099
+    # 移除硬编码阈值，改为动态获取（通过 stock_limit_ratio 方法）
 
 
 class PositionManager:
@@ -257,18 +256,24 @@ class TMonitorV3:
         return df
 
     def _is_limit_up(self, current_price, yesterday_close):
-        """判断是否涨停"""
+        """判断是否涨停（动态获取涨跌停阈值）"""
         if yesterday_close is None or yesterday_close == 0:
             return False
         change = (current_price - yesterday_close) / yesterday_close
-        return change >= TMonitorConfig.LIMIT_UP_THRESHOLD
+        # 根据股票代码动态获取涨跌停阈值（主板10%、科创板/创业板20%、北交所30%）
+        limit_ratio = stock_limit_ratio(self.symbol)
+        # 留0.1%余量，避免临界值判断错误
+        return change >= (limit_ratio - 0.001)
 
     def _is_limit_down(self, current_price, yesterday_close):
-        """判断是否跌停"""
+        """判断是否跌停（动态获取涨跌停阈值）"""
         if yesterday_close is None or yesterday_close == 0:
             return False
         change = (current_price - yesterday_close) / yesterday_close
-        return change <= TMonitorConfig.LIMIT_DOWN_THRESHOLD
+        # 根据股票代码动态获取涨跌停阈值
+        limit_ratio = stock_limit_ratio(self.symbol)
+        # 留0.1%余量，避免临界值判断错误
+        return change <= -(limit_ratio - 0.001)
 
     def _check_signal_cooldown(self, signal_type, current_time, current_price):
         """检查信号冷却"""
