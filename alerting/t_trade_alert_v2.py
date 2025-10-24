@@ -667,23 +667,21 @@ class TMonitorV2:
         if self.enable_visualization and total_signals > 0:
             try:
                 tqdm.write(f"[{self.symbol}] 正在生成回测可视化图表...")
-                # 转换信号格式
+                # 转换信号格式（不包含strength字段，使用旧版可视化）
                 signals = []
                 for sig in self.triggered_buy_signals:
                     signals.append({
                         'type': 'BUY',
                         'price': sig['price'],
                         'time': sig['time'],
-                        'reason': 'MACD+KDJ背离',
-                        'strength': 50
+                        'reason': 'MACD+KDJ背离'
                     })
                 for sig in self.triggered_sell_signals:
                     signals.append({
                         'type': 'SELL',
                         'price': sig['price'],
                         'time': sig['time'],
-                        'reason': 'MACD+KDJ背离',
-                        'strength': 50
+                        'reason': 'MACD+KDJ背离'
                     })
                 
                 plot_intraday_backtest(

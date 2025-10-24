@@ -112,7 +112,7 @@ class IntradayVisualizer:
             return None
 
         # 添加信号标记
-        addplots = self._create_signal_markers(chart_df, signals)
+        addplots, annotation_info = self._create_signal_markers(chart_df, signals)
 
         # 生成标题
         title = self._generate_title(
@@ -123,7 +123,7 @@ class IntradayVisualizer:
         # 绘制图表
         output_path = self._plot_chart(
             chart_df, addplots, title, symbol,
-            backtest_start, backtest_end
+            backtest_start, backtest_end, annotation_info
         )
 
         return output_path
@@ -164,7 +164,184 @@ class IntradayVisualizer:
         return df
 
     def _create_signal_markers(self, chart_df, signals):
-        """创建信号标记"""
+        """创建信号标记（根据评分强度使用不同颜色）"""
+        # 检查是否所有信号都有评分（向后兼容）
+        has_scoring = all('strength' in s and s['strength'] is not None for s in signals)
+        
+        if not has_scoring:
+            # 无评分模式：使用原始逻辑（完全兼容旧版本）
+            return self._create_signal_markers_legacy(chart_df, signals)
+        
+        # 有评分模式：按强度分层显示
+        # 分别为不同强度创建标记数组
+        buy_strong = [float('nan')] * len(chart_df)   # 强买入
+        buy_medium = [float('nan')] * len(chart_df)   # 中买入
+        buy_weak = [float('nan')] * len(chart_df)     # 弱买入
+        
+        sell_strong = [float('nan')] * len(chart_df)  # 强卖出
+        sell_medium = [float('nan')] * len(chart_df)  # 中卖出
+        sell_weak = [float('nan')] * len(chart_df)    # 弱卖出
+
+        has_buy_strong = False
+        has_buy_medium = False
+        has_buy_weak = False
+        has_sell_strong = False
+        has_sell_medium = False
+        has_sell_weak = False
+        
+        # 用于存储标注信息（时间索引 -> 信号信息）
+        annotation_info = {}
+
+        for signal in signals:
+            signal_time = signal['time']
+            signal_type = signal['type']
+            signal_strength = signal['strength']
+
+            # 确保时间格式一致
+            if isinstance(signal_time, str):
+                signal_time = pd.to_datetime(signal_time)
+            elif hasattr(signal_time, 'tz') and signal_time.tz is not None:
+                signal_time = signal_time.tz_localize(None)
+
+            # 查找最接近的K线
+            try:
+                idx = chart_df.index.searchsorted(signal_time, side='right') - 1
+                if idx >= 0 and idx < len(chart_df):
+                    # 根据信号强度分类
+                    if signal_strength >= 85:
+                        strength_level = 'strong'
+                    elif signal_strength >= 65:
+                        strength_level = 'medium'
+                    else:
+                        strength_level = 'weak'
+                    
+                    if signal_type == 'BUY':
+                        # 买入信号标记在K线下方
+                        marker_pos = chart_df.iloc[idx]['Low'] * 0.998
+                        if strength_level == 'strong':
+                            buy_strong[idx] = marker_pos
+                            has_buy_strong = True
+                        elif strength_level == 'medium':
+                            buy_medium[idx] = marker_pos
+                            has_buy_medium = True
+                        else:
+                            buy_weak[idx] = marker_pos
+                            has_buy_weak = True
+                        
+                        # 记录标注信息（买入标注在下方）
+                        annotation_info[idx] = {
+                            'type': 'BUY',
+                            'strength': signal_strength,
+                            'price': chart_df.iloc[idx]['Low'],
+                            'time': chart_df.index[idx]
+                        }
+                        
+                    elif signal_type == 'SELL':
+                        # 卖出信号标记在K线上方
+                        marker_pos = chart_df.iloc[idx]['High'] * 1.002
+                        if strength_level == 'strong':
+                            sell_strong[idx] = marker_pos
+                            has_sell_strong = True
+                        elif strength_level == 'medium':
+                            sell_medium[idx] = marker_pos
+                            has_sell_medium = True
+                        else:
+                            sell_weak[idx] = marker_pos
+                            has_sell_weak = True
+                        
+                        # 记录标注信息（卖出标注在上方）
+                        annotation_info[idx] = {
+                            'type': 'SELL',
+                            'strength': signal_strength,
+                            'price': chart_df.iloc[idx]['High'],
+                            'time': chart_df.index[idx]
+                        }
+                        
+            except Exception as e:
+                print(f"警告: 信号标记失败 {signal_time}: {e}")
+                continue
+
+        # 创建addplot列表
+        addplots = []
+
+        # 买入信号 - 按强度分层（使用文字而非星号，避免字体警告）
+        if has_buy_strong:
+            addplots.append(
+                mpf.make_addplot(
+                    buy_strong,
+                    type='scatter',
+                    marker='^',
+                    color='#00FF00',  # 亮绿色（强）
+                    markersize=150,
+                    label='买入[强]'
+                )
+            )
+        
+        if has_buy_medium:
+            addplots.append(
+                mpf.make_addplot(
+                    buy_medium,
+                    type='scatter',
+                    marker='^',
+                    color='#90EE90',  # 浅绿色（中）
+                    markersize=120,
+                    label='买入[中]'
+                )
+            )
+        
+        if has_buy_weak:
+            addplots.append(
+                mpf.make_addplot(
+                    buy_weak,
+                    type='scatter',
+                    marker='^',
+                    color='#98FB98',  # 更浅绿色（弱）
+                    markersize=100,
+                    label='买入[弱]'
+                )
+            )
+
+        # 卖出信号 - 按强度分层
+        if has_sell_strong:
+            addplots.append(
+                mpf.make_addplot(
+                    sell_strong,
+                    type='scatter',
+                    marker='v',
+                    color='#FF0000',  # 亮红色（强）
+                    markersize=150,
+                    label='卖出[强]'
+                )
+            )
+        
+        if has_sell_medium:
+            addplots.append(
+                mpf.make_addplot(
+                    sell_medium,
+                    type='scatter',
+                    marker='v',
+                    color='#FF6B6B',  # 浅红色（中）
+                    markersize=120,
+                    label='卖出[中]'
+                )
+            )
+        
+        if has_sell_weak:
+            addplots.append(
+                mpf.make_addplot(
+                    sell_weak,
+                    type='scatter',
+                    marker='v',
+                    color='#FFA07A',  # 更浅红色（弱）
+                    markersize=100,
+                    label='卖出[弱]'
+                )
+            )
+
+        return addplots, annotation_info
+
+    def _create_signal_markers_legacy(self, chart_df, signals):
+        """创建信号标记（旧版兼容模式 - 无评分）"""
         buy_markers = [float('nan')] * len(chart_df)
         sell_markers = [float('nan')] * len(chart_df)
 
@@ -200,7 +377,7 @@ class IntradayVisualizer:
         # 创建addplot列表（只添加有信号的标记）
         addplots = []
 
-        # 买入信号：绿色向上箭头（仅在有买入信号时添加）
+        # 买入信号：绿色向上箭头
         if has_buy:
             addplots.append(
                 mpf.make_addplot(
@@ -213,7 +390,7 @@ class IntradayVisualizer:
                 )
             )
 
-        # 卖出信号：红色向下箭头（仅在有卖出信号时添加）
+        # 卖出信号：红色向下箭头
         if has_sell:
             addplots.append(
                 mpf.make_addplot(
@@ -226,7 +403,7 @@ class IntradayVisualizer:
                 )
             )
 
-        return addplots
+        return addplots, {}  # 返回空的annotation_info
 
     def _generate_title(self, symbol, stock_name, signals,
                         backtest_start, backtest_end):
@@ -235,18 +412,28 @@ class IntradayVisualizer:
         buy_signals = [s for s in signals if s['type'] == 'BUY']
         sell_signals = [s for s in signals if s['type'] == 'SELL']
 
-        # 统计强度分布
-        strong_signals = [s for s in signals if s.get('strength', 0) >= 85]
-        medium_signals = [s for s in signals if 65 <= s.get('strength', 0) < 85]
-        weak_signals = [s for s in signals if s.get('strength', 0) < 65]
-
         stock_display = f"{symbol} {stock_name}" if stock_name else symbol
+        
+        # 检查是否有评分
+        has_scoring = all('strength' in s and s['strength'] is not None for s in signals)
+        
+        if has_scoring:
+            # 有评分模式：统计强度分布
+            strong_signals = [s for s in signals if s.get('strength', 0) >= 85]
+            medium_signals = [s for s in signals if 65 <= s.get('strength', 0) < 85]
+            weak_signals = [s for s in signals if s.get('strength', 0) < 65]
 
-        title = (
-            f"做T回测结果 - {stock_display}\n"
-            f"信号统计: {len(buy_signals)}买 / {len(sell_signals)}卖 "
-            f"(强:{len(strong_signals)} 中:{len(medium_signals)} 弱:{len(weak_signals)})"
-        )
+            title = (
+                f"做T回测结果 - {stock_display}\n"
+                f"信号统计: {len(buy_signals)}买 / {len(sell_signals)}卖 "
+                f"(强:{len(strong_signals)} 中:{len(medium_signals)} 弱:{len(weak_signals)})"
+            )
+        else:
+            # 无评分模式：简化显示
+            title = (
+                f"做T回测结果 - {stock_display}\n"
+                f"信号统计: {len(buy_signals)}买 / {len(sell_signals)}卖"
+            )
 
         if backtest_start and backtest_end:
             title += f"\n回测区间: {backtest_start} ~ {backtest_end}"
@@ -254,7 +441,7 @@ class IntradayVisualizer:
         return title
 
     def _plot_chart(self, chart_df, addplots, title, symbol,
-                    backtest_start, backtest_end):
+                    backtest_start, backtest_end, annotation_info):
         """绘制并保存图表"""
         # 生成文件名
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -281,6 +468,10 @@ class IntradayVisualizer:
 
         # 添加图例
         axes[0].legend(loc='upper left', fontsize=10)
+        
+        # 添加评分标注
+        if annotation_info:
+            self._add_score_annotations(axes[0], chart_df, annotation_info)
 
         # 优化X轴显示 - 每30根K线显示一个刻度
         from matplotlib.ticker import FuncFormatter
@@ -324,6 +515,67 @@ class IntradayVisualizer:
 
         print(f"✓ 已生成回测图表: {output_path}")
         return output_path
+    
+    def _add_score_annotations(self, ax, chart_df, annotation_info):
+        """
+        在信号箭头旁添加评分标注
+        
+        :param ax: matplotlib轴对象
+        :param chart_df: K线数据
+        :param annotation_info: 标注信息字典 {idx: {'type': 'BUY/SELL', 'strength': score, ...}}
+        """
+        # 获取字体属性
+        font_prop = self._get_font_properties()
+        font_params = {'fontproperties': font_prop} if font_prop else {}
+        
+        for idx, info in annotation_info.items():
+            signal_type = info['type']
+            strength = info['strength']
+            
+            # 根据评分强度设置颜色
+            if strength >= 85:
+                text_color = '#006400'  # 深绿/深红（强）
+                bg_color = '#E0FFE0' if signal_type == 'BUY' else '#FFE0E0'
+            elif strength >= 65:
+                text_color = '#228B22'  # 中绿/中红（中）
+                bg_color = '#F0FFF0' if signal_type == 'BUY' else '#FFF0F0'
+            else:
+                text_color = '#696969'  # 灰色（弱）
+                bg_color = '#FAFAFA'
+            
+            # 计算标注位置
+            if signal_type == 'BUY':
+                # 买入标注在箭头下方
+                y_offset = -0.015  # 向下偏移1.5%
+                va = 'top'
+            else:
+                # 卖出标注在箭头上方
+                y_offset = 0.015  # 向上偏移1.5%
+                va = 'bottom'
+            
+            # 获取价格范围用于计算偏移
+            price_range = chart_df['High'].max() - chart_df['Low'].min()
+            y_pos = info['price'] * (1 + y_offset)
+            
+            # 添加评分文本（带背景框）
+            ax.text(
+                idx, y_pos,
+                f"{int(strength)}",
+                fontsize=9,
+                fontweight='bold',
+                color=text_color,
+                ha='center',
+                va=va,
+                bbox=dict(
+                    boxstyle='round,pad=0.3',
+                    facecolor=bg_color,
+                    edgecolor=text_color,
+                    linewidth=1,
+                    alpha=0.8
+                ),
+                zorder=10,  # 确保在最上层显示
+                **font_params
+            )
 
     def plot_multiple_stocks(self, backtest_results):
         """
