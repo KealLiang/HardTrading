@@ -42,6 +42,9 @@ class TMonitorConfig:
     RSI_PERIOD = 14
     BB_PERIOD = 20
     BB_STD = 2
+    
+    # 交易模式选择
+    TRADING_MODE = "HYBRID"  # "LEFT"(左侧) / "RIGHT"(右侧) / "HYBRID"(混合)
 
     # === 核心信号阈值（对称设计，保证买卖平衡）===
     RSI_OVERSOLD = 30      # 超卖阈值
@@ -49,20 +52,20 @@ class TMonitorConfig:
     RSI_EXTREME_OVERSOLD = 15   # 极度超卖
     RSI_EXTREME_OVERBOUGHT = 85  # 极度超买（对称）
     
-    BB_TOLERANCE = 1.01   # 布林带容差（必须接近轨道）
+    BB_TOLERANCE = 1.015   # 布林带容差（放宽至1.5%）
     
-    # === 量价确认参数（微调以平衡买卖）===
-    VOLUME_CONFIRM_BUY = 1.2    # 买入量能确认（放量1.2倍，稍宽松）
-    VOLUME_CONFIRM_SELL = 1.3   # 卖出量能确认（放量1.3倍，稍严格）
+    # === 量价确认参数（优化：支持缩量见底）===
+    VOLUME_CONFIRM_BUY = 0.8    # 买入量能确认（允许缩量0.8倍，捕捉缩量见底）
+    VOLUME_CONFIRM_SELL = 1.2   # 卖出量能确认（降低至1.2倍，更敏感）
     VOLUME_SURGE_RATIO = 1.5    # 放量突破倍数
     
-    # 量价背离检测（收紧，减少卖出信号）
-    DIVERGENCE_PRICE_CHANGE = 0.015  # 价格变化1.5%（提高）
-    DIVERGENCE_VOLUME_CHANGE = -0.25 # 量能缩减25%（提高）
+    # 量价背离检测
+    DIVERGENCE_PRICE_CHANGE = 0.015  # 价格变化1.5%
+    DIVERGENCE_VOLUME_CHANGE = -0.25 # 量能缩减25%
 
-    # 冷却机制
-    SIGNAL_COOLDOWN_SECONDS = 180  # 3分钟冷却
-    REPEAT_PRICE_CHANGE = 0.015    # 价格变化1.5%才允许重复
+    # 冷却机制（优化：高位震荡可连续卖出）
+    SIGNAL_COOLDOWN_SECONDS = 60   # 1分钟冷却（从3分钟缩短）
+    REPEAT_PRICE_CHANGE = 0.008    # 价格变化0.8%即可重复（从1.5%降低）
 
     # 仓位控制
     MAX_TRADES_PER_DAY = 5
@@ -307,7 +310,7 @@ class TMonitorV3:
         return False
 
     def _check_buy_volume_confirm(self, df_1m, i):
-        """买入量价确认：缩量后放量企稳"""
+        """买入量价确认：缩量见底 OR 放量企稳"""
         if i < 5:
             return False, "数据不足"
         
@@ -317,29 +320,35 @@ class TMonitorV3:
             
             vol_early_3 = recent_5['vol'].iloc[:3].mean()
             vol_late_2 = recent_5['vol'].iloc[-2:].mean()
+            latest_vol = recent_5['vol'].iloc[-1]
             
             if pd.isna(vol_early_3) or pd.isna(vol_late_2) or vol_early_3 == 0:
                 return False, "量能数据异常"
             
-            # 1. 量能确认：近2根放量
-            if vol_late_2 < vol_early_3 * TMonitorConfig.VOLUME_CONFIRM_BUY:
-                return False, f"买入量能不足"
+            vol_ratio = vol_late_2 / vol_early_3
             
-            # 2. K线企稳：阳线、长下影或十字星
+            # K线企稳判断
             latest = recent_5.iloc[-1]
             body = latest['close'] - latest['open']
             lower_shadow = min(latest['open'], latest['close']) - latest['low']
             body_pct = abs(body) / latest['close']
-            
-            # 放宽企稳条件：阳线 OR 长下影 OR 小实体(<0.5%)
             is_stabilized = (body > 0 or 
                            lower_shadow > abs(body) * 2 or 
                            body_pct < 0.005)
             
-            if not is_stabilized:
-                return False, "未见企稳信号"
+            # 策略1: 缩量见底（量能萎缩至0.8倍以下 + 企稳）
+            if vol_ratio < TMonitorConfig.VOLUME_CONFIRM_BUY and is_stabilized:
+                return True, f"缩量见底✓({vol_ratio:.2f}x)"
             
-            return True, "量价确认买入✓"
+            # 策略2: 放量企稳（放量1.2倍以上 + 企稳）
+            if vol_ratio >= 1.2 and is_stabilized:
+                return True, f"放量企稳✓({vol_ratio:.2f}x)"
+            
+            # 不满足
+            if not is_stabilized:
+                return False, "K线未企稳"
+            else:
+                return False, f"量能中性({vol_ratio:.2f}x)"
             
         except Exception as e:
             if self.is_backtest:
@@ -361,15 +370,17 @@ class TMonitorV3:
             if pd.isna(vol_ma5) or pd.isna(latest_vol) or vol_ma5 == 0:
                 return False, "量能数据异常"
             
-            # 1. 放量确认
-            if latest_vol > vol_ma5 * TMonitorConfig.VOLUME_CONFIRM_SELL:
-                return True, "放量确认卖出✓"
+            vol_ratio = latest_vol / vol_ma5
+            
+            # 1. 放量确认（降低阈值，更敏感）
+            if vol_ratio > TMonitorConfig.VOLUME_CONFIRM_SELL:
+                return True, f"放量卖出✓({vol_ratio:.2f}x)"
             
             # 2. 量价背离
             if self._check_volume_divergence(df_1m, i):
-                return True, "量价背离卖出✓"
+                return True, f"背离卖出✓"
             
-            return False, f"卖出量能不足"
+            return False, f"量能不足({vol_ratio:.2f}x)"
             
         except Exception as e:
             if self.is_backtest:
@@ -412,10 +423,13 @@ class TMonitorV3:
 
     def _generate_signal(self, df_1m, i):
         """
-        基于1分钟K线生成信号（动态参数）
+        基于1分钟K线生成信号（支持左侧/右侧/混合模式）
         :return: (signal_type, reason, strength)
         """
-        if i < TMonitorConfig.RSI_PERIOD:
+        mode = TMonitorConfig.TRADING_MODE
+        min_bars = TMonitorConfig.RSI_PERIOD + (3 if mode in ['RIGHT', 'HYBRID'] else 0)
+        
+        if i < min_bars:
             return None, None, 0
         
         # 1. 技术指标
@@ -424,6 +438,11 @@ class TMonitorV3:
         bb_upper = df_1m['bb_upper'].iloc[i]
         bb_lower = df_1m['bb_lower'].iloc[i]
         ts = df_1m['datetime'].iloc[i]
+        
+        # 右侧/混合模式需要历史RSI
+        if mode in ['RIGHT', 'HYBRID']:
+            rsi_prev = df_1m['rsi14'].iloc[i-1]
+            rsi_prev2 = df_1m['rsi14'].iloc[i-2]
         
         # 获取当日基准价（用于涨跌停判断）
         current_date = ts.date() if hasattr(ts, 'date') else ts
@@ -447,15 +466,48 @@ class TMonitorV3:
             return None, "跌停，不杀", 0
         
         # 2. 买入信号判断
-        if rsi < TMonitorConfig.RSI_OVERSOLD and close <= bb_lower * TMonitorConfig.BB_TOLERANCE:
-            # 量价确认
+        buy_signal = False
+        buy_reason_prefix = ""
+        
+        if mode == 'LEFT':
+            # 左侧买入：RSI<30 + 触及下轨
+            if rsi < TMonitorConfig.RSI_OVERSOLD and close <= bb_lower * TMonitorConfig.BB_TOLERANCE:
+                buy_signal = True
+                buy_reason_prefix = "左侧"
+        
+        elif mode == 'RIGHT':
+            # 右侧买入：RSI从超卖区回升
+            is_rsi_reversal_up = (rsi_prev2 < TMonitorConfig.RSI_OVERSOLD and 
+                                 rsi_prev < TMonitorConfig.RSI_OVERSOLD and 
+                                 rsi > TMonitorConfig.RSI_OVERSOLD)
+            is_rsi_recovery = (rsi_prev < 25 and 25 <= rsi <= 35)
+            
+            if (is_rsi_reversal_up or is_rsi_recovery) and close > bb_lower:
+                buy_signal = True
+                buy_reason_prefix = "右侧"
+        
+        elif mode == 'HYBRID':
+            # 混合买入：右侧确认（避免买早）+ 适度放宽
+            # 策略1: RSI从超卖回升（确认筑底完成）
+            is_rsi_reversal_up = (rsi_prev < TMonitorConfig.RSI_OVERSOLD and 
+                                 rsi >= TMonitorConfig.RSI_OVERSOLD and 
+                                 close > bb_lower * 0.995)  # 价格已离开下轨
+            
+            # 策略2: RSI在超卖区但呈上升趋势（底部反弹初期）
+            is_rsi_rising = (rsi < 35 and rsi > rsi_prev and rsi_prev > rsi_prev2 and
+                           close >= bb_lower)
+            
+            if is_rsi_reversal_up or is_rsi_rising:
+                buy_signal = True
+                buy_reason_prefix = "混合"
+        
+        if buy_signal:
             confirmed, confirm_msg = self._check_buy_volume_confirm(df_1m, i)
             if confirmed:
-                # 冷却检查
                 allowed, cooldown_msg = self._check_signal_cooldown('BUY', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'BUY')
-                    reason = f"超卖买入(RSI:{rsi:.1f})"
+                    reason = f"{buy_reason_prefix}买入(RSI:{rsi:.1f})"
                     return 'BUY', reason, strength
                 else:
                     return None, cooldown_msg, 0
@@ -463,14 +515,47 @@ class TMonitorV3:
                 return None, confirm_msg, 0
         
         # 3. 卖出信号判断
-        elif rsi > TMonitorConfig.RSI_OVERBOUGHT and close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE):
-            # 量价确认
+        sell_signal = False
+        sell_reason_prefix = ""
+        
+        if mode == 'LEFT':
+            # 左侧卖出：RSI>70 + 触及上轨
+            if rsi > TMonitorConfig.RSI_OVERBOUGHT and close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE):
+                sell_signal = True
+                sell_reason_prefix = "左侧"
+        
+        elif mode == 'RIGHT':
+            # 右侧卖出：RSI从超买区回落
+            is_rsi_reversal_down = (rsi_prev2 > TMonitorConfig.RSI_OVERBOUGHT and 
+                                   rsi_prev > TMonitorConfig.RSI_OVERBOUGHT and 
+                                   rsi < TMonitorConfig.RSI_OVERBOUGHT)
+            is_rsi_decline = (rsi_prev > 75 and 65 <= rsi <= 75)
+            
+            if (is_rsi_reversal_down or is_rsi_decline) and close < bb_upper:
+                sell_signal = True
+                sell_reason_prefix = "右侧"
+        
+        elif mode == 'HYBRID':
+            # 混合卖出：左侧积极（不错过拉升）+ 持续监控（抓住顶部震荡）
+            # 策略1: 标准左侧卖出（拉升过程）
+            is_left_sell = (rsi > TMonitorConfig.RSI_OVERBOUGHT and 
+                          close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE))
+            
+            # 策略2: 顶部震荡卖出（RSI虽回落但仍在高位）
+            is_high_consolidation = (rsi > 65 and rsi < rsi_prev and 
+                                   close >= bb_upper * 0.98)  # 接近上轨
+            
+            if is_left_sell or is_high_consolidation:
+                sell_signal = True
+                sell_reason_prefix = "混合"
+        
+        if sell_signal:
             confirmed, confirm_msg = self._check_sell_volume_confirm(df_1m, i)
             if confirmed:
                 allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'SELL')
-                    reason = f"超买卖出(RSI:{rsi:.1f})"
+                    reason = f"{sell_reason_prefix}卖出(RSI:{rsi:.1f})"
                     return 'SELL', reason, strength
                 else:
                     return None, cooldown_msg, 0
