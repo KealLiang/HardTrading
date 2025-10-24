@@ -886,7 +886,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
@@ -900,7 +900,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
