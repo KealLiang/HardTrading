@@ -283,7 +283,7 @@ def is_trading_day(date: str) -> bool:
 
 def get_current_or_prev_trading_day(date: str) -> str:
     """
-    获取指定日期，如果是交易日则直接返回，否则返回前一个交易日
+    获取指定日期，如果是交易日则直接返回，否则返回最近的交易日（向前查找）
     Args:
         date: 日期字符串，格式为 'YYYYMMDD'
     Returns:
@@ -294,11 +294,23 @@ def get_current_or_prev_trading_day(date: str) -> str:
         if is_trading_day(date):
             return date
 
-        # 如果不是交易日，则获取前一个交易日
-        return get_prev_trading_day(date)
+        # 如果不是交易日，获取最近的交易日（向前查找）
+        # 将输入日期转换为datetime对象
+        date_dt = datetime.strptime(date, '%Y%m%d')
+        
+        # 获取从输入日期前15天到输入日期的所有交易日
+        prev_days = SSE_CALENDAR.valid_days(start_date=date_dt - timedelta(days=15), end_date=date_dt)
+        prev_days = remove_holidays(prev_days)
+        
+        # 如果没有找到交易日，返回None
+        if len(prev_days) < 1:
+            return None
+        
+        # 返回最近的一个交易日（列表最后一个）
+        return prev_days[-1].strftime('%Y%m%d')
 
     except Exception as e:
-        logging.error(f"获取当前或前一个交易日时出错: {str(e)}")
+        logging.error(f"获取当前或最近交易日时出错: {str(e)}")
         return None
 
 
