@@ -344,7 +344,7 @@ def strategy_scan(candidate_model='a'):
         '*** 二次确认信号',
     ]
 
-    start_date = '20250730'
+    start_date = '20250830'
     end_date = None
     stock_pool = ['300581', '600475']
     details_after_date = '20251010'  # 只看这个日期之后的
@@ -370,7 +370,7 @@ def pullback_rebound_scan(candidate_model='a'):
         '止跌反弹信号',
     ]
 
-    start_date = '20250730'
+    start_date = '20250830'
     end_date = None
     details_after_date = '20251010'  # 只看这个日期之后的
 
@@ -669,9 +669,9 @@ def get_stock_concept_and_industry():
 
 def find_similar_trends():
     data_dir = "./data/astocks"  # 数据文件所在目录
-    target_stock_code = "600382"  # 目标股票代码
-    start_date = '20250905'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
-    end_date = '20251020'  # 目标股票的结束日期
+    target_stock_code = "300611"  # 目标股票代码
+    start_date = '20250911'  # 目标股票的起始日期（字符串格式 YYYYMMDD）
+    end_date = '20251023'  # 目标股票的结束日期
 
     # 1.寻找自身相似时期
     # target_index_code = "sz399001"  # 目标指数代码
@@ -695,7 +695,7 @@ def find_similar_trends():
 
     # ============= 执行相似趋势查找（先选择模式） =============
     # 模式1: 单一结束日期（适合确定某个时点的相似走势）
-    trend_end_date = '20251015'  # 被查找股票的趋势结束日期
+    trend_end_date = '20251023'  # 被查找股票的趋势结束日期
     trend_date_range = None  # 设为None表示使用单一日期模式
     search_step = None  # 单一日期无步长
 
@@ -887,7 +887,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()  # 一键执行策略扫描与对比图生成
+    full_scan_routine()  # 一键执行策略扫描与对比图生成
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
@@ -900,7 +900,7 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
     # draw_ths_fupan()
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # update_synonym_groups()
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
