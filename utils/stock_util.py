@@ -1,3 +1,26 @@
+def format_stock_code(code) -> str:
+    """
+    格式化股票代码为6位字符串，补全前导零
+    
+    Args:
+        code: 股票代码，可以是字符串或数字
+    
+    Returns:
+        str: 6位股票代码字符串，如 '000001', '600000'
+    
+    Examples:
+        >>> format_stock_code(1)
+        '000001'
+        >>> format_stock_code('1')
+        '000001'
+        >>> format_stock_code('600000')
+        '600000'
+        >>> format_stock_code(2424)
+        '002424'
+    """
+    return str(code).zfill(6)
+
+
 def stock_limit_ratio(stock_code: str) -> float:
     """
     根据股票代码确定其涨跌停限制比例。

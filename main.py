@@ -7,14 +7,8 @@ from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.breakout_strategy_v2 import BreakoutStrategyV2
-from strategy.scannable_strategy import ScannableBreakoutStrategy
-from strategy.hybrid_strategy import HybridStrategy
-from strategy.market_regime import MarketRegimeStrategy
-from strategy.origin_breakout_strategy import OriginBreakoutStrategy
-from strategy.panic_rebound_strategy import PanicReboundStrategy
 from strategy.pullback_rebound_strategy import PullbackReboundStrategy
 from strategy.scannable_pullback_rebound_strategy import ScannablePullbackReboundStrategy
-from strategy.regime_classifier_strategy import RegimeClassifierStrategy
 from strategy.weekly_volume_momentum_strategy import WeeklyVolumeMomentumStrategy
 
 from utils.logging_util import redirect_print_to_logger
@@ -28,7 +22,7 @@ from analysis.daily_group import find_stocks_by_hot_themes
 from analysis.dejavu import process_dejavu_data
 from analysis.fupan_statistics import fupan_all_statistics
 from analysis.fupan_statistics_plot import plot_all
-from analysis.seek_historical_similar import find_other_similar_trends, find_self_similar_windows
+from analysis.seek_historical_similar import find_other_similar_trends
 from analysis.stock_price_plotter import plot_multiple_stocks
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
 from analysis.whimsical import process_zt_data
@@ -46,10 +40,11 @@ from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
 from utils.synonym_manager import SynonymManager
-from bin.experiment_runner import run_comparison_experiment
 from bin.psq_analyzer import run_psq_analysis_report
 from bin.parameter_optimizer import ParameterOptimizer
 from bin.batch_backtester import batch_backtest_from_file, batch_backtest_from_list
+from bin.selection_history_tracker import record_from_directory
+from utils.backtrade.selection_review_visualizer import review_historical_selections
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(threadName)s] %(levelname)s - %(message)s')
@@ -406,6 +401,62 @@ def find_candidate_stocks_weekly_growth(offset_days: int = 0):
     run_weekly_filter(offset_days=offset_days)
 
 
+def record_scan_to_history(base_dir: str, model: str):
+    """
+    记录扫描结果到历史文件
+    
+    Args:
+        base_dir: 扫描结果目录
+        model: 模式标识 (如 'breakout_a', 'rebound_a', 'breakout_b')
+    """
+    try:
+        record_from_directory(base_dir, model)
+        logging.info(f"已记录 {model} 模式的扫描结果到历史文件")
+    except Exception as e:
+        logging.error(f"记录扫描结果到历史文件失败: {e}")
+
+
+def review_history(start_date: str, end_date: str, model: str = None, before_days: int = 90):
+    """
+    回顾历史候选股的后续走势
+    
+    Args:
+        start_date: 开始日期 (信号日期)，格式 'YYYY-MM-DD' 或 'YYYYMMDD'
+        end_date: 结束日期 (信号日期)，格式 'YYYY-MM-DD' 或 'YYYYMMDD'
+        model: 模式筛选，如 'rebound_a', 'breakout_a', 'breakout_b'，None表示全部
+        before_days: 信号日期之前显示的天数（默认90天）
+    
+    Returns:
+        生成的对比图文件列表
+    
+    示例:
+        # 回顾10月20日到10月24日所有模式的候选股
+        review_history('2025-10-20', '2025-10-24')
+        
+        # 只回顾止跌反弹策略a的候选股
+        review_history('2025-10-20', '2025-10-24', model='rebound_a')
+    """
+    try:
+        files = review_historical_selections(start_date, end_date, model, before_days)
+        
+        if files:
+            print(f"\n✅ 成功生成 {len(files)} 张回顾对比图")
+            print(f"📁 回顾图保存在: bin/candidate_history/review_charts/")
+            print("\n生成的回顾图:")
+            for file in files:
+                print(f"  📊 {os.path.basename(file)}")
+        else:
+            print("❌ 未找到符合条件的历史记录或生成失败")
+        
+        return files
+        
+    except Exception as e:
+        logging.error(f"回顾历史记录失败: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return []
+
+
 def analyze_weekly_growth_win_rate(scan_file: str = None, high_ratio: float = 0.25, close_ratio: float = 0.75):
     """
     分析周成交量增长策略的胜率
@@ -578,11 +629,17 @@ def full_scan_routine(candidate_model='a'):
     scan_steps = [
         (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
+        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'), 
+         f"记录突破策略{candidate_model}扫描结果"),
         (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
         (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
+        (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'), 
+         f"记录止跌反弹策略{candidate_model}扫描结果"),
         (lambda: find_candidate_stocks_weekly_growth(), "筛选周增长的候选股"),
         (lambda: strategy_scan('b'), "执行突破策略扫描b"),
         (lambda: generate_comparison_charts('b'), "生成突破策略对比图b"),
+        (lambda: record_scan_to_history('bin/candidate_stocks_breakout_b', 'breakout_b'), 
+         "记录突破策略b扫描结果"),
     ]
 
     execute_routine(scan_steps, "full_scan_routine")
@@ -887,7 +944,8 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()  # 一键执行策略扫描与对比图生成
+    # full_scan_routine()  # 一键执行策略扫描与对比图生成
+    review_history('2025-10-22', '2025-10-24')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
