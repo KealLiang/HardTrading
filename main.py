@@ -35,6 +35,7 @@ from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yy
     find_top_yyb_trades
 from fetch.tonghuashun.fupan import all_fupan
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
+from fetch.tonghuashun.fupan_plot_html import draw_fupan_lb_html
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 
 from filters.find_abnormal import find_serious_abnormal_stocks_range
@@ -614,6 +615,7 @@ def daily_routine():
         (whimsical_fupan_analyze, "执行题材分析"),
         (generate_ladder_chart, "生成热门股天梯"),
         (draw_ths_fupan, "绘制涨跌高度图"),
+        (draw_ths_fupan_html, "生成涨跌高度html"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
         (auction_fengdan_analyze, "复盘分析封单数据"),
@@ -786,6 +788,16 @@ def draw_ths_fupan():
     draw_fupan_lb(start_date, end_date)
 
 
+def draw_ths_fupan_html():
+    """
+    生成HTML交互式复盘图
+    """
+    start_date = '20250830'  # 开始日期
+    # end_date = '20250115'  # 结束日期
+    end_date = None
+    draw_fupan_lb_html(start_date, end_date)
+
+
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
     start_date = '20250830'
@@ -956,7 +968,11 @@ if __name__ == '__main__':
     # get_stock_datas()
     # get_index_data()
     # fetch_ths_fupan()
-    draw_ths_fupan()
+    
+    # === 复盘图生成 ===
+    # draw_ths_fupan()        # PNG静态图
+    draw_ths_fupan_html()     # HTML交互图
+    
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()
