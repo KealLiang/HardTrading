@@ -945,7 +945,7 @@ if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
     # full_scan_routine()  # 一键执行策略扫描与对比图生成
-    review_history('2025-10-22', '2025-10-24')  # 可视化candidate_history
+    # review_history('2025-10-22', '2025-10-24')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
@@ -956,7 +956,7 @@ if __name__ == '__main__':
     # get_stock_datas()
     # get_index_data()
     # fetch_ths_fupan()
-    # draw_ths_fupan()
+    draw_ths_fupan()
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # update_synonym_groups()

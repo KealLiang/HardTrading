@@ -22,13 +22,15 @@ plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
 # 标签配置参数
 LABEL_CONFIG = {
     'font_size': 7,                 # 标签字体大小
-    'width': 1.5,                   # 标签估计宽度
-    'height': 0.8,                  # 标签估计高度
-    'base_offset': 3,               # 基础偏移距离
-    'max_offset': 20,                # 最大偏移距离
-    'search_radius': 10,             # 搜索半径
+    'width': 2.0,                   # 标签估计宽度（增加以更准确反映实际尺寸）
+    'height': 1.0,                  # 标签估计高度（增加以更准确反映实际尺寸）
+    'base_offset': 2,               # 基础偏移距离（降低以更靠近数据点）
+    'max_offset': 15,               # 最大偏移距离（降低以避免标签离太远）
+    'arrow_threshold': 8,           # 超过此距离显示箭头
+    'search_radius': 10,            # 搜索半径
     'alpha': 0.8,                   # 标签背景透明度
     'padding': 0.2,                 # 标签内边距
+    'debug_collision': False,       # 是否输出碰撞检测调试信息
 }
 
 
@@ -194,24 +196,46 @@ class GlobalLabelManager:
             return int(y_value)
         return int(y_value / 0.5)  # 使用网格大小做近似
         
-    def add_label_position(self, date_index, y, width, height):
-        """记录已经放置的标签位置"""
-        self.label_positions.append((date_index, y, width, height))
+    def add_label_position(self, date_index, y, width, height, dx_offset=0, dy_offset=0):
+        """记录已经放置的标签位置（考虑偏移）"""
+        # 将offset points转换为数据坐标空间的估算偏移
+        # 调整系数以更准确反映实际标签位置
+        point_to_data_x = 0.04  # 降低以减少x方向估算距离
+        point_to_data_y = 0.25  # 降低以减少y方向估算距离
         
-    def check_collision(self, date_index, y, width, height):
-        """检查是否与已有标签重叠"""
+        actual_x = date_index + dx_offset * point_to_data_x
+        actual_y = y + dy_offset * point_to_data_y
+        
+        self.label_positions.append((actual_x, actual_y, width, height))
+        
+    def check_collision(self, date_index, y, width, height, dx_offset=0, dy_offset=0, debug=False):
+        """检查是否与已有标签重叠（考虑偏移）"""
+        # 将offset points转换为数据坐标空间（与add_label_position保持一致）
+        point_to_data_x = 0.04  # 降低以减少x方向估算距离
+        point_to_data_y = 0.25  # 降低以减少y方向估算距离
+        
+        actual_x = date_index + dx_offset * point_to_data_x
+        actual_y = y + dy_offset * point_to_data_y
+        
+        collision_count = 0
         for pos_x, pos_y, pos_w, pos_h in self.label_positions:
-            # 检查日期是否相同或相邻
-            if abs(pos_x - date_index) > 1:
+            # 检查日期是否相同或相邻（使用实际位置）
+            if abs(pos_x - actual_x) > 2:  # 增加检测范围
                 continue
                 
-            # 检查是否重叠
-            if (date_index < pos_x + pos_w and
-                date_index + width > pos_x and
-                y < pos_y + pos_h and
-                y + height > pos_y):
+            # 检查是否重叠（矩形碰撞检测）
+            if (actual_x < pos_x + pos_w and
+                actual_x + width > pos_x and
+                actual_y < pos_y + pos_h and
+                actual_y + height > pos_y):
+                collision_count += 1
+                if debug:
+                    print(f"  ❌ 碰撞: offset({dx_offset:.0f},{dy_offset:.0f}) -> pos({actual_x:.2f},{actual_y:.2f}) 与已有标签({pos_x:.2f},{pos_y:.2f}) 重叠")
                 return True
-                
+        
+        if debug and collision_count == 0:
+            print(f"  ✓ 无碰撞: offset({dx_offset:.0f},{dy_offset:.0f}) -> pos({actual_x:.2f},{actual_y:.2f})")
+        
         return False
         
     def find_best_empty_space(self, date_index, y, width, height, search_radius=None):
@@ -410,22 +434,45 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
         # 将所有点按优先级排序，高优先级先处理
         all_points.sort(key=lambda p: p[3], reverse=True)
         
-        # 预定义位置模板 - 右、左、上、下四个方向的固定偏移量
+        # 预定义位置模板 - 优先右侧，然后上、左、下
         base_offset = config['base_offset']
         position_templates = [
             {'name': 'right', 'ha': 'left', 'va': 'center', 'dx': base_offset, 'dy': 0},
-            {'name': 'left', 'ha': 'right', 'va': 'center', 'dx': -base_offset, 'dy': 0},
             {'name': 'top', 'ha': 'center', 'va': 'bottom', 'dx': 0, 'dy': base_offset},
+            {'name': 'left', 'ha': 'right', 'va': 'center', 'dx': -base_offset, 'dy': 0},
             {'name': 'bottom', 'ha': 'center', 'va': 'top', 'dx': 0, 'dy': -base_offset},
         ]
         
-        # 附加偏移模板 - 用于尝试更多位置
+        # 附加偏移模板 - 优先尝试近距离位置，然后才是远距离
         max_offset = config['max_offset']
         mid_offset = max_offset // 2
+        near_offset = base_offset * 2  # 近距离偏移（约为base_offset的2倍）
+        
         additional_offsets = [
-            (mid_offset, mid_offset), (mid_offset, -mid_offset), (-mid_offset, mid_offset), (-mid_offset, -mid_offset),  # 对角线方向
-            (max_offset, 0), (-max_offset, 0), (0, max_offset), (0, -max_offset),  # 更远的直线方向
-            (max_offset, mid_offset), (max_offset, -mid_offset), (-max_offset, mid_offset), (-max_offset, -mid_offset),  # 更远的对角线
+            # 第一优先：近距离右侧
+            (near_offset, 0),             # 近右
+            (near_offset, near_offset//2),   # 近右上
+            (near_offset, -near_offset//2),  # 近右下
+            
+            # 第二优先：中距离右侧
+            (mid_offset, 0),              # 中右
+            (mid_offset, mid_offset//2),     # 中右上
+            (mid_offset, -mid_offset//2),    # 中右下
+            
+            # 第三优先：近距离上下
+            (0, near_offset),             # 近上
+            (0, -near_offset),            # 近下
+            
+            # 第四优先：中距离上下
+            (0, mid_offset),              # 中上
+            (0, -mid_offset),             # 中下
+            
+            # 第五优先：近距离左侧
+            (-near_offset, 0),            # 近左
+            
+            # 最后：远距离（如果前面都失败）
+            (max_offset, 0),              # 远右
+            (-mid_offset, 0),             # 中左
         ]
             
         # 设置标签大致尺寸估计值
@@ -514,10 +561,15 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             found_position = False
             final_position = None
             
+            # 调试信息（可选）
+            if config.get('debug_collision', False) and label:
+                print(f"\n标签 '{label[:10]}...' 在位置 ({date_index}, {yi}) 尝试候选位置:")
+            
             for dx, dy in candidates:
-                # 检查是否与已有标签重叠
+                # 🔧 修复：检查碰撞时传入偏移量
                 collision = global_label_manager.check_collision(
-                    date_index, yi, label_width, label_height
+                    date_index, yi, label_width, label_height, dx, dy,
+                    debug=config.get('debug_collision', False)
                 )
                 
                 if not collision:
@@ -572,6 +624,23 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
             # 创建文本对象并添加到图表
             # 如果没有指定target_ax，则使用默认的ax
             axes_to_use = target_ax if target_ax is not None else ax
+            
+            # 计算标签到数据点的距离，决定是否显示箭头
+            dx_abs = abs(final_position['dx'])
+            dy_abs = abs(final_position['dy'])
+            distance = math.sqrt(dx_abs**2 + dy_abs**2)
+            
+            # 当标签离数据点较远时，显示箭头帮助识别归属
+            arrow_props = None
+            if distance > config.get('arrow_threshold', 8):
+                arrow_props = dict(
+                    arrowstyle='->',
+                    color=color,
+                    lw=0.5,
+                    alpha=0.6,
+                    connectionstyle='arc3,rad=0'
+                )
+            
             text = axes_to_use.annotate(
                 label.replace(', ', '\n'), 
                 xy=(point_xi, yi),
@@ -582,12 +651,14 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
                 ha=ha,
                 color=color,
                 bbox=dict(boxstyle="round,pad="+str(config['padding']), fc="white", alpha=config['alpha'], ec=color, lw=0.5),
+                arrowprops=arrow_props,  # 根据距离决定是否显示箭头
                 zorder=z_order  # 确保标签始终在最上层，且优先级高的在最上
             )
             
-            # 记录标签位置
+            # 🔧 修复：记录标签位置时传入偏移量
             global_label_manager.add_label_position(
-                date_index, yi, label_width, label_height
+                date_index, yi, label_width, label_height, 
+                final_position['dx'], final_position['dy']
             )
 
     # 提取实际日期和交易日索引
