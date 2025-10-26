@@ -8,23 +8,24 @@ HTML交互式复盘图生成器 - 使用Plotly
 4. 生成单个HTML文件，方便分享
 """
 
+import os
+import re
+import sys
 from datetime import datetime
+
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import re
-import sys
-import os
 
 # 导入工具函数
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utils.stock_util import stock_limit_ratio
 
 
-def format_stock_name_with_indicators(stock_code: str, stock_name: str, 
-                                    zhangting_open_times: str = None, 
-                                    first_zhangting_time: str = None, 
-                                    final_zhangting_time: str = None) -> str:
+def format_stock_name_with_indicators(stock_code: str, stock_name: str,
+                                      zhangting_open_times: str = None,
+                                      first_zhangting_time: str = None,
+                                      final_zhangting_time: str = None) -> str:
     """
     格式化股票名称，添加涨跌幅标识和一字板标识
     
@@ -37,12 +38,12 @@ def format_stock_name_with_indicators(stock_code: str, stock_name: str,
         clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
         limit_ratio = stock_limit_ratio(clean_code)
         formatted_name = stock_name
-        
+
         # 判断是否为一字板
         is_yizi_ban = is_yizi_board_zhangting(zhangting_open_times, first_zhangting_time, final_zhangting_time)
         if is_yizi_ban:
             formatted_name = f"{formatted_name}|"
-        
+
         # 根据涨跌幅比例添加星号
         if limit_ratio == 0.2:
             return f"{formatted_name}*"
@@ -62,20 +63,20 @@ def is_yizi_board_zhangting(zhangting_open_times: str, first_zhangting_time: str
         open_times = int(str(zhangting_open_times).strip())
         if open_times != 0:
             return False
-        
-        if (first_zhangting_time is None or final_zhangting_time is None or 
-            str(first_zhangting_time).strip() == '' or str(final_zhangting_time).strip() == ''):
+
+        if (first_zhangting_time is None or final_zhangting_time is None or
+                str(first_zhangting_time).strip() == '' or str(final_zhangting_time).strip() == ''):
             return False
-        
+
         first_time = str(first_zhangting_time).strip()
         final_time = str(final_zhangting_time).strip()
-        
+
         if first_time != final_time:
             return False
-        
+
         if not is_market_open_time(first_time):
             return False
-        
+
         return True
     except:
         return False
@@ -92,6 +93,43 @@ def is_market_open_time(time_str: str) -> bool:
         return False
     except:
         return False
+
+
+# ========== 工具函数：避免重复代码 ==========
+
+def format_stock_list_for_hover(stock_list, stocks_per_line=5):
+    """
+    格式化股票列表用于悬浮窗显示（每N只换一行）
+    
+    Args:
+        stock_list: 股票列表
+        stocks_per_line: 每行显示的股票数，默认5
+        
+    Returns:
+        格式化后的字符串，用<br>分隔
+    """
+    if len(stock_list) > stocks_per_line:
+        stock_lines = [', '.join(stock_list[i:i + stocks_per_line]) for i in range(0, len(stock_list), stocks_per_line)]
+        return '<br>'.join(stock_lines)
+    else:
+        return ', '.join(stock_list)
+
+
+def create_display_labels(stock_list, max_display=3):
+    """
+    创建图表上显示的标签（超过max_display个时添加省略号）
+    
+    Args:
+        stock_list: 股票列表
+        max_display: 最大显示数量，默认3
+        
+    Returns:
+        格式化后的标签文本
+    """
+    if len(stock_list) > max_display:
+        return '<br>'.join(stock_list[:max_display]) + '<br>……'
+    else:
+        return '<br>'.join(stock_list) if stock_list else ''
 
 
 def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=None):
@@ -111,7 +149,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_data = pd.read_excel(fupan_file, sheet_name="连板数据", index_col=0)
     dieting_data = pd.read_excel(fupan_file, sheet_name="跌停数据", index_col=0)
     shouban_data = pd.read_excel(fupan_file, sheet_name="首板数据", index_col=0)
-    
+
     # 读取默默上涨数据（可能不存在）
     try:
         momo_data = pd.read_excel(fupan_file, sheet_name="默默上涨", index_col=0)
@@ -156,21 +194,21 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             '几天几板', '最新价', '首次涨停时间', '最新涨跌幅',
             '连续涨停天数', '涨停原因类别'
         ])
-        
+
         # 清理数据
         lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].fillna(0)
         lianban_df['连续涨停天数'] = lianban_df['连续涨停天数'].replace('', 0)
         lianban_df['连续涨停天数'] = pd.to_numeric(lianban_df['连续涨停天数'], errors='coerce').fillna(0).astype(int)
-        
+
         # 提取几板数值
         def extract_ji_ban(ji_tian_ji_ban):
             match = re.search(r'(\d+)天(\d+)板', str(ji_tian_ji_ban))
             if match:
                 return int(match.group(2))
             return 0
-        
+
         lianban_df['几板'] = lianban_df['几天几板'].apply(extract_ji_ban)
-        
+
         # 提取最高几板（确保即使为0也显示）
         max_ji_ban = lianban_df['几板'].max() if not lianban_df.empty else 0
         if pd.isna(max_ji_ban):
@@ -197,7 +235,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             ) for _, row in max_lianban_filtered.iterrows()]
 
         # 提取次高连板（确保即使为0也显示）
-        second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban]['连续涨停天数'].max() if not lianban_df.empty and max_lianban > 0 else 0
+        second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban][
+            '连续涨停天数'].max() if not lianban_df.empty and max_lianban > 0 else 0
         if pd.isna(second_lianban):
             second_lianban = 0
         second_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == second_lianban]
@@ -220,18 +259,19 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             '跌停类型', '最新价', '最新涨跌幅',
             '连续跌停天数', '跌停原因类型'
         ])
-        
+
         if not dieting_df.empty:
             dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].fillna(0)
             dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].replace('', 0)
-            dieting_df['连续跌停天数'] = pd.to_numeric(dieting_df['连续跌停天数'], errors='coerce').fillna(0).astype(int)
+            dieting_df['连续跌停天数'] = pd.to_numeric(dieting_df['连续跌停天数'], errors='coerce').fillna(0).astype(
+                int)
 
             max_dieting = dieting_df['连续跌停天数'].max()
             max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
             max_dieting_stocks = []
             if not max_dieting_filtered.empty:
-                max_dieting_stocks = [format_stock_name_with_indicators(row['股票代码'], row['股票简称']) 
-                                     for _, row in max_dieting_filtered.iterrows()]
+                max_dieting_stocks = [format_stock_name_with_indicators(row['股票代码'], row['股票简称'])
+                                      for _, row in max_dieting_filtered.iterrows()]
         else:
             max_dieting = 0
             max_dieting_stocks = []
@@ -240,13 +280,13 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 首板数据
         shouban_col = shouban_data[date].dropna()
         shouban_counts.append(len(shouban_col))
-        
+
         # 默默上涨数据处理
         if has_momo_data and date in momo_data.columns:
             momo_col = momo_data[date].dropna()
             momo_stocks_data = []
             momo_zhangfus = []
-            
+
             for cell in momo_col:
                 if pd.isna(cell) or str(cell).strip() == '':
                     continue
@@ -256,7 +296,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                     stock_code = parts[0].strip()
                     stock_name = parts[1].strip()
                     qujian_zhangfu = parts[4].strip()  # 区间涨跌幅（第5个字段）
-                    
+
                     try:
                         # 去掉百分号，转换为浮点数
                         zhangfu_value = float(qujian_zhangfu.rstrip('%'))
@@ -264,7 +304,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                         momo_stocks_data.append(f"{stock_name}({qujian_zhangfu})")
                     except:
                         pass
-            
+
             # 计算平均涨幅或最大涨幅
             if momo_zhangfus:
                 avg_zhangfu = sum(momo_zhangfus) / len(momo_zhangfus)
@@ -281,14 +321,14 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             momo_results.append((date, None, [], []))
 
     # === 开始绘制Plotly图表 ===
-    
+
     # 提取日期和数据
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
     date_labels = [d.strftime('%Y-%m-%d') for d in lianban_dates]  # 修改日期格式为 yyyy-MM-dd
-    
+
     # 创建多Y轴图表（需要为默默上涨单独创建一个Y轴）
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
+
     # 首板数量线（主Y轴）
     fig.add_trace(
         go.Scatter(
@@ -306,27 +346,34 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         ),
         secondary_y=False,
     )
-    
+
+    # 最高几板线（副Y轴）- 调整到连板之前
+    max_ji_ban_days = [item[1] for item in max_ji_ban_results]
+    max_ji_ban_stocks = [format_stock_list_for_hover(item[2]) for item in max_ji_ban_results]
+    max_ji_ban_labels = [create_display_labels(item[2]) for item in max_ji_ban_results]
+
+    fig.add_trace(
+        go.Scatter(
+            x=date_labels,
+            y=max_ji_ban_days,
+            name='最高几板',
+            mode='lines+markers+text',
+            line=dict(color='purple', width=2),
+            marker=dict(symbol='star', size=10),
+            text=max_ji_ban_labels,
+            textposition='top center',
+            textfont=dict(size=9, color='purple'),
+            customdata=max_ji_ban_stocks,
+            hovertemplate='几板: %{y}板<br>股票: %{customdata}<extra></extra>',
+        ),
+        secondary_y=True,
+    )
+
     # 最高连板线（副Y轴）
     lianban_days = [item[1] for item in lianban_results]
-    # 悬浮窗股票列表：每5只股票换一行
-    lianban_stocks = []
-    for item in lianban_results:
-        stocks = item[2]
-        if len(stocks) > 5:
-            # 每5只换行
-            stock_lines = [', '.join(stocks[i:i+5]) for i in range(0, len(stocks), 5)]
-            lianban_stocks.append('<br>'.join(stock_lines))
-        else:
-            lianban_stocks.append(', '.join(stocks))
-    # 创建显示在图上的标签（股票名称），有省略时添加"……"
-    lianban_labels = []
-    for item in lianban_results:
-        if len(item[2]) > 3:
-            lianban_labels.append('<br>'.join(item[2][:3]) + '<br>……')
-        else:
-            lianban_labels.append('<br>'.join(item[2]) if item[2] else '')
-    
+    lianban_stocks = [format_stock_list_for_hover(item[2]) for item in lianban_results]
+    lianban_labels = [create_display_labels(item[2]) for item in lianban_results]
+
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -343,25 +390,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         ),
         secondary_y=True,
     )
-    
+
     # 次高连板线（副Y轴）
     lianban_second_days = [item[1] for item in lianban_second_results]
-    # 悬浮窗股票列表：每5只股票换一行
-    lianban_second_stocks = []
-    for item in lianban_second_results:
-        stocks = item[2]
-        if len(stocks) > 5:
-            stock_lines = [', '.join(stocks[i:i+5]) for i in range(0, len(stocks), 5)]
-            lianban_second_stocks.append('<br>'.join(stock_lines))
-        else:
-            lianban_second_stocks.append(', '.join(stocks))
-    lianban_second_labels = []
-    for item in lianban_second_results:
-        if len(item[2]) > 3:
-            lianban_second_labels.append('<br>'.join(item[2][:3]) + '<br>……')
-        else:
-            lianban_second_labels.append('<br>'.join(item[2]) if item[2] else '')
-    
+    lianban_second_stocks = [format_stock_list_for_hover(item[2]) for item in lianban_second_results]
+    lianban_second_labels = [create_display_labels(item[2]) for item in lianban_second_results]
+
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -378,25 +412,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         ),
         secondary_y=True,
     )
-    
+
     # 跌停线（副Y轴）
     dieting_days = [item[1] for item in dieting_results]
-    # 悬浮窗股票列表：每5只股票换一行
-    dieting_stocks = []
-    for item in dieting_results:
-        stocks = item[2]
-        if len(stocks) > 5:
-            stock_lines = [', '.join(stocks[i:i+5]) for i in range(0, len(stocks), 5)]
-            dieting_stocks.append('<br>'.join(stock_lines))
-        else:
-            dieting_stocks.append(', '.join(stocks))
-    dieting_labels = []
-    for item in dieting_results:
-        if len(item[2]) > 3:
-            dieting_labels.append('<br>'.join(item[2][:3]) + '<br>……')
-        else:
-            dieting_labels.append('<br>'.join(item[2]) if item[2] else '')
-    
+    dieting_stocks = [format_stock_list_for_hover(item[2]) for item in dieting_results]
+    dieting_labels = [create_display_labels(item[2]) for item in dieting_results]
+
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -413,71 +434,25 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         ),
         secondary_y=True,
     )
-    
-    # 最高几板线（副Y轴）
-    max_ji_ban_days = [item[1] for item in max_ji_ban_results]
-    # 悬浮窗股票列表：每5只股票换一行
-    max_ji_ban_stocks = []
-    for item in max_ji_ban_results:
-        stocks = item[2]
-        if len(stocks) > 5:
-            stock_lines = [', '.join(stocks[i:i+5]) for i in range(0, len(stocks), 5)]
-            max_ji_ban_stocks.append('<br>'.join(stock_lines))
-        else:
-            max_ji_ban_stocks.append(', '.join(stocks))
-    max_ji_ban_labels = []
-    for item in max_ji_ban_results:
-        if len(item[2]) > 3:
-            max_ji_ban_labels.append('<br>'.join(item[2][:3]) + '<br>……')
-        else:
-            max_ji_ban_labels.append('<br>'.join(item[2]) if item[2] else '')
-    
-    fig.add_trace(
-        go.Scatter(
-            x=date_labels,
-            y=max_ji_ban_days,
-            name='最高几板',
-            mode='lines+markers+text',
-            line=dict(color='purple', width=2),
-            marker=dict(symbol='star', size=10),
-            text=max_ji_ban_labels,
-            textposition='top center',
-            textfont=dict(size=9, color='purple'),
-            customdata=max_ji_ban_stocks,
-            hovertemplate='几板: %{y}板<br>股票: %{customdata}<extra></extra>',  # 去掉日期
-        ),
-        secondary_y=True,
-    )
-    
+
     # 默默上涨线（独立Y轴）- 显示平均涨幅
     momo_trace_index = None
     if has_momo_data and momo_results:
         momo_zhangfus = [item[1] for item in momo_results]  # 平均涨幅
-        # 悬浮窗股票列表：每5只股票换一行
-        momo_all_stocks = []
-        for item in momo_results:
-            all_stocks = item[2]  # 所有股票
-            if len(all_stocks) > 5:
-                stock_lines = [', '.join(all_stocks[i:i+5]) for i in range(0, len(all_stocks), 5)]
-                momo_all_stocks.append('<br>'.join(stock_lines))
-            else:
-                momo_all_stocks.append(', '.join(all_stocks))
-        
+        # 悬浮窗显示所有股票
+        momo_all_stocks = [format_stock_list_for_hover(item[2]) for item in momo_results]
+
         # 记录默默上涨trace的索引（当前是最后一个）
         momo_trace_index = len(fig.data)
-        
-        # 创建标签：显示前3只涨幅最高的股票
+
+        # 创建标签：显示前3只涨幅最高的股票（注意：是item[3]而不是item[2]）
         momo_labels = []
         for item in momo_results:
             if item[1] is None:  # 没有数据
                 momo_labels.append('')
             else:
-                top_3 = item[3]  # 前3只涨幅最高的股票
-                if len(top_3) > 0:
-                    momo_labels.append('<br>'.join(top_3[:3]) if len(top_3) <= 3 else '<br>'.join(top_3[:3]) + '<br>……')
-                else:
-                    momo_labels.append('')
-        
+                momo_labels.append(create_display_labels(item[3]))
+
         fig.add_trace(
             go.Scatter(
                 x=date_labels,
@@ -503,7 +478,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 yaxis='y3',  # 使用第三个Y轴
             )
         )
-    
+
     # 创建图层切换按钮（如果有默默上涨数据）
     updatemenus = []
     if momo_trace_index is not None:
@@ -551,7 +526,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 font=dict(size=13, family='SimHei', color='#333'),
             ),
         ]
-    
+
     # 更新布局
     fig.update_xaxes(
         title_text="日期",
@@ -559,7 +534,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         tickfont=dict(size=10),
         type='category',  # 确保日期按分类显示，不会自动格式化
     )
-    
+
     fig.update_yaxes(
         title_text="数量",
         secondary_y=False,
@@ -568,7 +543,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         zerolinewidth=2,
         zerolinecolor='gray',
     )
-    
+
     fig.update_yaxes(
         title_text="连板/跌停/几板天数",
         secondary_y=True,
@@ -577,9 +552,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         zerolinewidth=2,
         zerolinecolor='gray',
     )
-    
 
-    
     fig.update_layout(
         title=dict(
             text="连板/跌停/首板/默默上涨个股走势",
@@ -610,9 +583,9 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 font=dict(color='brown', size=12, family='SimHei')
             ),
             overlaying='y',  # 覆盖在主Y轴上
-            side='right',    # 显示在右侧
+            side='right',  # 显示在右侧
             # 不设置position，让它自然靠近图表右侧
-            showgrid=True,   # 显示网格线
+            showgrid=True,  # 显示网格线
             gridwidth=1,
             gridcolor='lightgray',
             zeroline=True,
@@ -621,15 +594,15 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             tickfont=dict(color='brown', size=10),
             tickformat='.1f',
             ticksuffix='%',
-            visible=False,   # 默认隐藏（连板天梯图层不显示）
+            visible=False,  # 默认隐藏（连板天梯图层不显示）
         ),
     )
-    
+
     # 添加网格线
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', secondary_y=False)
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', secondary_y=True)
-    
+
     # 生成文件名
     if output_path is None:
         date_range = ""
@@ -641,12 +614,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             date_range = f"to_{end_date.strftime('%Y%m%d')}"
         else:
             date_range = datetime.now().strftime('%Y%m%d')
-        
+
         output_path = f"images/fupan_lb_{date_range}.html"
-    
+
     # 确保目录存在
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
-    
+
     # 保存HTML文件
     fig.write_html(
         output_path,
@@ -663,7 +636,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             }
         }
     )
-    
+
     print(f"HTML图表已保存到: {output_path}")
     return output_path
 
@@ -688,4 +661,4 @@ if __name__ == '__main__':
     # 测试
     start_date = '20250830'
     end_date = None
-    draw_fupan_lb_html(start_date, end_date) 
+    draw_fupan_lb_html(start_date, end_date)
