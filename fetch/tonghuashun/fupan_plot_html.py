@@ -111,6 +111,15 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_data = pd.read_excel(fupan_file, sheet_name="连板数据", index_col=0)
     dieting_data = pd.read_excel(fupan_file, sheet_name="跌停数据", index_col=0)
     shouban_data = pd.read_excel(fupan_file, sheet_name="首板数据", index_col=0)
+    
+    # 读取默默上涨数据（可能不存在）
+    try:
+        momo_data = pd.read_excel(fupan_file, sheet_name="默默上涨", index_col=0)
+        has_momo_data = True
+    except:
+        momo_data = None
+        has_momo_data = False
+        print("未找到【默默上涨】数据sheet，将跳过该数据")
 
     # 提取日期列
     dates = lianban_data.columns
@@ -135,6 +144,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     dieting_results = []
     shouban_counts = []
     max_ji_ban_results = []
+    momo_results = []  # 默默上涨数据
 
     # 逐列提取数据
     for date in dates:
@@ -230,6 +240,45 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 首板数据
         shouban_col = shouban_data[date].dropna()
         shouban_counts.append(len(shouban_col))
+        
+        # 默默上涨数据处理
+        if has_momo_data and date in momo_data.columns:
+            momo_col = momo_data[date].dropna()
+            momo_stocks_data = []
+            momo_zhangfus = []
+            
+            for cell in momo_col:
+                if pd.isna(cell) or str(cell).strip() == '':
+                    continue
+                parts = str(cell).split(';')
+                if len(parts) >= 5:
+                    # 格式：股票代码; 股票简称; 最新价; 最新涨跌幅; 区间涨跌幅; 区间成交额; 区间振幅; 上市交易日天数
+                    stock_code = parts[0].strip()
+                    stock_name = parts[1].strip()
+                    qujian_zhangfu = parts[4].strip()  # 区间涨跌幅（第5个字段）
+                    
+                    try:
+                        # 去掉百分号，转换为浮点数
+                        zhangfu_value = float(qujian_zhangfu.rstrip('%'))
+                        momo_zhangfus.append(zhangfu_value)
+                        momo_stocks_data.append(f"{stock_name}({qujian_zhangfu})")
+                    except:
+                        pass
+            
+            # 计算平均涨幅或最大涨幅
+            if momo_zhangfus:
+                avg_zhangfu = sum(momo_zhangfus) / len(momo_zhangfus)
+                max_zhangfu = max(momo_zhangfus)
+                # 找出涨幅最高的前3只股票
+                top_3_indices = sorted(range(len(momo_zhangfus)), key=lambda i: momo_zhangfus[i], reverse=True)[:3]
+                top_3_stocks = [momo_stocks_data[i] for i in top_3_indices if i < len(momo_stocks_data)]
+                momo_results.append((date, avg_zhangfu, momo_stocks_data, top_3_stocks))
+            else:
+                # 没有数据时用None，不影响Y轴范围
+                momo_results.append((date, None, [], []))
+        elif has_momo_data:
+            # 该日期没有默默上涨数据，用None
+            momo_results.append((date, None, [], []))
 
     # === 开始绘制Plotly图表 ===
     
@@ -237,7 +286,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
     date_labels = [d.strftime('%Y-%m-%d') for d in lianban_dates]  # 修改日期格式为 yyyy-MM-dd
     
-    # 创建双Y轴图表
+    # 创建多Y轴图表（需要为默默上涨单独创建一个Y轴）
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     # 首板数量线（主Y轴）
@@ -400,6 +449,109 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         secondary_y=True,
     )
     
+    # 默默上涨线（独立Y轴）- 显示平均涨幅
+    momo_trace_index = None
+    if has_momo_data and momo_results:
+        momo_zhangfus = [item[1] for item in momo_results]  # 平均涨幅
+        # 悬浮窗股票列表：每5只股票换一行
+        momo_all_stocks = []
+        for item in momo_results:
+            all_stocks = item[2]  # 所有股票
+            if len(all_stocks) > 5:
+                stock_lines = [', '.join(all_stocks[i:i+5]) for i in range(0, len(all_stocks), 5)]
+                momo_all_stocks.append('<br>'.join(stock_lines))
+            else:
+                momo_all_stocks.append(', '.join(all_stocks))
+        
+        # 记录默默上涨trace的索引（当前是最后一个）
+        momo_trace_index = len(fig.data)
+        
+        # 创建标签：显示前3只涨幅最高的股票
+        momo_labels = []
+        for item in momo_results:
+            if item[1] is None:  # 没有数据
+                momo_labels.append('')
+            else:
+                top_3 = item[3]  # 前3只涨幅最高的股票
+                if len(top_3) > 0:
+                    momo_labels.append('<br>'.join(top_3[:3]) if len(top_3) <= 3 else '<br>'.join(top_3[:3]) + '<br>……')
+                else:
+                    momo_labels.append('')
+        
+        fig.add_trace(
+            go.Scatter(
+                x=date_labels,
+                y=momo_zhangfus,
+                name='默默上涨(平均涨幅%)',
+                mode='lines+markers+text',  # 添加text显示标签
+                line=dict(color='brown', width=2, dash='dot'),
+                marker=dict(symbol='diamond-open', size=8),
+                text=momo_labels,  # 显示TOP3股票
+                textposition='top center',
+                textfont=dict(size=9, color='brown'),
+                visible=False,  # 默认隐藏，不显示
+                showlegend=True,  # 显示图例
+                legendgroup='momo',  # 图例分组
+                customdata=momo_all_stocks,
+                # 独立悬浮窗，去掉日期（顶部已有）
+                hovertemplate='平均涨幅: %{y:.1f}%<br>股票: %{customdata}<extra></extra>',
+                hoverinfo='all',
+                hoverlabel=dict(
+                    bgcolor='rgba(139, 69, 19, 0.9)',  # 棕色背景
+                    font=dict(color='white', size=12, family='SimHei')
+                ),
+                yaxis='y3',  # 使用第三个Y轴
+            )
+        )
+    
+    # 创建图层切换按钮（如果有默默上涨数据）
+    updatemenus = []
+    if momo_trace_index is not None:
+        total_traces = len(fig.data)
+        updatemenus = [
+            dict(
+                type="buttons",
+                direction="left",
+                buttons=[
+                    dict(
+                        args=[
+                            {"visible": [True if i != momo_trace_index else False for i in range(total_traces)]},
+                            {
+                                "yaxis.visible": True,
+                                "yaxis2.visible": True,
+                                "yaxis3.visible": False,
+                            }
+                        ],
+                        label="📊 连板天梯",
+                        method="update"
+                    ),
+                    dict(
+                        args=[
+                            {"visible": [False if i != momo_trace_index else True for i in range(total_traces)]},
+                            {
+                                "yaxis.visible": False,
+                                "yaxis2.visible": False,
+                                "yaxis3.visible": True,
+                            }
+                        ],
+                        label="📈 默默上涨",
+                        method="update"
+                    ),
+                ],
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                active=0,  # 默认选中"连板天梯"
+                x=0.15,
+                xanchor="left",
+                y=1.09,
+                yanchor="top",
+                bgcolor='rgba(255, 255, 255, 0.95)',
+                bordercolor='#2196F3',
+                borderwidth=2,
+                font=dict(size=13, family='SimHei', color='#333'),
+            ),
+        ]
+    
     # 更新布局
     fig.update_xaxes(
         title_text="日期",
@@ -426,9 +578,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         zerolinecolor='gray',
     )
     
+
+    
     fig.update_layout(
         title=dict(
-            text="连板/跌停/首板个股走势",
+            text="连板/跌停/首板/默默上涨个股走势",
             x=0.5,
             xanchor='center',
             font=dict(size=20, family='SimHei'),
@@ -443,11 +597,32 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             bordercolor='gray',
             borderwidth=1,
         ),
+        updatemenus=updatemenus,  # 添加切换按钮
         width=1800,
         height=900,
         font=dict(family='SimHei'),
         plot_bgcolor='white',
         paper_bgcolor='white',
+        # 配置第三个Y轴（默默上涨专用）
+        yaxis3=dict(
+            title=dict(
+                text="默默上涨涨幅(%)",
+                font=dict(color='brown', size=12, family='SimHei')
+            ),
+            overlaying='y',  # 覆盖在主Y轴上
+            side='right',    # 显示在右侧
+            # 不设置position，让它自然靠近图表右侧
+            showgrid=True,   # 显示网格线
+            gridwidth=1,
+            gridcolor='lightgray',
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor='gray',
+            tickfont=dict(color='brown', size=10),
+            tickformat='.1f',
+            ticksuffix='%',
+            visible=False,   # 默认隐藏（连板天梯图层不显示）
+        ),
     )
     
     # 添加网格线
