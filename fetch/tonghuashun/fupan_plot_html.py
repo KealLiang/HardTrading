@@ -21,6 +21,10 @@ from plotly.subplots import make_subplots
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utils.stock_util import stock_limit_ratio
 
+# 配置悬浮窗换行阈值
+LIANBAN_STOCKS_PER_LINE = 5  # 连板天梯图层：每5只股票换行
+MOMO_STOCKS_PER_LINE = 3  # 默默上涨图层：每3只股票换行
+
 
 def format_stock_name_with_indicators(stock_code: str, stock_name: str,
                                       zhangting_open_times: str = None,
@@ -284,24 +288,29 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 默默上涨数据处理
         if has_momo_data and date in momo_data.columns:
             momo_col = momo_data[date].dropna()
-            momo_stocks_data = []
+            momo_stocks_data = []  # 完整信息（涨幅+成交额）用于悬浮窗
+            momo_stocks_simple = []  # 简化信息（仅涨幅）用于节点标签
             momo_zhangfus = []
 
             for cell in momo_col:
                 if pd.isna(cell) or str(cell).strip() == '':
                     continue
                 parts = str(cell).split(';')
-                if len(parts) >= 5:
+                if len(parts) >= 6:
                     # 格式：股票代码; 股票简称; 最新价; 最新涨跌幅; 区间涨跌幅; 区间成交额; 区间振幅; 上市交易日天数
                     stock_code = parts[0].strip()
                     stock_name = parts[1].strip()
                     qujian_zhangfu = parts[4].strip()  # 区间涨跌幅（第5个字段）
+                    qujian_chengjiao = parts[5].strip() if len(parts) > 5 else ''  # 区间成交额（第6个字段）
 
                     try:
                         # 去掉百分号，转换为浮点数
                         zhangfu_value = float(qujian_zhangfu.rstrip('%'))
                         momo_zhangfus.append(zhangfu_value)
-                        momo_stocks_data.append(f"{stock_name}({qujian_zhangfu})")
+                        # 完整信息：股票名称(涨幅, 成交额) - 用于悬浮窗
+                        momo_stocks_data.append(f"{stock_name}({qujian_zhangfu}, {qujian_chengjiao})")
+                        # 简化信息：股票名称(涨幅) - 用于节点标签
+                        momo_stocks_simple.append(f"{stock_name}({qujian_zhangfu})")
                     except:
                         pass
 
@@ -309,16 +318,18 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             if momo_zhangfus:
                 avg_zhangfu = sum(momo_zhangfus) / len(momo_zhangfus)
                 max_zhangfu = max(momo_zhangfus)
-                # 找出涨幅最高的前3只股票
+                sample_count = len(momo_zhangfus)  # 样本数量
+                # 找出涨幅最高的前3只股票（用简化信息）
                 top_3_indices = sorted(range(len(momo_zhangfus)), key=lambda i: momo_zhangfus[i], reverse=True)[:3]
-                top_3_stocks = [momo_stocks_data[i] for i in top_3_indices if i < len(momo_stocks_data)]
-                momo_results.append((date, avg_zhangfu, momo_stocks_data, top_3_stocks))
+                top_3_stocks = [momo_stocks_simple[i] for i in top_3_indices if i < len(momo_stocks_simple)]
+                # 添加样本数量到结果中
+                momo_results.append((date, avg_zhangfu, momo_stocks_data, top_3_stocks, sample_count))
             else:
                 # 没有数据时用None，不影响Y轴范围
-                momo_results.append((date, None, [], []))
+                momo_results.append((date, None, [], [], 0))
         elif has_momo_data:
             # 该日期没有默默上涨数据，用None
-            momo_results.append((date, None, [], []))
+            momo_results.append((date, None, [], [], 0))
 
     # === 开始绘制Plotly图表 ===
 
@@ -349,7 +360,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 最高几板线（副Y轴）- 调整到连板之前
     max_ji_ban_days = [item[1] for item in max_ji_ban_results]
-    max_ji_ban_stocks = [format_stock_list_for_hover(item[2]) for item in max_ji_ban_results]
+    max_ji_ban_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in max_ji_ban_results]
     max_ji_ban_labels = [create_display_labels(item[2]) for item in max_ji_ban_results]
 
     fig.add_trace(
@@ -371,7 +382,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 最高连板线（副Y轴）
     lianban_days = [item[1] for item in lianban_results]
-    lianban_stocks = [format_stock_list_for_hover(item[2]) for item in lianban_results]
+    lianban_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in lianban_results]
     lianban_labels = [create_display_labels(item[2]) for item in lianban_results]
 
     fig.add_trace(
@@ -393,7 +404,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 次高连板线（副Y轴）
     lianban_second_days = [item[1] for item in lianban_second_results]
-    lianban_second_stocks = [format_stock_list_for_hover(item[2]) for item in lianban_second_results]
+    lianban_second_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in
+                             lianban_second_results]
     lianban_second_labels = [create_display_labels(item[2]) for item in lianban_second_results]
 
     fig.add_trace(
@@ -415,7 +427,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 跌停线（副Y轴）
     dieting_days = [item[1] for item in dieting_results]
-    dieting_stocks = [format_stock_list_for_hover(item[2]) for item in dieting_results]
+    dieting_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in dieting_results]
     dieting_labels = [create_display_labels(item[2]) for item in dieting_results]
 
     fig.add_trace(
@@ -437,10 +449,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 默默上涨线（独立Y轴）- 显示平均涨幅
     momo_trace_index = None
+    momo_annotations = []  # 用于存储样本数量的annotations
     if has_momo_data and momo_results:
         momo_zhangfus = [item[1] for item in momo_results]  # 平均涨幅
-        # 悬浮窗显示所有股票
-        momo_all_stocks = [format_stock_list_for_hover(item[2]) for item in momo_results]
+        # 悬浮窗显示所有股票（包含成交额），每4只换行
+        momo_all_stocks = [format_stock_list_for_hover(item[2], MOMO_STOCKS_PER_LINE) for item in momo_results]
 
         # 记录默默上涨trace的索引（当前是最后一个）
         momo_trace_index = len(fig.data)
@@ -452,6 +465,26 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 momo_labels.append('')
             else:
                 momo_labels.append(create_display_labels(item[3]))
+
+        # 创建样本数量的annotations（显示在节点下方）
+        for i, item in enumerate(momo_results):
+            if item[1] is not None:  # 有数据时才显示
+                sample_count = item[4]  # 样本数量
+                momo_annotations.append(
+                    dict(
+                        x=date_labels[i],
+                        y=item[1],  # Y坐标为平均涨幅
+                        xref='x',
+                        yref='y3',  # 使用y3轴
+                        text=f'{sample_count}只',
+                        showarrow=False,
+                        font=dict(size=8, color='brown'),
+                        xanchor='center',
+                        yanchor='top',
+                        yshift=-10,  # 向下偏移10像素
+                        visible=False,  # 默认隐藏（跟随图层切换）
+                    )
+                )
 
         fig.add_trace(
             go.Scatter(
@@ -483,6 +516,9 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     updatemenus = []
     if momo_trace_index is not None:
         total_traces = len(fig.data)
+        # 为每个annotation设置visible属性（跟随图层切换）
+        annotations_count = len(momo_annotations)
+
         updatemenus = [
             dict(
                 type="buttons",
@@ -495,6 +531,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                                 "yaxis.visible": True,
                                 "yaxis2.visible": True,
                                 "yaxis3.visible": False,
+                                # 隐藏所有样本数量annotations
+                                "annotations": [dict(ann, visible=False) for ann in momo_annotations],
                             }
                         ],
                         label="📊 连板天梯",
@@ -507,6 +545,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                                 "yaxis.visible": False,
                                 "yaxis2.visible": False,
                                 "yaxis3.visible": True,
+                                # 显示所有样本数量annotations
+                                "annotations": [dict(ann, visible=True) for ann in momo_annotations],
                             }
                         ],
                         label="📈 默默上涨",
@@ -571,6 +611,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             borderwidth=1,
         ),
         updatemenus=updatemenus,  # 添加切换按钮
+        annotations=momo_annotations,  # 添加样本数量标注（默认隐藏）
         width=1800,
         height=900,
         font=dict(family='SimHei'),
