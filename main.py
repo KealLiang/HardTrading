@@ -959,7 +959,7 @@ if __name__ == '__main__':
     # full_scan_routine()
     # get_stock_datas()
     # get_index_data()
-    review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
+    # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # strategy_scan('b')
@@ -971,7 +971,7 @@ if __name__ == '__main__':
     
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    # draw_ths_fupan_html()     # HTML交互图
+    draw_ths_fupan_html()     # HTML交互图
     
     # whimsical_fupan_analyze()
     # generate_ladder_chart()

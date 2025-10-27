@@ -101,24 +101,24 @@ def is_market_open_time(time_str: str) -> bool:
 
 # ========== 工具函数：避免重复代码 ==========
 
-def _inject_click_copy_script(html_path, momo_trace_index):
+def _inject_click_copy_script(html_path, copyable_trace_indices):
     """
-    向HTML文件注入JavaScript代码，实现点击【默默上涨】节点复制股票代码功能
+    向HTML文件注入JavaScript代码，实现点击节点复制股票代码功能（通用版）
     
     Args:
         html_path: HTML文件路径
-        momo_trace_index: 默默上涨trace在图表中的索引
+        copyable_trace_indices: 支持复制的trace索引列表
     """
     # 读取HTML文件
     with open(html_path, 'r', encoding='utf-8') as f:
         html_content = f.read()
-    
+
     # 准备JavaScript代码
     js_code = f"""
 <script>
-// 点击复制股票代码功能
+// 点击复制股票代码功能（通用版）
 (function() {{
-    const momoTraceIndex = {momo_trace_index};  // 默默上涨trace的索引
+    const copyableTraceIndices = {copyable_trace_indices};  // 支持复制的trace索引列表
     const plotDiv = document.querySelector('.plotly-graph-div');
     
     if (!plotDiv) {{
@@ -128,12 +128,12 @@ def _inject_click_copy_script(html_path, momo_trace_index):
     
     // 监听点击事件
     plotDiv.on('plotly_click', function(data) {{
-        // 检查是否点击的是默默上涨trace
+        // 检查是否点击了支持复制的trace
         if (data.points && data.points.length > 0) {{
             const point = data.points[0];
             
-            // 判断是否点击的是默默上涨图层
-            if (point.curveNumber === momoTraceIndex) {{
+            // 判断是否点击的是支持复制的图层
+            if (copyableTraceIndices.includes(point.curveNumber)) {{
                 // 获取股票代码字符串（customdata[1]）
                 const stockCodes = point.customdata[1];
                 
@@ -216,14 +216,14 @@ def _inject_click_copy_script(html_path, momo_trace_index):
 }})();
 </script>
 """
-    
+
     # 在</body>之前插入JavaScript代码
     html_content = html_content.replace('</body>', js_code + '\n</body>')
-    
+
     # 写回HTML文件
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
-    
+
     print("✅ 已注入点击复制功能")
 
 
@@ -260,6 +260,28 @@ def create_display_labels(stock_list, max_display=3):
         return '<br>'.join(stock_list[:max_display]) + '<br>……'
     else:
         return '<br>'.join(stock_list) if stock_list else ''
+
+
+def extract_stock_codes_from_df(df, code_column='股票代码'):
+    """
+    从DataFrame中提取股票代码列表（去掉交易所后缀）
+    
+    Args:
+        df: 包含股票代码的DataFrame
+        code_column: 股票代码列名，默认'股票代码'
+        
+    Returns:
+        股票代码列表（list）
+    """
+    if df.empty:
+        return []
+
+    codes = []
+    for code in df[code_column]:
+        clean_code = str(code).split('.')[0] if '.' in str(code) else str(code)
+        codes.append(clean_code)
+
+    return codes
 
 
 def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=None):
@@ -313,9 +335,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     shouban_counts = []
     max_ji_ban_results = []
     momo_results = []  # 默默上涨数据
+    all_codes_by_date = {}  # 存储每个日期的所有股票代码（用于点击复制）
 
     # 逐列提取数据
     for date in dates:
+        # 初始化当日代码列表
+        date_codes = []
         # 连板数据处理
         lianban_col = lianban_data[date].dropna()
         lianban_stocks = lianban_col.str.split(';').apply(lambda x: [item.strip() for item in x])
@@ -350,6 +375,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 row['股票代码'], row['股票简称'],
                 row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
             ) for _, row in max_ji_ban_filtered.iterrows()]
+            # 提取最高几板的股票代码
+            date_codes.extend(extract_stock_codes_from_df(max_ji_ban_filtered))
         max_ji_ban_results.append((date, max_ji_ban, max_ji_ban_stocks))
 
         # 提取最高连板（确保即使为0也显示）
@@ -363,6 +390,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 row['股票代码'], row['股票简称'],
                 row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
             ) for _, row in max_lianban_filtered.iterrows()]
+            # 提取最高连板的股票代码
+            date_codes.extend(extract_stock_codes_from_df(max_lianban_filtered))
 
         # 提取次高连板（确保即使为0也显示）
         second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban][
@@ -376,6 +405,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 row['股票代码'], row['股票简称'],
                 row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
             ) for _, row in second_lianban_filtered.iterrows()]
+            # 提取次高连板的股票代码
+            date_codes.extend(extract_stock_codes_from_df(second_lianban_filtered))
 
         lianban_results.append((date, max_lianban, max_lianban_stocks))
         lianban_second_results.append((date, second_lianban, second_lianban_stocks))
@@ -402,6 +433,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             if not max_dieting_filtered.empty:
                 max_dieting_stocks = [format_stock_name_with_indicators(row['股票代码'], row['股票简称'])
                                       for _, row in max_dieting_filtered.iterrows()]
+                # 提取最大连续跌停的股票代码
+                date_codes.extend(extract_stock_codes_from_df(max_dieting_filtered))
         else:
             max_dieting = 0
             max_dieting_stocks = []
@@ -463,11 +496,18 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             # 该日期没有默默上涨数据，用None
             momo_results.append((date, None, [], [], 0, ''))
 
+        # 去重并存储当日所有股票代码（用于点击复制）
+        unique_codes = list(dict.fromkeys(date_codes))  # 保持顺序的去重
+        all_codes_by_date[date] = '\n'.join(unique_codes)
+
     # === 开始绘制Plotly图表 ===
 
     # 提取日期和数据
     lianban_dates = [datetime.strptime(item[0], "%Y年%m月%d日") for item in lianban_results]
     date_labels = [d.strftime('%Y-%m-%d') for d in lianban_dates]  # 修改日期格式为 yyyy-MM-dd
+
+    # 创建代码列表（与date_labels对应，用于customdata）
+    all_codes_list = [all_codes_by_date.get(item[0], '') for item in lianban_results]
 
     # 创建多Y轴图表（需要为默默上涨单独创建一个Y轴）
     fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -490,11 +530,17 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         secondary_y=False,
     )
 
+    # 用于记录支持复制的trace索引
+    copyable_trace_indices = []
+
     # 最高几板线（副Y轴）- 调整到连板之前
     max_ji_ban_days = [item[1] for item in max_ji_ban_results]
     max_ji_ban_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in max_ji_ban_results]
     max_ji_ban_labels = [create_display_labels(item[2]) for item in max_ji_ban_results]
+    # 组合customdata：[股票列表, 该日所有代码]
+    max_ji_ban_customdata = list(zip(max_ji_ban_stocks, all_codes_list))
 
+    copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -506,8 +552,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             text=max_ji_ban_labels,
             textposition='top center',
             textfont=dict(size=9, color='purple'),
-            customdata=max_ji_ban_stocks,
-            hovertemplate='几板: %{y}板<br>股票: %{customdata}<extra></extra>',
+            customdata=max_ji_ban_customdata,
+            hovertemplate='几板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
         ),
         secondary_y=True,
     )
@@ -516,7 +562,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_days = [item[1] for item in lianban_results]
     lianban_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in lianban_results]
     lianban_labels = [create_display_labels(item[2]) for item in lianban_results]
+    # 组合customdata：[股票列表, 该日所有代码]
+    lianban_customdata = list(zip(lianban_stocks, all_codes_list))
 
+    copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -528,8 +577,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             text=lianban_labels,  # 永久显示的标签
             textposition='top center',
             textfont=dict(size=9, color='red'),
-            customdata=lianban_stocks,
-            hovertemplate='连板: %{y}板<br>股票: %{customdata}<extra></extra>',  # 去掉日期
+            customdata=lianban_customdata,
+            hovertemplate='连板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
         ),
         secondary_y=True,
     )
@@ -539,7 +588,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_second_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in
                              lianban_second_results]
     lianban_second_labels = [create_display_labels(item[2]) for item in lianban_second_results]
+    # 组合customdata：[股票列表, 该日所有代码]
+    lianban_second_customdata = list(zip(lianban_second_stocks, all_codes_list))
 
+    copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -551,8 +603,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             text=lianban_second_labels,
             textposition='bottom center',
             textfont=dict(size=9, color='orange'),
-            customdata=lianban_second_stocks,
-            hovertemplate='次高连板: %{y}板<br>股票: %{customdata}<extra></extra>',  # 去掉日期
+            customdata=lianban_second_customdata,
+            hovertemplate='次高连板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
         ),
         secondary_y=True,
     )
@@ -561,7 +613,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     dieting_days = [item[1] for item in dieting_results]
     dieting_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in dieting_results]
     dieting_labels = [create_display_labels(item[2]) for item in dieting_results]
+    # 组合customdata：[股票列表, 该日所有代码]
+    dieting_customdata = list(zip(dieting_stocks, all_codes_list))
 
+    copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
         go.Scatter(
             x=date_labels,
@@ -573,8 +628,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             text=dieting_labels,
             textposition='bottom center',
             textfont=dict(size=9, color='green'),
-            customdata=dieting_stocks,
-            hovertemplate='跌停: %{y}天<br>股票: %{customdata}<extra></extra>',  # 去掉日期
+            customdata=dieting_customdata,
+            hovertemplate='跌停: %{y}天<br>股票: %{customdata[0]}<br><i>💡 点击节点复制当日所有股票代码</i><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -623,6 +678,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 准备 customdata（二维数组：[股票列表用于hover, 股票代码用于复制]）
         momo_customdata = [[stocks, codes] for stocks, codes in zip(momo_all_stocks, momo_stock_codes)]
 
+        copyable_trace_indices.append(len(fig.data))
         fig.add_trace(
             go.Scatter(
                 x=date_labels,
@@ -815,9 +871,9 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         }
     )
 
-    # 注入JavaScript实现点击复制股票代码功能
-    if has_momo_data and momo_trace_index is not None:
-        _inject_click_copy_script(output_path, momo_trace_index)
+    # 注入JavaScript实现点击复制股票代码功能（通用版）
+    if copyable_trace_indices:
+        _inject_click_copy_script(output_path, copyable_trace_indices)
 
     print(f"HTML图表已保存到: {output_path}")
     return output_path
