@@ -2431,9 +2431,10 @@ def copy_worksheet(source_ws, target_ws):
     for merged_range in source_ws.merged_cells.ranges:
         target_ws.merge_cells(str(merged_range))
     
-    # 复制冻结窗格
-    if source_ws.freeze_panes:
-        target_ws.freeze_panes = source_ws.freeze_panes
+    # 不复制冻结窗格 - 避免因回填数据导致的冻结位置错乱
+    # 归档文件主要用于查看历史数据，不需要冻结窗格
+    # if source_ws.freeze_panes:
+    #     target_ws.freeze_panes = source_ws.freeze_panes
 
 
 def archive_leader_sheets(wb, sheets_to_archive, output_file):
