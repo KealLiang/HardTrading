@@ -19,6 +19,12 @@ class BreakoutStrategyV2(bt.Strategy):
         ('volume_ma_period', 22),  # 成交量移动平均周期
         # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
+        # -- 前高突破维度（V4.0新增） --
+        ('enable_prior_high_score', True),  # 是否启用前高突破评分
+        ('prior_high_lookback', 80),  # 前高回看期（交易日）
+        ('prior_high_upper_threshold', 0.04),  # 突破压力位的阈值（+5%）
+        ('prior_high_lower_threshold', 0.04),  # 压力位下方的阈值（-5%）
+        ('prior_high_exclude_recent', 5),  # 计算前高时排除最近N天（避免刚突破立即成为新前高）
         # -- 环境分 V2.2 新增高位盘整识别 --
         ('consolidation_lookback', 5),  # 短期均线盘整的回看期
         ('consolidation_ma_proximity_pct', 0.02),  # 短期均线接近度的阈值 (2%)
@@ -85,6 +91,9 @@ class BreakoutStrategyV2(bt.Strategy):
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
         # VCP 4.0: 布林带宽度历史值，用于计算分位
         self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
+        
+        # V4.0: 前高指标（用于突破压力位评分）
+        self.prior_high = bt.indicators.Highest(self.data.high, period=self.p.prior_high_lookback)
 
         # PSQ 3.1 指标: 动态高低点通道
         self.recent_high = bt.indicators.Highest(self.data.high, period=self.p.context_period)
@@ -362,7 +371,49 @@ class BreakoutStrategyV2(bt.Strategy):
                     grade_reason = "过高" if volume_ratio > 5.0 else "过低"
                     volume_grade, volume_score = f'D级({grade_reason})', 0
 
-                total_score = env_score + squeeze_score + volume_score
+                # --- V4.0: 前高突破评分（可选） ---
+                prior_high_score = 0
+                prior_high_grade = 'N/A'
+                prior_high_info = ''
+                
+                if self.p.enable_prior_high_score:
+                    # 使用"往前推N天"的前高，避免刚突破立即成为新前高
+                    # 例如：排除最近5天，则使用6天前的"过去80天最高价"
+                    offset = self.p.prior_high_exclude_recent + 1
+                    
+                    # 边界检查：确保有足够的历史数据
+                    if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
+                        prior_high_value = self.prior_high[-offset]
+                        current_price = self.data.close[0]
+                        
+                        # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
+                        prior_high_date = None
+                        for i in range(offset, offset + self.p.prior_high_lookback):
+                            if self.data.high[-i] == prior_high_value:
+                                prior_high_date = self.data.datetime.date(-i)
+                                break
+                        
+                        if prior_high_value > 0:
+                            price_to_high_ratio = current_price / prior_high_value
+                            
+                            # 判断是否突破压力位
+                            if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
+                                prior_high_grade = '突破'
+                                prior_high_score = 1
+                            elif price_to_high_ratio < (1 - self.p.prior_high_lower_threshold):
+                                prior_high_grade = '受阻'
+                                prior_high_score = -1
+                            else:
+                                prior_high_grade = '临界'
+                                prior_high_score = 0
+                            
+                            # 生成日志信息
+                            if prior_high_date:
+                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
+                            else:
+                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%"
+
+                total_score = env_score + squeeze_score + volume_score + prior_high_score
 
                 # --- 调试日志 ---
                 if self.p.debug:
@@ -370,9 +421,11 @@ class BreakoutStrategyV2(bt.Strategy):
                         f"[debug]信号候选日: "
                         f"环境(分:{env_score},级:{env_grade}), "
                         f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
-                        f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x) | "
-                        f"总分: {total_score}"
+                        f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x)"
                     )
+                    if self.p.enable_prior_high_score:
+                        debug_msg += f", 前高(分:{prior_high_score:+d},级:{prior_high_grade},{prior_high_info})"
+                    debug_msg += f" | 总分: {total_score}"
                     self.log(debug_msg)
 
                 # --- 决策逻辑：结合补偿机制 ---
@@ -401,8 +454,11 @@ class BreakoutStrategyV2(bt.Strategy):
                         f'突破信号: {overall_grade} - {breakout_type} '
                         f'(环境:{env_grade}, '
                         f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
-                        f'量能:{volume_grade}({volume_ratio:.1f}x))'
+                        f'量能:{volume_grade}({volume_ratio:.1f}x)'
                     )
+                    if self.p.enable_prior_high_score and prior_high_info:
+                        log_msg += f', 前高:{prior_high_grade}({prior_high_info})'
+                    log_msg += ')'
                     self.log(log_msg)
 
                     self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
