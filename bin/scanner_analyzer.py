@@ -291,7 +291,17 @@ def get_stock_pool(source, all_codes_from_dir=None):
     # 如果不是列表也不是'all'，则假定为文件路径
     try:
         with open(source, 'r', encoding='utf-8') as f:
-            stocks = [line.strip() for line in f if line.strip() and not line.startswith("股票代码")]
+            lines = [line.strip() for line in f if line.strip()]
+        
+        # 使用正则表达式提取股票代码（6位数字）
+        stock_code_pattern = re.compile(r'^\d{6}$')
+        stocks = [line for line in lines if stock_code_pattern.match(line)]
+        
+        if not stocks:
+            logging.warning(f"未在文件 {source} 中找到有效的股票代码（6位数字）")
+        else:
+            logging.info(f"从文件 {source} 中识别出 {len(stocks)} 只股票代码")
+        
         return [s.zfill(6) for s in stocks]
     except Exception as e:
         logging.error(f"读取股票池文件 {source} 失败: {e}")
