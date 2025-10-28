@@ -78,7 +78,7 @@ class BreakoutStrategy(bt.Strategy):
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
         # VCP 4.0: 布林带宽度历史值，用于计算分位
         self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
-
+        
         # V4.0: 前高指标（用于突破压力位评分）
         self.prior_high = bt.indicators.Highest(self.data.high, period=self.p.prior_high_lookback)
 
@@ -290,354 +290,339 @@ class BreakoutStrategy(bt.Strategy):
                     self._stop_and_log_psq()  # 结束观察期评分
                     self.observation_mode = False
         else:
-            # 寻找初始突破信号
-            self._scan_for_breakout_signal()
+            # --- 寻找初始突破信号(重构) ---
+            is_volume_up = self.data.volume[0] > self.volume_ma[0]
 
-    def _scan_for_breakout_signal(self):
-        """扫描和评级初始突破信号（可被子类继承）"""
-        is_volume_up = self.data.volume[0] > self.volume_ma[0]
+            # 1. 定义两种突破形态
+            is_strict_breakout = self.data.close[0] > self.bband.lines.top[0]
 
-        # 1. 定义两种突破形态
-        is_strict_breakout = self.data.close[0] > self.bband.lines.top[0]
+            is_quasi_breakout = (
+                    self.data.high[0] > self.bband.lines.top[0] and
+                    self.data.close[0] >= self.bband.lines.top[0] * (1 - self.p.breakout_proximity_pct)
+            )
 
-        is_quasi_breakout = (
-                self.data.high[0] > self.bband.lines.top[0] and
-                self.data.close[0] >= self.bband.lines.top[0] * (1 - self.p.breakout_proximity_pct)
+            # 必须放量，且至少满足一种突破形态
+            if is_volume_up and (is_strict_breakout or is_quasi_breakout):
+
+                # --- 环境分 V3.0: 双路径评估 ---
+                # 路径一: 优先识别高质量的“盘整突破”
+                is_consolidation = self._check_short_term_consolidation()
+                if is_consolidation:
+                    # 识别为盘整突破，直接给予B级，认可其形态价值
+                    env_grade, env_score = 'B级(盘整突破)', 2
+                else:
+                    # 路径二: 对于其他“动能突破”，沿用严格的距离评分
+                    # 价格相对长周期均线的比率
+                    price_pos_ratio = self.data.close[0] / self.ma_macro[0] if self.ma_macro[0] > 0 else 0
+
+                    if 1.0 < price_pos_ratio <= 1.10:
+                        env_grade, env_score = 'A级(理想)', 3
+                    elif 1.10 < price_pos_ratio <= 1.25:
+                        env_grade, env_score = 'B级(趋势)', 2
+                    elif 1.25 < price_pos_ratio <= 1.45:
+                        env_grade, env_score = 'C级(追高)', 1
+                    else:
+                        env_grade, env_score = 'D级(超限)', 0
+
+                bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
+                squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
+                if 0.05 < squeeze_pct <= 0.20:
+                    squeeze_grade, squeeze_score = 'A级', 3
+                elif squeeze_pct <= 0.05:
+                    squeeze_grade, squeeze_score = 'B级', 2
+                elif 0.20 < squeeze_pct <= 1.00:
+                    squeeze_grade, squeeze_score = 'C级', 1
+                else:
+                    squeeze_grade, squeeze_score = 'D级', 0
+
+                # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
+                # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
+                lookback = self.p.pocket_pivot_lookback
+                highest_down_volume = 0
+                is_pocket_pivot_volume = False
+                if len(self.data.close) > lookback + 1:
+                    for i in range(1, lookback + 1):
+                        if self.data.close[-i] < self.data.close[-i - 1]:
+                            highest_down_volume = max(highest_down_volume, self.data.volume[-i])
+                    if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
+                        is_pocket_pivot_volume = True
+
+                # 2. 基于传统量比和口袋支点特征进行综合评分
+                volume_ratio = self.data.volume[0] / self.volume_ma[0]
+
+                if is_pocket_pivot_volume:
+                    # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
+                    if volume_ratio > 2.5:
+                        volume_grade, volume_score = 'A级(口袋支点+)', 3
+                    else:
+                        volume_grade, volume_score = 'B级(口袋支点)', 2
+                elif 3.0 < volume_ratio <= 5.0:
+                    volume_grade, volume_score = 'A级(理想)', 3
+                elif 1.5 < volume_ratio <= 3.0:
+                    volume_grade, volume_score = 'B级(优秀)', 2
+                elif 1.1 < volume_ratio <= 1.5:
+                    volume_grade, volume_score = 'C级(合格)', 1
+                else:
+                    grade_reason = "过高" if volume_ratio > 5.0 else "过低"
+                    volume_grade, volume_score = f'D级({grade_reason})', 0
+
+                # --- V4.0: 前高突破评分（可选） ---
+                prior_high_score = 0
+                prior_high_grade = 'N/A'
+                prior_high_info = ''
+                
+                if self.p.enable_prior_high_score:
+                    # 使用"往前推N天"的前高，避免刚突破立即成为新前高
+                    # 例如：排除最近5天，则使用6天前的"过去80天最高价"
+                    offset = self.p.prior_high_exclude_recent + 1
+                    
+                    # 边界检查：确保有足够的历史数据
+                    if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
+                        prior_high_value = self.prior_high[-offset]
+                        current_price = self.data.close[0]
+                        
+                        # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
+                        prior_high_date = None
+                        for i in range(offset, offset + self.p.prior_high_lookback):
+                            if self.data.high[-i] == prior_high_value:
+                                prior_high_date = self.data.datetime.date(-i)
+                                break
+                        
+                        if prior_high_value > 0:
+                            price_to_high_ratio = current_price / prior_high_value
+                            
+                            # 判断是否突破压力位
+                            if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
+                                prior_high_grade = '突破'
+                                prior_high_score = 1
+                            elif price_to_high_ratio < (1 - self.p.prior_high_lower_threshold):
+                                prior_high_grade = '受阻'
+                                prior_high_score = -1
+                            else:
+                                prior_high_grade = '临界'
+                                prior_high_score = 0
+                            
+                            # 生成日志信息
+                            if prior_high_date:
+                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
+                            else:
+                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%"
+
+                total_score = env_score + squeeze_score + volume_score + prior_high_score
+
+                # --- 调试日志 ---
+                if self.p.debug:
+                    debug_msg = (
+                        f"[debug]信号候选日: "
+                        f"环境(分:{env_score},级:{env_grade}), "
+                        f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
+                        f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x)"
+                    )
+                    if self.p.enable_prior_high_score:
+                        debug_msg += f", 前高(分:{prior_high_score:+d},级:{prior_high_grade},{prior_high_info})"
+                    debug_msg += f" | 总分: {total_score}"
+                    self.log(debug_msg)
+
+                # --- 决策逻辑：结合补偿机制 ---
+                trigger_observation = False
+                breakout_type = ""
+
+                if total_score >= 6:  # 至少是B级信号
+                    if is_strict_breakout:
+                        trigger_observation = True
+                        breakout_type = "标准突破"
+                    elif is_quasi_breakout:
+                        # 对于"准突破"，需要额外的补偿条件
+                        if squeeze_score == 3 or volume_score == 3:
+                            trigger_observation = True
+                            breakout_type = "准突破(已补偿)"
+
+                if trigger_observation:
+                    if total_score >= 8:
+                        overall_grade = '【A+级】'
+                    elif total_score >= 6:
+                        overall_grade = '【B级】'
+                    else:
+                        overall_grade = '【C级】'  # 理论上不会到这里
+
+                    log_msg = (
+                        f'突破信号: {overall_grade} - {breakout_type} '
+                        f'(环境:{env_grade}, '
+                        f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
+                        f'量能:{volume_grade}({volume_ratio:.1f}x)'
+                    )
+                    if self.p.enable_prior_high_score and prior_high_info:
+                        log_msg += f', 前高:{prior_high_grade}({prior_high_info})'
+                    log_msg += ')'
+                    self.log(log_msg)
+
+                    self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
+                    self.observation_mode = True
+                    self.observation_counter = self.p.observation_period
+                    self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
+                    # 记录价格过滤器所需的状态
+                    self.sentry_base_price = self.data.open[0]
+                    self.sentry_highest_high = self.data.high[0]
+                    # 新增: 精确记录信号日的索引
+                    self.signal_day_index = len(self.data) - 1
+                    # 开始PSQ评分 - 从信号日当天开始
+                    self._start_psq_tracking('观察期', self.datas[0])
+
+    def _check_confirmation_signals(self):
+        """
+        统一检查所有二次确认信号。 V2.0 优化日志逻辑
+        1. 先找出当天所有满足条件的信号。
+        2. 再对这些信号统一应用过滤器。
+        3. 如果通过，则按优先级（coiled_spring > pocket_pivot）执行交易。
+        """
+        # 步骤1: 找出当天所有活跃的信号
+        active_signals = [
+            signal_name for signal_name, check_function in self.confirmation_signals
+            if check_function()
+        ]
+
+        if not active_signals:
+            return
+
+        # 步骤2: 对活跃信号统一应用过滤器
+        signal_names_str = ", ".join(active_signals)
+
+        # 过滤器1: 动态价格接受窗口
+        price_ceiling_from_peak_atr = self.sentry_highest_high + (self.p.atr_ceiling_multiplier * self.atr[0])
+        price_floor_from_peak_pct = self.sentry_highest_high * (1 - self.p.pullback_from_peak_pct)
+        current_price = self.data.close[0]
+
+        if current_price > price_ceiling_from_peak_atr:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 过高, "
+                f"> 观察期高点 {self.sentry_highest_high:.2f} + {self.p.atr_ceiling_multiplier}*ATR "
+                f"({price_ceiling_from_peak_atr:.2f})"
+            )
+            return
+
+        if current_price < price_floor_from_peak_pct:
+            self.log(
+                f"信号拒绝({signal_names_str}): 价格 {current_price:.2f} 从观察期高点 {self.sentry_highest_high:.2f} 回撤过深, "
+                f"< 止损线 {price_floor_from_peak_pct:.2f}"
+            )
+            return
+
+        # 过滤器2: 过热分数
+        if self.last_overheat_score > self.p.overheat_threshold:
+            self.log(
+                f"信号拒绝({signal_names_str}): 过热分数 {self.last_overheat_score:.2f} "
+                f"> 阈值 {self.p.overheat_threshold}"
+            )
+            return
+
+        # 所有前置过滤器通过，计算VCP分数作为参考，不作为决策依据
+        vcp_score, vcp_grade = self._calculate_vcp_score()
+
+        # 步骤3: 所有过滤器通过，按优先级执行交易
+        # active_signals中的顺序由self.confirmation_signals定义，默认coiled_spring优先
+        signal_to_execute = active_signals[0]
+
+        log_msg_map = {
+            'coiled_spring': f'突破信号:【蓄势待发】(源信号: {self.sentry_source_signal})',
+            'pocket_pivot': f'突破信号:【口袋支点】(源信号: {self.sentry_source_signal})'
+        }
+        log_msg_base = log_msg_map.get(signal_to_execute, '未知确认信号')
+        # 信号日志回归简洁，不再包含结构分
+        self.log(log_msg_base)
+
+        stake = self.broker.getvalue() * self.p.initial_stake_pct
+        size = int(stake / self.data.close[0])
+        if size > 0:
+            # -- 新增：为PSQ分析报告捕获观察期分数 --
+            self.current_observation_scores = self.psq_scores.copy()
+            self.order = self.buy(size=size)
+            # 只有"蓄势待发"信号需要进入考察期
+            if signal_to_execute == 'coiled_spring':
+                self.coiled_spring_buy_pending = True
+
+        # 注意：此处不停止PSQ，因为买单可能不会立即成交。
+        # 评分的停止和切换将在notify_order中处理
+        self.observation_mode = False
+        log_suffix = "发出" if signal_to_execute == 'coiled_spring' else "执行"
+        # 按要求将VCP信息添加到此日志行
+        self.log(
+            f'*** 二次确认信号已{log_suffix}，解除观察模式，'
+            f'当前过热分: {self.last_overheat_score:.2f} '
+            f'(VCP 参考: {vcp_grade}, Score: {vcp_score:.2f}) ***'
         )
 
-        # 必须放量，且至少满足一种突破形态
-        if is_volume_up and (is_strict_breakout or is_quasi_breakout):
+    def check_coiled_spring_conditions(self):
+        """
+        检查"蓄势待发"（W型或平台整理后启动）信号条件。
+        这是一个高优先级的二次确认信号。
+        """
+        # 条件1: 必须是阳线且放量
+        if not (self.data.close[0] > self.data.open[0] and self.data.volume[0] > self.volume_ma[0]):
+            return False
 
-            # --- 环境分 V3.0: 双路径评估 ---
-            # 路径一: 优先识别高质量的"盘整突破"
-            is_consolidation = self._check_short_term_consolidation()
-            if is_consolidation:
-                # 识别为盘整突破，直接给予B级，认可其形态价值
-                env_grade, env_score = 'B级(盘整突破)', 2
-            else:
-                # 路径二: 对于其他"动能突破"，沿用严格的距离评分
-                # 价格相对长周期均线的比率
-                price_pos_ratio = self.data.close[0] / self.ma_macro[0] if self.ma_macro[0] > 0 else 0
+        # 条件2: 收盘价创近期新高
+        # self.highest_close_confirm[-1] 获取的是截止到昨天(t-1)的N日最高收盘价
+        if self.data.close[0] < self.highest_close_confirm[-1]:
+            return False
 
-                if 1.0 < price_pos_ratio <= 1.10:
-                    env_grade, env_score = 'A级(理想)', 3
-                elif 1.10 < price_pos_ratio <= 1.25:
-                    env_grade, env_score = 'B级(趋势)', 2
-                elif 1.25 < price_pos_ratio <= 1.45:
-                    env_grade, env_score = 'C级(追高)', 1
-                else:
-                    env_grade, env_score = 'D级(超限)', 0
+        # 条件3 & 4: 在回看周期内，收盘价未破中轨，最低价未破下轨 (更严格的平台整理)
+        for i in range(1, self.p.confirmation_lookback + 1):
+            if self.data.close[-i] < self.bband.lines.mid[-i]:
+                return False
+            if self.data.low[-i] < self.bband.lines.bot[-i]:
+                return False
 
-            bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
-            squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
-            if 0.05 < squeeze_pct <= 0.20:
-                squeeze_grade, squeeze_score = 'A级', 3
-            elif squeeze_pct <= 0.05:
-                squeeze_grade, squeeze_score = 'B级', 2
-            elif 0.20 < squeeze_pct <= 1.00:
-                squeeze_grade, squeeze_score = 'C级', 1
-            else:
-                squeeze_grade, squeeze_score = 'D级', 0
+        return True
 
-            # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
-            # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
-            lookback = self.p.pocket_pivot_lookback
-            highest_down_volume = 0
-            is_pocket_pivot_volume = False
-            if len(self.data.close) > lookback + 1:
-                for i in range(1, lookback + 1):
-                    if self.data.close[-i] < self.data.close[-i - 1]:
-                        highest_down_volume = max(highest_down_volume, self.data.volume[-i])
-                if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
-                    is_pocket_pivot_volume = True
+    def check_pocket_pivot_conditions(self):
+        """
+        检查"口袋支点"信号。
+        这是一种基于成交量的早期信号，用于识别机构吸筹。
+        它寻找成交量远超近期所有抛售压力的一天。
+        """
+        # 条件1: 价格必须处于布林带中轨之上，表明处于短期强势区
+        if self.data.close[0] < self.bband.lines.mid[0]:
+            return False
 
-            # 2. 基于传统量比和口袋支点特征进行综合评分
-            volume_ratio = self.data.volume[0] / self.volume_ma[0]
+        # 条件2: 必须是上涨日 (收盘价高于前一日收盘价)
+        if self.data.close[0] <= self.data.close[-1]:
+            return False
 
-            if is_pocket_pivot_volume:
-                # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
-                if volume_ratio > 2.5:
-                    volume_grade, volume_score = 'A级(口袋支点+)', 3
-                else:
-                    volume_grade, volume_score = 'B级(口袋支点)', 2
-            elif 3.0 < volume_ratio <= 5.0:
-                volume_grade, volume_score = 'A级(理想)', 3
-            elif 1.5 < volume_ratio <= 3.0:
-                volume_grade, volume_score = 'B级(优秀)', 2
-            elif 1.1 < volume_ratio <= 1.5:
-                volume_grade, volume_score = 'C级(合格)', 1
-            else:
-                grade_reason = "过高" if volume_ratio > 5.0 else "过低"
-                volume_grade, volume_score = f'D级({grade_reason})', 0
+        # 条件3: 当日成交量必须大于过去N日内所有下跌日的成交量最大值
+        lookback = self.p.pocket_pivot_lookback
+        highest_down_volume = 0
+        # The loop goes from bar t-1 to t-lookback
+        for i in range(1, lookback + 1):
+            # If it was a down day (close < previous close)
+            if self.data.close[-i] < self.data.close[-i - 1]:
+                highest_down_volume = max(highest_down_volume, self.data.volume[-i])
 
-            # --- V4.0: 前高突破评分（可选） ---
-            prior_high_score = 0
-            prior_high_grade = 'N/A'
-            prior_high_info = ''
+        return self.data.volume[0] > highest_down_volume
 
-            if self.p.enable_prior_high_score:
-                # 使用"往前推N天"的前高，避免刚突破立即成为新前高
-                # 例如：排除最近5天，则使用6天前的"过去80天最高价"
-                offset = self.p.prior_high_exclude_recent + 1
+    def _check_short_term_consolidation(self):
+        """检查是否存在高位横盘/微升的“蓄势”形态。"""
+        lookback = self.p.consolidation_lookback
 
-                # 边界检查：确保有足够的历史数据
-                if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
-                    prior_high_value = self.prior_high[-offset]
-                    current_price = self.data.close[0]
+        # 确保有足够的数据
+        if len(self.ma10) < lookback + 1 or len(self.ma5) < lookback + 1:
+            return False
 
-                    # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
-                    prior_high_date = None
-                    for i in range(offset, offset + self.p.prior_high_lookback):
-                        if self.data.high[-i] == prior_high_value:
-                            prior_high_date = self.data.datetime.date(-i)
-                            break
+        # 检查1: 盘整期内，短期均线(ma10)不能过快上涨
+        if self.ma10[-lookback] <= 0:  # 避免除零
+            return False
+        ma_slope = self.ma10[0] / self.ma10[-lookback]
+        if ma_slope > self.p.consolidation_ma_max_slope:
+            return False
 
-                    if prior_high_value > 0:
-                        price_to_high_ratio = current_price / prior_high_value
+        # 检查2: 盘整期内，5日线和10日线必须高度贴合
+        for i in range(1, lookback + 1):
+            if self.ma10[-i] <= 0:  # 避免除零
+                return False
+            proximity = abs(self.ma5[-i] - self.ma10[-i]) / self.ma10[-i]
+            if proximity > self.p.consolidation_ma_proximity_pct:
+                return False
 
-                        # 判断是否突破压力位
-                        if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
-                            prior_high_grade = '突破'
-                            prior_high_score = 1
-                        elif price_to_high_ratio < (1 - self.p.prior_high_lower_threshold):
-                            prior_high_grade = '受阻'
-                            prior_high_score = -1
-                        else:
-                            prior_high_grade = '临界'
-                            prior_high_score = 0
-
-                        # 生成日志信息
-                        if prior_high_date:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
-                        else:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%"
-
-            total_score = env_score + squeeze_score + volume_score + prior_high_score
-
-            # --- 调试日志 ---
-            if self.p.debug:
-                debug_msg = (
-                    f"[debug]信号候选日: "
-                    f"环境(分:{env_score},级:{env_grade}), "
-                    f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
-                    f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x)"
-                )
-                if self.p.enable_prior_high_score:
-                    debug_msg += f", 前高(分:{prior_high_score:+d},级:{prior_high_grade},{prior_high_info})"
-                debug_msg += f" | 总分: {total_score}"
-                self.log(debug_msg)
-
-            # --- 决策逻辑：结合补偿机制 ---
-            trigger_observation = False
-            breakout_type = ""
-
-            if total_score >= 6:  # 至少是B级信号
-                if is_strict_breakout:
-                    trigger_observation = True
-                    breakout_type = "标准突破"
-                elif is_quasi_breakout:
-                    # 对于"准突破"，需要额外的补偿条件
-                    if squeeze_score == 3 or volume_score == 3:
-                        trigger_observation = True
-                        breakout_type = "准突破(已补偿)"
-
-            if trigger_observation:
-                if total_score >= 8:
-                    overall_grade = '【A+级】'
-                elif total_score >= 6:
-                    overall_grade = '【B级】'
-                else:
-                    overall_grade = '【C级】'  # 理论上不会到这里
-
-                log_msg = (
-                    f'突破信号: {overall_grade} - {breakout_type} '
-                    f'(环境:{env_grade}, '
-                    f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
-                    f'量能:{volume_grade}({volume_ratio:.1f}x)'
-                )
-                if self.p.enable_prior_high_score and prior_high_info:
-                    log_msg += f', 前高:{prior_high_grade}({prior_high_info})'
-                log_msg += ')'
-                self.log(log_msg)
-
-                self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
-                self.observation_mode = True
-                self.observation_counter = self.p.observation_period
-                self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
-                # 记录价格过滤器所需的状态
-                self.sentry_base_price = self.data.open[0]
-                self.sentry_highest_high = self.data.high[0]
-                # 新增: 精确记录信号日的索引
-                self.signal_day_index = len(self.data) - 1
-                # 开始PSQ评分 - 从信号日当天开始
-                self._start_psq_tracking('观察期', self.datas[0])
-
-        # 必须放量，且至少满足一种突破形态
-        if is_volume_up and (is_strict_breakout or is_quasi_breakout):
-
-            # --- 环境分 V3.0: 双路径评估 ---
-            # 路径一: 优先识别高质量的"盘整突破"
-            is_consolidation = self._check_short_term_consolidation()
-            if is_consolidation:
-                # 识别为盘整突破，直接给予B级，认可其形态价值
-                env_grade, env_score = 'B级(盘整突破)', 2
-            else:
-                # 路径二: 对于其他"动能突破"，沿用严格的距离评分
-                # 价格相对长周期均线的比率
-                price_pos_ratio = self.data.close[0] / self.ma_macro[0] if self.ma_macro[0] > 0 else 0
-
-                if 1.0 < price_pos_ratio <= 1.10:
-                    env_grade, env_score = 'A级(理想)', 3
-                elif 1.10 < price_pos_ratio <= 1.25:
-                    env_grade, env_score = 'B级(趋势)', 2
-                elif 1.25 < price_pos_ratio <= 1.45:
-                    env_grade, env_score = 'C级(追高)', 1
-                else:
-                    env_grade, env_score = 'D级(超限)', 0
-
-            bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
-            squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
-            if 0.05 < squeeze_pct <= 0.20:
-                squeeze_grade, squeeze_score = 'A级', 3
-            elif squeeze_pct <= 0.05:
-                squeeze_grade, squeeze_score = 'B级', 2
-            elif 0.20 < squeeze_pct <= 1.00:
-                squeeze_grade, squeeze_score = 'C级', 1
-            else:
-                squeeze_grade, squeeze_score = 'D级', 0
-
-            # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
-            # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
-            lookback = self.p.pocket_pivot_lookback
-            highest_down_volume = 0
-            is_pocket_pivot_volume = False
-            if len(self.data.close) > lookback + 1:
-                for i in range(1, lookback + 1):
-                    if self.data.close[-i] < self.data.close[-i - 1]:
-                        highest_down_volume = max(highest_down_volume, self.data.volume[-i])
-                if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
-                    is_pocket_pivot_volume = True
-
-            # 2. 基于传统量比和口袋支点特征进行综合评分
-            volume_ratio = self.data.volume[0] / self.volume_ma[0]
-
-            if is_pocket_pivot_volume:
-                # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
-                if volume_ratio > 2.5:
-                    volume_grade, volume_score = 'A级(口袋支点+)', 3
-                else:
-                    volume_grade, volume_score = 'B级(口袋支点)', 2
-            elif 3.0 < volume_ratio <= 5.0:
-                volume_grade, volume_score = 'A级(理想)', 3
-            elif 1.5 < volume_ratio <= 3.0:
-                volume_grade, volume_score = 'B级(优秀)', 2
-            elif 1.1 < volume_ratio <= 1.5:
-                volume_grade, volume_score = 'C级(合格)', 1
-            else:
-                grade_reason = "过高" if volume_ratio > 5.0 else "过低"
-                volume_grade, volume_score = f'D级({grade_reason})', 0
-
-            # --- V4.0: 前高突破评分（可选） ---
-            prior_high_score = 0
-            prior_high_grade = 'N/A'
-            prior_high_info = ''
-
-            if self.p.enable_prior_high_score:
-                # 使用"往前推N天"的前高，避免刚突破立即成为新前高
-                # 例如：排除最近5天，则使用6天前的"过去80天最高价"
-                offset = self.p.prior_high_exclude_recent + 1
-
-                # 边界检查：确保有足够的历史数据
-                if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
-                    prior_high_value = self.prior_high[-offset]
-                    current_price = self.data.close[0]
-
-                    # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
-                    prior_high_date = None
-                    for i in range(offset, offset + self.p.prior_high_lookback):
-                        if self.data.high[-i] == prior_high_value:
-                            prior_high_date = self.data.datetime.date(-i)
-                            break
-
-                    if prior_high_value > 0:
-                        price_to_high_ratio = current_price / prior_high_value
-
-                        # 判断是否突破压力位
-                        if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
-                            prior_high_grade = '突破'
-                            prior_high_score = 1
-                        elif price_to_high_ratio < (1 - self.p.prior_high_lower_threshold):
-                            prior_high_grade = '受阻'
-                            prior_high_score = -1
-                        else:
-                            prior_high_grade = '临界'
-                            prior_high_score = 0
-
-                        # 生成日志信息
-                        if prior_high_date:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
-                        else:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%"
-
-            total_score = env_score + squeeze_score + volume_score + prior_high_score
-
-            # --- 调试日志 ---
-            if self.p.debug:
-                debug_msg = (
-                    f"[debug]信号候选日: "
-                    f"环境(分:{env_score},级:{env_grade}), "
-                    f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
-                    f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x)"
-                )
-                if self.p.enable_prior_high_score:
-                    debug_msg += f", 前高(分:{prior_high_score:+d},级:{prior_high_grade},{prior_high_info})"
-                debug_msg += f" | 总分: {total_score}"
-                self.log(debug_msg)
-
-            # --- 决策逻辑：结合补偿机制 ---
-            trigger_observation = False
-            breakout_type = ""
-
-            if total_score >= 6:  # 至少是B级信号
-                if is_strict_breakout:
-                    trigger_observation = True
-                    breakout_type = "标准突破"
-                elif is_quasi_breakout:
-                    # 对于"准突破"，需要额外的补偿条件
-                    if squeeze_score == 3 or volume_score == 3:
-                        trigger_observation = True
-                        breakout_type = "准突破(已补偿)"
-
-            if trigger_observation:
-                if total_score >= 8:
-                    overall_grade = '【A+级】'
-                elif total_score >= 6:
-                    overall_grade = '【B级】'
-                else:
-                    overall_grade = '【C级】'  # 理论上不会到这里
-
-                log_msg = (
-                    f'突破信号: {overall_grade} - {breakout_type} '
-                    f'(环境:{env_grade}, '
-                    f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
-                    f'量能:{volume_grade}({volume_ratio:.1f}x)'
-                )
-                if self.p.enable_prior_high_score and prior_high_info:
-                    log_msg += f', 前高:{prior_high_grade}({prior_high_info})'
-                log_msg += ')'
-                self.log(log_msg)
-
-                self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
-                self.observation_mode = True
-                self.observation_counter = self.p.observation_period
-                self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
-                # 记录价格过滤器所需的状态
-                self.sentry_base_price = self.data.open[0]
-                self.sentry_highest_high = self.data.high[0]
-                # 新增: 精确记录信号日的索引
-                self.signal_day_index = len(self.data) - 1
-                # 开始PSQ评分 - 从信号日当天开始
-                self._start_psq_tracking('观察期', self.datas[0])
+        return True
 
     def _calculate_vcp_score(self):
         """
@@ -939,181 +924,81 @@ class BreakoutStrategy(bt.Strategy):
         if self.p.debug:
             self._analyze_and_log_psq_summary()
 
-    def _scan_for_breakout_signal(self):
-        """扫描和评级初始突破信号（可被子类继承）"""
-        is_volume_up = self.data.volume[0] > self.volume_ma[0]
+    def _analyze_and_log_psq_summary(self):
+        """
+        在回测结束后，分析所有交易的PSQ数据，并生成一份指导性报告。
+        """
+        if not self.all_trades_data:
+            return
 
-        # 1. 定义两种突破形态
-        is_strict_breakout = self.data.close[0] > self.bband.lines.top[0]
+        print('\n' + '=' * 60)
+        print(f'PSQ 特征分析报告: {self.data._name}')
+        print('=' * 60)
 
-        is_quasi_breakout = (
-                self.data.high[0] > self.bband.lines.top[0] and
-                self.data.close[0] >= self.bband.lines.top[0] * (1 - self.p.breakout_proximity_pct)
-        )
+        all_pnls = [t['pnl'] for t in self.all_trades_data]
 
-        # 必须放量，且至少满足一种突破形态
-        if is_volume_up and (is_strict_breakout or is_quasi_breakout):
+        # 动态计算"平庸"交易的界限
+        if len(all_pnls) >= 3:
+            pnl_mean = sum(all_pnls) / len(all_pnls)
+            pnl_variance = sum([(p - pnl_mean) ** 2 for p in all_pnls]) / len(all_pnls)
+            pnl_std_dev = pnl_variance ** 0.5
+            significance_threshold = 0.25 * pnl_std_dev
+        else:
+            significance_threshold = 0  # 交易太少，无法计算有意义的统计，退化为简单盈亏
 
-            # --- 环境分 V3.0: 双路径评估 ---
-            # 路径一: 优先识别高质量的"盘整突破"
-            is_consolidation = self._check_short_term_consolidation()
-            if is_consolidation:
-                # 识别为盘整突破，直接给予B级，认可其形态价值
-                env_grade, env_score = 'B级(盘整突破)', 2
-            else:
-                # 路径二: 对于其他"动能突破"，沿用严格的距离评分
-                # 价格相对长周期均线的比率
-                price_pos_ratio = self.data.close[0] / self.ma_macro[0] if self.ma_macro[0] > 0 else 0
+        winners = [t for t in self.all_trades_data if t['pnl'] > significance_threshold]
+        losers = [t for t in self.all_trades_data if t['pnl'] < -significance_threshold]
+        mediocre = [t for t in self.all_trades_data if -significance_threshold <= t['pnl'] <= significance_threshold]
 
-                if 1.0 < price_pos_ratio <= 1.10:
-                    env_grade, env_score = 'A级(理想)', 3
-                elif 1.10 < price_pos_ratio <= 1.25:
-                    env_grade, env_score = 'B级(趋势)', 2
-                elif 1.25 < price_pos_ratio <= 1.45:
-                    env_grade, env_score = 'C级(追高)', 1
-                else:
-                    env_grade, env_score = 'D级(超限)', 0
+        def _calculate_stats(trades):
+            if not trades:
+                return {'avg_obs_psq': 0, 'avg_obs_end_psq': 0, 'avg_pos_psq': 0, 'avg_pos_first_n_psq': 0, 'count': 0,
+                        'avg_pnl': 0}
 
-            bbw_range = self.highest_bbw[-1] - self.lowest_bbw[-1]
-            squeeze_pct = (self.bb_width[-1] - self.lowest_bbw[-1]) / bbw_range if bbw_range > 1e-9 else 0
-            if 0.05 < squeeze_pct <= 0.20:
-                squeeze_grade, squeeze_score = 'A级', 3
-            elif squeeze_pct <= 0.05:
-                squeeze_grade, squeeze_score = 'B级', 2
-            elif 0.20 < squeeze_pct <= 1.00:
-                squeeze_grade, squeeze_score = 'C级', 1
-            else:
-                squeeze_grade, squeeze_score = 'D级', 0
+            def safe_avg(data_list):
+                return sum(data_list) / len(data_list) if data_list else 0
 
-            # --- 量能评分 V2.0: 引入"口袋支点"逻辑 ---
-            # 1. 检查是否存在'口袋支点'特征：成交量能吸收近期所有抛压
-            lookback = self.p.pocket_pivot_lookback
-            highest_down_volume = 0
-            is_pocket_pivot_volume = False
-            if len(self.data.close) > lookback + 1:
-                for i in range(1, lookback + 1):
-                    if self.data.close[-i] < self.data.close[-i - 1]:
-                        highest_down_volume = max(highest_down_volume, self.data.volume[-i])
-                if self.data.volume[0] > highest_down_volume and highest_down_volume > 0:
-                    is_pocket_pivot_volume = True
+            obs_psq_avgs = [safe_avg(t['obs_scores']) for t in trades if t['obs_scores']]
+            obs_end_psqs = [t['obs_scores'][-1] for t in trades if t['obs_scores']]
+            pos_psq_avgs = [safe_avg(t['pos_scores']) for t in trades if t['pos_scores']]
 
-            # 2. 基于传统量比和口袋支点特征进行综合评分
-            volume_ratio = self.data.volume[0] / self.volume_ma[0]
+            n = self.p.psq_summary_period
+            pos_first_n_avgs = [safe_avg(t['pos_scores'][:n]) for t in trades if t['pos_scores']]
 
-            if is_pocket_pivot_volume:
-                # 口袋支点是高质量信号，至少B级。如果量比也优秀，则为A级。
-                if volume_ratio > 2.5:
-                    volume_grade, volume_score = 'A级(口袋支点+)', 3
-                else:
-                    volume_grade, volume_score = 'B级(口袋支点)', 2
-            elif 3.0 < volume_ratio <= 5.0:
-                volume_grade, volume_score = 'A级(理想)', 3
-            elif 1.5 < volume_ratio <= 3.0:
-                volume_grade, volume_score = 'B级(优秀)', 2
-            elif 1.1 < volume_ratio <= 1.5:
-                volume_grade, volume_score = 'C级(合格)', 1
-            else:
-                grade_reason = "过高" if volume_ratio > 5.0 else "过低"
-                volume_grade, volume_score = f'D级({grade_reason})', 0
+            pnl_values = [t['pnl'] for t in trades]
 
-            # --- V4.0: 前高突破评分（可选） ---
-            prior_high_score = 0
-            prior_high_grade = 'N/A'
-            prior_high_info = ''
+            return {
+                'avg_obs_psq': safe_avg(obs_psq_avgs),
+                'avg_obs_end_psq': safe_avg(obs_end_psqs),
+                'avg_pos_psq': safe_avg(pos_psq_avgs),
+                'avg_pos_first_n_psq': safe_avg(pos_first_n_avgs),
+                'count': len(trades),
+                'avg_pnl': safe_avg(pnl_values)
+            }
 
-            if self.p.enable_prior_high_score:
-                # 使用"往前推N天"的前高，避免刚突破立即成为新前高
-                # 例如：排除最近5天，则使用6天前的"过去80天最高价"
-                offset = self.p.prior_high_exclude_recent + 1
+        winner_stats = _calculate_stats(winners)
+        loser_stats = _calculate_stats(losers)
+        mediocre_stats = _calculate_stats(mediocre)
 
-                # 边界检查：确保有足够的历史数据
-                if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
-                    prior_high_value = self.prior_high[-offset]
-                    current_price = self.data.close[0]
+        print(f"\n--- 盈利交易特征 ({winner_stats['count']} 笔, 平均盈利: {winner_stats['avg_pnl']:.2f}) ---")
+        if winner_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {winner_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {winner_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {winner_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {winner_stats['avg_pos_first_n_psq']:.2f}")
 
-                    # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
-                    prior_high_date = None
-                    for i in range(offset, offset + self.p.prior_high_lookback):
-                        if self.data.high[-i] == prior_high_value:
-                            prior_high_date = self.data.datetime.date(-i)
-                            break
+        print(f"\n--- 平庸交易特征 ({mediocre_stats['count']} 笔, 平均盈亏: {mediocre_stats['avg_pnl']:.2f}) ---")
+        if mediocre_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {mediocre_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {mediocre_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {mediocre_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {mediocre_stats['avg_pos_first_n_psq']:.2f}")
 
-                    if prior_high_value > 0:
-                        price_to_high_ratio = current_price / prior_high_value
+        print(f"\n--- 亏损交易特征 ({loser_stats['count']} 笔, 平均亏损: {loser_stats['avg_pnl']:.2f}) ---")
+        if loser_stats['count'] > 0:
+            print(f"  - 观察期平均PSQ: {loser_stats['avg_obs_psq']:.2f}")
+            print(f"  - 入场日PSQ (观察期终值): {loser_stats['avg_obs_end_psq']:.2f}")
+            print(f"  - 持仓期平均PSQ: {loser_stats['avg_pos_psq']:.2f}")
+            print(f"  - 持仓期前 {self.p.psq_summary_period} 日平均PSQ: {loser_stats['avg_pos_first_n_psq']:.2f}")
 
-                        # 判断是否突破压力位
-                        if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
-                            prior_high_grade = '突破'
-                            prior_high_score = 1
-                        elif price_to_high_ratio < (1 - self.p.prior_high_lower_threshold):
-                            prior_high_grade = '受阻'
-                            prior_high_score = -1
-                        else:
-                            prior_high_grade = '临界'
-                            prior_high_score = 0
-
-                        # 生成日志信息
-                        if prior_high_date:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
-                        else:
-                            prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%"
-
-            total_score = env_score + squeeze_score + volume_score + prior_high_score
-
-            # --- 调试日志 ---
-            if self.p.debug:
-                debug_msg = (
-                    f"[debug]信号候选日: "
-                    f"环境(分:{env_score},级:{env_grade}), "
-                    f"压缩(分:{squeeze_score},级:{squeeze_grade},pct:{squeeze_pct:.0%}), "
-                    f"量能(分:{volume_score},级:{volume_grade},rat:{volume_ratio:.1f}x)"
-                )
-                if self.p.enable_prior_high_score:
-                    debug_msg += f", 前高(分:{prior_high_score:+d},级:{prior_high_grade},{prior_high_info})"
-                debug_msg += f" | 总分: {total_score}"
-                self.log(debug_msg)
-
-            # --- 决策逻辑：结合补偿机制 ---
-            trigger_observation = False
-            breakout_type = ""
-
-            if total_score >= 6:  # 至少是B级信号
-                if is_strict_breakout:
-                    trigger_observation = True
-                    breakout_type = "标准突破"
-                elif is_quasi_breakout:
-                    # 对于"准突破"，需要额外的补偿条件
-                    if squeeze_score == 3 or volume_score == 3:
-                        trigger_observation = True
-                        breakout_type = "准突破(已补偿)"
-
-            if trigger_observation:
-                if total_score >= 8:
-                    overall_grade = '【A+级】'
-                elif total_score >= 6:
-                    overall_grade = '【B级】'
-                else:
-                    overall_grade = '【C级】'  # 理论上不会到这里
-
-                log_msg = (
-                    f'突破信号: {overall_grade} - {breakout_type} '
-                    f'(环境:{env_grade}, '
-                    f'压缩:{squeeze_grade}({squeeze_pct:.0%}), '
-                    f'量能:{volume_grade}({volume_ratio:.1f}x)'
-                )
-                if self.p.enable_prior_high_score and prior_high_info:
-                    log_msg += f', 前高:{prior_high_grade}({prior_high_info})'
-                log_msg += ')'
-                self.log(log_msg)
-
-                self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
-                self.observation_mode = True
-                self.observation_counter = self.p.observation_period
-                self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
-                # 记录价格过滤器所需的状态
-                self.sentry_base_price = self.data.open[0]
-                self.sentry_highest_high = self.data.high[0]
-                # 新增: 精确记录信号日的索引
-                self.signal_day_index = len(self.data) - 1
-                # 开始PSQ评分 - 从信号日当天开始
-                self._start_psq_tracking('观察期', self.datas[0])
+        print('=' * 60 + '\n')
