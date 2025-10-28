@@ -35,6 +35,11 @@ from utils.theme_color_util import (
 # 设置为None表示一直跟踪到分析周期结束
 MAX_TRACKING_DAYS_AFTER_BREAK = 11
 
+# 断板后折叠行的天数阈值，超过这个天数的股票会在Excel中自动折叠（隐藏）
+# 例如设置为7，断板7天后该股票所在行会被折叠，减少显示数据量
+# 设置为None表示不自动折叠任何行
+COLLAPSE_DAYS_AFTER_BREAK = 15
+
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
 # 设置为0表示不显示入选前的走势
@@ -2074,6 +2079,45 @@ def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_be
     return 1 <= days_before_entry <= max_tracking_days_before
 
 
+def should_collapse_row(stock, formatted_trading_days, date_mapping):
+    """
+    判断是否应该折叠此行（在Excel中隐藏）
+    直接使用全局参数 COLLAPSE_DAYS_AFTER_BREAK
+
+    Args:
+        stock: 股票数据
+        formatted_trading_days: 格式化的交易日列表
+        date_mapping: 日期映射
+
+    Returns:
+        bool: 是否应该折叠此行
+    """
+    # 如果未设置折叠天数，不折叠
+    if COLLAPSE_DAYS_AFTER_BREAK is None:
+        return False
+
+    # 获取最后一次连板的日期
+    last_board_date = stock.get('last_board_date')
+    if not last_board_date:
+        return False
+
+    # 获取分析周期的结束日期
+    try:
+        end_date_str = date_mapping.get(formatted_trading_days[-1])
+        if not end_date_str:
+            return False
+        end_date = datetime.strptime(end_date_str, '%Y%m%d')
+    except Exception as e:
+        print(f"解析结束日期时出错: {e}")
+        return False
+
+    # 计算断板天数
+    days_since_break = count_trading_days_between(last_board_date, end_date)
+
+    # 如果断板天数超过阈值，则折叠此行
+    return days_since_break > COLLAPSE_DAYS_AFTER_BREAK
+
+
 def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
     """
     检查股票在炸板数据中是否有记录
@@ -2399,21 +2443,21 @@ def copy_worksheet(source_ws, target_ws):
     # 复制列宽
     for col_letter, dim in source_ws.column_dimensions.items():
         target_ws.column_dimensions[col_letter].width = dim.width
-    
+
     # 复制行高
     for row_idx, dim in source_ws.row_dimensions.items():
         if dim.height:
             target_ws.row_dimensions[row_idx].height = dim.height
-    
+
     # 复制单元格内容和样式
     for row in source_ws.iter_rows():
         for cell in row:
             target_cell = target_ws[cell.coordinate]
-            
+
             # 复制值
             if cell.value is not None:
                 target_cell.value = cell.value
-            
+
             # 复制样式
             if cell.has_style:
                 target_cell.font = cell.font.copy()
@@ -2422,15 +2466,15 @@ def copy_worksheet(source_ws, target_ws):
                 target_cell.number_format = cell.number_format
                 target_cell.protection = cell.protection.copy()
                 target_cell.alignment = cell.alignment.copy()
-            
+
             # 复制备注
             if cell.comment:
                 target_cell.comment = cell.comment
-    
+
     # 复制合并单元格
     for merged_range in source_ws.merged_cells.ranges:
         target_ws.merge_cells(str(merged_range))
-    
+
     # 不复制冻结窗格 - 避免因回填数据导致的冻结位置错乱
     # 归档文件主要用于查看历史数据，不需要冻结窗格
     # if source_ws.freeze_panes:
@@ -2448,14 +2492,14 @@ def archive_leader_sheets(wb, sheets_to_archive, output_file):
     """
     if not sheets_to_archive:
         return
-    
+
     # 生成归档文件路径
     output_dir = os.path.dirname(output_file)
     base_name = os.path.splitext(os.path.basename(output_file))[0]
     archive_file = os.path.join(output_dir, f"{base_name}_龙头归档.xlsx")
-    
+
     print(f"开始归档 {len(sheets_to_archive)} 个龙头工作表到: {archive_file}")
-    
+
     # 加载或创建归档工作簿
     if os.path.exists(archive_file):
         try:
@@ -2473,30 +2517,30 @@ def archive_leader_sheets(wb, sheets_to_archive, output_file):
         if 'Sheet' in archive_wb.sheetnames:
             archive_wb.remove(archive_wb['Sheet'])
         print(f"创建新的归档文件: {archive_file}")
-    
+
     # 复制要归档的工作表
     archived_count = 0
     for sheet_info in sheets_to_archive:
         sheet_name = sheet_info['name']
-        
+
         # 如果归档文件中已存在同名sheet，跳过（避免重复归档）
         if sheet_name in archive_wb.sheetnames:
             print(f"  归档文件中已存在工作表 {sheet_name}，跳过")
             continue
-        
+
         try:
             # 复制工作表
             source_ws = wb[sheet_name]
             target_ws = archive_wb.create_sheet(title=sheet_name)
-            
+
             # 复制内容和样式
             copy_worksheet(source_ws, target_ws)
-            
+
             archived_count += 1
             print(f"  已归档工作表: {sheet_name} (日期: {sheet_info['date'].strftime('%Y-%m-%d')})")
         except Exception as e:
             print(f"  归档工作表 {sheet_name} 时出错: {e}")
-    
+
     # 保存归档文件
     if archived_count > 0:
         try:
@@ -2524,10 +2568,10 @@ def manage_leader_sheets(wb, last_trading_day_in_run, output_file=OUTPUT_FILE):
         leader_sheets_info.sort(key=lambda x: x['date'])
         # 确定要删除的工作表
         sheets_to_delete = leader_sheets_info[:len(leader_sheets_info) - MAX_LEADER_SHEETS]
-        
+
         # 在删除之前，先归档这些工作表
         archive_leader_sheets(wb, sheets_to_delete, output_file)
-        
+
         # 删除工作表
         for sheet_info in sheets_to_delete:
             if sheet_info['name'] in wb.sheetnames:
@@ -2702,11 +2746,11 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 统计股票入选情况
     stock_entry_count = count_stock_entries(result_df)
 
-    # 填充数据行
+    # 填充数据行（【涨停梯队】sheet不启用折叠功能）
     fill_data_rows(ws, result_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                    stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                    period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df, show_warning_column)
+                   max_tracking_days_before, zaban_df, show_warning_column, enable_collapse=False)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
@@ -2736,6 +2780,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     else:
         # 用户自定义工作表已存在，保留原样
         print(f"保留用户自定义工作表: {concept_grouped_sheet_name}")
+
+    # 用于存储【概念分组】sheet需要折叠的行索引
+    concept_grouped_rows_to_collapse = []
 
     # 只有当需要创建工作表时才创建内容
     if should_create_sheet:
@@ -2767,11 +2814,14 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 # 如果 is_reentry 列不存在，直接去重
                 grouped_df = grouped_df.drop_duplicates(subset='stock_code', keep='first').copy()
 
-        create_concept_grouped_sheet_content(concept_ws, grouped_df, shouban_df, stock_data,
-                                             stock_entry_count, formatted_trading_days, date_column_start,
-                                             show_period_change, period_column, period_days, period_days_long,
-                                             stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                             zaban_df)
+        # 创建【概念分组】sheet并收集需要折叠的行索引
+        concept_grouped_rows_to_collapse = create_concept_grouped_sheet_content(
+            concept_ws, grouped_df, shouban_df, stock_data,
+            stock_entry_count, formatted_trading_days, date_column_start,
+            show_period_change, period_column, period_days, period_days_long,
+            stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
+            zaban_df, enable_collapse=True
+        )
 
     # 创建成交量涨跌幅分析工作表（如果启用）
     if create_volume_sheet:
@@ -2942,6 +2992,25 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                         stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
                         source_sheet_name=sheet_name_used, concept_analysis_data=concept_analysis_data)
 
+    # 在所有计算完成后，统一应用行折叠（最后一步）
+    if concept_grouped_rows_to_collapse:
+        print(f"开始应用行折叠：【{concept_grouped_sheet_name}】需要折叠 {len(concept_grouped_rows_to_collapse)} 行")
+
+        # 对【概念分组】sheet应用折叠
+        if concept_grouped_sheet_name in wb.sheetnames:
+            ws_concept = wb[concept_grouped_sheet_name]
+            for row_idx in concept_grouped_rows_to_collapse:
+                ws_concept.row_dimensions[row_idx].hidden = True
+            print(f"  已折叠【{concept_grouped_sheet_name}】的 {len(concept_grouped_rows_to_collapse)} 行")
+
+        # 对【成交量】sheet复用相同的行索引进行折叠
+        if create_volume_sheet and f"{concept_grouped_sheet_name}_成交量" in wb.sheetnames:
+            volume_sheet_name = f"{concept_grouped_sheet_name}_成交量"
+            ws_volume = wb[volume_sheet_name]
+            for row_idx in concept_grouped_rows_to_collapse:
+                ws_volume.row_dimensions[row_idx].hidden = True
+            print(f"  已折叠【{volume_sheet_name}】的 {len(concept_grouped_rows_to_collapse)} 行（复用概念分组的折叠索引）")
+
     # 保存Excel文件
     try:
         save_excel_file(wb, output_file)
@@ -3068,7 +3137,7 @@ def count_stock_entries(result_df):
 def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                    formatted_trading_days, date_column_start, show_period_change, period_column,
                    period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df, show_warning_column=True):
+                   max_tracking_days_before, zaban_df, show_warning_column=True, enable_collapse=False):
     """
     填充数据行
 
@@ -3090,6 +3159,10 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         show_warning_column: 是否显示异动预警列
+        enable_collapse: 是否启用行折叠功能（True=收集折叠行索引，False=不折叠）
+    
+    Returns:
+        list: 需要折叠的行索引列表（仅当enable_collapse=True时返回）
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
@@ -3107,6 +3180,9 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         except Exception as e:
             print(f"异动检测器初始化失败: {e}")
             abnormal_detector = None
+
+    # 用于收集需要折叠的行索引
+    rows_to_collapse = []
 
     for i, (_, stock) in enumerate(result_df.iterrows()):
         row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
@@ -3216,6 +3292,15 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                 elif "将触发异常波动" in warning_message:
                     # 异动预警和正常状态都不设置背景色
                     pass
+
+        # 判断是否需要折叠此行（仅在启用折叠功能时）
+        if enable_collapse and should_collapse_row(stock, formatted_trading_days, date_mapping):
+            # 收集需要折叠的行索引，稍后统一处理
+            rows_to_collapse.append(row_idx)
+
+    # 返回需要折叠的行索引（如果启用了折叠功能）
+    if enable_collapse:
+        return rows_to_collapse
 
 
 def extract_pure_stock_code(stock_code):
@@ -3354,7 +3439,7 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                          formatted_trading_days, date_column_start, show_period_change, period_column,
                                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                         max_tracking_days_before, zaban_df):
+                                         max_tracking_days_before, zaban_df, enable_collapse=False):
     """
     创建按概念分组的工作表内容
 
@@ -3375,6 +3460,10 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
         max_tracking_days: 断板后跟踪的最大天数
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
+        enable_collapse: 是否启用行折叠功能（True=收集折叠行索引，False=不折叠）
+    
+    Returns:
+        list: 需要折叠的行索引列表（仅当enable_collapse=True时返回）
     """
     print(f"填充按概念分组的工作表内容")
 
@@ -3466,11 +3555,16 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     add_market_indicators(ws, date_columns, label_col=2)
 
     # 填充数据行，使用重新排序的数据
-    fill_data_rows_with_concept_groups(ws, concept_grouped_df, shouban_df, stock_data['stock_reason_group'],
-                                       stock_data['reason_colors'], stock_entry_count, formatted_trading_days,
-                                       date_column_start, show_period_change, period_column, period_days,
-                                       period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df, show_warning_column)
+    rows_to_collapse = fill_data_rows_with_concept_groups(ws, concept_grouped_df, shouban_df,
+                                                          stock_data['stock_reason_group'],
+                                                          stock_data['reason_colors'], stock_entry_count,
+                                                          formatted_trading_days,
+                                                          date_column_start, show_period_change, period_column,
+                                                          period_days,
+                                                          period_days_long, stock_details, date_mapping,
+                                                          max_tracking_days,
+                                                          max_tracking_days_before, zaban_df, show_warning_column,
+                                                          enable_collapse)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
@@ -3480,17 +3574,22 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     freeze_cell = f"{get_column_letter(date_column_start)}4"
     ws.freeze_panes = freeze_cell
 
+    # 返回需要折叠的行索引（如果启用了折叠）
+    if enable_collapse:
+        return rows_to_collapse
+
 
 def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
                                  formatted_trading_days, date_column_start, show_period_change, period_column,
                                  period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                 max_tracking_days_before, zaban_df):
+                                 max_tracking_days_before, zaban_df, collapse_days=None):
     """
     创建按概念分组的工作表（保持向后兼容）
 
     Args:
         wb: Excel工作簿
         sheet_name: 工作表名称
+        collapse_days: 断板后折叠行的天数阈值
         其他参数与create_concept_grouped_sheet_content相同
     """
     print(f"创建按概念分组的工作表: {sheet_name}")
@@ -3502,14 +3601,14 @@ def create_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_da
     create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                          formatted_trading_days, date_column_start, show_period_change, period_column,
                                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                         max_tracking_days_before, zaban_df)
+                                         max_tracking_days_before, zaban_df, collapse_days)
 
 
 def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                                        stock_entry_count, formatted_trading_days, date_column_start,
                                        show_period_change, period_column, period_days, period_days_long,
                                        stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                       zaban_df, show_warning_column=True):
+                                       zaban_df, show_warning_column=True, enable_collapse=False):
     """
     填充数据行，按概念分组并在组间添加分隔行
 
@@ -3517,7 +3616,11 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         ws: Excel工作表
         result_df: 按概念分组排序的显著连板股票DataFrame
         show_warning_column: 是否显示异动预警列
+        enable_collapse: 是否启用行折叠功能（True=收集折叠行索引，False=不折叠）
         其他参数与fill_data_rows相同
+    
+    Returns:
+        list: 需要折叠的行索引列表（仅当enable_collapse=True时返回）
     """
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
@@ -3532,6 +3635,9 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         except Exception as e:
             print(f"按概念分组工作表：异动检测器初始化失败: {e}")
             abnormal_detector = None
+
+    # 用于收集需要折叠的行索引
+    rows_to_collapse = []
 
     current_row = 4  # 从第4行开始（第1行是日期标题，第2-3行是大盘指标）
     current_concept_group = None
@@ -3595,20 +3701,30 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         current_concept_group = stock_concept_group
 
         # 填充股票数据行（复用原有逻辑）
-        fill_single_stock_row(ws, current_row, stock, shouban_df, stock_reason_group, reason_colors,
-                              stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
-                              period_column, period_days, period_days_long, stock_details, date_mapping,
-                              max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers,
-                              show_warning_column, abnormal_detector)
+        should_collapse = fill_single_stock_row(ws, current_row, stock, shouban_df, stock_reason_group, reason_colors,
+                                                stock_entry_count, formatted_trading_days, date_column_start,
+                                                show_period_change,
+                                                period_column, period_days, period_days_long, stock_details,
+                                                date_mapping,
+                                                max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers,
+                                                show_warning_column, abnormal_detector, enable_collapse)
+
+        # 如果启用折叠并且此行需要折叠
+        if enable_collapse and should_collapse:
+            rows_to_collapse.append(current_row)
 
         current_row += 1
+
+    # 返回需要折叠的行索引（如果启用了折叠）
+    if enable_collapse:
+        return rows_to_collapse
 
 
 def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                           formatted_trading_days, date_column_start, show_period_change, period_column,
                           period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
                           max_tracking_days_before, zaban_df, new_high_markers=None,
-                          show_warning_column=True, abnormal_detector=None):
+                          show_warning_column=True, abnormal_detector=None, enable_collapse=False):
     """
     填充单个股票的数据行
 
@@ -3619,7 +3735,11 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
         new_high_markers: 新高标记映射
         show_warning_column: 是否显示异动预警列
         abnormal_detector: 异动检测器实例
+        enable_collapse: 是否启用行折叠功能（True=返回是否需要折叠，False=不判断）
         其他参数与fill_data_rows相同
+    
+    Returns:
+        bool: 是否需要折叠此行（仅当enable_collapse=True时返回）
     """
     # 提取基本股票信息
     stock_code = stock['stock_code']
@@ -3729,6 +3849,14 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
             elif "将触发异常波动" in warning_message:
                 # 异动预警和正常状态都不设置背景色
                 pass
+
+    # 判断是否需要折叠此行（仅在启用折叠功能时）
+    if enable_collapse:
+        should_collapse = should_collapse_row(stock, formatted_trading_days, date_mapping)
+        return should_collapse
+
+    # 如果未启用折叠，返回False
+    return False
 
 
 def save_excel_file(wb, output_file):
