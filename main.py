@@ -129,12 +129,12 @@ def backtrade_simulate():
     # run_comparison_experiment()
 
     # 单个回测
-    stock_code = '300059'
+    stock_code = '300128'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
-        startdate=datetime(2022, 1, 1),
-        enddate=datetime(2025, 8, 22),
+        startdate=datetime(2025, 1, 1),
+        enddate=datetime(2025, 10, 27),
         strategy=BreakoutStrategyV2,
         strategy_params={'debug': True},  # 开启详细日志
         log_trades=True,
@@ -971,7 +971,7 @@ if __name__ == '__main__':
     
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    draw_ths_fupan_html()     # HTML交互图
+    # draw_ths_fupan_html()     # HTML交互图
     
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
@@ -993,8 +993,8 @@ if __name__ == '__main__':
     # get_stock_minute_datas()
     # check_stock_datas()
 
-        # === 策略回测 ===
-    # backtrade_simulate()
+    # === 策略回测 ===
+    backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
