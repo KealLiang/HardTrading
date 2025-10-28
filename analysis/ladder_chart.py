@@ -27,7 +27,8 @@ from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
     create_legend_sheet, get_color_for_pct_change, add_market_indicators,
-    create_index_sheet, HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS
+    create_index_sheet, HIGH_BOARD_COLORS, REENTRY_COLORS, BOARD_COLORS,
+    extract_reasons_with_match_type
 )
 
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
@@ -841,19 +842,36 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         if pd.isna(concept_str) or not concept_str:
             return "其他"
 
-        concepts = extract_reasons(concept_str)
-        if not concepts:
+        # 提取概念及其匹配类型
+        concepts_with_type = extract_reasons_with_match_type(concept_str)
+        if not concepts_with_type:
             return "其他"
 
-        # 修复分组逻辑与颜色逻辑不一致的问题
-        # 优先从热门概念列表（global_top_reasons，已排序）中匹配，确保分组与颜色逻辑一致
-        concepts_set = set(concepts)
+        # 分离精确匹配和模糊匹配的概念
+        exact_concepts = [c[0] for c in concepts_with_type if c[1] == 'exact']
+        fuzzy_concepts = [c[0] for c in concepts_with_type if c[1] == 'fuzzy']
+        
+        # 优先级1：在精确匹配的概念中查找热门概念
         for top_reason in global_top_reasons:
-            if top_reason in concepts_set:
+            if top_reason in exact_concepts:
                 return top_reason
-
-        # 如果没有热门概念，返回第一个概念
-        return concepts[0] if concepts else "其他"
+        
+        # 优先级2：在模糊匹配的概念中查找热门概念
+        for top_reason in global_top_reasons:
+            if top_reason in fuzzy_concepts:
+                return top_reason
+        
+        # 优先级3：如果都不是热门概念，优先返回精确匹配的第一个概念
+        if exact_concepts:
+            return exact_concepts[0]
+        
+        # 优先级4：返回模糊匹配的第一个概念
+        if fuzzy_concepts:
+            return fuzzy_concepts[0]
+        
+        # 兜底：返回第一个概念（如果有的话）
+        all_concepts = [c[0] for c in concepts_with_type]
+        return all_concepts[0] if all_concepts else "其他"
 
     result_df['concept_group'] = result_df.apply(get_global_concept_group, axis=1)
 

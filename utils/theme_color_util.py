@@ -190,6 +190,82 @@ def normalize_reason(reason):
 
     return f"未分类_{original_reason}"
 
+def get_reason_match_type(original_reason, normalized_reason):
+    """
+    判断原因的匹配类型：精确匹配(exact)或模糊匹配(fuzzy)
+    
+    Args:
+        original_reason: 原始原因文本
+        normalized_reason: 规范化后的原因（即所属的主分组名）
+    
+    Returns:
+        str: 'exact' 表示精确匹配（不带%），'fuzzy' 表示模糊匹配（带%），'unmatched' 表示未匹配
+    """
+    # 移除空格
+    original_reason = re.sub(r'\s+', '', original_reason)
+    
+    # 如果是未分类，返回unmatched
+    if normalized_reason.startswith("未分类_"):
+        return 'unmatched'
+    
+    # 找到normalized_reason对应的同义词列表
+    if normalized_reason not in synonym_groups:
+        return 'unmatched'
+    
+    synonyms = synonym_groups[normalized_reason]
+    
+    # 检查是否有精确匹配（不带%的同义词）
+    for synonym in synonyms:
+        if '%' not in synonym and synonym in original_reason:
+            # 精确匹配
+            return 'exact'
+    
+    # 检查是否有模糊匹配（带%的同义词）
+    for synonym in synonyms:
+        if '%' in synonym:
+            pattern = synonym.replace('%', '(.*)')
+            regex = re.compile(f"^{pattern}$")
+            if regex.search(original_reason):
+                # 模糊匹配
+                return 'fuzzy'
+    
+    return 'unmatched'
+
+
+def extract_reasons_with_match_type(reason_text):
+    """
+    从原因文本中提取所有原因，并返回匹配类型信息
+    
+    Args:
+        reason_text: 原因文本，如"英伟达液冷+人形机器人"
+    
+    Returns:
+        list: [(normalized_reason, match_type, original_reason), ...]
+              match_type为'exact'或'fuzzy'
+    """
+    if not reason_text or isinstance(reason_text, float):
+        return []
+    
+    # 以"+"分割不同原因
+    reasons = reason_text.split('+')
+    result = []
+    
+    for r in reasons:
+        r = r.strip()
+        if not r:
+            continue
+        
+        # 规范化原因
+        normalized = normalize_reason(r)
+        
+        # 获取匹配类型
+        match_type = get_reason_match_type(r, normalized)
+        
+        result.append((normalized, match_type, r))
+    
+    return result
+
+
 def extract_reasons_with_original(reason_text):
     """
     与 extract_reasons 相同，但保留原始短语与归并后的主类。
