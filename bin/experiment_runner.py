@@ -29,9 +29,9 @@ def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_fil
     """
     # 设置默认日期
     if startdate is None:
-        startdate = datetime(2022, 1, 1)
+        startdate = datetime(2025, 1, 1)
     if enddate is None:
-        enddate = datetime(2025, 7, 4)
+        enddate = datetime(2025, 10, 27)
 
     output_dir = os.path.dirname(summary_filepath)
     os.makedirs(output_dir, exist_ok=True)
@@ -243,12 +243,12 @@ def run_comparison_experiment():
     # 1. 定义你要对比的两套参数
     params_A = {
         'debug': False,
+        'enable_prior_high_score': False,
         # 基准参数...
     }
     params_B = {
         'debug': False,
-        'atr_multiplier': 2.5,
-        'bband_period': 25
+        'enable_prior_high_score': True,
         # 在这里添加或修改你想测试的参数
     }
 

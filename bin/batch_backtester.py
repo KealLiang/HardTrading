@@ -186,12 +186,13 @@ class BatchBacktester:
         # 使用Manager创建共享的计数器和结果列表
         with Manager() as manager:
             counter = manager.Value('i', 0)
+            lock = manager.Lock()  # 创建独立的锁对象
             results_list = manager.list()
             
             # 多进程并行回测
             with Pool(processes=self.max_workers) as pool:
                 # 包装任务以便传递共享变量
-                wrapped_tasks = [(task, counter, len(tasks), results_list) for task in tasks]
+                wrapped_tasks = [(task, counter, lock, len(tasks), results_list) for task in tasks]
                 pool.starmap(_run_single_backtest_worker, wrapped_tasks)
             
             # 转换为普通列表
@@ -312,13 +313,14 @@ class BatchBacktester:
         return output_file
 
 
-def _run_single_backtest_worker(task: dict, counter, total: int, results_list) -> Dict:
+def _run_single_backtest_worker(task: dict, counter, lock, total: int, results_list) -> Dict:
     """
     单个股票回测的工作函数（用于多进程）
     
     Args:
         task: 任务参数字典
         counter: 共享计数器
+        lock: 用于保护counter的锁对象
         total: 总任务数
         results_list: 共享结果列表
         
@@ -360,7 +362,7 @@ def _run_single_backtest_worker(task: dict, counter, total: int, results_list) -
         logging.error(f"回测失败 {code}: {e}")
     
     # 更新进度
-    with counter.get_lock():
+    with lock:
         counter.value += 1
         current = counter.value
         print(f"进度: {current}/{total} ({current/total*100:.1f}%) - 完成: {code}")

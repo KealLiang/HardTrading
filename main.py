@@ -3,6 +3,7 @@ import os
 import warnings
 
 from bin import simulator
+from bin.experiment_runner import run_comparison_experiment
 from bin.resilience_scanner import run_filter
 from bin.scanner_analyzer import scan_and_visualize_analyzer
 from strategy.breakout_strategy import BreakoutStrategy
@@ -129,14 +130,14 @@ def backtrade_simulate():
     # run_comparison_experiment()
 
     # 单个回测
-    stock_code = '300128'
+    stock_code = '002658'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
         startdate=datetime(2025, 1, 1),
         enddate=datetime(2025, 10, 27),
         strategy=BreakoutStrategyV2,
-        strategy_params={'debug': True},  # 开启详细日志
+        strategy_params={'debug': True, 'enable_prior_high_score': False},  # 开启详细日志
         log_trades=True,
         visualize=True,
         interactive_plot=True,  # 弹出交互图
@@ -190,7 +191,8 @@ def batch_backtest_from_codes():
     适合代码不多的场景，或者动态生成股票池的场景
     """
     # 方式1: 手动指定股票列表
-    stock_codes = ['300033', '300059', '000062', '300204', '600610']
+    stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640',
+                  '002104', '002658']
 
     # 方式2: 从其他来源获取（示例：读取某个板块的所有股票）
     # from fetch.astock_concept import get_concept_stocks
@@ -201,7 +203,7 @@ def batch_backtest_from_codes():
         strategy_class=BreakoutStrategyV2,
         strategy_params={'debug': False},
         startdate=datetime(2022, 1, 1),
-        enddate=datetime(2025, 10, 21),
+        enddate=datetime(2025, 10, 27),
         amount=100000,
         data_dir='./data/astocks',
         output_dir='bin/batch_backtest_results',
