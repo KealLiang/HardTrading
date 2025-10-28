@@ -611,7 +611,7 @@ def daily_routine():
     """
     # 定义日常流程步骤
     daily_steps = [
-        # (get_stock_datas, "拉取A股交易数据"),
+        (get_stock_datas, "拉取A股交易数据"),
         (get_index_data, "拉取各大指数数据"),
         (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
@@ -958,7 +958,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -996,7 +996,7 @@ if __name__ == '__main__':
     # check_stock_datas()
 
     # === 策略回测 ===
-    backtrade_simulate()
+    # backtrade_simulate()
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()

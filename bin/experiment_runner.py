@@ -1,19 +1,20 @@
 import os
 import re
+from contextlib import redirect_stdout
 from datetime import datetime
 from pathlib import Path
-from contextlib import redirect_stdout
+
 import pandas as pd
 
 # 依赖项，需要确保这些模块可以被正确导入
 from bin import simulator
-from strategy.breakout_strategy import BreakoutStrategy
+from strategy.breakout_strategy_v2 import BreakoutStrategyV2
 
 
 # --- Core Backtesting Function (moved and adapted from simulator.py) ---
 
 def run_batch_backtest(strategy_class, strategy_params, stock_codes, summary_filepath,
-                      startdate=None, enddate=None, amount=100000):
+                       startdate=None, enddate=None, amount=100000):
     """
     对预设的股票池进行批量回测，并将所有控制台输出汇总到指定的日志文件中。
     这是从 simulator.py 中移动并改造的。
@@ -253,7 +254,8 @@ def run_comparison_experiment():
     }
 
     # 2. 定义股票池和输出文件
-    stock_pool = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640', '002104', '002658']
+    stock_pool = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640',
+                  '002104', '002658']
     output_dir = "bin/post_analysis"
 
     file_A = os.path.join(output_dir, "backtest_baseline.txt")
@@ -262,7 +264,7 @@ def run_comparison_experiment():
     # 3. 运行基准版回测
     print("\n[1/3] 正在运行基准版参数回测...")
     run_batch_backtest(
-        strategy_class=BreakoutStrategy,
+        strategy_class=BreakoutStrategyV2,
         strategy_params=params_A,
         stock_codes=stock_pool,
         summary_filepath=file_A
@@ -271,7 +273,7 @@ def run_comparison_experiment():
     # 4. 运行挑战版回测
     print("\n[2/3] 正在运行挑战版参数回测...")
     run_batch_backtest(
-        strategy_class=BreakoutStrategy,
+        strategy_class=BreakoutStrategyV2,
         strategy_params=params_B,
         stock_codes=stock_pool,
         summary_filepath=file_B
@@ -286,4 +288,4 @@ def run_comparison_experiment():
 
 if __name__ == '__main__':
     # 当直接运行此脚本时，执行实验
-    run_comparison_experiment() 
+    run_comparison_experiment()
