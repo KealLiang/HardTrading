@@ -1006,7 +1006,7 @@ def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()
+    # full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1018,6 +1018,9 @@ if __name__ == '__main__':
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')
     # fetch_ths_fupan()
+
+    # === 连板股分析图功能 ===
+    analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
     
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
@@ -1064,6 +1067,3 @@ if __name__ == '__main__':
     # === 集合竞价封单数据功能 ===
     # auction_fengdan_analyze()  # 复盘分析封单数据
     # 定时采集请运行: python alerting/auction_scheduler.py start
-
-    # === 连板股分析图功能 ===
-    analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
