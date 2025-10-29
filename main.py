@@ -342,10 +342,10 @@ def strategy_scan(candidate_model='a'):
         '*** 二次确认信号',
     ]
 
-    start_date = '20250830'
+    start_date = '20250910'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20251010'  # 只看这个日期之后的
+    details_after_date = '20251015'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -368,9 +368,9 @@ def pullback_rebound_scan(candidate_model='a'):
         '止跌反弹信号',
     ]
 
-    start_date = '20250830'
+    start_date = '20250910'
     end_date = None
-    details_after_date = '20251010'  # 只看这个日期之后的
+    details_after_date = '20251015'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -955,17 +955,65 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
         print("❌ 分析失败或无数据")
 
 
+def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
+                           min_lianban=3, lianban_type=1,
+                           before_days=30, after_days=10):
+    """
+    分析连板股票并生成K线图
+    
+    功能说明：
+    - 从复盘数据中筛选指定时间段内的连板股
+    - 为每只股票生成独立的K线图，便于找出连板股的共性
+    - 生成汇总报告CSV
+    
+    Args:
+        start_date: 开始日期，格式YYYYMMDD，默认'20250101'
+        end_date: 结束日期，格式YYYYMMDD，默认'20250131'
+        min_lianban: 最小连板数，默认3
+        lianban_type: 连板类型，默认1
+            - 1: 连续板（无断板）- 连续涨停天数 >= min_lianban
+            - 2: 最高板 - 最高板数 >= min_lianban（可以有断板）
+            - 3: 非连续板 - 最高板数 >= min_lianban 且有断板
+        before_days: 首板前显示的交易日数，默认30
+        after_days: 终止后显示的交易日数，默认10
+    
+    输出：
+        - K线图保存在: analysis/lianban_charts/{start_date}_{end_date}/
+        - 汇总报告: analysis/lianban_charts/{start_date}_{end_date}/summary.csv
+    """
+    from analysis.lianban_analyzer import LianbanAnalyzer, LianbanAnalysisConfig
+    
+    # 创建配置
+    config = LianbanAnalysisConfig(
+        start_date=start_date,
+        end_date=end_date,
+        min_lianban_count=min_lianban,
+        lianban_type=lianban_type,
+        before_days=before_days,
+        after_days=after_days
+    )
+    
+    # 执行分析
+    analyzer = LianbanAnalyzer(config)
+    analyzer.run()
+    
+    print(f"\n✅ 分析完成！共生成 {len(analyzer.filtered_stocks)} 张图表")
+    print(f"📁 图表保存在: {analyzer.output_dir}")
+    
+    return analyzer.output_dir
+
+
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    strategy_scan('b')
-    generate_comparison_charts('b')
+    # strategy_scan('b')
+    # generate_comparison_charts('b')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')
@@ -1016,3 +1064,6 @@ if __name__ == '__main__':
     # === 集合竞价封单数据功能 ===
     # auction_fengdan_analyze()  # 复盘分析封单数据
     # 定时采集请运行: python alerting/auction_scheduler.py start
+
+    # === 连板股分析图功能 ===
+    analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
