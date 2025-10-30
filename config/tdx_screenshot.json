@@ -17,9 +17,9 @@
   "save_dir": "data/screenshots/auction",
   "sort_click_count": 2,
   "auction_times": [
-    "09:15:05",
-    "09:20:10",
-    "09:25:30"
+    "09:15:10",
+    "09:20:15",
+    "09:25:20"
   ],
   "use_block_input": true,
   "restore_mouse": true,
