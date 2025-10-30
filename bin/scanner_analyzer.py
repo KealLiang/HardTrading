@@ -292,16 +292,16 @@ def get_stock_pool(source, all_codes_from_dir=None):
     try:
         with open(source, 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip()]
-        
+
         # 使用正则表达式提取股票代码（6位数字）
         stock_code_pattern = re.compile(r'^\d{6}$')
         stocks = [line for line in lines if stock_code_pattern.match(line)]
-        
+
         if not stocks:
             logging.warning(f"未在文件 {source} 中找到有效的股票代码（6位数字）")
         else:
             logging.info(f"从文件 {source} 中识别出 {len(stocks)} 只股票代码")
-        
+
         return [s.zfill(6) for s in stocks]
     except Exception as e:
         logging.error(f"读取股票池文件 {source} 失败: {e}")
@@ -569,6 +569,32 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
                     f"详情: {signal.get('details', '')}\n")
 
     print(f"\n扫描结果摘要已保存到: {summary_path}")
+
+    # --- 4.5. 生成简化版文件（按日期分组，方便复制到同花顺） ---
+    simple_summary_path = os.path.join(output_path, f"scan_simple_{scan_start_date}-{end_date_str}.txt")
+
+    # 按日期分组股票
+    from collections import defaultdict
+    date_grouped_signals = defaultdict(list)
+    for signal in unique_signals:
+        signal_date = signal['datetime'].strftime('%Y-%m-%d')
+        code = signal['code']
+        name = name_map.get(code, '')
+        date_grouped_signals[signal_date].append((code, name))
+
+    # 按日期降序排列
+    sorted_dates = sorted(date_grouped_signals.keys(), reverse=True)
+
+    with open(simple_summary_path, 'w', encoding='utf-8') as f:
+        for i, date in enumerate(sorted_dates):
+            f.write(f"{date}\n")
+            for code, name in date_grouped_signals[date]:
+                f.write(f"{code} {name}\n")
+            # 在日期组之间添加分隔符，最后一组不加
+            if i < len(sorted_dates) - 1:
+                f.write("=" * 50 + "\n")
+
+    print(f"简化版扫描结果已保存到: {simple_summary_path}")
 
     # --- 5. 过滤信号用于可视化 ---
     final_signals = _filter_signals_to_unique_opportunities(raw_signals, scan_strategy)
