@@ -480,6 +480,4 @@ def run_auto():
 
 
 if __name__ == "__main__":
-    # python automation/tdx_auction_screenshot.py snap
-    # python automation/tdx_auction_screenshot.py start
     run_auto()
