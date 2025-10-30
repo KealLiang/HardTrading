@@ -5,16 +5,16 @@
     "行情"
   ],
   "fengdan_header_point": [
-    564,
-    80
+    565,
+    79
   ],
   "screenshot_region": [
-    7,
-    43,
-    1228,
-    1451
+    3,
+    67,
+    861,
+    1395
   ],
-  "save_dir": "data/screenshots/auction",
+  "save_dir": "D:\\Trading\\data\\screenshots\\auction",
   "sort_click_count": 2,
   "auction_times": [
     "09:15:10",
@@ -27,6 +27,9 @@
   "ak_shortcut": "67",
   "image_format": "jpeg",
   "jpeg_quality": 15,
+  "webp_quality": 30,
+  "webp_method": 6,
+  "png_optimize": true,
   "downscale_ratio": 0.6,
   "convert_to_grayscale": false
 }

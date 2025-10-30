@@ -4,9 +4,12 @@
 用途：
 - 在集合竞价三个时间点（09:15、09:20、09:25）自动完成以下动作：
   1) 激活通达信窗口
-  2) 键盘输入“67”并回车跳转到「A股」
+  2) 键盘输入"67"并回车跳转到「A股」
   3) 点击表头的「封单额」进行排序
-  4) 截取配置区域，保存为图片
+  4) 截取第一张图片（当前排序）
+  5) 再次点击「封单额」切换排序方向
+  6) 截取第二张图片（逆序排序）
+  7) 将两张图片左右合并为一张，保存（含图像增强优化）
 - 提供交互式「坐标与区域校准」工具（回车确认），一次校准长期复用
 
 使用方法：
@@ -38,10 +41,12 @@
 - ✅ 自动定位项目根目录，支持在任意目录下运行
 - ✅ 支持 PyCharm 直接点击运行（无需命令行参数）
 - ✅ 支持自定义配置文件路径
+- ✅ 正序逆序双截图自动合并
+- ✅ 图像增强优化（锐化+对比度增强），提升文字清晰度
 
 作者：Trading System
 创建时间：2025-10-15
-更新时间：2025-10-21
+更新时间：2025-10-30
 """
 
 import argparse
@@ -56,7 +61,7 @@ from typing import List, Optional, Tuple
 # 第三方
 import pyautogui as pag
 import schedule
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 
 # ========== 路径自动定位 ==========
@@ -98,7 +103,12 @@ DEFAULT_CONFIG = {
     "webp_method": 6,  # 0-6，越高越慢体积越小
     "png_optimize": True,  # PNG 优化
     "downscale_ratio": 1.0,  # 可选缩放比例（例如 0.8 可进一步减小体积）
-    "convert_to_grayscale": False  # 将图片转为灰度，显著压缩体积
+    "convert_to_grayscale": False,  # 将图片转为灰度，显著压缩体积
+    # 图像增强（提升文字清晰度，基本不增加文件大小）
+    "enable_image_enhance": True,  # 是否启用图像增强
+    "sharpen_strength": 1.5,  # 锐化强度 1.0-3.0，推荐1.5（增强文字边缘）
+    "contrast_factor": 1.1,  # 对比度因子 1.0-1.3，推荐1.1（让文字更分明）
+    "brightness_factor": 1.0,  # 亮度因子 0.8-1.2，1.0为不调整
 }
 
 # 使用绝对路径，基于项目根目录
@@ -224,21 +234,45 @@ class TDXScreenshotter:
         self._safe_click(tuple(self.cfg["fengdan_header_point"]), "封单额表头",
                          clicks=max(1, int(self.cfg.get("sort_click_count", 2))))
 
-    def take_screenshot(self, time_tag: Optional[str] = None) -> Optional[str]:
-        """根据配置区域截图，返回保存路径。"""
+    def _enhance_image(self, image: Image.Image) -> Image.Image:
+        """增强图像清晰度（针对文字优化）。"""
+        if not self.cfg.get("enable_image_enhance", True):
+            return image
+
+        try:
+            # 1. 锐化 - 增强文字边缘
+            sharpen_strength = float(self.cfg.get("sharpen_strength", 1.5))
+            if sharpen_strength > 1.0:
+                # 使用UnsharpMask进行智能锐化（比简单SHARPEN效果更好）
+                image = image.filter(ImageFilter.UnsharpMask(
+                    radius=1,  # 锐化半径，1像素适合文字
+                    percent=int((sharpen_strength - 1.0) * 150),  # 锐化百分比
+                    threshold=3  # 阈值，避免过度锐化平滑区域
+                ))
+
+            # 2. 对比度增强 - 让黑白文字更分明
+            contrast_factor = float(self.cfg.get("contrast_factor", 1.1))
+            if abs(contrast_factor - 1.0) > 0.01:
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(contrast_factor)
+
+            # 3. 亮度调整 - 改善可读性
+            brightness_factor = float(self.cfg.get("brightness_factor", 1.0))
+            if abs(brightness_factor - 1.0) > 0.01:
+                enhancer = ImageEnhance.Brightness(image)
+                image = enhancer.enhance(brightness_factor)
+
+        except Exception as e:
+            self.logger.warning(f"图像增强失败，使用原图: {e}")
+
+        return image
+
+    def _capture_region(self) -> Optional[Image.Image]:
+        """内部方法：捕获配置区域并返回PIL图像对象。"""
         region = tuple(self.cfg["screenshot_region"])  # (left, top, width, height)
         if len(region) != 4 or sum(region) == 0:
             self.logger.error("截图区域未校准，请先运行 calibrate")
             return None
-
-        today = datetime.now().strftime('%Y%m%d')
-        tag = time_tag or datetime.now().strftime('%H%M')
-
-        fmt = str(self.cfg.get("image_format", "webp")).lower()
-        ext_map = {"jpeg": "jpg", "jpg": "jpg", "webp": "webp", "png": "png"}
-        ext = ext_map.get(fmt, "webp")
-        filename = f"{today}_{tag}.{ext}"
-        save_path = os.path.join(self.cfg["save_dir"], filename)
 
         image = pag.screenshot(region=region)
 
@@ -253,7 +287,30 @@ class TDXScreenshotter:
             new_h = max(1, int(h * ratio))
             image = image.resize((new_w, new_h), resample=Image.LANCZOS)
 
-        # 保存时按格式压缩
+        # 图像增强（提升文字清晰度）
+        image = self._enhance_image(image)
+
+        return image
+
+    def _merge_images_horizontal(self, img1: Image.Image, img2: Image.Image) -> Image.Image:
+        """将两张图片左右合并。"""
+        # 确保两张图片高度一致（取最大高度）
+        max_height = max(img1.height, img2.height)
+        total_width = img1.width + img2.width
+
+        # 创建新画布
+        merged = Image.new('RGB', (total_width, max_height), (255, 255, 255))
+
+        # 粘贴两张图片
+        merged.paste(img1, (0, 0))
+        merged.paste(img2, (img1.width, 0))
+
+        return merged
+
+    def _save_image(self, image: Image.Image, save_path: str) -> bool:
+        """保存图片，支持多种格式和压缩。"""
+        fmt = str(self.cfg.get("image_format", "webp")).lower()
+
         try:
             if fmt in ("jpeg", "jpg"):
                 params = {
@@ -263,7 +320,6 @@ class TDXScreenshotter:
                     "subsampling": "4:2:0",
                 }
                 if bool(self.cfg.get("convert_to_grayscale", False)):
-                    # 灰度模式体积更小，适合以文本为主的截图
                     if image.mode != "L":
                         image = image.convert("L")
                 else:
@@ -282,18 +338,55 @@ class TDXScreenshotter:
                     "method": int(self.cfg.get("webp_method", 6)),
                 }
                 image.save(save_path, format="WEBP", **params)
+            return True
         except Exception as e:
-            # 回退为 PNG 保存，避免因格式不支持导致丢图
+            # 回退为 PNG 保存
             fallback_path = os.path.splitext(save_path)[0] + ".png"
             image.save(fallback_path, format="PNG", optimize=True, compress_level=9)
             self.logger.warning(f"图片保存失败，已回退为 PNG：{fallback_path}，错误：{e}")
-            return fallback_path
+            return False
+
+    def take_screenshot(self, time_tag: Optional[str] = None) -> Optional[str]:
+        """截取两张图（正序+逆序）并合并为一张，返回保存路径。"""
+        today = datetime.now().strftime('%Y%m%d')
+        tag = time_tag or datetime.now().strftime('%H%M')
+
+        fmt = str(self.cfg.get("image_format", "webp")).lower()
+        ext_map = {"jpeg": "jpg", "jpg": "jpg", "webp": "webp", "png": "png"}
+        ext = ext_map.get(fmt, "webp")
+        filename = f"{today}_{tag}.{ext}"
+        save_path = os.path.join(self.cfg["save_dir"], filename)
+
+        # 第一张截图（当前排序）
+        self.logger.info("正在截取第一张图片（当前排序）...")
+        img1 = self._capture_region()
+        if img1 is None:
+            return None
+
+        # 再次点击封单额表头，切换排序
+        self.logger.info("切换排序方向...")
+        self._safe_click(tuple(self.cfg["fengdan_header_point"]), "封单额表头（切换排序）", clicks=1)
+        time.sleep(0.3)  # 等待排序完成
+
+        # 第二张截图（逆序）
+        self.logger.info("正在截取第二张图片（逆序排序）...")
+        img2 = self._capture_region()
+        if img2 is None:
+            return None
+
+        # 合并两张图片
+        self.logger.info("正在合并图片...")
+        merged_image = self._merge_images_horizontal(img1, img2)
+
+        # 保存合并后的图片
+        self._save_image(merged_image, save_path)
 
         try:
             size_kb = os.path.getsize(save_path) / 1024.0
-            self.logger.info(f"截图完成: {save_path} ({size_kb:.1f} KB)")
+            self.logger.info(f"合并截图完成: {save_path} ({size_kb:.1f} KB)")
         except Exception:
-            self.logger.info(f"截图完成: {save_path}")
+            self.logger.info(f"合并截图完成: {save_path}")
+
         return save_path
 
     def run_once(self, time_point: Optional[str] = None) -> None:
@@ -363,7 +456,7 @@ class TDXAuctionScreenshotScheduler:
         self.shooter.run_once(time_point)
         self.completed_times.add(time_point)
         logging.info(f"已完成 {len(self.completed_times)}/{len(self.auction_times)} 个时间点")
-        
+
         # 检查是否所有任务都已完成
         if len(self.completed_times) >= len(self.auction_times):
             logging.info("✅ 所有截图任务已完成，程序将自动停止")
