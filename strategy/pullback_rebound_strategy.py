@@ -17,7 +17,7 @@ class PullbackReboundStrategy(bt.Strategy):
        c. 企稳K线：收红K线或止跌（多头开始反击）
     3. 买入信号（按顺序触发）：
        量价背离 → 量窒息 → 企稳K线
-       约束：量价背离不能发生在高点后第二天
+       约束：量价背离不能发生在高点后第二天（可通过enable_top_constraint关闭）
     4. 止盈止损：
        - 止盈：涨幅达到12%
        - 止损：跌幅超过5%
@@ -41,6 +41,9 @@ class PullbackReboundStrategy(bt.Strategy):
         ('profit_target', 0.12),  # 止盈目标12%
         ('stop_loss', 0.05),  # 止损比例5%
         ('max_hold_days', 10),  # 最大持有天数
+
+        # -- 信号约束参数 --
+        ('enable_top_constraint', True),  # 是否启用顶部约束（背离不能在高点后第二天）
 
         # -- 调试参数 --
         ('debug', False),  # 是否开启详细日志
@@ -369,14 +372,16 @@ class PullbackReboundStrategy(bt.Strategy):
                 elif self.signal_volume_dry_date >= self.signal_stabilization_date:
                     status = "✗窒息和企稳顺序错误"
                 else:
-                    # 顺序正确，检查顶部约束
-                    if self.uptrend_high_date:
+                    # 顺序正确，检查顶部约束（如果启用）
+                    if self.p.enable_top_constraint and self.uptrend_high_date:
                         from datetime import timedelta
                         day_after_high = self.uptrend_high_date + timedelta(days=1)
                         if self.signal_divergence_date == day_after_high:
                             status = "✗背离发生在顶部后第二天"
                         else:
                             status = "✓所有条件满足"
+                    else:
+                        status = "✓所有条件满足"
             elif self.signal_divergence_date and self.signal_volume_dry_date:
                 # 检查前两个的顺序
                 if self.signal_divergence_date >= self.signal_volume_dry_date:
@@ -395,7 +400,7 @@ class PullbackReboundStrategy(bt.Strategy):
         检查买入信号（按顺序触发）
         
         量价背离 → 量窒息 → 企稳K线
-        约束：背离不能发生在顶部（高点后第二天）
+        约束：背离不能发生在顶部（高点后第二天），可通过enable_top_constraint参数控制
         """
         # 检查三个信号是否都已出现
         if not self.signal_divergence_date or not self.signal_volume_dry_date or not self.signal_stabilization_date:
@@ -407,8 +412,8 @@ class PullbackReboundStrategy(bt.Strategy):
         if self.signal_volume_dry_date >= self.signal_stabilization_date:
             return False
 
-        # 检查顶部约束：背离日期不能是高点后第二天
-        if self.uptrend_high_date:
+        # 检查顶部约束：背离日期不能是高点后第二天（如果启用）
+        if self.p.enable_top_constraint and self.uptrend_high_date:
             from datetime import timedelta
             day_after_high = self.uptrend_high_date + timedelta(days=1)
             if self.signal_divergence_date == day_after_high:
