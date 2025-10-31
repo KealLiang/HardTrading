@@ -13,6 +13,10 @@ from strategy.constant.signal_constants import SIGNAL_MARKER_MAP, SIG_UNKNOWN, S
 
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
+# === 均线配置（全局变量）===
+MA_PERIOD_1 = 5  # 第一条均线周期（默认5日）
+MA_PERIOD_2 = 10  # 第二条均线周期（默认10日）
+
 
 def _extract_scores_from_details(signal_info):
     """从信号详情中解析VCP和过热分"""
@@ -118,6 +122,32 @@ def _setup_mpf_style():
         base_mpf_style='yahoo', marketcolors=mc, rc=rc_params
     )
     return style
+
+
+def _calculate_moving_averages(chart_df):
+    """
+    计算移动平均线并返回addplot列表。
+    
+    Returns:
+        list: 包含MA的addplot配置列表
+    """
+    ma_addplots = []
+
+    # 计算第一条均线（默认5日）
+    if len(chart_df) >= MA_PERIOD_1:
+        ma1 = chart_df['Close'].rolling(window=MA_PERIOD_1).mean()
+        ma_addplots.append(
+            mpf.make_addplot(ma1, color='darkorange', width=1.2, label=f'MA{MA_PERIOD_1}')
+        )
+
+    # 计算第二条均线（默认10日）
+    if len(chart_df) >= MA_PERIOD_2:
+        ma2 = chart_df['Close'].rolling(window=MA_PERIOD_2).mean()
+        ma_addplots.append(
+            mpf.make_addplot(ma2, color='blue', width=1.2, label=f'MA{MA_PERIOD_2}')
+        )
+
+    return ma_addplots
 
 
 def _add_signal_markers_to_plot(chart_df, signal_info):
@@ -278,7 +308,8 @@ def pair_trades(log_csv_path, full_log_path=None, include_open=False):
     return pd.DataFrame(trades)
 
 
-def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None, stock_name=None):
+def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_period, signal_info=None,
+                       stock_name=None):
     """为单笔交易生成并保存图表, 兼容未平仓交易。"""
     stock_code = _format_code(trade['symbol'])
     stock_data = read_stock_data(stock_code, data_dir)
@@ -309,7 +340,7 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
 
     # 清理停牌数据（包含NaN的行），确保 Open, High, Low, Close 数据完整
     chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
-    
+
     if chart_df.empty:
         print(f"警告: 交易 {trade_id} 清理停牌数据后无有效数据，已跳过。")
         return
@@ -337,6 +368,10 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     # 用于图例的信号类型和标记
     signal_addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
     addplots.extend(signal_addplots)
+
+    # 添加均线
+    ma_addplots = _calculate_moving_averages(chart_df)
+    addplots.extend(ma_addplots)
 
     # --- 生成图表标题 ---
     stock_display = f"{stock_code} {stock_name}" if stock_name else stock_code
@@ -416,13 +451,17 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
 
     # 清理停牌数据（包含NaN的行），确保 Open, High, Low, Close 数据完整
     chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
-    
+
     if chart_df.empty:
         print(f"警告: {stock_code} 清理停牌数据后无有效数据，已跳过。")
         return
 
     # 获取信号标记
     addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
+
+    # 添加均线
+    ma_addplots = _calculate_moving_averages(chart_df)
+    addplots.extend(ma_addplots)
 
     stock_display = f"{stock_code} {stock_name}" if stock_name else stock_code
     overheat_score, vcp_score = _extract_scores_from_details(signal_info)

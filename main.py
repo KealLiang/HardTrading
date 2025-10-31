@@ -902,6 +902,16 @@ def generate_ladder_chart():
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
                        priority_reasons=priority_reasons, enable_attention_criteria=True,
                        sheet_name=sheet_name, create_leader_sheet=True, create_volume_sheet=True)
+    
+    # 导出股票代码到候选股票txt文件
+    from utils.export_stock_codes import extract_stock_codes_from_excel
+    from analysis.loader.fupan_data_loader import OUTPUT_FILE
+    
+    excel_file = OUTPUT_FILE
+    output_txt = "bin/candidate_temp/candidate_stocks.txt"
+    print("\n" + "="*60)
+    extract_stock_codes_from_excel(excel_file, output_txt)
+    print("="*60 + "\n")
 
 
 def generate_comparison_charts(candidate_model: str = 'a', recent_days: int = 10):
