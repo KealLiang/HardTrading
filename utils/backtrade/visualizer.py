@@ -9,7 +9,10 @@ import pandas as pd
 from matplotlib import font_manager
 from matplotlib.font_manager import FontProperties
 
-from strategy.constant.signal_constants import SIGNAL_MARKER_MAP, SIG_UNKNOWN, SIG_SOURCE
+from strategy.constant.signal_constants import (
+    SIGNAL_MARKER_MAP, SIG_UNKNOWN, SIG_SOURCE, 
+    SIG_FAST_TRACK, SIG_PULLBACK_WAIT, SIG_PULLBACK_CONFIRM
+)
 
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 
@@ -189,12 +192,24 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
             signal_dt = pd.to_datetime(signal_date)
             marker_idx = chart_df.index.searchsorted(signal_dt, side='right') - 1
             if marker_idx >= 0 and marker_idx < len(chart_df):  # 确保索引在有效范围内
-                vertical_offset = 0.95
-                if signal_type in ['蓄势待发']:
-                    vertical_offset = 0.93
-                elif signal_type in ['口袋支点']:
-                    vertical_offset = 0.91
-                signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
+                # 三速档位系统标记：显示在K线上方
+                if signal_type in [SIG_FAST_TRACK, SIG_PULLBACK_WAIT, SIG_PULLBACK_CONFIRM]:
+                    # 在High上方，用不同高度区分
+                    if signal_type == SIG_FAST_TRACK:
+                        vertical_offset = 1.03  # 快速通道：最高
+                    elif signal_type == SIG_PULLBACK_CONFIRM:
+                        vertical_offset = 1.025  # 回踩确认：中
+                    else:  # SIG_PULLBACK_WAIT
+                        vertical_offset = 1.02  # 回踩等待：较低
+                    signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['High'] * vertical_offset
+                else:
+                    # 其他信号：显示在K线下方
+                    vertical_offset = 0.95
+                    if signal_type in ['蓄势待发']:
+                        vertical_offset = 0.93
+                    elif signal_type in ['口袋支点']:
+                        vertical_offset = 0.91
+                    signal_markers_dict[signal_type][marker_idx] = chart_df.iloc[marker_idx]['Low'] * vertical_offset
         except (KeyError, IndexError):
             pass
 

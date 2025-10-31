@@ -130,14 +130,15 @@ def backtrade_simulate():
     # run_comparison_experiment()
 
     # 单个回测
-    stock_code = '002658'
+    stock_code = '300128'
+    # stock_code = '301217'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
         startdate=datetime(2025, 1, 1),
-        enddate=datetime(2025, 10, 27),
-        strategy=BreakoutStrategyV2,
-        strategy_params={'debug': True, 'enable_prior_high_score': False},  # 开启详细日志
+        enddate=datetime(2025, 10, 31),
+        strategy=BreakoutStrategy,
+        strategy_params={'debug': True, 'enable_prior_high_score': True},  # 开启详细日志
         log_trades=True,
         visualize=True,
         interactive_plot=True,  # 弹出交互图
@@ -339,7 +340,9 @@ def strategy_scan(candidate_model='a'):
     signal_patterns = [
         # '*** 触发【突破观察哨】',
         # '突破信号',
-        '*** 二次确认信号',
+        '*** 二次确认信号',       # 标准通道：观察期内二次确认
+        '买入信号:【快速通道】',  # 快速通道：信号日当天买入
+        '买入信号: 回踩确认',     # 缓冲通道：回调后买入
     ]
 
     start_date = '20250910'
@@ -1079,14 +1082,14 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    full_scan_routine()
+    # full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    # strategy_scan('b')
-    # generate_comparison_charts('b')
+    strategy_scan('a')
+    generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
     # generate_rebound_comparison_charts('a')

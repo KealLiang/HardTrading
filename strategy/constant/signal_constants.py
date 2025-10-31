@@ -12,6 +12,9 @@ SIG_SENTRY = '观察哨'
 SIG_CONFIRMATION = '二次确认'
 SIG_SELL = '卖出信号'
 SIG_SOURCE = '源信号'  # 用于独立回测模式中标注买入的源头
+SIG_FAST_TRACK = '快速通道'  # 三速档位：信号日当天直接买入
+SIG_PULLBACK_WAIT = '回踩等待'  # 三速档位：等待回调到MA5附近
+SIG_PULLBACK_CONFIRM = '回踩确认'  # 三速档位：回调出现，执行买入
 SIG_UNKNOWN = 'Unknown'
 
 # --- 日志解析规则 ---
@@ -19,6 +22,10 @@ SIG_UNKNOWN = 'Unknown'
 # 键(key)是日志中的唯一文本片段，值(value)是对应的标准信号名称。
 # 解析时会按顺序匹配，因此应将最具体、最独特的规则放在前面。
 LOG_FRAGMENT_TO_SIGNAL_MAP = {
+    '【快速通道】': SIG_FAST_TRACK,  # 最具体的，放在最前面
+    '回踩确认': SIG_PULLBACK_CONFIRM,
+    '*** 回踩等待期内出现回调': SIG_PULLBACK_CONFIRM,  # 备用匹配规则
+    '进入【回踩等待】模式': SIG_PULLBACK_WAIT,
     '【口袋支点】': SIG_POCKET_PIVOT,
     '【蓄势待发】': SIG_COILED_SPRING,
     '*** 二次确认信号': SIG_CONFIRMATION,
@@ -37,6 +44,12 @@ SIGNAL_MARKER_MAP = {
     SIG_SENTRY: {'marker': 's', 'color': 'orange', 'size': 100},
     SIG_CONFIRMATION: {'marker': 'p', 'color': 'crimson', 'size': 120},
     SIG_SELL: {'marker': 'X', 'color': 'green', 'size': 120},
+
+    # --- 三速档位系统信号样式 ---
+    # 在K线上方显示向右三角，不同颜色区分通道类型
+    SIG_FAST_TRACK: {'marker': '>', 'color': 'gold', 'size': 120},  # 向右三角，金色
+    SIG_PULLBACK_WAIT: {'marker': '>', 'color': 'lightskyblue', 'size': 100},  # 向右三角，浅蓝色
+    SIG_PULLBACK_CONFIRM: {'marker': '>', 'color': 'limegreen', 'size': 120},  # 向右三角，绿色
 
     # --- 回测模式下的信号样式 ---
     SIG_SOURCE: {'marker': 'o', 'color': 'cyan', 'size': 100},

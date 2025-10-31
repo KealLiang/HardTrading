@@ -10,60 +10,74 @@ class BreakoutStrategy(bt.Strategy):
     - 卖出逻辑：使用ATR跟踪止损来管理风险。
     """
     params = (
+        # ========== 第一部分：选股逻辑参数 ==========
         # -- 调试开关 --
         ('debug', False),  # 是否开启信号评级的详细日志
+        
         # -- 核心指标 --
         ('bband_period', 20),  # 布林带周期
         ('bband_devfactor', 1.8),  # 布林带标准差
         ('volume_ma_period', 22),  # 成交量移动平均周期
-        # -- 信号评级与观察模式参数 --
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
-        # -- 前高突破维度（V4.0新增） --
+        
+        # -- 前高突破维度 --
         ('enable_prior_high_score', True),  # 是否启用前高突破评分
         ('prior_high_lookback', 80),  # 前高回看期（交易日）
-        ('prior_high_upper_threshold', 0.04),  # 突破压力位的阈值（+5%）
-        ('prior_high_lower_threshold', 0.04),  # 压力位下方的阈值（-5%）
-        ('prior_high_exclude_recent', 5),  # 计算前高时排除最近N天（避免刚突破立即成为新前高）
-        # -- 环境分 V2.2 新增高位盘整识别 --
+        ('prior_high_upper_threshold', 0.04),  # 突破压力位的阈值（+4%）
+        ('prior_high_lower_threshold', 0.04),  # 压力位下方的阈值（-4%）
+        ('prior_high_exclude_recent', 5),  # 计算前高时排除最近N天
+        
+        # -- 高位盘整识别 --
         ('consolidation_lookback', 5),  # 短期均线盘整的回看期
-        ('consolidation_ma_proximity_pct', 0.02),  # 短期均线接近度的阈值 (2%)
+        ('consolidation_ma_proximity_pct', 0.02),  # 短期均线接近度阈值 (2%)
         ('consolidation_ma_max_slope', 1.05),  # 盘整期间MA最大斜率 (5日涨5%)
+        
+        # -- 波动性压缩与观察期 --
         ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
+        
+        # -- 三速档位系统 --
+        ('enable_fast_track', True),  # 是否启用快速通道
+        ('fast_track_ma5_ma10_ratio', 1.03),  # 快速通道：MA5/MA10强势标准
+        ('optimal_entry_zone_lower', -0.03),  # 最优买入区间：MA5下限-3%
+        ('optimal_entry_zone_upper', 0.09),  # 最优买入区间：MA5上限+9%
+        ('pullback_wait_period', 5),  # 回踩等待期限（天）
+        
+        # -- 二次确认信号参数 --
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
-        ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('pocket_pivot_lookback', 11),  # 口袋支点信号的回看期
-        ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨的容忍度(3%)
-        ('pullback_from_peak_pct', 0.09),  # 从观察期高点可接受的最大回撤(7%)
-        ('context_period', 7),  # PSQ 3.1: 情景定位的回看周期
-        # -- PSQ 权重参数 --
-        ('psq_pattern_weight', 1.0),  # PSQ 形态分权重
-        ('psq_momentum_weight', 1.0),  # PSQ 动能分权重
-        ('overheat_threshold', 1.99),  # 过热分数阈值，2.0相当于接20厘米涨幅的次日盘
-        # -- PSQ 分析参数 --
-        ('psq_summary_period', 3),  # 定义持仓期初期分析的天数
-        # -- VCP 4.1 "中庸之道" 评分参数 --
-        ('vcp_lookback', 60),  # VCP总回看期，用于确定波动率分位
-        ('vcp_macro_ma_period', 90),  # VCP宏观环境判断的均线周期
-        ('vcp_absorption_lookback', 20),  # VCP供给吸收分析的回看期
-        ('vcp_absorption_zone_pct', 0.07),  # 定义供给区的价格范围(7%)
-        # -- 新增: "平衡"评分参数 --
-        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
-        ('vcp_optimal_ma_roc', 1.03),  # 宏观MA最优斜率 (20日涨3%)
-        ('vcp_max_ma_roc', 1.15),  # 宏观MA斜率上限 (过热)
-        ('vcp_optimal_price_pos', 1.05),  # 价格与MA的最优位置 (高于MA 5%)
-        ('vcp_max_price_pos', 1.30),  # 价格与MA的位置上限 (过高)
-        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
-
-        # -- VCP 4.1 权重 --
-        ('vcp_weight_macro', 0.35),  # 宏观环境分权重
-        ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
-        ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
-        # -- 风险管理 --
+        ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨容忍度(3%)
+        ('pullback_from_peak_pct', 0.09),  # 从观察期高点可接受的最大回撤(9%)
+        
+        # ========== 第二部分：卖出与风险管理参数 ==========
+        ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
         ('atr_multiplier', 2.2),  # ATR止损乘数
-        ('atr_ceiling_multiplier', 3.6),  # 新增：基于ATR的价格窗口乘数
+        ('atr_ceiling_multiplier', 3.6),  # 基于ATR的价格窗口乘数
+        
+        # ========== 第三部分：评分系统参数（不影响买卖决策） ==========
+        # -- PSQ评分参数 --
+        ('context_period', 7),  # PSQ情景定位的回看周期
+        ('psq_pattern_weight', 1.0),  # PSQ形态分权重
+        ('psq_momentum_weight', 1.0),  # PSQ动能分权重
+        ('overheat_threshold', 2.10),  # 过热分数阈值
+        ('psq_summary_period', 3),  # 持仓期初期分析的天数
+        
+        # -- VCP评分参数 --
+        ('vcp_lookback', 60),  # VCP总回看期
+        ('vcp_macro_ma_period', 90),  # VCP宏观环境MA周期
+        ('vcp_absorption_lookback', 20),  # VCP供给吸收回看期
+        ('vcp_absorption_zone_pct', 0.07),  # 供给区价格范围(7%)
+        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
+        ('vcp_optimal_ma_roc', 1.03),  # 宏观MA最优斜率 (20日涨3%)
+        ('vcp_max_ma_roc', 1.15),  # 宏观MA斜率上限
+        ('vcp_optimal_price_pos', 1.05),  # 价格与MA最优位置 (高5%)
+        ('vcp_max_price_pos', 1.30),  # 价格与MA位置上限
+        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
+        ('vcp_weight_macro', 0.35),  # 宏观环境分权重
+        ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
+        ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
     )
 
     def __init__(self):
@@ -138,6 +152,10 @@ class BreakoutStrategy(bt.Strategy):
         self.coiled_spring_buy_pending = False
         self.in_coiled_spring_probation = False
         self.probation_counter = 0
+        # --- 三速档位系统状态 ---
+        self.pullback_wait_mode = False  # 是否在回踩等待模式
+        self.pullback_wait_counter = 0  # 回踩等待计数器
+        self.pullback_wait_signal = ""  # 记录触发回踩等待的信号名称
         # --- PSQ 2.0 状态 ---
         self.psq_scores = []
         self.psq_tracking_reason = None
@@ -276,7 +294,56 @@ class BreakoutStrategy(bt.Strategy):
                 return  # 持仓时，完成止损检查后即可结束
 
         # --- 2. 空仓时：根据模式决定买入逻辑 ---
-        if self.observation_mode:
+        if self.pullback_wait_mode:
+            # --- 回踩等待模式 ---
+            # 检查1：MA5是否掉头向下
+            if self.ma5[0] < self.ma5[-1]:
+                self.log(f'*** 回踩等待期内MA5掉头向下，放弃信号 ({self.pullback_wait_signal}) ***')
+                self.pullback_wait_mode = False
+                self._stop_and_log_psq()  # 结束观察期评分
+                return
+            
+            # 检查2：是否出现回调
+            if self.data.close[0] < self.data.close[-1]:
+                # 回踩确认也需要检查最优买入区间（四舍五入避免浮点数精度问题）
+                current_price = round(self.data.close[0], 2)
+                if self.ma5[0] > 0:
+                    ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
+                    ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
+                    
+                    if current_price < ma5_lower_bound or current_price > ma5_upper_bound:
+                        price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
+                        self.log(
+                            f'回踩确认拒绝: 价格 {current_price:.2f} 不在MA5±区间内 '
+                            f'({price_to_ma5_ratio:+.1%})，继续等待'
+                        )
+                        return  # 不买入，继续等待
+                
+                self.log(f'*** 回踩等待期内出现回调，发出买入信号 ({self.pullback_wait_signal}) ***')
+                # 执行买入逻辑（使用标准仓位计算）
+                vcp_score, vcp_grade = self._calculate_vcp_score()
+                stake = self.broker.getvalue() * self.p.initial_stake_pct
+                size = int(stake / self.data.close[0])
+                if size > 0:
+                    self.current_observation_scores = self.psq_scores.copy()
+                    self.order = self.buy(size=size)
+                    price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0] if self.ma5[0] > 0 else 0
+                    self.log(
+                        f'买入信号: 回踩确认 (价格={current_price:.2f} 在MA5±区间内 ({price_to_ma5_ratio:+.1%}), '
+                        f'VCP: {vcp_grade}, Score: {vcp_score:.2f})'
+                    )
+                self.pullback_wait_mode = False
+                return
+            
+            # 检查3：超时
+            self.pullback_wait_counter -= 1
+            if self.pullback_wait_counter <= 0:
+                self.log(f'*** 回踩等待期结束（{self.p.pullback_wait_period}天），未出现回调，放弃信号 ***')
+                self.pullback_wait_mode = False
+                self._stop_and_log_psq()  # 结束观察期评分
+            return
+        
+        elif self.observation_mode:
             # 更新观察期内的最高价
             self.sentry_highest_high = max(self.sentry_highest_high, self.data.high[0])
 
@@ -456,17 +523,61 @@ class BreakoutStrategy(bt.Strategy):
                     log_msg += ')'
                     self.log(log_msg)
 
-                    self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
-                    self.observation_mode = True
-                    self.observation_counter = self.p.observation_period
-                    self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
-                    # 记录价格过滤器所需的状态
-                    self.sentry_base_price = self.data.open[0]
-                    self.sentry_highest_high = self.data.high[0]
-                    # 新增: 精确记录信号日的索引
-                    self.signal_day_index = len(self.data) - 1
-                    # 开始PSQ评分 - 从信号日当天开始
-                    self._start_psq_tracking('观察期', self.datas[0])
+                    # --- 三速档位系统：检查是否走快速通道 ---
+                    is_fast_track = False
+                    if self.p.enable_fast_track and self.ma10[0] > 0 and self.ma5[0] > 0:
+                        ma5_ma10_ratio = self.ma5[0] / self.ma10[0]
+                        is_strong_trend = ma5_ma10_ratio > self.p.fast_track_ma5_ma10_ratio
+                        
+                        # 快速通道也需要检查最优买入区间（四舍五入避免浮点数精度问题）
+                        current_price = round(self.data.close[0], 2)
+                        ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
+                        ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
+                        is_price_in_zone = ma5_lower_bound <= current_price <= ma5_upper_bound
+                        
+                        # 调试日志
+                        if self.p.debug:
+                            self.log(
+                                f'[快速通道] MA5/MA10={ma5_ma10_ratio:.3f}(需>{self.p.fast_track_ma5_ma10_ratio}), '
+                                f'价格={current_price:.2f}, 区间=[{ma5_lower_bound:.2f}, {ma5_upper_bound:.2f}], '
+                                f'强势={is_strong_trend}, 价格合理={is_price_in_zone}'
+                            )
+                        
+                        if is_strong_trend and is_price_in_zone:
+                            is_fast_track = True
+                            price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
+                            self.log(
+                                f'*** 快速通道触发 (MA5/MA10={ma5_ma10_ratio:.3f}, '
+                                f'价格={current_price:.2f} 在MA5±区间内 ({price_to_ma5_ratio:+.1%})) ***'
+                            )
+                            
+                            # 记录信号日索引（用于VCP计算）
+                            self.signal_day_index = len(self.data) - 1
+                            # 开始PSQ评分
+                            self._start_psq_tracking('观察期', self.datas[0])
+                            
+                            # 立即发出买入信号
+                            vcp_score, vcp_grade = self._calculate_vcp_score()
+                            stake = self.broker.getvalue() * self.p.initial_stake_pct
+                            size = int(stake / self.data.close[0])
+                            if size > 0:
+                                self.current_observation_scores = self.psq_scores.copy()
+                                self.order = self.buy(size=size)
+                                self.log(f'买入信号:【快速通道】{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
+                    
+                    # 如果不走快速通道，则进入标准观察期
+                    if not is_fast_track:
+                        self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
+                        self.observation_mode = True
+                        self.observation_counter = self.p.observation_period
+                        self.sentry_source_signal = f"{overall_grade} @ {self.datas[0].datetime.date(0)}"
+                        # 记录价格过滤器所需的状态
+                        self.sentry_base_price = self.data.open[0]
+                        self.sentry_highest_high = self.data.high[0]
+                        # 新增: 精确记录信号日的索引
+                        self.signal_day_index = len(self.data) - 1
+                        # 开始PSQ评分 - 从信号日当天开始
+                        self._start_psq_tracking('观察期', self.datas[0])
 
     def _check_confirmation_signals(self):
         """
@@ -529,6 +640,37 @@ class BreakoutStrategy(bt.Strategy):
         log_msg_base = log_msg_map.get(signal_to_execute, '未知确认信号')
         # 信号日志回归简洁，不再包含结构分
         self.log(log_msg_base)
+
+        # --- 三速档位系统：检查价格位置，决定标准通道还是缓冲通道 ---
+        if self.ma5[0] > 0:
+            # 四舍五入避免浮点数精度问题
+            current_price = round(current_price, 2)
+            price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
+            ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
+            ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
+            
+            # 价格过高，进入缓冲通道
+            if current_price > ma5_upper_bound:
+                self.log(
+                    f'*** 价格 {current_price:.2f} 距MA5 {self.ma5[0]:.2f} 过高 ({price_to_ma5_ratio:+.1%})，'
+                    f'进入【回踩等待】模式（{self.p.pullback_wait_period}天） ***'
+                )
+                self.pullback_wait_mode = True
+                self.pullback_wait_counter = self.p.pullback_wait_period
+                self.pullback_wait_signal = log_msg_base
+                # 注意：不停止PSQ评分，继续跟踪
+                self.observation_mode = False
+                return
+            # 价格过低（理论上不太可能，但也做判断）
+            elif current_price < ma5_lower_bound:
+                self.log(
+                    f'信号拒绝({signal_names_str}): 价格 {current_price:.2f} '
+                    f'距MA5 {self.ma5[0]:.2f} 过低 ({price_to_ma5_ratio:+.1%})'
+                )
+                return
+            else:
+                # 价格在最优区间内，正常买入
+                self.log(f'价格位置合理：{current_price:.2f} 在MA5±区间内 ({price_to_ma5_ratio:+.1%})')
 
         stake = self.broker.getvalue() * self.p.initial_stake_pct
         size = int(stake / self.data.close[0])
