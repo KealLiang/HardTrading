@@ -290,16 +290,17 @@ def go_trade(code, stock_name=None, amount=100000, startdate=None, enddate=None,
                     # 获取主要信号日期
                     main_signal_date = pd.to_datetime(signal_info[0]['date']).strftime('%Y-%m-%d')
 
-                    # 检查这个信号日期是否有对应的交易
+                    # 检查这个信号日期是否有对应的买入交易
+                    # 注意：只检查BUY，不检查SELL（SELL是之前交易的止损，不算信号的对应交易）
                     signal_has_trades = False
                     if not log_df.empty:
                         main_signal_trades = log_df[
                             (log_df['signal_date'] == main_signal_date) &
-                            (log_df['type'].isin(['BUY', 'SELL']))
+                            (log_df['type'] == 'BUY')
                             ]
                         signal_has_trades = not main_signal_trades.empty
 
-                    # 如果主要信号没有对应的交易，生成signal_chart
+                    # 如果主要信号没有对应的买入交易，生成signal_chart
                     if not signal_has_trades:
                         print(f"检测到信号日期 {main_signal_date} 无对应交易，生成信号分析图...")
                         plot_signal_chart(

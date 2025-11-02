@@ -153,11 +153,19 @@ def _calculate_moving_averages(chart_df):
     return ma_addplots
 
 
-def _add_signal_markers_to_plot(chart_df, signal_info):
+def _add_signal_markers_to_plot(chart_df, signal_info, exclude_trade_markers=False):
     """
     根据信号信息，在图表上添加标记。
     返回一个 addplots 列表和一个 used_signal_types 列表。
+    
+    Args:
+        chart_df: K线数据
+        signal_info: 信号信息列表
+        exclude_trade_markers: 是否排除买入成交标记（交易图中避免与trade记录重复）
+                              注意：只排除SIG_BUY_EXECUTED，不排除SIG_STOP_LOSS_CORRECTION
     """
+    from strategy.constant.signal_constants import SIG_BUY_EXECUTED
+    
     if not signal_info:
         return [], []
 
@@ -174,6 +182,12 @@ def _add_signal_markers_to_plot(chart_df, signal_info):
             signal_date = signal_date.date()
 
         if chart_start_date <= signal_date <= chart_end_date:
+            # 如果是交易图，只排除买入成交标记（避免与trade记录的买入三角重复）
+            # 纠错信号不排除，因为它发生在信号日(T日)，而买入成交在T+1日
+            if exclude_trade_markers:
+                signal_type = signal.get('type', '')
+                if signal_type == SIG_BUY_EXECUTED:
+                    continue
             filtered_signal_info.append(signal)
 
     signal_markers_dict = {}
@@ -380,8 +394,8 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     except (KeyError, IndexError):
         pass
 
-    # 用于图例的信号类型和标记
-    signal_addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info)
+    # 添加信号标记（排除买入成交标记，因为已通过trade记录显式画出）
+    signal_addplots, used_signal_types = _add_signal_markers_to_plot(chart_df, signal_info, exclude_trade_markers=True)
     addplots.extend(signal_addplots)
 
     # 添加均线
@@ -438,6 +452,133 @@ def _plot_single_trade(trade, trade_id, data_dir, output_dir, style, post_exit_p
     print(f"已生成图表: {output_path}")
 
 
+def _add_recent_signals_annotation(ax, signal_info, chart_df):
+    """
+    在图表中间偏上标注近期的实际买入成交日期和价格（不是信号日）
+    
+    参数:
+        ax: matplotlib axes对象
+        signal_info: 信号信息列表
+        chart_df: 图表数据
+    """
+    if not signal_info:
+        return
+    
+    # 构建标注文本 - 只显示实际买入成交
+    annotation_lines = []
+    
+    # 按日期排序信号
+    sorted_signals = sorted(signal_info, key=lambda x: pd.to_datetime(x['date']))
+    
+    # 提取买入成交和纠错信号
+    for signal in sorted_signals:
+        signal_type = signal.get('type', '')
+        details = signal.get('details', '')
+        
+        # 保留两种信号：
+        # ✅ '买入成交' - 实际买入成交日（T+1日，普通买入）
+        # ✅ '止损纠错' - 纠错信号日（T日，不是成交日）
+        if signal_type == '买入成交':
+            # 买入成交：显示成交日期和价格
+            signal_date = pd.to_datetime(signal['date'])
+            date_str = signal_date.strftime('%m-%d')
+            
+            # 从details中提取价格
+            price_match = re.search(r'@\s*([\d\.]+)', details)  # 匹配 "@ 16.80"
+            if not price_match:
+                price_match = re.search(r'价格[=:：]\s*([\d\.]+)', details)  # 匹配 "价格: 23.40"
+            
+            if price_match:
+                price = price_match.group(1)
+                annotation_lines.append(f"{date_str}买入@{price}")
+            else:
+                annotation_lines.append(f"{date_str}买入")
+                
+        elif signal_type == '止损纠错':
+            # 纠错信号：显示信号日（T日），这样用户T日看图就能看到
+            signal_date = pd.to_datetime(signal['date'])
+            date_str = signal_date.strftime('%m-%d')
+            
+            # 从details中提取价格
+            price_match = re.search(r'价格=([\d\.]+)', details)
+            if price_match:
+                price = price_match.group(1)
+                annotation_lines.append(f"{date_str}纠错@{price}")
+            else:
+                annotation_lines.append(f"{date_str}止损纠错")
+    
+    if not annotation_lines:
+        return  # 近期没有买入就不显示
+    
+    # 组合文本
+    annotation_text = '\n'.join(annotation_lines)
+    
+    # 在图表中间偏上添加文本框
+    ax.text(
+        0.50, 0.85, annotation_text,  # 横向居中(0.5)，纵向靠上(0.85)
+        transform=ax.transAxes,
+        fontsize=10,
+        verticalalignment='top',
+        horizontalalignment='center',
+        bbox=dict(boxstyle='round,pad=0.6', facecolor='lightyellow', alpha=0.8, edgecolor='gray'),
+        family='SimHei'
+    )
+
+
+def _add_price_zone_lines(ax, signal_info, chart_df, stock_data):
+    """
+    只针对回踩等待/回踩确认信号，在图表上画出合理价格区间线
+    
+    参数:
+        ax: matplotlib axes对象
+        signal_info: 信号信息列表
+        chart_df: 图表数据
+        stock_data: 完整股票数据（用于计算MA5）
+    """
+    if not signal_info:
+        return
+    
+    # 检查是否有回踩等待或回踩确认信号
+    has_pullback_signal = any(
+        '回踩等待' in signal.get('type', '') or '回踩确认' in signal.get('type', '') 
+        for signal in signal_info
+    )
+    
+    if not has_pullback_signal:
+        return
+    
+    # 获取最新日期的MA5值
+    latest_date = chart_df.index[-1]
+    
+    # 计算MA5（使用完整数据以确保准确性）
+    ma5_series = stock_data['Close'].rolling(window=5).mean()
+    
+    # 获取图表最新日期的MA5值
+    if latest_date in ma5_series.index:
+        ma5_value = ma5_series.loc[latest_date]
+    else:
+        # 如果找不到，使用最接近的日期
+        ma5_value = ma5_series.iloc[-1]
+    
+    if pd.isna(ma5_value):
+        return
+    
+    # 计算价格区间（MA5的-3%到+9%）
+    lower_bound = ma5_value * 0.97
+    upper_bound = ma5_value * 1.09
+    
+    # 画水平虚线
+    ax.axhline(y=lower_bound, color='green', linestyle='--', linewidth=1.5, alpha=0.7, label=f'买入下限: {lower_bound:.2f}')
+    ax.axhline(y=upper_bound, color='orange', linestyle='--', linewidth=1.5, alpha=0.7, label=f'买入上限: {upper_bound:.2f}')
+    
+    # 填充区间（淡黄色半透明）
+    ax.axhspan(lower_bound, upper_bound, color='yellow', alpha=0.1)
+    
+    # 更新图例（将价格区间添加到图例中）
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, labels, loc='upper left', fontsize=9)
+
+
 def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
     """
     为未发生交易但有信号的股票生成信号分析图。
@@ -486,8 +627,18 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
 
     title = f"信号分析: {stock_display}\n主要信号日期: {primary_signal_date.strftime('%Y-%m-%d')}{extra_info}"
 
-    signal_date_str = primary_signal_date.strftime('%Y%m%d')
-    output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_{signal_date_str}.png")
+    # 方案A：文件名固定+覆盖机制
+    # 如果有回踩等待信号（未确认），使用固定文件名WAITING；否则使用日期
+    has_pullback_waiting = any('回踩等待' in signal.get('type', '') for signal in signal_info)
+    has_pullback_confirmed = any('回踩确认' in signal.get('type', '') for signal in signal_info)
+    
+    if has_pullback_waiting and not has_pullback_confirmed:
+        # 回踩等待中：使用固定文件名（每天覆盖）
+        output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_WAITING.png")
+    else:
+        # 正常信号或回踩确认：使用日期文件名
+        signal_date_str = primary_signal_date.strftime('%Y%m%d')
+        output_path = os.path.join(output_dir, f"signal_chart_{stock_code}_{signal_date_str}.png")
 
     fig, axes = mpf.plot(
         chart_df, type='candle', style=style,
@@ -505,6 +656,12 @@ def plot_signal_chart(code, data_dir, output_dir, signal_info, stock_name=None):
     interval = max(1, num_days // 20) if num_days > 20 else 1
     axes[0].xaxis.set_major_locator(mdates.DayLocator(interval=interval))
     fig.autofmt_xdate(rotation=30)
+
+    # === 新增功能1: 标注近期交易/信号日期 ===
+    _add_recent_signals_annotation(axes[0], signal_info, chart_df)
+    
+    # === 新增功能2: 标注合理价格区间（如果是回踩等待） ===
+    _add_price_zone_lines(axes[0], signal_info, chart_df, stock_data)
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close(fig)

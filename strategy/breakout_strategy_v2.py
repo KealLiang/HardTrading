@@ -42,7 +42,7 @@ class BreakoutStrategyV2(bt.Strategy):
         ('fast_track_ma5_ma10_ratio', 1.03),  # 快速通道：MA5/MA10强势标准
         ('optimal_entry_zone_lower', -0.03),  # 最优买入区间：MA5下限-3%
         ('optimal_entry_zone_upper', 0.09),  # 最优买入区间：MA5上限+9%
-        ('pullback_wait_period', 5),  # 回踩等待期限（天）
+        ('pullback_wait_period', 1),  # 回踩等待期限（天）
         
         # -- 二次确认信号参数 --
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期

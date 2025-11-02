@@ -130,8 +130,9 @@ def backtrade_simulate():
     # run_comparison_experiment()
 
     # 单个回测
-    stock_code = '300128'
+    # stock_code = '300128'
     # stock_code = '301217'
+    stock_code = '603232'
     simulator.go_trade(
         code=stock_code,
         amount=100000,
@@ -343,6 +344,7 @@ def strategy_scan(candidate_model='a'):
         '*** 二次确认信号',       # 标准通道：观察期内二次确认
         '买入信号:【快速通道】',  # 快速通道：信号日当天买入
         '买入信号: 回踩确认',     # 缓冲通道：回调后买入
+        '买入信号: 止损纠错',     # 止损纠错：价格合适买入
     ]
 
     start_date = '20250910'
