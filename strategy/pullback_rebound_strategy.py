@@ -15,7 +15,7 @@ class PullbackReboundStrategy(bt.Strategy):
           - 波段内成交量最小（下跌波段 或 最近5~12根K线的盘整波段）
           - 成交量 < 120日均量
        c. 企稳K线：收红K线或止跌（多头开始反击）
-    3. 买入信号（按顺序触发）：
+    3. 买入信号（按顺序触发，目前允许两两同一天）：
        量价背离 → 量窒息 → 企稳K线
        约束：量价背离不能发生在高点后第二天（可通过enable_top_constraint关闭）
     4. 止盈止损：
@@ -367,9 +367,9 @@ class PullbackReboundStrategy(bt.Strategy):
             status = ""
             if self.signal_divergence_date and self.signal_volume_dry_date and self.signal_stabilization_date:
                 # 三个都有，检查顺序
-                if self.signal_divergence_date >= self.signal_volume_dry_date:
+                if self.signal_divergence_date > self.signal_volume_dry_date:
                     status = "✗背离和窒息顺序错误"
-                elif self.signal_volume_dry_date >= self.signal_stabilization_date:
+                elif self.signal_volume_dry_date > self.signal_stabilization_date:
                     status = "✗窒息和企稳顺序错误"
                 else:
                     # 顺序正确，检查顶部约束（如果启用）
@@ -384,7 +384,7 @@ class PullbackReboundStrategy(bt.Strategy):
                         status = "✓所有条件满足"
             elif self.signal_divergence_date and self.signal_volume_dry_date:
                 # 检查前两个的顺序
-                if self.signal_divergence_date >= self.signal_volume_dry_date:
+                if self.signal_divergence_date > self.signal_volume_dry_date:
                     status = "✗背离和窒息顺序错误"
                 else:
                     status = "等待企稳K线"
@@ -407,9 +407,9 @@ class PullbackReboundStrategy(bt.Strategy):
             return False
 
         # 检查顺序：背离 < 窒息 < 企稳
-        if self.signal_divergence_date >= self.signal_volume_dry_date:
+        if self.signal_divergence_date > self.signal_volume_dry_date:
             return False
-        if self.signal_volume_dry_date >= self.signal_stabilization_date:
+        if self.signal_volume_dry_date > self.signal_stabilization_date:
             return False
 
         # 检查顶部约束：背离日期不能是高点后第二天（如果启用）

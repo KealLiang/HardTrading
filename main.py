@@ -275,16 +275,16 @@ def pullback_rebound_simulate():
     - 通过量价背离、量窒息、企稳K线三个信号判断反弹时机
     - 止盈12%、止损5%、最大持有10天
     """
-    stock_code = '603986'  # 可以替换为其他股票代码
+    stock_code = '301137'  # 可以替换为其他股票代码
     simulator.go_trade(
         code=stock_code,
         amount=100000,
-        startdate=datetime(2025, 1, 1),
-        enddate=datetime(2025, 10, 17),
+        startdate=datetime(2025, 9, 1),
+        enddate=datetime(2025, 10, 31),
         strategy=PullbackReboundStrategy,
         strategy_params={
             # -- 调试参数 --
-            'debug': False,  # 是否开启详细日志
+            'debug': True,  # 是否开启详细日志
 
             # -- 主升浪识别参数（可调整）--
             'uptrend_min_gain': 0.30,  # 主升浪最小涨幅30%，越大越严格
@@ -1090,11 +1090,11 @@ if __name__ == '__main__':
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    strategy_scan('a')
-    generate_comparison_charts('a')
+    # strategy_scan('a')
+    # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
-    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
-    # generate_rebound_comparison_charts('a')
+    pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    generate_rebound_comparison_charts('a')
     # fetch_ths_fupan()
 
     # === 连板股分析图功能 ===

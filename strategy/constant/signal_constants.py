@@ -17,6 +17,7 @@ SIG_PULLBACK_WAIT = '回踩等待'  # 三速档位：等待回调到MA5附近
 SIG_PULLBACK_CONFIRM = '回踩确认'  # 三速档位：回调出现，执行买入
 SIG_BUY_EXECUTED = '买入成交'  # 实际买入成交日（用于图表标注）
 SIG_STOP_LOSS_CORRECTION = '止损纠错'  # 止损后快速纠错买入
+SIG_PULLBACK_REBOUND = '止跌反弹'  # 止跌反弹信号
 SIG_UNKNOWN = 'Unknown'
 
 # --- 日志解析规则 ---
@@ -36,6 +37,7 @@ LOG_FRAGMENT_TO_SIGNAL_MAP = {
     '卖出信号': SIG_SELL,
     '*** 触发【突破观察哨】': SIG_SENTRY,
     '突破信号:': SIG_BREAKOUT,
+    '止跌反弹买入信号触发': SIG_PULLBACK_REBOUND,
 }
 
 # --- 可视化配置 ---
@@ -57,10 +59,13 @@ SIGNAL_MARKER_MAP = {
 
     # --- 回测模式下的信号样式 ---
     SIG_SOURCE: {'marker': 'o', 'color': 'cyan', 'size': 100},
-    
+
     # --- 买入成交和纠错信号 ---
     SIG_BUY_EXECUTED: {'marker': '^', 'color': 'lime', 'size': 150},  # 绿色上三角
-    SIG_STOP_LOSS_CORRECTION: {'marker': 'D', 'color': 'orange', 'size': 120},  # 橙色菱形，显示在信号日
+    SIG_STOP_LOSS_CORRECTION: {'marker': 'D', 'color': 'orange', 'size': 110},  # 橙色菱形，显示在信号日
+
+    # --- 止跌反弹信号 ---
+    SIG_PULLBACK_REBOUND: {'marker': '+', 'color': 'dodgerblue', 'size': 120},  # 亮蓝加号
 
     # --- 未知或默认信号 ---
     SIG_UNKNOWN: {'marker': 'o', 'color': 'yellow', 'size': 80},
