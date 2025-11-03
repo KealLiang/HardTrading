@@ -54,7 +54,7 @@ class BreakoutStrategy(bt.Strategy):
         ('pocket_pivot_lookback', 11),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨容忍度(3%)
         ('pullback_from_peak_pct', 0.09),  # 从观察期高点可接受的最大回撤(9%)
-        ('confirmation_min_trend_strength', 3.0),  # 二次确认的最小趋势强度（MA5近15日涨幅%）
+        ('confirmation_min_trend_strength', 5.0),  # 二次确认的最小趋势强度（MA5近15日涨幅%）
         
         # ========== 第二部分：卖出与风险管理参数 ==========
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数

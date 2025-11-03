@@ -146,6 +146,12 @@ class ComparisonChartGenerator:
                 signal_chart_path = os.path.join(folder_path, signal_chart_file)
                 if os.path.exists(signal_chart_path):
                     results.append((signal_chart_path, "Signal Only"))
+                else:
+                    # WAITING格式（回踩等待信号）
+                    waiting_chart_file = f"signal_chart_{stock_code}_WAITING.png"
+                    waiting_chart_path = os.path.join(folder_path, waiting_chart_file)
+                    if os.path.exists(waiting_chart_path):
+                        results.append((waiting_chart_path, "Signal Only"))
                     
             elif record_type == 'BUY' and trade_num > 0 and trade_num not in matched_trade_nums:
                 # 查找对应的trade图片
