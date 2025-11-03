@@ -15,7 +15,7 @@ class PullbackReboundStrategy(bt.Strategy):
           - 波段内成交量最小（下跌波段 或 最近5~12根K线的盘整波段）
           - 成交量 < 120日均量
        c. 企稳K线：收红K线或止跌（多头开始反击）
-    3. 买入信号（按顺序触发，目前允许两两同一天）：
+    3. 买入信号（按顺序触发）：
        量价背离 → 量窒息 → 企稳K线
        约束：量价背离不能发生在高点后第二天（可通过enable_top_constraint关闭）
     4. 止盈止损：
@@ -53,6 +53,9 @@ class PullbackReboundStrategy(bt.Strategy):
         # -- 技术指标 --
         self.sma = bt.indicators.SimpleMovingAverage(
             self.data.close, period=self.p.uptrend_period
+        )
+        self.sma5 = bt.indicators.SimpleMovingAverage(
+            self.data.close, period=5
         )
         self.volume_ma = bt.indicators.SimpleMovingAverage(
             self.data.volume, period=self.p.volume_ma_period
@@ -185,8 +188,7 @@ class PullbackReboundStrategy(bt.Strategy):
         recent_high = max([self.data.high[-i] for i in range(min(40, len(self)), 0, -1)])
         current_high = self.data.high[0]
         # 要求当日最高价创新高，且收盘价不能离最高价太远
-        is_new_high = (current_high > recent_high and
-                       current_price >= current_high * 0.95)  # 收盘价不能离当日最高价太远
+        is_new_high = current_high > recent_high  # 创新高
 
         # 2. 均线多头排列：短期均线在长期均线之上
         sma_short = sum([self.data.close[-i] for i in range(10, 0, -1)]) / 10
@@ -315,34 +317,34 @@ class PullbackReboundStrategy(bt.Strategy):
         在回调期间，每天检查三个信号是否出现，一旦出现就标记为True
         """
         # 1. 检查量价背离：价跌量增
-        if not self.signal_divergence_date:
-            if self._check_volume_price_divergence():
-                self.signal_divergence_date = self.datas[0].datetime.date(0)
-                self.log(f'✓ 量价背离信号出现 - 价跌量增')
+        # 动态更新量价背离信号
+        if self._check_volume_price_divergence():
+            self.signal_divergence_date = self.datas[0].datetime.date(0)
+            self.log(f'✓ 量价背离信号出现 - 价跌量增')
 
         # 2. 检查量窒息：波段内成交量最小 或 低于120日均量
-        if not self.signal_volume_dry_date:
-            dry_result = self._check_volume_dry()
-            if dry_result['is_dry']:
-                self.signal_volume_dry_date = self.datas[0].datetime.date(0)
-                self.log(f'✓ 量窒息信号出现 - {dry_result["reason"]}')
+        # 动态更新量窒息信号，每次都检查，如果出现新的量窒息则更新日期
+        dry_result = self._check_volume_dry()
+        if dry_result['is_dry']:
+            self.signal_volume_dry_date = self.datas[0].datetime.date(0)
+            self.log(f'✓ 量窒息信号出现 - {dry_result["reason"]}')
 
         # 3. 检查企稳K线
-        if not self.signal_stabilization_date:
-            # 方式1：收红K线（收盘>开盘）
-            is_red_candle = self.data.close[0] > self.data.open[0]
-            # 方式2：收盘价高于前日收盘价（止跌）
-            prev_close = self.data.close[-1] if len(self) > 0 else 0
-            is_price_up = self.data.close[0] > prev_close if prev_close > 0 else False
+        # 动态更新企稳K线信号
+        # 方式1：收红K线（收盘>开盘）
+        is_red_candle = self.data.close[0] > self.data.open[0]
+        # 方式2：收盘价高于前日收盘价（止跌）
+        prev_close = self.data.close[-1] if len(self) > 0 else 0
+        is_price_up = self.data.close[0] > prev_close if prev_close > 0 else False
 
-            if is_red_candle or is_price_up:
-                self.signal_stabilization_date = self.datas[0].datetime.date(0)
-                stab_type = []
-                if is_red_candle:
-                    stab_type.append('红K')
-                if is_price_up:
-                    stab_type.append('止跌')
-                self.log(f'✓ 企稳K线信号出现 - {"/".join(stab_type)}')
+        if is_red_candle or is_price_up:
+            self.signal_stabilization_date = self.datas[0].datetime.date(0)
+            stab_type = []
+            if is_red_candle:
+                stab_type.append('红K')
+            if is_price_up:
+                stab_type.append('止跌')
+            self.log(f'✓ 企稳K线信号出现 - {"/".join(stab_type)}')
 
         # 显示当前信号进度（仅在未满足买入条件时显示）
         if not self._check_buy_signal():
@@ -371,6 +373,8 @@ class PullbackReboundStrategy(bt.Strategy):
                     status = "✗背离和窒息顺序错误"
                 elif self.signal_volume_dry_date > self.signal_stabilization_date:
                     status = "✗窒息和企稳顺序错误"
+                elif self.signal_divergence_date == self.signal_volume_dry_date == self.signal_stabilization_date:
+                    status = "✗三个信号发生在同一天"
                 else:
                     # 顺序正确，检查顶部约束（如果启用）
                     if self.p.enable_top_constraint and self.uptrend_high_date:
@@ -410,6 +414,8 @@ class PullbackReboundStrategy(bt.Strategy):
         if self.signal_divergence_date > self.signal_volume_dry_date:
             return False
         if self.signal_volume_dry_date > self.signal_stabilization_date:
+            return False
+        if self.signal_divergence_date == self.signal_volume_dry_date == self.signal_stabilization_date:
             return False
 
         # 检查顶部约束：背离日期不能是高点后第二天（如果启用）
@@ -544,7 +550,7 @@ class PullbackReboundStrategy(bt.Strategy):
             return False
 
         current_price = self.data.close[0]
-        prev_price = self.data.close[-1]
+        # prev_price = self.data.close[-1]
         current_volume = self.data.volume[0]
         prev_volume = self.data.volume[-1]
 
@@ -559,15 +565,15 @@ class PullbackReboundStrategy(bt.Strategy):
             if yesterday == self.uptrend_high_date:
                 return False
 
-        # 3. 价格下跌：当前收盘价低于前一日收盘价
-        is_price_down = current_price < prev_price
+        # 3. 价格下跌：当前收盘价小于等于5日均线
+        is_price_down = current_price <= self.sma5[0]
 
         # 4. 成交量放大：当前成交量明显高于前一日或高于均量
         # 方式1：相对于前日放量
-        is_volume_surge_vs_prev = current_volume > prev_volume * 1.2
+        is_volume_surge_vs_prev = current_volume >= prev_volume * 1.05
         # 方式2：相对于均量放量（但不能太夸张，说明是在缩量过程中的相对放量）
-        volume_vs_ma = current_volume / self.volume_ma[0] if self.volume_ma[0] > 0 else 0
-        is_volume_surge_vs_ma = volume_vs_ma > 0.8  # 相对于均量不能太低
+        volume_vs_ma = current_volume / self.volume_ma[0]
+        is_volume_surge_vs_ma = volume_vs_ma > 1  # 相对于均量不能太低
 
         # 量价背离：价跌 + 放量
         is_divergence = is_price_down and (is_volume_surge_vs_prev or is_volume_surge_vs_ma)
@@ -575,7 +581,7 @@ class PullbackReboundStrategy(bt.Strategy):
         # 调试信息
         if self.p.debug and is_divergence:
             self.log(
-                f'[量价背离] 价格: {prev_price:.2f}→{current_price:.2f} ({(current_price / prev_price - 1) * 100:.2f}%), '
+                f'[量价背离] 价格: {self.sma5[0]:.2f}→{current_price:.2f} ({(current_price / self.sma5[0] - 1) * 100:.2f}%), '
                 f'成交量: {prev_volume:.0f}→{current_volume:.0f} ({(current_volume / prev_volume - 1) * 100:.2f}%), '
                 f'量/均量: {volume_vs_ma:.2f}'
             )
