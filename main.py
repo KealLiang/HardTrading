@@ -275,7 +275,7 @@ def pullback_rebound_simulate():
     - 通过量价背离、量窒息、企稳K线三个信号判断反弹时机
     - 止盈12%、止损5%、最大持有10天
     """
-    stock_code = '301137'  # 可以替换为其他股票代码
+    stock_code = '002554'  # 可以替换为其他股票代码
     simulator.go_trade(
         code=stock_code,
         amount=100000,
@@ -660,7 +660,7 @@ def get_stock_datas():
     use_realtime = True
 
     # 创建A股数据获取对象，指定拉取的天数和保存路径
-    data_fetcher = StockDataFetcher(start_date='20250830', end_date=None, save_path='./data/astocks',
+    data_fetcher = StockDataFetcher(start_date='20250930', end_date=None, save_path='./data/astocks',
                                     max_workers=8, stock_list=None, force_update=False, max_sleep_time=2000)
 
     # 根据参数选择不同的数据获取方式
@@ -781,7 +781,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250830"
+    start_date = "20250930"
     # end_date = '20250512'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -789,7 +789,7 @@ def fetch_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20250830'  # 开始日期
+    start_date = '20250930'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -799,7 +799,7 @@ def draw_ths_fupan_html():
     """
     生成HTML交互式复盘图
     """
-    start_date = '20250830'  # 开始日期
+    start_date = '20250930'  # 开始日期
     # end_date = '20250115'  # 结束日期
     end_date = None
     draw_fupan_lb_html(start_date, end_date)
@@ -807,7 +807,7 @@ def draw_ths_fupan_html():
 
 def fupan_statistics_to_excel():
     # 指定时段的复盘总体复盘数据
-    start_date = '20250830'
+    start_date = '20250930'
     # end_date = '20250228'
     end_date = None
     # 在daily_routine中强制使用单线程，避免多线程冲突
@@ -815,7 +815,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250830'
+    start_date = '20250930'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
