@@ -1084,7 +1084,7 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 复盘相关 ===
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1093,8 +1093,8 @@ if __name__ == '__main__':
     # strategy_scan('a')
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
-    pullback_rebound_scan('a')  # 止跌反弹策略扫描
-    generate_rebound_comparison_charts('a')
+    # pullback_rebound_scan('a')  # 止跌反弹策略扫描
+    # generate_rebound_comparison_charts('a')
     # fetch_ths_fupan()
 
     # === 连板股分析图功能 ===
