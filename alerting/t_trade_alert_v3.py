@@ -1120,11 +1120,11 @@ if __name__ == "__main__":
     IS_BACKTEST = False
 
     # 回测时间段
-    backtest_start = "2025-10-20 09:30"
-    backtest_end = "2025-10-24 15:00"
+    backtest_start = "2025-11-03 09:30"
+    backtest_end = "2025-11-06 15:00"
 
     # 股票列表
-    symbols = ['300852']
+    symbols = ['000572']
 
     # 自选股文件（可选）
     symbols_file = 'watchlist.txt'
