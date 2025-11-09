@@ -636,10 +636,10 @@ def full_scan_routine(candidate_model='a'):
     一键执行完整的策略扫描和对比图生成流程
     """
     scan_steps = [
-        # (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
-        # (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
-        # (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
-        #  f"记录突破策略{candidate_model}扫描结果"),
+        (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
+        (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
+        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
+         f"记录突破策略{candidate_model}扫描结果"),
         (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
         (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
         (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'),
