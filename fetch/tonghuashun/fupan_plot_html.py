@@ -99,6 +99,31 @@ def is_market_open_time(time_str: str) -> bool:
         return False
 
 
+def format_stock_name_with_lianban_count(stock_code: str, stock_name: str,
+                                         lianban_days: int,
+                                         zhangting_open_times: str = None,
+                                         first_zhangting_time: str = None,
+                                         final_zhangting_time: str = None) -> str:
+    """
+    格式化股票名称，添加涨跌幅标识、一字板标识和连板数
+    
+    标识说明：
+    - | = 一字板涨停
+    - * = 20%涨跌幅限制
+    - ** = 30%涨跌幅限制
+    - 末尾数字 = 连续涨停天数
+    """
+    try:
+        # 先使用原有函数格式化名称
+        base_name = format_stock_name_with_indicators(
+            stock_code, stock_name, zhangting_open_times, first_zhangting_time, final_zhangting_time
+        )
+        # 在末尾加上连板数
+        return f"{base_name}{lianban_days}"
+    except:
+        return f"{stock_name}{lianban_days}"
+
+
 # ========== 工具函数：避免重复代码 ==========
 
 def _inject_click_copy_script(html_path, copyable_trace_indices):
@@ -336,6 +361,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     max_ji_ban_results = []
     momo_results = []  # 默默上涨数据
     all_codes_by_date = {}  # 存储每个日期的所有股票代码（用于点击复制）
+    lianban_4plus_results = []  # 存储4连板及以上股票
 
     # 逐列提取数据
     for date in dates:
@@ -407,6 +433,24 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             ) for _, row in second_lianban_filtered.iterrows()]
             # 提取次高连板的股票代码
             date_codes.extend(extract_stock_codes_from_df(second_lianban_filtered))
+
+        # 筛选4连板及以上股票（仅在次高连板>4时）
+        # 只显示未入选次高连板的部分，即4连板及以上但没达到次高连板数的股票
+        lianban_4plus_stocks = []
+        if second_lianban > 4:
+            # 筛选所有连续涨停天数>=4且<次高连板数的股票（排除次高连板的股票）
+            lianban_4plus_filtered = lianban_df[
+                (lianban_df['连续涨停天数'] >= 4) &
+                (lianban_df['连续涨停天数'] < second_lianban)
+                ]
+            if not lianban_4plus_filtered.empty:
+                lianban_4plus_stocks = [format_stock_name_with_lianban_count(
+                    row['股票代码'], row['股票简称'], int(row['连续涨停天数']),
+                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                ) for _, row in lianban_4plus_filtered.iterrows()]
+                # 提取4连板及以上股票的代码（用于点击复制）
+                date_codes.extend(extract_stock_codes_from_df(lianban_4plus_filtered))
+        lianban_4plus_results.append((date, lianban_4plus_stocks))
 
         lianban_results.append((date, max_lianban, max_lianban_stocks))
         lianban_second_results.append((date, second_lianban, second_lianban_stocks))
@@ -553,7 +597,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='top center',
             textfont=dict(size=9, color='purple'),
             customdata=max_ji_ban_customdata,
-            hovertemplate='几板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
+            hovertemplate='几板: %{y}板<br>股票: %{customdata[0]}<br><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -578,7 +622,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='top center',
             textfont=dict(size=9, color='red'),
             customdata=lianban_customdata,
-            hovertemplate='连板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
+            hovertemplate='连板: %{y}板<br>股票: %{customdata[0]}<br><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -588,8 +632,16 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     lianban_second_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in
                              lianban_second_results]
     lianban_second_labels = [create_display_labels(item[2]) for item in lianban_second_results]
-    # 组合customdata：[股票列表, 该日所有代码]
-    lianban_second_customdata = list(zip(lianban_second_stocks, all_codes_list))
+    # 格式化4连板及以上股票（用于悬浮窗显示）
+    lianban_4plus_stocks_formatted = []
+    for item in lianban_4plus_results:
+        if item[1]:  # 如果有4连板及以上股票
+            formatted = format_stock_list_for_hover(item[1], LIANBAN_STOCKS_PER_LINE)
+            lianban_4plus_stocks_formatted.append(f'<br>---<br>4连板及以上:<br>{formatted}')
+        else:
+            lianban_4plus_stocks_formatted.append('')
+    # 组合customdata：[次高连板股票列表, 该日所有代码, 4连板及以上股票文本]
+    lianban_second_customdata = list(zip(lianban_second_stocks, all_codes_list, lianban_4plus_stocks_formatted))
 
     copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
@@ -604,7 +656,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='bottom center',
             textfont=dict(size=9, color='orange'),
             customdata=lianban_second_customdata,
-            hovertemplate='次高连板: %{y}板<br>股票: %{customdata[0]}<extra></extra>',
+            hovertemplate='次高连板: %{y}板<br>股票: %{customdata[0]}%{customdata[2]}<br><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -629,7 +681,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='bottom center',
             textfont=dict(size=9, color='green'),
             customdata=dieting_customdata,
-            hovertemplate='跌停: %{y}天<br>股票: %{customdata[0]}<br><i>💡 点击节点复制当日所有股票代码</i><extra></extra>',
+            hovertemplate='跌停: %{y}天<br>股票: %{customdata[0]}<br><i>💡 点击节点复制当日所有股票代码</i><br><extra></extra>',
         ),
         secondary_y=True,
     )
