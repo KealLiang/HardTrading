@@ -82,18 +82,25 @@ NEW_HIGH_DAYS = 200
 # 新高标记符号
 NEW_HIGH_MARKER = '!!'
 
-# 龙头股筛选相关参数
-# 龙头股最低连板数门槛
-MIN_BOARD_LEVEL_FOR_LEADER = 2
-# 龙头股最低短周期涨幅门槛（%）
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0
-# 龙头股最低长周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0
-# 每个概念选出的龙头股数量
-TOP_N_LEADERS_PER_CONCEPT = 2
+# ==================== 龙头股筛选相关参数 ====================
+# 【筛选门槛】
+MIN_BOARD_LEVEL_FOR_LEADER = 2  # 龙头股最低连板数门槛
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 龙头股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0  # 龙头股最低长周期涨幅门槛（%）
 
-# 最大龙头股工作表保留数量
-MAX_LEADER_SHEETS = 3
+# 【名额分配规则】按板块活跃度排名动态分配龙头数量
+LEADER_QUOTA_TOP1 = 4  # 最热板块（排名第1）
+LEADER_QUOTA_TOP2 = 3  # 次热板块（排名第2）
+LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第3到默认阈值之间）
+LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
+LEADER_QUOTA_DEFAULT_THRESHOLD = 0.5  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+
+# 【筛选策略】
+SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
+LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
+
+# 【工作表管理】
+MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
 
 # 均线斜率分析相关参数
 # 计算均线斜率的天数
@@ -850,25 +857,25 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         # 分离精确匹配和模糊匹配的概念
         exact_concepts = [c[0] for c in concepts_with_type if c[1] == 'exact']
         fuzzy_concepts = [c[0] for c in concepts_with_type if c[1] == 'fuzzy']
-        
+
         # 优先级1：在精确匹配的概念中查找热门概念
         for top_reason in global_top_reasons:
             if top_reason in exact_concepts:
                 return top_reason
-        
+
         # 优先级2：在模糊匹配的概念中查找热门概念
         for top_reason in global_top_reasons:
             if top_reason in fuzzy_concepts:
                 return top_reason
-        
+
         # 优先级3：如果都不是热门概念，优先返回精确匹配的第一个概念
         if exact_concepts:
             return exact_concepts[0]
-        
+
         # 优先级4：返回模糊匹配的第一个概念
         if fuzzy_concepts:
             return fuzzy_concepts[0]
-        
+
         # 兜底：返回第一个概念（如果有的话）
         all_concepts = [c[0] for c in concepts_with_type]
         return all_concepts[0] if all_concepts else "其他"
@@ -2095,6 +2102,36 @@ def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_be
 
     # 如果在入选前跟踪天数范围内，显示涨跌幅
     return 1 <= days_before_entry <= max_tracking_days_before
+
+
+def calculate_last_board_date(stock, formatted_trading_days):
+    """
+    计算股票的最后连板日期（遍历所有交易日，找到最后一次有连板数据的日期）
+    
+    Args:
+        stock: 股票数据（需包含all_board_data字段）
+        formatted_trading_days: 格式化的交易日列表
+        
+    Returns:
+        datetime: 最后连板日期，如果没有连板记录则返回None
+    """
+    all_board_data = stock.get('all_board_data', {})
+    last_board_date = None
+
+    for formatted_day in formatted_trading_days:
+        board_days = all_board_data.get(formatted_day)
+        if pd.notna(board_days) and board_days:
+            # 解析日期
+            try:
+                if '年' in formatted_day:
+                    current_date = datetime.strptime(formatted_day, '%Y年%m月%d日')
+                else:
+                    current_date = datetime.strptime(formatted_day, '%Y/%m/%d')
+                last_board_date = current_date
+            except:
+                continue
+
+    return last_board_date
 
 
 def should_collapse_row(stock, formatted_trading_days, date_mapping):
@@ -3897,6 +3934,19 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     """
     从按概念分组的数据中选出龙头股
     
+    动态名额分配策略（由全局参数控制）：
+    - 最热板块（第1名）：LEADER_QUOTA_TOP1 只
+    - 次热板块（第2名）：LEADER_QUOTA_TOP2 只
+    - 默认板块（第3名到 LEADER_QUOTA_DEFAULT_THRESHOLD 之间）：LEADER_QUOTA_DEFAULT 只
+    - 非热门板块（LEADER_QUOTA_DEFAULT_THRESHOLD 之后）：LEADER_QUOTA_COLD 只
+    
+    筛选条件（由全局参数控制）：
+    - 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER
+    - 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
+    - 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+    - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
+    - 排除概念组：LEADER_EXCLUDE_CONCEPTS
+    
     Args:
         concept_grouped_df: 按概念分组且已计算长周期涨跌幅的DataFrame
         date_mapping: 日期映射
@@ -3908,10 +3958,6 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         pandas.DataFrame: 筛选出的龙头股DataFrame
     """
     print(f"开始从概念分组中筛选龙头股...")
-
-    leader_stocks = []
-    total_concepts = 0
-    qualified_concepts = 0
 
     # 补充计算短周期涨跌幅和最高连板数（如果还没有的话）
     def calculate_additional_metrics(row):
@@ -3949,22 +3995,88 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     temp_df['max_board_level'] = metrics[0]
     temp_df['short_period_change'] = metrics[1]
 
-    # 按概念分组筛选龙头股
-    for concept_group, group_df in temp_df.groupby('concept_group'):
-        total_concepts += 1
-        print(f"  处理概念组: {concept_group} (共{len(group_df)}只股票)")
+    # 第一步：为所有股票计算last_board_date（用于判断是否应该折叠）
+    print("\n第一步：计算所有股票的最后连板日期...")
+    temp_df['last_board_date'] = temp_df.apply(
+        lambda row: calculate_last_board_date(row, formatted_trading_days), axis=1
+    )
 
-        # 直接在DataFrame上进行筛选
+    # 第二步：统计每个概念组的活跃股票数（未被折叠的股票数）
+    print("\n第二步：统计各概念组活跃度...")
+    concept_activity = {}
+
+    for concept_group, group_df in temp_df.groupby('concept_group'):
+        # 跳过特殊概念组
+        if concept_group in LEADER_EXCLUDE_CONCEPTS:
+            print(f"  跳过特殊概念组: {concept_group}")
+            continue
+
+        # 统计未被折叠的股票数量
+        active_count = 0
+        for _, stock in group_df.iterrows():
+            if not should_collapse_row(stock, formatted_trading_days, date_mapping):
+                active_count += 1
+
+        concept_activity[concept_group] = active_count
+        print(f"  概念组 {concept_group}: 总计{len(group_df)}只股票, 活跃{active_count}只")
+
+    # 第三步：根据活跃度排名确定每个概念组的龙头名额
+    print("\n第三步：根据活跃度分配龙头名额...")
+    sorted_concepts = sorted(concept_activity.items(), key=lambda x: x[1], reverse=True)
+    total_concept_count = len(sorted_concepts)
+
+    concept_quota = {}  # 概念组 -> 龙头名额
+
+    for rank, (concept_group, active_count) in enumerate(sorted_concepts, start=1):
+        if rank == 1:
+            quota = LEADER_QUOTA_TOP1  # 最热门
+        elif rank == 2:
+            quota = LEADER_QUOTA_TOP2  # 次热门
+        elif rank <= total_concept_count * LEADER_QUOTA_DEFAULT_THRESHOLD:
+            quota = LEADER_QUOTA_DEFAULT  # 默认（前N%）
+        else:
+            quota = LEADER_QUOTA_COLD  # 非热门（后N%）
+
+        concept_quota[concept_group] = quota
+        print(f"  排名第{rank}: {concept_group} (活跃{active_count}只) -> 分配{quota}个龙头名额")
+
+    # 第四步：按概念分组筛选龙头股
+    print(f"\n第四步：筛选龙头股 (候选范围: {'仅活跃股' if SELECT_LEADERS_FROM_ACTIVE_ONLY else '全部股票'})...")
+    leader_stocks = []
+    total_concepts = 0
+    qualified_concepts = 0
+
+    for concept_group, group_df in temp_df.groupby('concept_group'):
+        # 跳过没有分配名额的概念组（如【默默上涨】）
+        if concept_group not in concept_quota:
+            continue
+
+        total_concepts += 1
+        quota = concept_quota[concept_group]
+
+        # 根据开关决定候选范围
+        if SELECT_LEADERS_FROM_ACTIVE_ONLY:
+            # 只从活跃股（未被折叠）中选择
+            candidate_df = group_df[~group_df.apply(
+                lambda row: should_collapse_row(row, formatted_trading_days, date_mapping), axis=1
+            )]
+            print(f"  处理概念组: {concept_group} (总计{len(group_df)}只, 活跃{len(candidate_df)}只, 名额{quota})")
+        else:
+            # 从全部股票中选择
+            candidate_df = group_df
+            print(f"  处理概念组: {concept_group} (总计{len(group_df)}只股票, 名额{quota})")
+
+        # 筛选符合龙头条件的股票
         # 1. 连板数门槛筛选
-        board_mask = group_df['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
+        board_mask = candidate_df['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
 
         # 2. 涨幅门槛筛选（短周期或长周期满足一个即可）
-        short_mask = group_df['short_period_change'] >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-        long_mask = group_df['long_period_change'] >= MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+        short_mask = candidate_df['short_period_change'] >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
+        long_mask = candidate_df['long_period_change'] >= MIN_LONG_PERIOD_CHANGE_FOR_LEADER
         change_mask = short_mask | long_mask
 
         # 3. 组合筛选条件
-        qualified_df = group_df[board_mask & change_mask]
+        qualified_df = candidate_df[board_mask & change_mask]
 
         if qualified_df.empty:
             print(f"    概念组 {concept_group} 无符合条件的股票")
@@ -3979,8 +4091,8 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
             ascending=[False, False, False]
         )
 
-        # 选出前N只作为龙头
-        leaders = qualified_df.head(TOP_N_LEADERS_PER_CONCEPT)
+        # 根据动态名额选出龙头
+        leaders = qualified_df.head(quota)
         print(f"    从概念组 {concept_group} 选出{len(leaders)}只龙头股")
 
         # 添加到龙头股列表
@@ -3988,7 +4100,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
             leader_stocks.append(leader.to_dict())
 
     print(
-        f"龙头股筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票，共选出{len(leader_stocks)}只龙头股")
+        f"\n龙头股筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票，共选出{len(leader_stocks)}只龙头股")
 
     if not leader_stocks:
         return pd.DataFrame()
