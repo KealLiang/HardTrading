@@ -24,6 +24,8 @@ from utils.stock_util import stock_limit_ratio
 # 配置悬浮窗换行阈值
 LIANBAN_STOCKS_PER_LINE = 5  # 连板天梯图层：每5只股票换行
 MOMO_STOCKS_PER_LINE = 3  # 默默上涨图层：每3只股票换行
+ZHANGTING_OPEN_THRESHOLD = 10  # 涨停开板次数阈值（超过此值加下划线标记）
+JI_BAN_TIERS = 2  # 次高几板显示阶数（2表示显示第2高和第3高）
 
 
 def format_stock_name_with_indicators(stock_code: str, stock_name: str,
@@ -37,6 +39,7 @@ def format_stock_name_with_indicators(stock_code: str, stock_name: str,
     - | = 一字板涨停
     - * = 20%涨跌幅限制
     - ** = 30%涨跌幅限制
+    - 下划线 = 涨停开板次数超过阈值
     """
     try:
         clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
@@ -50,11 +53,20 @@ def format_stock_name_with_indicators(stock_code: str, stock_name: str,
 
         # 根据涨跌幅比例添加星号
         if limit_ratio == 0.2:
-            return f"{formatted_name}*"
+            formatted_name = f"{formatted_name}*"
         elif limit_ratio == 0.3:
-            return f"{formatted_name}**"
-        else:
-            return formatted_name
+            formatted_name = f"{formatted_name}**"
+
+        # 判断是否涨停开板次数超过阈值（加下划线）
+        if zhangting_open_times is not None and str(zhangting_open_times).strip() != '':
+            try:
+                open_times = int(str(zhangting_open_times).strip())
+                if open_times > ZHANGTING_OPEN_THRESHOLD:
+                    formatted_name = f"<u>{formatted_name}</u>"
+            except:
+                pass
+
+        return formatted_name
     except:
         return stock_name
 
@@ -359,6 +371,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     dieting_results = []
     shouban_counts = []
     max_ji_ban_results = []
+    second_ji_ban_results = []  # 存储次高几板数据
     momo_results = []  # 默默上涨数据
     all_codes_by_date = {}  # 存储每个日期的所有股票代码（用于点击复制）
     lianban_4plus_results = []  # 存储4连板及以上股票
@@ -404,6 +417,31 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             # 提取最高几板的股票代码
             date_codes.extend(extract_stock_codes_from_df(max_ji_ban_filtered))
         max_ji_ban_results.append((date, max_ji_ban, max_ji_ban_stocks))
+
+        # 提取次高几板（多阶，根据 JI_BAN_TIERS 配置）
+        tier_ji_ban_stocks = []  # 存储所有阶次的股票（带板数标记）
+        if not lianban_df.empty and max_ji_ban > 0:
+            # 获取所有不同的几板数（降序）
+            unique_ji_bans = sorted(lianban_df['几板'].unique(), reverse=True)
+            # 去掉最高几板，取接下来的 JI_BAN_TIERS 个阶次
+            tier_ji_bans = [jb for jb in unique_ji_bans if jb < max_ji_ban][:JI_BAN_TIERS]
+
+            for tier_ji_ban in tier_ji_bans:
+                if tier_ji_ban > 0:
+                    tier_filtered = lianban_df[lianban_df['几板'] == tier_ji_ban]
+                    if not tier_filtered.empty:
+                        for _, row in tier_filtered.iterrows():
+                            # 使用类似 format_stock_name_with_lianban_count 的格式，在股票名后加板数
+                            base_name = format_stock_name_with_indicators(
+                                row['股票代码'], row['股票简称'],
+                                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                            )
+                            stock_with_count = f"{base_name}{tier_ji_ban}"
+                            tier_ji_ban_stocks.append(stock_with_count)
+                        # 提取股票代码
+                        date_codes.extend(extract_stock_codes_from_df(tier_filtered))
+
+        second_ji_ban_results.append((date, tier_ji_ban_stocks))
 
         # 提取最高连板（确保即使为0也显示）
         max_lianban = lianban_df['连续涨停天数'].max() if not lianban_df.empty else 0
@@ -556,33 +594,25 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     # 创建多Y轴图表（需要为默默上涨单独创建一个Y轴）
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # 首板数量线（主Y轴）
-    fig.add_trace(
-        go.Scatter(
-            x=date_labels,
-            y=shouban_counts,
-            name='首板数量',
-            mode='lines+markers+text',  # 添加text模式，永久显示标签
-            line=dict(color='blue', width=2, dash='dash'),
-            marker=dict(symbol='diamond', size=8),
-            text=[f'{count}' for count in shouban_counts],  # 显示数量
-            textposition='top center',
-            textfont=dict(size=10, color='blue'),
-            opacity=0.3,
-            hovertemplate='首板数量: %{y}<extra></extra>',  # 去掉日期，顶部统一显示
-        ),
-        secondary_y=False,
-    )
-
     # 用于记录支持复制的trace索引
     copyable_trace_indices = []
 
-    # 最高几板线（副Y轴）- 调整到连板之前
+    # 最高几板线（副Y轴）
     max_ji_ban_days = [item[1] for item in max_ji_ban_results]
     max_ji_ban_stocks = [format_stock_list_for_hover(item[2], LIANBAN_STOCKS_PER_LINE) for item in max_ji_ban_results]
     max_ji_ban_labels = [create_display_labels(item[2]) for item in max_ji_ban_results]
-    # 组合customdata：[股票列表, 该日所有代码]
-    max_ji_ban_customdata = list(zip(max_ji_ban_stocks, all_codes_list))
+
+    # 格式化次高几板股票（用于悬浮窗显示）
+    second_ji_ban_stocks_formatted = []
+    for idx, item in enumerate(second_ji_ban_results):
+        if item[1]:  # 如果有次高几板股票（item[1]是股票列表）
+            formatted = format_stock_list_for_hover(item[1], LIANBAN_STOCKS_PER_LINE)
+            second_ji_ban_stocks_formatted.append(f'<br>---<br>次高几板:<br>{formatted}')
+        else:
+            second_ji_ban_stocks_formatted.append('')
+
+    # 组合customdata：[股票列表, 该日所有代码, 次高几板股票文本]
+    max_ji_ban_customdata = list(zip(max_ji_ban_stocks, all_codes_list, second_ji_ban_stocks_formatted))
 
     copyable_trace_indices.append(len(fig.data))
     fig.add_trace(
@@ -597,7 +627,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='top center',
             textfont=dict(size=9, color='purple'),
             customdata=max_ji_ban_customdata,
-            hovertemplate='几板: %{y}板<br>股票: %{customdata[0]}<br><extra></extra>',
+            hovertemplate='几板: %{y}板<br>股票: %{customdata[0]}%{customdata[2]}<br><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -659,6 +689,24 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             hovertemplate='次高连板: %{y}板<br>股票: %{customdata[0]}%{customdata[2]}<br><extra></extra>',
         ),
         secondary_y=True,
+    )
+
+    # 首板数量线（主Y轴）
+    fig.add_trace(
+        go.Scatter(
+            x=date_labels,
+            y=shouban_counts,
+            name='首板数量',
+            mode='lines+markers+text',  # 添加text模式，永久显示标签
+            line=dict(color='blue', width=2, dash='dash'),
+            marker=dict(symbol='diamond', size=8),
+            text=[f'{count}' for count in shouban_counts],  # 显示数量
+            textposition='top center',
+            textfont=dict(size=10, color='blue'),
+            opacity=0.3,
+            hovertemplate='首板数量: %{y}<extra></extra>',  # 去掉日期，顶部统一显示
+        ),
+        secondary_y=False,
     )
 
     # 跌停线（副Y轴）
