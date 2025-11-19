@@ -890,7 +890,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20250801'  # 调整为Excel中有数据的日期范围
+    start_date = '20250901'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
@@ -1083,8 +1083,8 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 
 if __name__ == '__main__':
     # === 复盘相关 ===
-    # daily_routine()
-    full_scan_routine()
+    daily_routine()
+    # full_scan_routine()
     # get_stock_datas()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
