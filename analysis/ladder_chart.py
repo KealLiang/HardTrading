@@ -82,6 +82,15 @@ NEW_HIGH_DAYS = 200
 # 新高标记符号
 NEW_HIGH_MARKER = '!!'
 
+# 关注度榜加粗相关参数
+# 关注度榜取前N名
+ATTENTION_TOP_N = 10
+# 统计最近N个交易日
+ATTENTION_DAYS_WINDOW = 2
+
+# 调试模式开关（控制详细分析日志的输出）
+DEBUG_MODE = False
+
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛】
 MIN_BOARD_LEVEL_FOR_LEADER = 2  # 龙头股最低连板数门槛
@@ -113,6 +122,9 @@ _ma_slope_cache = {}
 # 炸板格式缓存，用于在A和B sheet之间共享炸板格式信息
 _zaban_format_cache = {}
 
+# 关注度榜前N名股票缓存
+_top_attention_stocks_cache = None
+
 # 斜率统计信息（用于分析和调试）
 _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
 
@@ -140,12 +152,13 @@ PERIOD_CHANGE_COLORS = {
 
 def clear_caches():
     """清理所有缓存"""
-    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats, _zaban_format_cache
+    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats, _zaban_format_cache, _top_attention_stocks_cache
     _high_gain_cache.clear()
     _new_high_markers_cache = None
     _ma_slope_cache.clear()
     _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
     _zaban_format_cache.clear()
+    _top_attention_stocks_cache = None
     print("已清理所有缓存")
 
 
@@ -550,6 +563,157 @@ def get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
     return _new_high_markers_cache
 
 
+def load_top_attention_stocks(end_date_yyyymmdd, days_window=ATTENTION_DAYS_WINDOW, top_n=ATTENTION_TOP_N):
+    """
+    加载最近N个交易日内进入关注度榜前N名的股票
+    
+    Args:
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        days_window: 向前查找的交易日天数
+        top_n: 取前N名
+        
+    Returns:
+        set: 股票代码集合（已标准化，不含市场前缀）
+    """
+    try:
+        from analysis.loader.fupan_data_loader import FUPAN_FILE
+        from openpyxl import load_workbook
+        
+        # 读取关注度榜数据（从复盘数据源文件读取）
+        wb = load_workbook(FUPAN_FILE, data_only=True)
+        
+        # 获取最近N个交易日
+        recent_dates = get_n_recent_trading_dates(end_date_yyyymmdd, days_window)
+        
+        attention_stocks = set()
+        
+        # 处理两个sheet：【关注度榜】和【非主关注度榜】
+        for sheet_name in ['关注度榜', '非主关注度榜']:
+            if sheet_name not in wb.sheetnames:
+                continue
+                
+            ws = wb[sheet_name]
+            
+            # 遍历所有列，查找最近N日的数据
+            for col_idx in range(1, ws.max_column + 1):
+                header_cell = ws.cell(row=1, column=col_idx)
+                if not header_cell.value:
+                    continue
+                
+                # 解析日期（格式：2025年11月18日）
+                col_date = parse_date_from_header(header_cell.value)
+                if not col_date or col_date not in recent_dates:
+                    continue
+                
+                # 读取该列的前top_n行数据（从第2行开始）
+                for row_idx in range(2, min(2 + top_n, ws.max_row + 1)):
+                    cell_value = ws.cell(row=row_idx, column=col_idx).value
+                    if not cell_value:
+                        continue
+                    
+                    # 解析数据：600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1
+                    stock_code = extract_stock_code_from_attention_data(cell_value)
+                    if stock_code:
+                        attention_stocks.add(stock_code)
+        
+        print(f"✓ 加载关注度榜数据：最近{days_window}日前{top_n}名，共{len(attention_stocks)}只股票")
+        return attention_stocks
+        
+    except Exception as e:
+        print(f"✗ 加载关注度榜数据失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return set()
+
+
+def get_n_recent_trading_dates(end_date_yyyymmdd, n):
+    """
+    获取最近N个交易日的日期集合（YYYYMMDD格式）
+    
+    Args:
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        n: 交易日天数
+        
+    Returns:
+        set: 日期集合
+    """
+    dates = set()
+    current_date = end_date_yyyymmdd
+    dates.add(current_date)
+    
+    for i in range(1, n):
+        prev_date = get_n_trading_days_before(end_date_yyyymmdd, i)
+        if '-' in prev_date:
+            prev_date = prev_date.replace('-', '')
+        dates.add(prev_date)
+    
+    return dates
+
+
+def parse_date_from_header(header_value):
+    """
+    从表头解析日期：2025年11月18日 -> 20251118
+    
+    Args:
+        header_value: 表头值
+        
+    Returns:
+        str: YYYYMMDD格式的日期，解析失败返回None
+    """
+    try:
+        if isinstance(header_value, str) and '年' in header_value:
+            date_obj = datetime.strptime(header_value, '%Y年%m月%d日')
+            return date_obj.strftime('%Y%m%d')
+    except:
+        pass
+    return None
+
+
+def extract_stock_code_from_attention_data(cell_value):
+    """
+    从关注度榜数据中提取股票代码
+    
+    输入: "600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1"
+    输出: "600340"（标准化后的纯代码）
+    
+    Args:
+        cell_value: 单元格值
+        
+    Returns:
+        str: 标准化后的股票代码，解析失败返回None
+    """
+    try:
+        parts = str(cell_value).split(';')
+        if len(parts) >= 1:
+            stock_code = parts[0].strip()  # "600340.SH"
+            # 去除市场后缀 .SH/.SZ
+            if '.' in stock_code:
+                stock_code = stock_code.split('.')[0]
+            return stock_code
+    except:
+        pass
+    return None
+
+
+def get_top_attention_stocks_cached(end_date_yyyymmdd):
+    """
+    获取缓存的关注度榜前N名股票，避免重复加载
+    
+    Args:
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        
+    Returns:
+        set: 股票代码集合
+    """
+    global _top_attention_stocks_cache
+    
+    # 如果缓存为空，则加载数据
+    if _top_attention_stocks_cache is None:
+        _top_attention_stocks_cache = load_top_attention_stocks(end_date_yyyymmdd)
+    
+    return _top_attention_stocks_cache
+
+
 def get_loose_board_level(board_level):
     """
     获取宽松的连板数
@@ -637,7 +801,8 @@ def check_stock_attention(stock_code, current_date, attention_data, log_prefix):
 
     # 如果在指定交易日范围内出现了至少两次，则认为符合条件
     if len(attention_dates) >= 2:
-        print(f"    {log_prefix}指定交易日范围内两次入选关注度榜前20，符合额外入选条件")
+        if DEBUG_MODE:
+            print(f"    {log_prefix}指定交易日范围内两次入选关注度榜前20，符合额外入选条件")
         return True, 'attention'
 
     return False, 'normal'
@@ -703,9 +868,10 @@ def check_reentry_condition(current_date, continuous_board_dates, reentry_days_t
     # 计算间隔交易日天数
     days_since_last_board = count_trading_days_between(last_board_date, current_date)
 
-    print(f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, "
-          f"当前日期: {current_date.strftime('%Y-%m-%d')}, "
-          f"交易日间隔: {days_since_last_board}天")
+    if DEBUG_MODE:
+        print(f"    上一次连板日期: {last_board_date.strftime('%Y-%m-%d')}, "
+              f"当前日期: {current_date.strftime('%Y-%m-%d')}, "
+              f"交易日间隔: {days_since_last_board}天")
 
     # 判断是否满足再次入选条件
     if days_since_last_board > reentry_days_threshold:
@@ -721,7 +887,8 @@ def check_reentry_condition(current_date, continuous_board_dates, reentry_days_t
             )
 
         if is_significant_reentry:
-            print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
+            if DEBUG_MODE:
+                print(f"    断板后{days_since_last_board}个交易日再次达到入选条件，作为新记录")
             return True, True
 
     return False, False
@@ -1033,13 +1200,15 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
         attention_data_main: 主板关注度榜数据
         attention_data_non_main: 非主板关注度榜数据
     """
-    print(f"分析股票池中的所有股票，共有{len(all_stocks)}只股票")
+    if DEBUG_MODE:
+        print(f"分析股票池中的所有股票，共有{len(all_stocks)}只股票")
     for stock_code, stock_data in all_stocks.items():
         stock_name = stock_data['stock_name']
         market = stock_data['market']
         board_data = stock_data['board_data']
 
-        print(f"分析股票: {stock_code}_{stock_name} (市场: {market})")
+        if DEBUG_MODE:
+            print(f"分析股票: {stock_code}_{stock_name} (市场: {market})")
 
         # 按日期排序的板块数据
         sorted_dates = sorted(board_data.keys())
@@ -1051,7 +1220,8 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
         # 检查每一个日期
         for col in sorted_dates:
             board_days = board_data[col]
-            print(f"  日期 {col}: {board_days}")
+            if DEBUG_MODE:
+                print(f"  日期 {col}: {board_days}")
 
             # 判断是否为显著连板
             is_significant = False
@@ -1068,7 +1238,8 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
                 )
 
             if is_significant:
-                print(f"    找到显著连板: {board_days}板")
+                if DEBUG_MODE:
+                    print(f"    找到显著连板: {board_days}板")
 
                 # 记录为显著连板日期
                 current_date = datetime.strptime(col, '%Y年%m月%d日') if '年' in col else pd.to_datetime(col)
@@ -1127,7 +1298,8 @@ def analyze_stocks_for_significant_boards(all_stocks, date_columns, result, min_
                     }
 
                     result.append(entry)
-                    print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
+                    if DEBUG_MODE:
+                        print(f"    记录显著连板: {stock_name} 在 {col} 达到 {board_days}板")
 
 
 def get_concept_from_board_text(board_text):
@@ -1429,6 +1601,8 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
         stock_entry_count: 股票入选次数映射
         end_date_yyyymmdd: 结束日期，用于计算均线斜率标记
     """
+    global _top_attention_stocks_cache
+    
     # 添加均线斜率标记
     ma_slope_indicator = ''
     if end_date_yyyymmdd:
@@ -1439,6 +1613,13 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
     name_cell = ws.cell(row=row, column=col, value=stock_display_name)
     name_cell.alignment = Alignment(horizontal='left')
     name_cell.border = BORDER_STYLE
+
+    # 判断是否需要加粗（在关注度榜前十）
+    should_bold = False
+    # 提取纯股票代码（去除市场后缀）用于匹配
+    pure_stock_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+    if _top_attention_stocks_cache and pure_stock_code in _top_attention_stocks_cache:
+        should_bold = True
 
     # 为曾经到过4板及以上的个股，设置蓝色背景
     if max_board_level >= 4:
@@ -1455,7 +1636,9 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
 
         # 对于深色背景，使用白色字体
         if color_level >= 12:
-            name_cell.font = Font(color="FFFFFF")  # 保持默认字体大小
+            name_cell.font = Font(color="FFFFFF", bold=should_bold)
+        else:
+            name_cell.font = Font(bold=should_bold)
     # 如果没有应用高板数颜色，且该股票是重复入选，则应用灰色背景
     elif stock_code in stock_entry_count and stock_entry_count[stock_code] > 1:
         # 获取入选次数
@@ -1467,7 +1650,13 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
 
         # 对于深色灰色背景，使用白色字体
         if color_level >= 4:
-            name_cell.font = Font(color="FFFFFF")
+            name_cell.font = Font(color="FFFFFF", bold=should_bold)
+        else:
+            name_cell.font = Font(bold=should_bold)
+    else:
+        # 普通情况，只在需要时设置加粗
+        if should_bold:
+            name_cell.font = Font(bold=True)
 
     return name_cell, apply_high_board_color
 
@@ -2768,6 +2957,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 获取股票详细信息映射
     stock_details = lianban_df.attrs.get('stock_details', {})
+
+    # 加载最近n日关注度前十股票
+    get_top_attention_stocks_cached(end_date)
 
     # 识别显著连板股票（不包含【默默上涨】数据）
     result_df = identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
