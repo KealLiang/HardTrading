@@ -12,6 +12,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from functools import lru_cache
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -26,6 +27,7 @@ LIANBAN_STOCKS_PER_LINE = 5  # 连板天梯图层：每5只股票换行
 MOMO_STOCKS_PER_LINE = 3  # 默默上涨图层：每3只股票换行
 ZHANGTING_OPEN_THRESHOLD = 10  # 涨停开板次数阈值（超过此值加下划线标记）
 JI_BAN_TIERS = 2  # 次高几板显示阶数（2表示显示第2高和第3高）
+ATTENTION_TOP_N = 10  # 关注度榜取前N名（用于加粗股票名称）
 
 
 def format_stock_name_with_indicators(stock_code: str, stock_name: str,
@@ -134,6 +136,148 @@ def format_stock_name_with_lianban_count(stock_code: str, stock_name: str,
         return f"{base_name}{lianban_days}"
     except:
         return f"{stock_name}{lianban_days}"
+
+
+@lru_cache(maxsize=1)
+def load_attention_stocks_by_date(start_date_yyyymmdd: str, end_date_yyyymmdd: str, top_n: int = ATTENTION_TOP_N):
+    """
+    加载整个分析周期内每个日期的关注度榜前N名股票
+    
+    Args:
+        start_date_yyyymmdd: 开始日期 (YYYYMMDD格式)
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        top_n: 取前N名，默认为ATTENTION_TOP_N
+        
+    Returns:
+        dict: {日期字符串(YYYY年MM月DD日): [股票代码列表]}
+    """
+    try:
+        from openpyxl import load_workbook
+
+        # 使用相对路径找到 fupan_stocks.xlsx
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        fupan_file = os.path.join(current_dir, '..', '..', 'excel', 'fupan_stocks.xlsx')
+
+        if not os.path.exists(fupan_file):
+            print(f"关注度榜数据文件不存在: {fupan_file}")
+            return {}
+
+        wb = load_workbook(fupan_file, data_only=True)
+
+        # 将日期范围转换为日期对象
+        start_date_obj = datetime.strptime(start_date_yyyymmdd, '%Y%m%d')
+        end_date_obj = datetime.strptime(end_date_yyyymmdd, '%Y%m%d')
+
+        attention_by_date = {}
+
+        # 处理两个sheet：【关注度榜】和【非主关注度榜】
+        for sheet_name in ['关注度榜', '非主关注度榜']:
+            if sheet_name not in wb.sheetnames:
+                continue
+
+            ws = wb[sheet_name]
+
+            # 遍历所有列，查找分析周期内的数据
+            for col_idx in range(1, ws.max_column + 1):
+                header_cell = ws.cell(row=1, column=col_idx)
+                if not header_cell.value:
+                    continue
+
+                # 解析日期（格式：2025年11月18日）
+                col_date_str = str(header_cell.value).strip()
+                try:
+                    col_date_obj = datetime.strptime(col_date_str, '%Y年%m月%d日')
+                except:
+                    continue
+
+                # 检查是否在分析周期内
+                if not (start_date_obj <= col_date_obj <= end_date_obj):
+                    continue
+
+                # 初始化该日期的股票列表
+                if col_date_str not in attention_by_date:
+                    attention_by_date[col_date_str] = set()
+
+                # 读取该列的前top_n行数据（从第2行开始）
+                for row_idx in range(2, min(2 + top_n, ws.max_row + 1)):
+                    cell_value = ws.cell(row=row_idx, column=col_idx).value
+                    if not cell_value:
+                        continue
+
+                    # 解析数据：600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1
+                    stock_code = extract_stock_code_from_attention_data(cell_value)
+                    if stock_code:
+                        attention_by_date[col_date_str].add(stock_code)
+
+        # 将 set 转换为 list
+        attention_by_date = {date: list(codes) for date, codes in attention_by_date.items()}
+
+        print(f"✓ 加载关注度榜数据：分析周期内共{len(attention_by_date)}个交易日有关注度榜数据")
+        return attention_by_date
+
+    except Exception as e:
+        print(f"✗ 加载关注度榜数据失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
+def extract_stock_code_from_attention_data(cell_value: str) -> str:
+    """
+    从关注度榜数据中提取股票代码
+    
+    输入: "600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1"
+    输出: "600340"（标准化后的纯代码）
+    
+    Args:
+        cell_value: 单元格值
+        
+    Returns:
+        str: 标准化后的股票代码，解析失败返回None
+    """
+    try:
+        parts = str(cell_value).split(';')
+        if len(parts) >= 1:
+            stock_code = parts[0].strip()  # "600340.SH"
+            # 去除市场后缀 .SH/.SZ
+            if '.' in stock_code:
+                stock_code = stock_code.split('.')[0]
+            return stock_code
+    except:
+        pass
+    return None
+
+
+def apply_bold_for_attention_stocks(stock_name: str, stock_code: str, date_str: str, attention_by_date: dict) -> str:
+    """
+    如果股票在指定日期入选关注度榜前N名，则对股票名称应用加粗
+    
+    Args:
+        stock_name: 股票名称
+        stock_code: 股票代码（可能包含市场后缀或下划线）
+        date_str: 日期字符串（格式：YYYY年MM月DD日）
+        attention_by_date: 关注度榜数据 {日期: [股票代码列表]}
+        
+    Returns:
+        str: 加粗后的股票名称（如果入选），或原始名称
+    """
+    if not attention_by_date:
+        return stock_name
+
+    # 提取纯股票代码（去除市场后缀和下划线）
+    clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+    clean_code = clean_code.split('_')[0] if '_' in clean_code else clean_code
+
+    # 去掉可能的市场前缀（sh/sz/bj）
+    if clean_code.startswith(('sh', 'sz', 'bj')):
+        clean_code = clean_code[2:]
+
+    # 检查该股票在该日期是否入选关注度榜
+    attention_codes = attention_by_date.get(date_str, [])
+    if clean_code in attention_codes:
+        return f"<b>{stock_name}</b>"
+
+    return stock_name
 
 
 # ========== 工具函数：避免重复代码 ==========
@@ -282,21 +426,38 @@ def format_stock_list_for_hover(stock_list, stocks_per_line=5):
         return ', '.join(stock_list)
 
 
+def remove_bold_tags(text: str) -> str:
+    """
+    去除文本中的HTML加粗标签
+    
+    Args:
+        text: 可能包含<b>和</b>标签的文本
+        
+    Returns:
+        去除加粗标签后的文本
+    """
+    return text.replace('<b>', '').replace('</b>', '')
+
+
 def create_display_labels(stock_list, max_display=3):
     """
     创建图表上显示的标签（超过max_display个时添加省略号）
+    去除加粗标签，因为图表标签不支持HTML
     
     Args:
-        stock_list: 股票列表
+        stock_list: 股票列表（可能包含<b>标签）
         max_display: 最大显示数量，默认3
         
     Returns:
-        格式化后的标签文本
+        格式化后的标签文本（不含加粗标签）
     """
-    if len(stock_list) > max_display:
-        return '<br>'.join(stock_list[:max_display]) + '<br>……'
+    # 去除加粗标签
+    clean_list = [remove_bold_tags(stock) for stock in stock_list]
+
+    if len(clean_list) > max_display:
+        return '<br>'.join(clean_list[:max_display]) + '<br>……'
     else:
-        return '<br>'.join(stock_list) if stock_list else ''
+        return '<br>'.join(clean_list) if clean_list else ''
 
 
 def extract_stock_codes_from_df(df, code_column='股票代码'):
@@ -352,18 +513,38 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     dates = lianban_data.columns
 
     # 筛选时间范围
+    start_date_obj = None
+    end_date_obj = None
     if start_date:
-        start_date = datetime.strptime(start_date, "%Y%m%d")
+        start_date_obj = datetime.strptime(start_date, "%Y%m%d")
     if end_date:
-        end_date = datetime.strptime(end_date, "%Y%m%d")
+        end_date_obj = datetime.strptime(end_date, "%Y%m%d")
 
+    # 先筛选日期范围
     filtered_dates = []
     for date in dates:
         date_obj = datetime.strptime(date, "%Y年%m月%d日")
-        if (not start_date or date_obj >= start_date) and (not end_date or date_obj <= end_date):
+        if (not start_date_obj or date_obj >= start_date_obj) and (not end_date_obj or date_obj <= end_date_obj):
             filtered_dates.append(date)
 
     dates = filtered_dates
+
+    # 加载关注度榜数据（用于股票名称加粗）
+    attention_by_date = {}
+    if start_date and dates:
+        # 如果没有提供 end_date，使用筛选后的最后一个交易日
+        actual_end_date = end_date
+        if not actual_end_date and dates:
+            # 从最后一个日期字符串（YYYY年MM月DD日）转换为YYYYMMDD格式
+            last_date_obj = datetime.strptime(dates[-1], "%Y年%m月%d日")
+            actual_end_date = last_date_obj.strftime("%Y%m%d")
+
+        if actual_end_date:
+            try:
+                attention_by_date = load_attention_stocks_by_date(start_date, actual_end_date)
+            except Exception as e:
+                print(f"⚠ 加载关注度榜数据失败: {e}")
+                attention_by_date = {}
 
     # 初始化结果存储
     lianban_results = []
@@ -410,9 +591,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         max_ji_ban_filtered = lianban_df[lianban_df['几板'] == max_ji_ban]
         max_ji_ban_stocks = []
         if not max_ji_ban_filtered.empty:
-            max_ji_ban_stocks = [format_stock_name_with_indicators(
-                row['股票代码'], row['股票简称'],
-                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            max_ji_ban_stocks = [apply_bold_for_attention_stocks(
+                format_stock_name_with_indicators(
+                    row['股票代码'], row['股票简称'],
+                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                ),
+                row['股票代码'], date, attention_by_date
             ) for _, row in max_ji_ban_filtered.iterrows()]
             # 提取最高几板的股票代码
             date_codes.extend(extract_stock_codes_from_df(max_ji_ban_filtered))
@@ -426,9 +610,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         max_lianban_stocks = []
         max_lianban_codes = set()  # 记录最高连板的股票代码（用于去重）
         if not max_lianban_filtered.empty:
-            max_lianban_stocks = [format_stock_name_with_indicators(
-                row['股票代码'], row['股票简称'],
-                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            max_lianban_stocks = [apply_bold_for_attention_stocks(
+                format_stock_name_with_indicators(
+                    row['股票代码'], row['股票简称'],
+                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                ),
+                row['股票代码'], date, attention_by_date
             ) for _, row in max_lianban_filtered.iterrows()]
             # 提取最高连板的股票代码
             date_codes.extend(extract_stock_codes_from_df(max_lianban_filtered))
@@ -444,9 +631,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         second_lianban_stocks = []
         second_lianban_codes = set()  # 记录次高连板的股票代码（用于去重）
         if not second_lianban_filtered.empty and second_lianban > 0:
-            second_lianban_stocks = [format_stock_name_with_indicators(
-                row['股票代码'], row['股票简称'],
-                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            second_lianban_stocks = [apply_bold_for_attention_stocks(
+                format_stock_name_with_indicators(
+                    row['股票代码'], row['股票简称'],
+                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                ),
+                row['股票代码'], date, attention_by_date
             ) for _, row in second_lianban_filtered.iterrows()]
             # 提取次高连板的股票代码
             date_codes.extend(extract_stock_codes_from_df(second_lianban_filtered))
@@ -469,20 +659,24 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                     if not tier_filtered.empty:
                         for _, row in tier_filtered.iterrows():
                             # 提取股票代码（去掉交易所后缀）
-                            clean_code = str(row['股票代码']).split('.')[0] if '.' in str(row['股票代码']) else str(row['股票代码'])
+                            clean_code = str(row['股票代码']).split('.')[0] if '.' in str(row['股票代码']) else str(
+                                row['股票代码'])
                             # 如果股票代码已经在连板股票中，跳过（避免重复）
                             if clean_code in lianban_codes_to_exclude:
                                 continue
                             # 使用类似 format_stock_name_with_lianban_count 的格式，在股票名后加板数
-                            base_name = format_stock_name_with_indicators(
-                                row['股票代码'], row['股票简称'],
-                                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                            base_name = apply_bold_for_attention_stocks(
+                                format_stock_name_with_indicators(
+                                    row['股票代码'], row['股票简称'],
+                                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                                ),
+                                row['股票代码'], date, attention_by_date
                             )
                             stock_with_count = f"{base_name}{tier_ji_ban}"
                             tier_ji_ban_stocks.append(stock_with_count)
                         # 提取股票代码（仅限未排除的股票）
-                        tier_codes = [code for code in extract_stock_codes_from_df(tier_filtered) 
-                                     if code not in lianban_codes_to_exclude]
+                        tier_codes = [code for code in extract_stock_codes_from_df(tier_filtered)
+                                      if code not in lianban_codes_to_exclude]
                         date_codes.extend(tier_codes)
 
         second_ji_ban_results.append((date, tier_ji_ban_stocks))
@@ -497,10 +691,19 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 (lianban_df['连续涨停天数'] < second_lianban)
                 ]
             if not lianban_4plus_filtered.empty:
-                lianban_4plus_stocks = [format_stock_name_with_lianban_count(
-                    row['股票代码'], row['股票简称'], int(row['连续涨停天数']),
-                    row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
-                ) for _, row in lianban_4plus_filtered.iterrows()]
+                lianban_4plus_stocks = []
+                for _, row in lianban_4plus_filtered.iterrows():
+                    # 先格式化名称并应用加粗
+                    base_name = apply_bold_for_attention_stocks(
+                        format_stock_name_with_indicators(
+                            row['股票代码'], row['股票简称'],
+                            row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+                        ),
+                        row['股票代码'], date, attention_by_date
+                    )
+                    # 然后加上连板数
+                    stock_with_count = f"{base_name}{int(row['连续涨停天数'])}"
+                    lianban_4plus_stocks.append(stock_with_count)
                 # 提取4连板及以上股票的代码（用于点击复制）
                 date_codes.extend(extract_stock_codes_from_df(lianban_4plus_filtered))
         lianban_4plus_results.append((date, lianban_4plus_stocks))
@@ -528,8 +731,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
             max_dieting_stocks = []
             if not max_dieting_filtered.empty:
-                max_dieting_stocks = [format_stock_name_with_indicators(row['股票代码'], row['股票简称'])
-                                      for _, row in max_dieting_filtered.iterrows()]
+                max_dieting_stocks = [apply_bold_for_attention_stocks(
+                    format_stock_name_with_indicators(row['股票代码'], row['股票简称']),
+                    row['股票代码'], date, attention_by_date
+                ) for _, row in max_dieting_filtered.iterrows()]
                 # 提取最大连续跌停的股票代码
                 date_codes.extend(extract_stock_codes_from_df(max_dieting_filtered))
         else:
@@ -567,10 +772,13 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                         # 提取股票代码（去掉交易所后缀，如 .SH .SZ）
                         clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
                         momo_stock_codes.append(clean_code)
+                        # 应用加粗逻辑
+                        formatted_name = apply_bold_for_attention_stocks(stock_name, stock_code, date,
+                                                                         attention_by_date)
                         # 完整信息：股票名称(涨幅, 成交额) - 用于悬浮窗
-                        momo_stocks_data.append(f"{stock_name}({qujian_zhangfu}, {qujian_chengjiao})")
+                        momo_stocks_data.append(f"{formatted_name}({qujian_zhangfu}, {qujian_chengjiao})")
                         # 简化信息：股票名称(涨幅) - 用于节点标签
-                        momo_stocks_simple.append(f"{stock_name}({qujian_zhangfu})")
+                        momo_stocks_simple.append(f"{formatted_name}({qujian_zhangfu})")
                     except:
                         pass
 
@@ -744,7 +952,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             textposition='bottom center',
             textfont=dict(size=9, color='green'),
             customdata=dieting_customdata,
-            hovertemplate='跌停: %{y}天<br>股票: %{customdata[0]}<br><i>💡 点击节点复制当日所有股票代码</i><br><extra></extra>',
+            hovertemplate='<br>跌停: %{y}天<br>股票: %{customdata[0]}<br><i>💡 点击节点复制当日所有股票代码</i><br><extra></extra>',
         ),
         secondary_y=True,
     )
@@ -957,11 +1165,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     if output_path is None:
         date_range = ""
         if start_date and end_date:
-            date_range = f"{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}"
+            date_range = f"{start_date}_to_{end_date}"
         elif start_date:
-            date_range = f"from_{start_date.strftime('%Y%m%d')}"
+            date_range = f"from_{start_date}"
         elif end_date:
-            date_range = f"to_{end_date.strftime('%Y%m%d')}"
+            date_range = f"to_{end_date}"
         else:
             date_range = datetime.now().strftime('%Y%m%d')
 
