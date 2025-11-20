@@ -418,8 +418,45 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             date_codes.extend(extract_stock_codes_from_df(max_ji_ban_filtered))
         max_ji_ban_results.append((date, max_ji_ban, max_ji_ban_stocks))
 
+        # 提取最高连板（确保即使为0也显示）
+        max_lianban = lianban_df['连续涨停天数'].max() if not lianban_df.empty else 0
+        if pd.isna(max_lianban):
+            max_lianban = 0
+        max_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == max_lianban]
+        max_lianban_stocks = []
+        max_lianban_codes = set()  # 记录最高连板的股票代码（用于去重）
+        if not max_lianban_filtered.empty:
+            max_lianban_stocks = [format_stock_name_with_indicators(
+                row['股票代码'], row['股票简称'],
+                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            ) for _, row in max_lianban_filtered.iterrows()]
+            # 提取最高连板的股票代码
+            date_codes.extend(extract_stock_codes_from_df(max_lianban_filtered))
+            # 记录股票代码用于去重
+            max_lianban_codes = set(extract_stock_codes_from_df(max_lianban_filtered))
+
+        # 提取次高连板（确保即使为0也显示）
+        second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban][
+            '连续涨停天数'].max() if not lianban_df.empty and max_lianban > 0 else 0
+        if pd.isna(second_lianban):
+            second_lianban = 0
+        second_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == second_lianban]
+        second_lianban_stocks = []
+        second_lianban_codes = set()  # 记录次高连板的股票代码（用于去重）
+        if not second_lianban_filtered.empty and second_lianban > 0:
+            second_lianban_stocks = [format_stock_name_with_indicators(
+                row['股票代码'], row['股票简称'],
+                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
+            ) for _, row in second_lianban_filtered.iterrows()]
+            # 提取次高连板的股票代码
+            date_codes.extend(extract_stock_codes_from_df(second_lianban_filtered))
+            # 记录股票代码用于去重
+            second_lianban_codes = set(extract_stock_codes_from_df(second_lianban_filtered))
+
         # 提取次高几板（多阶，根据 JI_BAN_TIERS 配置）
+        # 需要排除已经在最高连板和次高连板中出现的股票（避免重复显示）
         tier_ji_ban_stocks = []  # 存储所有阶次的股票（带板数标记）
+        lianban_codes_to_exclude = max_lianban_codes | second_lianban_codes  # 合并两个集合
         if not lianban_df.empty and max_ji_ban > 0:
             # 获取所有不同的几板数（降序）
             unique_ji_bans = sorted(lianban_df['几板'].unique(), reverse=True)
@@ -431,6 +468,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                     tier_filtered = lianban_df[lianban_df['几板'] == tier_ji_ban]
                     if not tier_filtered.empty:
                         for _, row in tier_filtered.iterrows():
+                            # 提取股票代码（去掉交易所后缀）
+                            clean_code = str(row['股票代码']).split('.')[0] if '.' in str(row['股票代码']) else str(row['股票代码'])
+                            # 如果股票代码已经在连板股票中，跳过（避免重复）
+                            if clean_code in lianban_codes_to_exclude:
+                                continue
                             # 使用类似 format_stock_name_with_lianban_count 的格式，在股票名后加板数
                             base_name = format_stock_name_with_indicators(
                                 row['股票代码'], row['股票简称'],
@@ -438,39 +480,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                             )
                             stock_with_count = f"{base_name}{tier_ji_ban}"
                             tier_ji_ban_stocks.append(stock_with_count)
-                        # 提取股票代码
-                        date_codes.extend(extract_stock_codes_from_df(tier_filtered))
+                        # 提取股票代码（仅限未排除的股票）
+                        tier_codes = [code for code in extract_stock_codes_from_df(tier_filtered) 
+                                     if code not in lianban_codes_to_exclude]
+                        date_codes.extend(tier_codes)
 
         second_ji_ban_results.append((date, tier_ji_ban_stocks))
-
-        # 提取最高连板（确保即使为0也显示）
-        max_lianban = lianban_df['连续涨停天数'].max() if not lianban_df.empty else 0
-        if pd.isna(max_lianban):
-            max_lianban = 0
-        max_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == max_lianban]
-        max_lianban_stocks = []
-        if not max_lianban_filtered.empty:
-            max_lianban_stocks = [format_stock_name_with_indicators(
-                row['股票代码'], row['股票简称'],
-                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
-            ) for _, row in max_lianban_filtered.iterrows()]
-            # 提取最高连板的股票代码
-            date_codes.extend(extract_stock_codes_from_df(max_lianban_filtered))
-
-        # 提取次高连板（确保即使为0也显示）
-        second_lianban = lianban_df[lianban_df['连续涨停天数'] < max_lianban][
-            '连续涨停天数'].max() if not lianban_df.empty and max_lianban > 0 else 0
-        if pd.isna(second_lianban):
-            second_lianban = 0
-        second_lianban_filtered = lianban_df[lianban_df['连续涨停天数'] == second_lianban]
-        second_lianban_stocks = []
-        if not second_lianban_filtered.empty and second_lianban > 0:
-            second_lianban_stocks = [format_stock_name_with_indicators(
-                row['股票代码'], row['股票简称'],
-                row['涨停开板次数'], row['首次涨停时间'], row['最终涨停时间']
-            ) for _, row in second_lianban_filtered.iterrows()]
-            # 提取次高连板的股票代码
-            date_codes.extend(extract_stock_codes_from_df(second_lianban_filtered))
 
         # 筛选4连板及以上股票（仅在次高连板>4时）
         # 只显示未入选次高连板的部分，即4连板及以上但没达到次高连板数的股票
@@ -905,11 +920,12 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         ),
         updatemenus=updatemenus,  # 添加切换按钮
         annotations=momo_annotations,  # 添加样本数量标注（默认隐藏）
-        width=1800,
+        width=None,  # 改为自适应宽度，避免横向滚动条
         height=900,
         font=dict(family='SimHei'),
         plot_bgcolor='white',
         paper_bgcolor='white',
+        autosize=True,  # 启用自适应大小
         # 配置第三个Y轴（默默上涨专用）
         yaxis3=dict(
             title=dict(
