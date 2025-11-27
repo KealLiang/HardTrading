@@ -44,6 +44,7 @@ class PullbackReboundStrategy(bt.Strategy):
 
         # -- 信号约束参数 --
         ('enable_top_constraint', True),  # 是否启用顶部约束（背离不能在高点后第二天）
+        ('allow_same_day_signals', False),  # 是否允许信号在同一天依次触发
 
         # -- 调试参数 --
         ('debug', False),  # 是否开启详细日志
@@ -316,35 +317,36 @@ class PullbackReboundStrategy(bt.Strategy):
         
         在回调期间，每天检查三个信号是否出现，一旦出现就标记为True
         """
-        # 1. 检查量价背离：价跌量增
-        # 动态更新量价背离信号
-        if self._check_volume_price_divergence():
-            self.signal_divergence_date = self.datas[0].datetime.date(0)
-            self.log(f'✓ 量价背离信号出现 - 价跌量增')
+        today = self.datas[0].datetime.date(0)
 
-        # 2. 检查量窒息：波段内成交量最小 或 低于120日均量
-        # 动态更新量窒息信号，每次都检查，如果出现新的量窒息则更新日期
-        dry_result = self._check_volume_dry()
-        if dry_result['is_dry']:
-            self.signal_volume_dry_date = self.datas[0].datetime.date(0)
-            self.log(f'✓ 量窒息信号出现 - {dry_result["reason"]}')
+        # 1. 检查量价背离：价跌量增，只在尚未记录时触发
+        if not self.signal_divergence_date and self._check_volume_price_divergence():
+            self.signal_divergence_date = today
+            self.log('✓ 量价背离信号出现 - 价跌量增')
 
-        # 3. 检查企稳K线
-        # 动态更新企稳K线信号
-        # 方式1：收红K线（收盘>开盘）
-        is_red_candle = self.data.close[0] > self.data.open[0]
-        # 方式2：收盘价高于前日收盘价（止跌）
-        prev_close = self.data.close[-1] if len(self) > 0 else 0
-        is_price_up = self.data.close[0] > prev_close if prev_close > 0 else False
+        # 2. 检查量窒息：需先确认背离，且默认不同日
+        if self.signal_divergence_date and not self.signal_volume_dry_date:
+            if self.p.allow_same_day_signals or self.signal_divergence_date != today:
+                dry_result = self._check_volume_dry()
+                if dry_result['is_dry']:
+                    self.signal_volume_dry_date = today
+                    self.log(f'✓ 量窒息信号出现 - {dry_result["reason"]}')
 
-        if is_red_candle or is_price_up:
-            self.signal_stabilization_date = self.datas[0].datetime.date(0)
-            stab_type = []
-            if is_red_candle:
-                stab_type.append('红K')
-            if is_price_up:
-                stab_type.append('止跌')
-            self.log(f'✓ 企稳K线信号出现 - {"/".join(stab_type)}')
+        # 3. 检查企稳K线：需先确认量窒息，且默认不同日
+        if self.signal_volume_dry_date and not self.signal_stabilization_date:
+            if self.p.allow_same_day_signals or self.signal_volume_dry_date != today:
+                is_red_candle = self.data.close[0] > self.data.open[0]
+                prev_close = self.data.close[-1] if len(self) > 0 else 0
+                is_price_up = self.data.close[0] > prev_close if prev_close > 0 else False
+
+                if is_red_candle or is_price_up:
+                    self.signal_stabilization_date = today
+                    stab_type = []
+                    if is_red_candle:
+                        stab_type.append('红K')
+                    if is_price_up:
+                        stab_type.append('止跌')
+                    self.log(f'✓ 企稳K线信号出现 - {"/".join(stab_type)}')
 
         # 显示当前信号进度（仅在未满足买入条件时显示）
         if not self._check_buy_signal():
@@ -371,9 +373,16 @@ class PullbackReboundStrategy(bt.Strategy):
                 # 三个都有，检查顺序
                 if self.signal_divergence_date > self.signal_volume_dry_date:
                     status = "✗背离和窒息顺序错误"
+                elif (not self.p.allow_same_day_signals and
+                      self.signal_divergence_date == self.signal_volume_dry_date):
+                    status = "✗背离与窒息同日，需依次触发"
                 elif self.signal_volume_dry_date > self.signal_stabilization_date:
                     status = "✗窒息和企稳顺序错误"
-                elif self.signal_divergence_date == self.signal_volume_dry_date == self.signal_stabilization_date:
+                elif (not self.p.allow_same_day_signals and
+                      self.signal_volume_dry_date == self.signal_stabilization_date):
+                    status = "✗窒息与企稳同日，需依次触发"
+                elif (not self.p.allow_same_day_signals and
+                      self.signal_divergence_date == self.signal_volume_dry_date == self.signal_stabilization_date):
                     status = "✗三个信号发生在同一天"
                 else:
                     # 顺序正确，检查顶部约束（如果启用）
@@ -390,6 +399,9 @@ class PullbackReboundStrategy(bt.Strategy):
                 # 检查前两个的顺序
                 if self.signal_divergence_date > self.signal_volume_dry_date:
                     status = "✗背离和窒息顺序错误"
+                elif (not self.p.allow_same_day_signals and
+                      self.signal_divergence_date == self.signal_volume_dry_date):
+                    status = "✗背离与窒息同日，需依次触发"
                 else:
                     status = "等待企稳K线"
             elif self.signal_divergence_date:
@@ -397,7 +409,8 @@ class PullbackReboundStrategy(bt.Strategy):
             else:
                 status = "等待量价背离"
 
-            self.log(f'信号进度: {" | ".join(signals)} || 状态: {status}')
+            if self.p.debug:
+                self.log(f'信号进度: {" | ".join(signals)} || 状态: {status}')
 
     def _check_buy_signal(self):
         """
@@ -410,12 +423,10 @@ class PullbackReboundStrategy(bt.Strategy):
         if not self.signal_divergence_date or not self.signal_volume_dry_date or not self.signal_stabilization_date:
             return False
 
-        # 检查顺序：背离 < 窒息 < 企稳
-        if self.signal_divergence_date > self.signal_volume_dry_date:
+        # 检查顺序与同日策略：背离 < 窒息 < 企稳
+        if not self._is_signal_order_valid(self.signal_divergence_date, self.signal_volume_dry_date):
             return False
-        if self.signal_volume_dry_date > self.signal_stabilization_date:
-            return False
-        if self.signal_divergence_date == self.signal_volume_dry_date == self.signal_stabilization_date:
+        if not self._is_signal_order_valid(self.signal_volume_dry_date, self.signal_stabilization_date):
             return False
 
         # 检查顶部约束：背离日期不能是高点后第二天（如果启用）
@@ -432,6 +443,14 @@ class PullbackReboundStrategy(bt.Strategy):
             f'; 主升浪高点: {self.uptrend_high_price:.2f}'
             f'; 当前价格: {self.data.close[0]:.2f} (回调 {pullback_ratio:.2%})'
         )
+        return True
+
+    def _is_signal_order_valid(self, first_date, second_date):
+        """根据allow_same_day_signals参数判断信号触发顺序是否有效"""
+        if first_date > second_date:
+            return False
+        if not self.p.allow_same_day_signals and first_date == second_date:
+            return False
         return True
 
     def _check_volume_dry(self):
