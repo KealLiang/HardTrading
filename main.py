@@ -877,6 +877,16 @@ def update_synonym_groups():
     manager.update_from_latest_file(debug_phrases=["一体化压铸"])
 
 
+def clean_synonym_groups(lookback_days=60, dry_run=False):
+    """
+    清理synonym_groups中未使用的旧概念词
+    """
+    from utils.synonym_cleaner import SynonymCleaner
+    
+    cleaner = SynonymCleaner(lookback_days=lookback_days)
+    cleaner.clean(dry_run=dry_run)
+
+
 def whimsical_fupan_analyze():
     # 执行归类分析
     start_date = "20250930"
@@ -1085,7 +1095,7 @@ if __name__ == '__main__':
     # === 复盘相关 ===
     # get_stock_datas()
     # daily_routine()
-    full_scan_routine()
+    # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
@@ -1110,7 +1120,10 @@ if __name__ == '__main__':
     
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
-    # update_synonym_groups()
+    
+    # === 同义词管理 ===
+    # update_synonym_groups()  # 添加新词
+    clean_synonym_groups()  # 清理旧词
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()

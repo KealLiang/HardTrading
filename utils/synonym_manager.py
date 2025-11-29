@@ -1,8 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-同义词分组管理工具
-整合了生成和更新synonym_groups的功能
+同义词分组管理工具 - 添加新概念词到synonym_groups
+
+更新条件：
+- 对新出现的概念词，计算其与现有分组的相似度（使用词向量+编辑距离）
+- 相似度 >= 阈值（默认0.7）：添加到最匹配的现有分组
+- 相似度 < 阈值：通过聚类生成新分组（最小分组大小默认3个词）
+- 模糊匹配词（%xxx%）自动覆盖：能被通配符匹配的词不会重复添加
+- 高频单词（出现>=10次）即使不聚类也会创建独立分组
+
+数据来源：
+- data/reasons/unique_reasons_*.json（由whimsical_fupan_analyze生成）
+- 包含已分类和未分类的所有涨停原因及其出现次数
 """
 import argparse
 import json
