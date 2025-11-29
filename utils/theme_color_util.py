@@ -36,6 +36,7 @@ try:
         HOT_WEIGHT,
         REASON_OVERRIDES,
     )
+
     CONCEPT_TIERING_AVAILABLE = True
 except Exception:
     # 安全降级：无配置时，打分功能禁用
@@ -49,7 +50,6 @@ except Exception:
     FREQ_WEIGHT = 0.2
     HOT_WEIGHT = 0.1
     REASON_OVERRIDES = {}
-
 
 # 排除列表 - 这些原因不会被选为热门原因
 EXCLUDED_REASONS = [
@@ -190,6 +190,7 @@ def normalize_reason(reason):
 
     return f"未分类_{original_reason}"
 
+
 def get_reason_match_type(original_reason, normalized_reason):
     """
     判断原因的匹配类型：精确匹配(exact)或模糊匹配(fuzzy)
@@ -203,23 +204,23 @@ def get_reason_match_type(original_reason, normalized_reason):
     """
     # 移除空格
     original_reason = re.sub(r'\s+', '', original_reason)
-    
+
     # 如果是未分类，返回unmatched
     if normalized_reason.startswith("未分类_"):
         return 'unmatched'
-    
+
     # 找到normalized_reason对应的同义词列表
     if normalized_reason not in synonym_groups:
         return 'unmatched'
-    
+
     synonyms = synonym_groups[normalized_reason]
-    
+
     # 检查是否有精确匹配（不带%的同义词）
     for synonym in synonyms:
         if '%' not in synonym and synonym in original_reason:
             # 精确匹配
             return 'exact'
-    
+
     # 检查是否有模糊匹配（带%的同义词）
     for synonym in synonyms:
         if '%' in synonym:
@@ -228,7 +229,7 @@ def get_reason_match_type(original_reason, normalized_reason):
             if regex.search(original_reason):
                 # 模糊匹配
                 return 'fuzzy'
-    
+
     return 'unmatched'
 
 
@@ -245,24 +246,24 @@ def extract_reasons_with_match_type(reason_text):
     """
     if not reason_text or isinstance(reason_text, float):
         return []
-    
+
     # 以"+"分割不同原因
     reasons = reason_text.split('+')
     result = []
-    
+
     for r in reasons:
         r = r.strip()
         if not r:
             continue
-        
+
         # 规范化原因
         normalized = normalize_reason(r)
-        
+
         # 获取匹配类型
         match_type = get_reason_match_type(r, normalized)
-        
+
         result.append((normalized, match_type, r))
-    
+
     return result
 
 
@@ -401,7 +402,6 @@ def get_stock_reason_labels(all_stocks, top_reasons, k=2):
     return labels
 
 
-
 def extract_reasons(reason_text):
     """
     从原因文本中提取所有原因
@@ -471,9 +471,16 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
 def get_stock_reason_group(all_stocks, top_reasons):
     """
     确定每支股票主要属于哪个原因组
+    
+    优先级规则：
+    1. 匹配类型：精确匹配 > 模糊匹配（最高优先级）
+    2. 出现次数：在该股票内出现次数多的优先
+    3. 热门度：全市场热门度高的优先（top_reasons排名）
 
     Args:
         all_stocks: 股票信息字典，包含每只股票的原因列表
+                   如果包含'reason_details'字段，则为[(normalized, match_type, original), ...]格式
+                   否则使用'reasons'字段（向后兼容）
         top_reasons: 热门原因列表
 
     Returns:
@@ -482,24 +489,72 @@ def get_stock_reason_group(all_stocks, top_reasons):
     stock_reason_group = {}
 
     for stock_key, data in all_stocks.items():
-        if not data['reasons']:
-            continue
+        # 尝试获取详细的原因信息（包含匹配类型）
+        reason_details = data.get('reason_details')
 
-        # 统计该股票的原因
-        stock_reason_counter = Counter(data['reasons'])
+        if reason_details:
+            # 新格式：包含匹配类型信息
+            # reason_details: [(normalized_reason, match_type, original_reason), ...]
 
-        # 先检查哪些原因是热门原因
-        top_reasons_found = [reason for reason in top_reasons if reason in stock_reason_counter]
+            # 构建评分列表：(normalized_reason, match_type, count, top_rank)
+            reason_info = {}
+            for normalized, match_type, original in reason_details:
+                if normalized not in reason_info:
+                    reason_info[normalized] = {
+                        'match_type': match_type,
+                        'count': 0,
+                        'original_reasons': []
+                    }
+                reason_info[normalized]['count'] += 1
+                reason_info[normalized]['original_reasons'].append(original)
 
-        if top_reasons_found:
-            # 如果有多个热门原因，选择出现次数最多的
-            top_reason_counts = [(reason, stock_reason_counter[reason]) for reason in top_reasons_found]
-            top_reason_counts.sort(key=lambda x: x[1], reverse=True)
-            stock_reason_group[stock_key] = top_reason_counts[0][0]
-        elif stock_reason_counter:
-            # 如果没有热门原因，使用该股票最常见的原因
-            most_common_reason = stock_reason_counter.most_common(1)[0][0]
-            stock_reason_group[stock_key] = most_common_reason
+                # 如果有更好的匹配类型，更新
+                if match_type == 'exact' and reason_info[normalized]['match_type'] != 'exact':
+                    reason_info[normalized]['match_type'] = 'exact'
+
+            # 评分和排序
+            scored_reasons = []
+            for normalized, info in reason_info.items():
+                # 计算热门度排名（数字越小越靠前）
+                top_rank = top_reasons.index(normalized) if normalized in top_reasons else 9999
+
+                # 匹配类型分数：exact=2, fuzzy=1, unmatched=0
+                match_score = 2 if info['match_type'] == 'exact' else (1 if info['match_type'] == 'fuzzy' else 0)
+
+                scored_reasons.append({
+                    'reason': normalized,
+                    'match_score': match_score,
+                    'count': info['count'],
+                    'top_rank': top_rank,
+                    'match_type': info['match_type']
+                })
+
+            if scored_reasons:
+                # 排序：匹配类型(降序) > 出现次数(降序) > 热门度排名(升序)
+                scored_reasons.sort(key=lambda x: (-x['match_score'], -x['count'], x['top_rank']))
+                stock_reason_group[stock_key] = scored_reasons[0]['reason']
+
+        else:
+            # 旧格式：只有规范化后的原因列表（向后兼容）
+            reasons = data.get('reasons', [])
+            if not reasons:
+                continue
+
+            # 统计该股票的原因
+            stock_reason_counter = Counter(reasons)
+
+            # 先检查哪些原因是热门原因
+            top_reasons_found = [reason for reason in top_reasons if reason in stock_reason_counter]
+
+            if top_reasons_found:
+                # 如果有多个热门原因，选择出现次数最多的
+                top_reason_counts = [(reason, stock_reason_counter[reason]) for reason in top_reasons_found]
+                top_reason_counts.sort(key=lambda x: x[1], reverse=True)
+                stock_reason_group[stock_key] = top_reason_counts[0][0]
+            elif stock_reason_counter:
+                # 如果没有热门原因，使用该股票最常见的原因
+                most_common_reason = stock_reason_counter.most_common(1)[0][0]
+                stock_reason_group[stock_key] = most_common_reason
 
     return stock_reason_group
 
@@ -808,28 +863,28 @@ def add_concept_analysis_to_legend_sheet(legend_ws, concept_analysis_data):
     hot_title_cell.alignment = Alignment(horizontal="center", vertical="center")
     # 合并热门原因标题单元格
     legend_ws.merge_cells(start_row=current_row, start_column=start_col,
-                         end_row=current_row, end_column=start_col + 2)
+                          end_row=current_row, end_column=start_col + 2)
 
     # 新原因标题（如果有新原因数据）
     if new_reasons:
         new_title_cell = legend_ws.cell(row=current_row, column=start_col + 3,
-                                       value=f"新原因统计 (最近{NEW_CONCEPT_DAYS}天，≥{NEW_REASON_MIN_COUNT}次)")
+                                        value=f"新原因统计 (最近{NEW_CONCEPT_DAYS}天，≥{NEW_REASON_MIN_COUNT}次)")
         new_title_cell.font = Font(bold=True, size=12)
         new_title_cell.fill = PatternFill(start_color="FFE6F0", fill_type="solid")  # 浅粉色背景
         new_title_cell.alignment = Alignment(horizontal="center", vertical="center")
         # 合并新原因标题单元格
         legend_ws.merge_cells(start_row=current_row, start_column=start_col + 3,
-                             end_row=current_row, end_column=start_col + 5)
+                              end_row=current_row, end_column=start_col + 5)
     else:
         # 如果没有新原因，显示无新原因
         no_new_title_cell = legend_ws.cell(row=current_row, column=start_col + 3,
-                                          value=f"无新原因 (最近{NEW_CONCEPT_DAYS}天)")
+                                           value=f"无新原因 (最近{NEW_CONCEPT_DAYS}天)")
         no_new_title_cell.font = Font(bold=True, size=12, italic=True)
         no_new_title_cell.fill = PatternFill(start_color="F0F0F0", fill_type="solid")  # 灰色背景
         no_new_title_cell.alignment = Alignment(horizontal="center", vertical="center")
         # 合并无新原因标题单元格
         legend_ws.merge_cells(start_row=current_row, start_column=start_col + 3,
-                             end_row=current_row, end_column=start_col + 5)
+                              end_row=current_row, end_column=start_col + 5)
 
     current_row += 1
 
@@ -874,7 +929,8 @@ def add_concept_analysis_to_legend_sheet(legend_ws, concept_analysis_data):
 
     # 新原因排序：出现次数（倒序），首次出现（倒序）
     # 注意：first_date是字符串，需要用reverse=True来实现倒序
-    sorted_new_reasons = sorted(new_reasons.items(), key=lambda x: (x[1]['count'], x[1]['first_date']), reverse=True) if new_reasons else []
+    sorted_new_reasons = sorted(new_reasons.items(), key=lambda x: (x[1]['count'], x[1]['first_date']),
+                                reverse=True) if new_reasons else []
 
     # 并列填充数据
     max_rows = max(len(sorted_reasons), len(sorted_new_reasons))
@@ -1176,7 +1232,8 @@ def format_date_header_for_index(date_str):
         return date_str
 
 
-def create_index_sheet_optimized(wb, date_columns, all_index_data=None, index_dir="./data/indexes", sheet_name="指数数据"):
+def create_index_sheet_optimized(wb, date_columns, all_index_data=None, index_dir="./data/indexes",
+                                 sheet_name="指数数据"):
     """
     创建指数专用的工作表（优化版本，支持增量更新）
 

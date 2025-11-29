@@ -578,47 +578,47 @@ def load_top_attention_stocks(end_date_yyyymmdd, days_window=ATTENTION_DAYS_WIND
     try:
         from analysis.loader.fupan_data_loader import FUPAN_FILE
         from openpyxl import load_workbook
-        
+
         # 读取关注度榜数据（从复盘数据源文件读取）
         wb = load_workbook(FUPAN_FILE, data_only=True)
-        
+
         # 获取最近N个交易日
         recent_dates = get_n_recent_trading_dates(end_date_yyyymmdd, days_window)
-        
+
         attention_stocks = set()
-        
+
         # 处理两个sheet：【关注度榜】和【非主关注度榜】
         for sheet_name in ['关注度榜', '非主关注度榜']:
             if sheet_name not in wb.sheetnames:
                 continue
-                
+
             ws = wb[sheet_name]
-            
+
             # 遍历所有列，查找最近N日的数据
             for col_idx in range(1, ws.max_column + 1):
                 header_cell = ws.cell(row=1, column=col_idx)
                 if not header_cell.value:
                     continue
-                
+
                 # 解析日期（格式：2025年11月18日）
                 col_date = parse_date_from_header(header_cell.value)
                 if not col_date or col_date not in recent_dates:
                     continue
-                
+
                 # 读取该列的前top_n行数据（从第2行开始）
                 for row_idx in range(2, min(2 + top_n, ws.max_row + 1)):
                     cell_value = ws.cell(row=row_idx, column=col_idx).value
                     if not cell_value:
                         continue
-                    
+
                     # 解析数据：600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1
                     stock_code = extract_stock_code_from_attention_data(cell_value)
                     if stock_code:
                         attention_stocks.add(stock_code)
-        
+
         print(f"✓ 加载关注度榜数据：最近{days_window}日前{top_n}名，共{len(attention_stocks)}只股票")
         return attention_stocks
-        
+
     except Exception as e:
         print(f"✗ 加载关注度榜数据失败: {e}")
         import traceback
@@ -640,13 +640,13 @@ def get_n_recent_trading_dates(end_date_yyyymmdd, n):
     dates = set()
     current_date = end_date_yyyymmdd
     dates.add(current_date)
-    
+
     for i in range(1, n):
         prev_date = get_n_trading_days_before(end_date_yyyymmdd, i)
         if '-' in prev_date:
             prev_date = prev_date.replace('-', '')
         dates.add(prev_date)
-    
+
     return dates
 
 
@@ -706,11 +706,11 @@ def get_top_attention_stocks_cached(end_date_yyyymmdd):
         set: 股票代码集合
     """
     global _top_attention_stocks_cache
-    
+
     # 如果缓存为空，则加载数据
     if _top_attention_stocks_cache is None:
         _top_attention_stocks_cache = load_top_attention_stocks(end_date_yyyymmdd)
-    
+
     return _top_attention_stocks_cache
 
 
@@ -904,24 +904,29 @@ def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reaso
     if pd.isna(concept_str) or not concept_str:
         return "其他"
 
-    # 提取所有概念
-    reasons = extract_reasons(concept_str)
-    if not reasons:
+    # 提取所有概念（包含匹配类型信息）
+    from utils.theme_color_util import extract_reasons_with_match_type
+    reason_details = extract_reasons_with_match_type(concept_str)
+
+    if not reason_details:
         return "其他"
+
+    # 提取规范化后的概念列表（用于颜色映射）
+    reasons = [normalized for normalized, _, _ in reason_details]
 
     # 创建简化版的股票概念数据结构
     stock_key = f"{stock_code}_{stock_name}"
-    stock_concepts = {stock_key: reasons}
     all_concepts = reasons.copy()
 
     # 获取热门概念的颜色映射
     _, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
 
-    # 创建简化版的股票数据
+    # 创建简化版的股票数据（新格式：包含匹配类型信息）
     all_stocks = {
         stock_key: {
             'name': stock_name,
             'reasons': reasons,
+            'reason_details': reason_details,  # 新增：包含匹配类型
             'appearances': [1]
         }
     }
@@ -1025,22 +1030,26 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         exact_concepts = [c[0] for c in concepts_with_type if c[1] == 'exact']
         fuzzy_concepts = [c[0] for c in concepts_with_type if c[1] == 'fuzzy']
 
-        # 优先级1：在精确匹配的概念中查找热门概念
-        for top_reason in global_top_reasons:
-            if top_reason in exact_concepts:
-                return top_reason
+        # ========== 优先级规则：匹配类型 > 热门度 ==========
 
-        # 优先级2：在模糊匹配的概念中查找热门概念
-        for top_reason in global_top_reasons:
-            if top_reason in fuzzy_concepts:
-                return top_reason
-
-        # 优先级3：如果都不是热门概念，优先返回精确匹配的第一个概念
+        # 优先级1：精确匹配的概念（优先选热门的，但即使非热门也比模糊匹配优先）
         if exact_concepts:
+            # 1a. 优先选择热门的精确匹配概念
+            for top_reason in global_top_reasons:
+                if top_reason in exact_concepts:
+                    return top_reason
+
+            # 1b. 如果精确匹配都不是热门，返回第一个精确匹配
             return exact_concepts[0]
 
-        # 优先级4：返回模糊匹配的第一个概念
+        # 优先级2：模糊匹配的概念（只有当没有精确匹配时才考虑）
         if fuzzy_concepts:
+            # 2a. 优先选择热门的模糊匹配概念
+            for top_reason in global_top_reasons:
+                if top_reason in fuzzy_concepts:
+                    return top_reason
+
+            # 2b. 如果模糊匹配都不是热门，返回第一个模糊匹配
             return fuzzy_concepts[0]
 
         # 兜底：返回第一个概念（如果有的话）
@@ -1602,7 +1611,7 @@ def format_stock_name_cell(ws, row, col, stock_name, market_type, max_board_leve
         end_date_yyyymmdd: 结束日期，用于计算均线斜率标记
     """
     global _top_attention_stocks_cache
-    
+
     # 添加均线斜率标记
     ma_slope_indicator = ''
     if end_date_yyyymmdd:
@@ -2603,7 +2612,9 @@ def collect_stock_concepts(result_df):
         result_df: 显著连板股票DataFrame
 
     Returns:
-        tuple: (所有概念列表, 股票概念映射)
+        tuple: (所有概念列表, 股票概念详情映射)
+               股票概念详情映射格式：{stock_key: (reasons, reason_details)}
+               reason_details: [(normalized, match_type, original), ...]
     """
     all_concepts = []
     stock_concepts = {}
@@ -2614,11 +2625,17 @@ def collect_stock_concepts(result_df):
         if pd.isna(concept) or not concept:
             concept = "其他"
 
-        # 提取概念中的原因
-        reasons = extract_reasons(concept)
-        if reasons:
+        # 提取概念中的原因（包含匹配类型信息）
+        from utils.theme_color_util import extract_reasons_with_match_type
+        reason_details = extract_reasons_with_match_type(concept)
+
+        if reason_details:
+            # 提取规范化后的概念列表
+            reasons = [normalized for normalized, _, _ in reason_details]
             all_concepts.extend(reasons)
-            stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = reasons
+
+            # 存储完整信息：(reasons, reason_details)
+            stock_concepts[f"{row['stock_code']}_{row['stock_name']}"] = (reasons, reason_details)
 
     return all_concepts, stock_concepts
 
@@ -2628,18 +2645,32 @@ def prepare_stock_concept_data(stock_concepts):
     准备股票概念数据
 
     Args:
-        stock_concepts: 股票概念映射
+        stock_concepts: 股票概念详情映射
+                       格式：{stock_key: (reasons, reason_details)} 或 {stock_key: reasons}（向后兼容）
 
     Returns:
         dict: 股票概念数据
     """
     all_stocks = {}
-    for stock_key, reasons in stock_concepts.items():
-        all_stocks[stock_key] = {
-            'name': stock_key.split('_')[1],
-            'reasons': reasons,
-            'appearances': [1]  # 简化处理，只需要一个非空列表
-        }
+    for stock_key, concept_data in stock_concepts.items():
+        # 兼容新旧格式
+        if isinstance(concept_data, tuple):
+            # 新格式：(reasons, reason_details)
+            reasons, reason_details = concept_data
+            all_stocks[stock_key] = {
+                'name': stock_key.split('_')[1],
+                'reasons': reasons,
+                'reason_details': reason_details,  # 新增：包含匹配类型
+                'appearances': [1]
+            }
+        else:
+            # 旧格式：reasons（向后兼容）
+            reasons = concept_data
+            all_stocks[stock_key] = {
+                'name': stock_key.split('_')[1],
+                'reasons': reasons,
+                'appearances': [1]
+            }
 
     return all_stocks
 
