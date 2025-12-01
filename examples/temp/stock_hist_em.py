@@ -19,7 +19,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     :return: 实时行情
     :rtype: pandas.DataFrame
     """
-    url = "https://push2.eastmoney.com/api/qt/clist/get"  # 去掉82.前缀
+    url = "https://push2.eastmoney.com/api/qt/clist/get"  # 去掉82.前缀，原接口https://82.push2
     params = {
         "pn": "1",
         "pz": "20",
