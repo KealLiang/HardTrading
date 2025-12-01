@@ -351,21 +351,29 @@ def get_stock_reason_labels(all_stocks, top_reasons, k=2):
         return labels
 
     for stock_key, data in all_stocks.items():
-        reasons = data.get("reason_details") or []  # [(original, grouped)]
+        reasons = data.get("reason_details") or []  # 新格式: [(normalized, match_type, original)] 或 旧格式: [(original, grouped)]
         if not reasons:
             # 若上游未提供细节，则尝试从简化列表构造
             grouped_only = data.get("reasons", [])
-            reasons = [(g, g) for g in grouped_only]
+            reasons = [(g, 'exact', g) for g in grouped_only]  # 构造新格式
 
         if not reasons:
             continue
 
+        # 兼容新旧格式：检查第一个元素的格式
+        if reasons and len(reasons[0]) == 3:
+            # 新格式: (normalized, match_type, original)
+            normalized_reasons = [(original, normalized) for normalized, match_type, original in reasons]
+        else:
+            # 旧格式: (original, grouped) - 向后兼容
+            normalized_reasons = reasons
+
         # 统计组内频次
-        group_counts = Counter([g for _, g in reasons])
+        group_counts = Counter([grouped for _, grouped in normalized_reasons])
 
         # 逐条打分
         scored = []
-        for original, grouped in reasons:
+        for original, grouped in normalized_reasons:
             cnt = group_counts.get(grouped, 1)
             s = score_reason(original, grouped, cnt, top_reasons)
             scored.append((original, grouped, s))

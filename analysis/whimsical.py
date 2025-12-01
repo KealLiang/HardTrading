@@ -13,6 +13,7 @@ from utils.date_util import get_trading_days
 from utils.excel_vba_util import add_vba_to_sheet
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, extract_reasons_with_original,
+    extract_reasons_with_match_type,
     get_stock_reason_group, get_stock_reason_labels,
     synonym_groups, EXCLUDED_REASONS, TOP_N,
     create_legend_sheet, MULTI_COLOR, HEADER_COLOR,
@@ -257,11 +258,13 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
                            if not r.startswith('未分类_')]
                 all_stocks[stock_key]['reasons'].extend(reasons)
 
-                # 附加保留原始短语的明细，供主/次标签与打分使用
-                reason_details = []
-                for orig, grouped in extract_reasons_with_original(stock['info']['涨停原因类别']):
-                    if not grouped.startswith('未分类_'):
-                        reason_details.append((orig, grouped))
+                # 附加保留原始短语的明细，供主/次标签与打分使用（新格式：包含匹配类型）
+                reason_details_with_type = extract_reasons_with_match_type(stock['info']['涨停原因类别'])
+                reason_details = [
+                    (normalized, match_type, original)
+                    for normalized, match_type, original in reason_details_with_type
+                    if not normalized.startswith('未分类_')
+                ]
                 all_stocks[stock_key]['reason_details'] = all_stocks[stock_key].get('reason_details', []) + reason_details
 
     # 获取每只股票的主要概念组
