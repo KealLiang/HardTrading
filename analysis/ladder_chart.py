@@ -833,6 +833,91 @@ def is_stock_significant(board_days, market, min_board_level, non_main_board_lev
         return board_days >= min_board_level
 
 
+def select_concept_group_for_stock(concept_str, entry_type, top_reasons, low_priority_reasons=None):
+    """
+    为股票选择最合适的概念组
+    
+    优先级规则：
+    1. 排除低优先级概念（最高优先级）
+    2. 匹配类型：精确匹配 > 模糊匹配
+    3. 热门度：top_reasons中的排名
+    
+    Args:
+        concept_str: 概念字符串
+        entry_type: 入选类型（如'momo_shangzhang'）
+        top_reasons: 热门原因列表
+        low_priority_reasons: 低优先级原因列表
+        
+    Returns:
+        str: 选择的概念组名称
+    """
+    # 特殊类型：【默默上涨】
+    if entry_type == 'momo_shangzhang':
+        return "默默上涨"
+
+    # 空概念
+    if pd.isna(concept_str) or not concept_str:
+        return "其他"
+
+    # 提取概念及其匹配类型
+    concepts_with_type = extract_reasons_with_match_type(concept_str)
+    if not concepts_with_type:
+        return "其他"
+
+    # 性能优化：转换为set加速查找
+    top_reasons_set = set(top_reasons) if top_reasons else set()
+    low_priority_set = set(low_priority_reasons) if low_priority_reasons else set()
+
+    # 分离精确匹配和模糊匹配的概念
+    exact_concepts = [c[0] for c in concepts_with_type if c[1] == 'exact']
+    fuzzy_concepts = [c[0] for c in concepts_with_type if c[1] == 'fuzzy']
+
+    # ========== 优先级规则：排除低优先级 > 匹配类型 > 热门度 ==========
+
+    # 优先级1：精确匹配的非低优先级概念
+    if exact_concepts:
+        # 1a. 优先选择热门的、非低优先级的精确匹配概念
+        for top_reason in top_reasons:
+            if top_reason in exact_concepts and top_reason not in low_priority_set:
+                return top_reason
+
+        # 1b. 如果有非低优先级的精确匹配（即使不是热门），也优先返回
+        for concept in exact_concepts:
+            if concept not in low_priority_set:
+                return concept
+
+    # 优先级2：模糊匹配的非低优先级概念
+    if fuzzy_concepts:
+        # 2a. 优先选择热门的、非低优先级的模糊匹配概念
+        for top_reason in top_reasons:
+            if top_reason in fuzzy_concepts and top_reason not in low_priority_set:
+                return top_reason
+
+        # 2b. 如果有非低优先级的模糊匹配（即使不是热门），也优先返回
+        for concept in fuzzy_concepts:
+            if concept not in low_priority_set:
+                return concept
+
+    # 优先级3：如果所有概念都是低优先级，则按原逻辑选择
+    # 3a. 精确匹配的低优先级概念
+    if exact_concepts:
+        for top_reason in top_reasons:
+            if top_reason in exact_concepts:
+                return top_reason
+        return exact_concepts[0]
+
+    # 3b. 模糊匹配的低优先级概念
+    if fuzzy_concepts:
+        for top_reason in top_reasons:
+            if top_reason in fuzzy_concepts:
+                return top_reason
+        return fuzzy_concepts[0]
+
+    # 兜底：返回第一个概念（如果有的话）
+    all_concepts = [c[0] for c in concepts_with_type]
+    return all_concepts[0] if all_concepts else "其他"
+
+
 def check_reentry_condition(current_date, continuous_board_dates, reentry_days_threshold,
                             board_days, market, min_board_level, non_main_board_level,
                             enable_attention_criteria=False, attention_data_main=None,
@@ -895,10 +980,14 @@ def check_reentry_condition(current_date, continuous_board_dates, reentry_days_t
 
 
 @lru_cache(maxsize=1000)
-def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reasons_str=None):
+def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reasons_str=None,
+                             low_priority_reasons_str=None):
     """缓存股票的概念组信息，用于排序"""
     # 将列表类型的priority_reasons转换为元组，使其可哈希
     priority_reasons = None if priority_reasons_str is None else tuple(priority_reasons_str.split(','))
+
+    # 将列表类型的low_priority_reasons转换为元组，使其可哈希
+    low_priority_reasons = None if low_priority_reasons_str is None else tuple(low_priority_reasons_str.split(','))
 
     # 提取概念
     if pd.isna(concept_str) or not concept_str:
@@ -919,7 +1008,8 @@ def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reaso
     all_concepts = reasons.copy()
 
     # 获取热门概念的颜色映射
-    _, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+    _, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons,
+                                       low_priority_reasons=low_priority_reasons)
 
     # 创建简化版的股票数据（新格式：包含匹配类型信息）
     all_stocks = {
@@ -932,7 +1022,7 @@ def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reaso
     }
 
     # 获取股票的主要概念组
-    stock_reason_groups = get_stock_reason_group(all_stocks, top_reasons)
+    stock_reason_groups = get_stock_reason_group(all_stocks, top_reasons, low_priority_reasons=low_priority_reasons)
 
     # 返回股票的概念组
     return stock_reason_groups.get(stock_key, "其他")
@@ -941,7 +1031,7 @@ def get_cached_concept_group(stock_code, stock_name, concept_str, priority_reaso
 def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
                                      reentry_days_threshold=REENTRY_DAYS_THRESHOLD, non_main_board_level=1,
                                      enable_attention_criteria=False, attention_data_main=None,
-                                     attention_data_non_main=None, priority_reasons=None):
+                                     attention_data_non_main=None, priority_reasons=None, low_priority_reasons=None):
     """
     识别每只股票首次达到显著连板（例如2板或以上）的日期，以及断板后再次达到的情况
 
@@ -955,6 +1045,7 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         attention_data_main: 主板关注度榜数据，当enable_attention_criteria=True时需要提供
         attention_data_non_main: 非主板关注度榜数据，当enable_attention_criteria=True时需要提供
         priority_reasons: 优先选择的原因列表，默认为None
+        low_priority_reasons: 低优先级原因列表，默认为None
 
     Returns:
         pandas.DataFrame: 添加了连板信息的DataFrame
@@ -1003,7 +1094,8 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
             all_concepts.extend(concepts)
 
     # 获取全局热门概念的顺序
-    global_reason_colors, global_top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+    global_reason_colors, global_top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons,
+                                                                 low_priority_reasons=low_priority_reasons)
 
     # 创建概念优先级映射（热门概念排在前面）
     concept_priority = {}
@@ -1011,52 +1103,16 @@ def identify_first_significant_board(df, shouban_df=None, min_board_level=2,
         concept_priority[concept] = i
     concept_priority["其他"] = len(global_top_reasons)  # "其他"排在最后
 
-    # 添加概念组信息用于排序，使用全局热门概念
-    def get_global_concept_group(row):
-        # 检查是否为【默默上涨】股票
-        if row.get('entry_type') == 'momo_shangzhang':
-            return "默默上涨"
-
-        concept_str = row.get('concept', '')
-        if pd.isna(concept_str) or not concept_str:
-            return "其他"
-
-        # 提取概念及其匹配类型
-        concepts_with_type = extract_reasons_with_match_type(concept_str)
-        if not concepts_with_type:
-            return "其他"
-
-        # 分离精确匹配和模糊匹配的概念
-        exact_concepts = [c[0] for c in concepts_with_type if c[1] == 'exact']
-        fuzzy_concepts = [c[0] for c in concepts_with_type if c[1] == 'fuzzy']
-
-        # ========== 优先级规则：匹配类型 > 热门度 ==========
-
-        # 优先级1：精确匹配的概念（优先选热门的，但即使非热门也比模糊匹配优先）
-        if exact_concepts:
-            # 1a. 优先选择热门的精确匹配概念
-            for top_reason in global_top_reasons:
-                if top_reason in exact_concepts:
-                    return top_reason
-
-            # 1b. 如果精确匹配都不是热门，返回第一个精确匹配
-            return exact_concepts[0]
-
-        # 优先级2：模糊匹配的概念（只有当没有精确匹配时才考虑）
-        if fuzzy_concepts:
-            # 2a. 优先选择热门的模糊匹配概念
-            for top_reason in global_top_reasons:
-                if top_reason in fuzzy_concepts:
-                    return top_reason
-
-            # 2b. 如果模糊匹配都不是热门，返回第一个模糊匹配
-            return fuzzy_concepts[0]
-
-        # 兜底：返回第一个概念（如果有的话）
-        all_concepts = [c[0] for c in concepts_with_type]
-        return all_concepts[0] if all_concepts else "其他"
-
-    result_df['concept_group'] = result_df.apply(get_global_concept_group, axis=1)
+    # 添加概念组信息用于排序，使用全局热门概念和低优先级过滤
+    result_df['concept_group'] = result_df.apply(
+        lambda row: select_concept_group_for_stock(
+            row.get('concept', ''),
+            row.get('entry_type'),
+            global_top_reasons,
+            low_priority_reasons
+        ),
+        axis=1
+    )
 
     # 计算每个概念组的股票数量，用于非热门概念的排序
     concept_counts = result_df['concept_group'].value_counts().to_dict()
@@ -2569,13 +2625,14 @@ def prepare_workbook(output_file, sheet_name, start_date):
     return wb, ws, sheet_name
 
 
-def prepare_stock_data(result_df, priority_reasons):
+def prepare_stock_data(result_df, priority_reasons, low_priority_reasons=None):
     """
     准备股票数据，包括概念收集、颜色映射等
 
     Args:
         result_df: 显著连板股票DataFrame
         priority_reasons: 优先选择的原因列表
+        low_priority_reasons: 低优先级原因列表，默认为None
 
     Returns:
         dict: 股票数据字典
@@ -2584,13 +2641,14 @@ def prepare_stock_data(result_df, priority_reasons):
     all_concepts, stock_concepts = collect_stock_concepts(result_df)
 
     # 获取热门概念的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons)
+    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons,
+                                                   low_priority_reasons=low_priority_reasons)
 
     # 为每只股票确定主要概念组
     all_stocks = prepare_stock_concept_data(stock_concepts)
 
     # 获取每只股票的主要概念组
-    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
+    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons, low_priority_reasons=low_priority_reasons)
 
     # 创建理由计数器
     reason_counter = Counter(all_concepts)
@@ -2926,7 +2984,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        max_tracking_days=MAX_TRACKING_DAYS_AFTER_BREAK, reentry_days=REENTRY_DAYS_THRESHOLD,
                        non_main_board_level=1, max_tracking_days_before=MAX_TRACKING_DAYS_BEFORE_ENTRY,
                        period_days=PERIOD_DAYS_CHANGE, period_days_long=PERIOD_DAYS_LONG, show_period_change=False,
-                       priority_reasons=None, enable_attention_criteria=False, sheet_name=None,
+                       priority_reasons=None, low_priority_reasons=None, enable_attention_criteria=False,
+                       sheet_name=None,
                        create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False,
                        enable_reason_analysis=None):
     """
@@ -2945,6 +3004,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         period_days_long: 计算最近X个交易日的长周期涨跌幅，默认取全局配置
         show_period_change: 是否显示周期涨跌幅列，默认取全局配置
         priority_reasons: 优先选择的原因列表，默认为None
+        low_priority_reasons: 低优先级原因列表，默认为None
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False
         sheet_name: 工作表名称，默认为None，表示使用"涨停梯队{start_date[:6]}"；如果指定，则使用指定的名称
         create_leader_sheet: 是否创建龙头股工作表，默认为False
@@ -2995,7 +3055,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 识别显著连板股票（不包含【默默上涨】数据）
     result_df = identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
                                             non_main_board_level, enable_attention_criteria,
-                                            attention_data, priority_reasons, None, start_date, end_date)
+                                            attention_data, priority_reasons, low_priority_reasons, None, start_date,
+                                            end_date)
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
@@ -3009,7 +3070,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         return True
 
     # 准备股票数据（仅在需要更新工作表时）
-    stock_data = prepare_stock_data(result_df, priority_reasons)
+    stock_data = prepare_stock_data(result_df, priority_reasons, low_priority_reasons)
 
     # 设置Excel表头和日期列
     period_column = 4
@@ -3340,7 +3401,8 @@ def format_trading_days(trading_days):
 
 def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry_days,
                                 non_main_board_level, enable_attention_criteria, attention_data,
-                                priority_reasons, momo_df=None, start_date=None, end_date=None):
+                                priority_reasons, low_priority_reasons=None, momo_df=None, start_date=None,
+                                end_date=None):
     """
     识别显著连板股票
 
@@ -3353,6 +3415,7 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
         enable_attention_criteria: 是否启用关注度榜入选条件
         attention_data: 关注度榜数据
         priority_reasons: 优先选择的原因列表
+        low_priority_reasons: 低优先级原因列表
         momo_df: 【默默上涨】数据DataFrame
         start_date: 分析开始日期
         end_date: 分析结束日期
@@ -3364,7 +3427,7 @@ def identify_significant_boards(lianban_df, shouban_df, min_board_level, reentry
     result_df = identify_first_significant_board(
         lianban_df, shouban_df, min_board_level, reentry_days, non_main_board_level,
         enable_attention_criteria, attention_data['main'], attention_data['non_main'],
-        priority_reasons
+        priority_reasons, low_priority_reasons
     )
 
     # 如果有【默默上涨】数据，则处理并合并
@@ -4415,6 +4478,8 @@ if __name__ == "__main__":
                         help='是否显示周期涨跌幅列 (默认: 不显示)')
     parser.add_argument('--priority_reasons', type=str, default="",
                         help='优先选择的原因列表，使用逗号分隔 (例如: "旅游,房地产,AI")')
+    parser.add_argument('--low_priority_reasons', type=str, default="",
+                        help='低优先级原因列表，使用逗号分隔 (例如: "预期改善")，只有在没有其他分组可匹配时才使用')
     parser.add_argument('--enable_attention_criteria', action='store_true',
                         help='是否启用关注度榜入选条件：(board_level-1)连板后5天内两次入选关注度榜前20 (默认: 不启用)')
     parser.add_argument('--sheet_name', type=str, default=None,
@@ -4441,6 +4506,10 @@ if __name__ == "__main__":
     priority_reasons = [reason.strip() for reason in
                         args.priority_reasons.split(',')] if args.priority_reasons else None
 
+    # 处理低优先级原因列表
+    low_priority_reasons = [reason.strip() for reason in
+                            args.low_priority_reasons.split(',')] if args.low_priority_reasons else None
+
     # 更新全局成交量参数
     VOLUME_DAYS = args.volume_days
     VOLUME_RATIO_THRESHOLD = args.volume_ratio
@@ -4458,5 +4527,6 @@ if __name__ == "__main__":
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.non_main_board,
                        args.max_tracking_before, args.period_days, args.period_days_long, args.show_period_change,
-                       priority_reasons=priority_reasons, enable_attention_criteria=args.enable_attention_criteria,
+                       priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
+                       enable_attention_criteria=args.enable_attention_criteria,
                        sheet_name=args.sheet_name, create_leader_sheet=args.create_leader_sheet)

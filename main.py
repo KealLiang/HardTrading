@@ -640,10 +640,10 @@ def full_scan_routine(candidate_model='a'):
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
         (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
          f"记录突破策略{candidate_model}扫描结果"),
-        (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
-        (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
-        (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'),
-         f"记录止跌反弹策略{candidate_model}扫描结果"),
+        # (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
+        # (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
+        # (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'),
+        #  f"记录止跌反弹策略{candidate_model}扫描结果"),
         # (lambda: find_candidate_stocks_weekly_growth(), "筛选周增长的候选股"),
         # (lambda: strategy_scan('b'), "执行突破策略扫描b"),
         # (lambda: generate_comparison_charts('b'), "生成突破策略对比图b"),
@@ -911,12 +911,17 @@ def generate_ladder_chart():
     priority_reasons = [
         # "创新药"
     ]
+    # 定义低优先原因列表（只有在没有其他分组可匹配时才使用）
+    low_priority_reasons = [
+        "预期改善"
+    ]
 
     # 构建梯队图
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
-                       priority_reasons=priority_reasons, enable_attention_criteria=True,
-                       sheet_name=sheet_name, create_leader_sheet=True, create_volume_sheet=True)
+                       priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
+                       enable_attention_criteria=True, sheet_name=sheet_name,
+                       create_leader_sheet=True, create_volume_sheet=True)
     
     # 导出股票代码到候选股票txt文件
     from utils.export_stock_codes import extract_stock_codes_from_excel
@@ -1095,7 +1100,7 @@ if __name__ == '__main__':
     # === 复盘相关 ===
     # get_stock_datas()
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
@@ -1123,7 +1128,7 @@ if __name__ == '__main__':
     
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
-    clean_synonym_groups()  # 清理旧词
+    # clean_synonym_groups()  # 清理旧词
     # fupan_statistics_to_excel()
     # fupan_statistics_excel_plot()
     # find_yidong()

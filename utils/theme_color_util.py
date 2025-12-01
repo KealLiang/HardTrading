@@ -351,7 +351,8 @@ def get_stock_reason_labels(all_stocks, top_reasons, k=2):
         return labels
 
     for stock_key, data in all_stocks.items():
-        reasons = data.get("reason_details") or []  # 新格式: [(normalized, match_type, original)] 或 旧格式: [(original, grouped)]
+        reasons = data.get(
+            "reason_details") or []  # 新格式: [(normalized, match_type, original)] 或 旧格式: [(original, grouped)]
         if not reasons:
             # 若上游未提供细节，则尝试从简化列表构造
             grouped_only = data.get("reasons", [])
@@ -422,7 +423,7 @@ def extract_reasons(reason_text):
     return [normalize_reason(r.strip()) for r in reasons if r.strip()]
 
 
-def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
+def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None, low_priority_reasons=None):
     """
     根据原因出现频率，为热门原因分配颜色
 
@@ -430,12 +431,16 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
         all_reasons: 所有原因的列表
         top_n: 选取的热门原因数量
         priority_reasons: 优先选择的原因列表，默认为None时使用全局PRIORITY_REASONS
+        low_priority_reasons: 低优先级原因列表，只有在没有其他分组可匹配时才使用
 
     Returns:
         tuple: (reason_colors, top_reasons) - 原因到颜色的映射字典和热门原因列表
     """
     # 使用传入的优先原因列表或全局定义的列表
     priority_list = priority_reasons if priority_reasons is not None else PRIORITY_REASONS
+
+    # 使用传入的低优先级原因列表，默认为空列表
+    low_priority_list = low_priority_reasons if low_priority_reasons is not None else []
 
     # 统计所有原因出现次数
     reason_counter = Counter(all_reasons)
@@ -453,22 +458,31 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
         if not reason.startswith('未分类_'):
             all_reason_counts[reason] = count
 
-    # 首先添加优先列表中的原因（如果它们在数据中出现过）
+    # 首先添加高优先列表中的原因（如果它们在数据中出现过）
     top_reasons = []
     for reason in priority_list:
         if reason in all_reason_counts and all_reason_counts[reason] > 0 and reason not in EXCLUDED_REASONS:
             top_reasons.append(reason)
 
-    # 然后按出现次数倒序添加其他热门原因，直到达到TOP_N个
+    # 然后按出现次数倒序添加普通热门原因（排除高优先级和低优先级），直到达到TOP_N个
     remaining_slots = top_n - len(top_reasons)
     if remaining_slots > 0:
-        # 排除已经在优先列表中的原因
-        other_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
-                                                            key=lambda x: x[1],
-                                                            reverse=True)
-                         if count > 0 and reason not in EXCLUDED_REASONS and reason not in top_reasons][
-                        :remaining_slots]
-        top_reasons.extend(other_reasons)
+        # 排除已经在高优先列表中的原因，以及在低优先列表中的原因
+        normal_reasons = [reason for reason, count in sorted(all_reason_counts.items(),
+                                                             key=lambda x: x[1],
+                                                             reverse=True)
+                          if count > 0 and reason not in EXCLUDED_REASONS
+                          and reason not in top_reasons
+                          and reason not in low_priority_list][:remaining_slots]
+        top_reasons.extend(normal_reasons)
+
+    # 最后添加低优先级原因（如果还有剩余名额，且该原因在数据中出现过）
+    remaining_slots = top_n - len(top_reasons)
+    if remaining_slots > 0 and low_priority_list:
+        low_priority_available = [reason for reason in low_priority_list
+                                  if reason in all_reason_counts and all_reason_counts[reason] > 0
+                                  and reason not in EXCLUDED_REASONS and reason not in top_reasons][:remaining_slots]
+        top_reasons.extend(low_priority_available)
 
     # 为每个原因分配颜色
     reason_colors = {reason: COLORS[i % len(COLORS)] for i, reason in enumerate(top_reasons)}
@@ -476,7 +490,7 @@ def get_reason_colors(all_reasons, top_n=TOP_N, priority_reasons=None):
     return reason_colors, top_reasons
 
 
-def get_stock_reason_group(all_stocks, top_reasons):
+def get_stock_reason_group(all_stocks, top_reasons, low_priority_reasons=None):
     """
     确定每支股票主要属于哪个原因组
     
@@ -484,16 +498,21 @@ def get_stock_reason_group(all_stocks, top_reasons):
     1. 匹配类型：精确匹配 > 模糊匹配（最高优先级）
     2. 出现次数：在该股票内出现次数多的优先
     3. 热门度：全市场热门度高的优先（top_reasons排名）
+    4. 低优先级：只有在没有其他可匹配分组时才选择低优先级分组
 
     Args:
         all_stocks: 股票信息字典，包含每只股票的原因列表
                    如果包含'reason_details'字段，则为[(normalized, match_type, original), ...]格式
                    否则使用'reasons'字段（向后兼容）
         top_reasons: 热门原因列表
+        low_priority_reasons: 低优先级原因列表，默认为None（向后兼容）
 
     Returns:
         dict: 股票到主要原因的映射字典
     """
+    # 使用传入的低优先级原因列表，默认为空列表
+    low_priority_list = low_priority_reasons if low_priority_reasons is not None else []
+
     stock_reason_group = {}
 
     for stock_key, data in all_stocks.items():
@@ -523,6 +542,9 @@ def get_stock_reason_group(all_stocks, top_reasons):
             # 评分和排序
             scored_reasons = []
             for normalized, info in reason_info.items():
+                # 判断是否为低优先级原因
+                is_low_priority = normalized in low_priority_list
+
                 # 计算热门度排名（数字越小越靠前）
                 top_rank = top_reasons.index(normalized) if normalized in top_reasons else 9999
 
@@ -534,12 +556,14 @@ def get_stock_reason_group(all_stocks, top_reasons):
                     'match_score': match_score,
                     'count': info['count'],
                     'top_rank': top_rank,
-                    'match_type': info['match_type']
+                    'match_type': info['match_type'],
+                    'is_low_priority': is_low_priority  # 新增：是否为低优先级
                 })
 
             if scored_reasons:
-                # 排序：匹配类型(降序) > 出现次数(降序) > 热门度排名(升序)
-                scored_reasons.sort(key=lambda x: (-x['match_score'], -x['count'], x['top_rank']))
+                # 排序：低优先级标志(升序，False排在前) > 匹配类型(降序) > 出现次数(降序) > 热门度排名(升序)
+                # 这样可以确保低优先级原因排在所有非低优先级原因之后，无论匹配类型如何
+                scored_reasons.sort(key=lambda x: (x['is_low_priority'], -x['match_score'], -x['count'], x['top_rank']))
                 stock_reason_group[stock_key] = scored_reasons[0]['reason']
 
         else:
@@ -551,18 +575,27 @@ def get_stock_reason_group(all_stocks, top_reasons):
             # 统计该股票的原因
             stock_reason_counter = Counter(reasons)
 
-            # 先检查哪些原因是热门原因
-            top_reasons_found = [reason for reason in top_reasons if reason in stock_reason_counter]
+            # 先检查哪些原因是热门原因（排除低优先级）
+            top_reasons_found = [reason for reason in top_reasons
+                                 if reason in stock_reason_counter and reason not in low_priority_list]
 
             if top_reasons_found:
                 # 如果有多个热门原因，选择出现次数最多的
                 top_reason_counts = [(reason, stock_reason_counter[reason]) for reason in top_reasons_found]
                 top_reason_counts.sort(key=lambda x: x[1], reverse=True)
                 stock_reason_group[stock_key] = top_reason_counts[0][0]
-            elif stock_reason_counter:
-                # 如果没有热门原因，使用该股票最常见的原因
-                most_common_reason = stock_reason_counter.most_common(1)[0][0]
-                stock_reason_group[stock_key] = most_common_reason
+            else:
+                # 如果没有非低优先级的热门原因，检查是否有低优先级原因
+                low_priority_found = [reason for reason in low_priority_list if reason in stock_reason_counter]
+                if low_priority_found:
+                    # 选择出现次数最多的低优先级原因
+                    low_priority_counts = [(reason, stock_reason_counter[reason]) for reason in low_priority_found]
+                    low_priority_counts.sort(key=lambda x: x[1], reverse=True)
+                    stock_reason_group[stock_key] = low_priority_counts[0][0]
+                elif stock_reason_counter:
+                    # 如果既没有热门原因也没有低优先级原因，使用该股票最常见的原因
+                    most_common_reason = stock_reason_counter.most_common(1)[0][0]
+                    stock_reason_group[stock_key] = most_common_reason
 
     return stock_reason_group
 
