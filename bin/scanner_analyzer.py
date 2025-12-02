@@ -623,119 +623,127 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
     print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
 
     # --- 6. 对每个过滤后的信号进行可视化 ---
-    # 跟踪已处理的股票代码，避免重复处理
-    processed_stocks = set()
-
+    # 优化：预先去重，只保留每只股票的第一个信号（通常是最新的）
+    import time
+    viz_start_time = time.time()
+    
+    seen_codes = set()
+    deduplicated_signals = []
     for signal in final_signals:
         code = signal['code']
+        if code not in seen_codes:
+            seen_codes.add(code)
+            deduplicated_signals.append(signal)
+        else:
+            logging.debug(f"股票 {code} 重复信号已在预处理阶段跳过")
+    
+    if len(deduplicated_signals) < len(final_signals):
+        logging.info(f"去重优化：{len(final_signals)} 个信号去重后剩余 {len(deduplicated_signals)} 个")
+    
+    # 添加进度条，让用户了解可视化进展
+    with tqdm(total=len(deduplicated_signals), desc="生成可视化") as pbar:
+        for signal in deduplicated_signals:
+            code = signal['code']
 
-        # 如果这只股票已经处理过，跳过
-        if code in processed_stocks:
-            logging.info(f"股票 {code} 已经处理过，跳过重复分析")
-            continue
+            signal_date = signal['datetime']
 
-        # 标记该股票已处理
-        processed_stocks.add(code)
+            vis_start_date = pd.to_datetime(signal_date) - pd.Timedelta(days=90)
+            vis_end_date = pd.to_datetime(signal_date) + pd.Timedelta(days=90)
 
-        signal_date = signal['datetime']
+            logging.debug("-" * 70)
+            logging.info(f"正在分析股票: {code} {name_map.get(code, '')}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
 
-        vis_start_date = pd.to_datetime(signal_date) - pd.Timedelta(days=90)
-        vis_end_date = pd.to_datetime(signal_date) + pd.Timedelta(days=90)
+            # 使用新的配置来解析信号类型
+            signal_details = signal.get('details', '')
+            signal_type_found = SIG_UNKNOWN
+            for fragment, signal_type in LOG_FRAGMENT_TO_SIGNAL_MAP.items():
+                if fragment in signal_details:
+                    signal_type_found = signal_type
+                    break  # 匹配到最具体的规则后即退出
 
-        print("-" * 70)
-        print(f"正在分析股票: {code} {name_map.get(code, '')}, 信号日期: {signal_date.strftime('%Y-%m-%d')}")
+            primary_signal = {
+                'date': signal_date,
+                'type': signal_type_found,
+                'details': signal_details
+            }
 
-        # 使用新的配置来解析信号类型
-        signal_details = signal.get('details', '')
-        signal_type_found = SIG_UNKNOWN
-        for fragment, signal_type in LOG_FRAGMENT_TO_SIGNAL_MAP.items():
-            if fragment in signal_details:
-                signal_type_found = signal_type
-                break  # 匹配到最具体的规则后即退出
+            # 准备完整的信号信息列表，先添加主要信号
+            signal_info = [primary_signal]
 
-        primary_signal = {
-            'date': signal_date,
-            'type': signal_type_found,
-            'details': signal_details
-        }
+            # --- 优化：使用内存缓冲区替代临时文件，减少I/O开销 ---
+            from io import StringIO
+            
+            # 第一次：快速运行回测提取完整信号（使用内存缓冲区）
+            log_buffer = StringIO()
+            
+            try:
+                with redirect_stdout(log_buffer):
+                    simulator.go_trade(
+                        code=code,
+                        startdate=vis_start_date,
+                        enddate=vis_end_date,
+                        strategy=scan_strategy,
+                        strategy_params=strategy_params,
+                        log_trades=False,  # 第一次不需要交易日志
+                        visualize=False,   # 第一次不生成可视化
+                        signal_info=[],
+                        interactive_plot=False
+                    )
+                
+                # 从捕获的日志中提取所有信号
+                log_content = log_buffer.getvalue()
+                log_lines = log_content.split('\n')
+                
+                for line in log_lines:
+                    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
+                    if not date_match:
+                        continue
 
-        # 准备完整的信号信息列表，先添加主要信号
-        signal_info = [primary_signal]
+                    signal_date_str = date_match.group(1)
 
-        # --- 从日志中获取额外信号 ---
-        # 1. 运行一次回测以生成完整的策略日志
-        temp_output_dir = os.path.join(output_path, f"temp_{code}_{pd.to_datetime(signal_date).strftime('%Y%m%d')}")
-        os.makedirs(temp_output_dir, exist_ok=True)
-        temp_log_path = os.path.join(temp_output_dir, 'full_log.txt')
+                    for fragment, signal_type in LOG_FRAGMENT_TO_SIGNAL_MAP.items():
+                        if fragment in line:
+                            signal_date_obj = pd.to_datetime(signal_date_str).date()
+                            duplicate = any(
+                                (s['date'] == signal_date_obj and s['type'] == signal_type)
+                                for s in signal_info
+                            )
 
-        # 运行一次回测以生成完整日志
-        with open(temp_log_path, 'w', encoding='utf-8') as f:
-            with redirect_stdout(f):
-                simulator.go_trade(
-                    code=code,
-                    startdate=vis_start_date,
-                    enddate=vis_end_date,
-                    strategy=scan_strategy,
-                    strategy_params=strategy_params,
-                    log_trades=False,
-                    visualize=False,
-                    signal_info=[],
-                    interactive_plot=False
-                )
+                            if not duplicate:
+                                signal_info.append({
+                                    'date': signal_date_obj,
+                                    'type': signal_type,
+                                    'details': line.strip()
+                                })
+                                break
+                                
+            except Exception as e:
+                logging.error(f"第一次回测提取信号时出错: {e}")
+            finally:
+                log_buffer.close()
 
-        # 2. 解析日志提取所有信号
-        try:
-            with open(temp_log_path, 'r', encoding='utf-8') as f:
-                log_lines = f.readlines()
-
-            # 解析日志中的所有信号
-            for line in log_lines:
-                # 检查是否含有日期格式
-                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
-                if not date_match:
-                    continue
-
-                signal_date_str = date_match.group(1)
-                matched = False
-
-                # 使用中央配置的解析规则
-                for fragment, signal_type in LOG_FRAGMENT_TO_SIGNAL_MAP.items():
-                    if fragment in line:
-                        signal_date_obj = pd.to_datetime(signal_date_str).date()
-                        duplicate = any(
-                            (s['date'] == signal_date_obj and s['type'] == signal_type)
-                            for s in signal_info
-                        )
-
-                        if not duplicate:
-                            signal_info.append({
-                                'date': signal_date_obj,
-                                'type': signal_type,
-                                'details': line.strip()
-                            })
-                            matched = True
-                            # 找到一个匹配就跳出，因为 LOG_FRAGMENT_TO_SIGNAL_MAP 是有序的
-                            break
-        except Exception as e:
-            logging.error(f"解析信号日志时出错: {e}")
-
-        # 删除临时目录
-        shutil.rmtree(temp_output_dir, ignore_errors=True)
-
-        # 正式运行回测和可视化
-        simulator.go_trade(
-            code=code,
-            stock_name=name_map.get(code, ''),
-            startdate=vis_start_date,
-            enddate=vis_end_date,
-            strategy=scan_strategy,
-            strategy_params=strategy_params,
-            log_trades=True,
-            visualize=True,
-            signal_info=signal_info,  # 传递完整的信号信息
-            interactive_plot=False,  # 禁用弹出图表
-            output_path=output_path  # 传递输出路径
-        )
+            # 第二次：使用完整信号生成可视化
+            simulator.go_trade(
+                code=code,
+                stock_name=name_map.get(code, ''),
+                startdate=vis_start_date,
+                enddate=vis_end_date,
+                strategy=scan_strategy,
+                strategy_params=strategy_params,
+                log_trades=True,
+                visualize=True,
+                signal_info=signal_info,
+                interactive_plot=False,
+                output_path=output_path
+            )
+            
+            # 更新进度条
+            pbar.update(1)
+    
+    # 输出性能统计
+    viz_duration = time.time() - viz_start_time
+    avg_time_per_stock = viz_duration / len(deduplicated_signals) if deduplicated_signals else 0
+    logging.info(f"可视化完成！总耗时: {viz_duration:.2f}秒，处理 {len(deduplicated_signals)} 只股票，平均 {avg_time_per_stock:.2f}秒/只")
 
     return final_signals
 
