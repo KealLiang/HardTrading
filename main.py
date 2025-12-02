@@ -350,7 +350,7 @@ def strategy_scan(candidate_model='a'):
     start_date = '20250910'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20251015'  # 只看这个日期之后的
+    details_after_date = '20251120'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -900,7 +900,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20250901'  # 调整为Excel中有数据的日期范围
+    start_date = '20251010'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
