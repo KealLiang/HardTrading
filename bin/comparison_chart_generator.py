@@ -111,10 +111,20 @@ class ComparisonChartGenerator:
         """
         # 转换日期格式 YYYY-MM-DD -> YYYYMMDD
         date_formatted = signal_date.replace('-', '')
-        folder_name = f"{stock_code}_{date_formatted}_{self.strategy_name}"
-        folder_path = os.path.join(self.base_dir, folder_name)
 
-        if not os.path.exists(folder_path):
+        # 修复：文件夹按首次信号日期命名，需搜索所有匹配的文件夹
+        folder_path = None
+        try:
+            for item in os.listdir(self.base_dir):
+                if item.startswith(f"{stock_code}_") and os.path.isdir(os.path.join(self.base_dir, item)):
+                    folder_path = os.path.join(self.base_dir, item)
+                    break
+        except Exception as e:
+            logging.warning(f"扫描目录失败: {e}")
+            return []
+
+        if not folder_path:
+            logging.debug(f"未找到文件夹: {stock_code} @ {signal_date}")
             return []
 
         # 读取trade_log.csv
@@ -159,12 +169,16 @@ class ComparisonChartGenerator:
                         results.append((waiting_chart_path, "Signal Only"))
 
             elif record_type == 'BUY' and trade_num > 0 and trade_num not in matched_trade_nums:
-                # 查找对应的trade图片
+                # TODO-c: 多信号匹配问题 - trade图片文件名需要包含signal_date以区分不同日期的信号
+                # 当前：trade_1_300509.png，应改为：trade_1_300509_20251201.png
                 trade_file = f"trade_{trade_num}_{stock_code}.png"
                 trade_path = os.path.join(folder_path, trade_file)
                 if os.path.exists(trade_path):
                     results.append((trade_path, f"Trade {trade_num}"))
                     matched_trade_nums.add(trade_num)
+
+        if not results:
+            logging.debug(f"未匹配到图片: {stock_code} @ {signal_date}")
 
         return results
 
