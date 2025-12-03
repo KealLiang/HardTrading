@@ -57,8 +57,8 @@ class FupanConfig:
                  '涨停封板时长', '涨停时间明细']
     }
 
-    # 涨停开板次数分组配置（最后一个表示"X+")
-    OPEN_BREAK_BUCKETS = [0, 1, 2, 3]
+    # 涨停开板次数分组配置已移至 fupan_statistics_plot.py
+    # 此处保留原始明细数据，可视化时再决定分组方式
 
 
 class FupanDataAccess:
@@ -514,13 +514,15 @@ def get_local_data(base_date, next_date, stock_code, data_path='data/astocks'):
 
 def compute_open_break_group_stats(stock_df, performance, date):
     """
-    计算基于涨停开板次数的分组统计数据
+    计算基于涨停开板次数的明细统计数据（按实际开板次数，不预先分组）
+
     Args:
         stock_df: 包含涨停开板次数的DataFrame
         performance: 次日表现数据字典
         date: 日期，格式为 'YYYYMMDD'
     Returns:
-        dict: 包含分组统计数据的字典
+        dict: 按开板次数分类的统计数据，格式如：
+              {"0": {"开盘": 1.5, "收盘": 2.0, "样本": 10}, "1": {...}, ...}
     """
     try:
         # 确定列名
@@ -537,82 +539,57 @@ def compute_open_break_group_stats(stock_df, performance, date):
         # 解析代码与开板次数
         df_tmp = stock_df[['股票代码']].copy()
         df_tmp['代码key'] = df_tmp['股票代码'].astype(str).apply(lambda x: x.split('.')[0])
-        df_tmp['开板次数_raw'] = pd.to_numeric(stock_df[open_break_col], errors='coerce')
+        df_tmp['开板次数'] = pd.to_numeric(stock_df[open_break_col], errors='coerce')
+        df_tmp = df_tmp.dropna(subset=['开板次数'])
+        df_tmp['开板次数'] = df_tmp['开板次数'].astype(int)
 
-        buckets = getattr(FupanConfig, 'OPEN_BREAK_BUCKETS', [0, 1, 2, 3, 4])
-        last_bucket = buckets[-1] if buckets else 4
-
-        def map_to_bucket(v):
-            if pd.isna(v):
-                return None
-            for b in buckets[:-1]:
-                if v == b:
-                    return str(b)
-            # 最后一档为 X+
-            if v >= last_bucket:
-                return f"{last_bucket}+"
-            return None
-
-        df_tmp['开板组'] = df_tmp['开板次数_raw'].apply(map_to_bucket)
-        df_tmp = df_tmp.dropna(subset=['开板组'])
-
-        # 收集每组的收益
+        # 收集每个开板次数的收益
         perf_map = performance  # {code: {...}}
-        group_labels = list(dict.fromkeys(df_tmp['开板组'].tolist()))  # 保留出现过的顺序
 
         def is_valid_number(x):
             try:
                 import math
-                return x is not None and not (isinstance(x, float) and (math.isnan(x)))
+                return x is not None and not (isinstance(x, float) and math.isnan(x))
             except Exception:
                 return False
 
-        group_stats = {}
-        for label in group_labels:
-            codes_in_group = df_tmp.loc[df_tmp['开板组'] == label, '代码key'].tolist()
+        # 按实际开板次数分组统计
+        detail_stats = {}
+        for open_count in sorted(df_tmp['开板次数'].unique()):
+            codes_in_group = df_tmp.loc[df_tmp['开板次数'] == open_count, '代码key'].tolist()
             open_vals = []
             close_vals = []
             valid_count = 0
-            total_in_group = len(codes_in_group)
-            with_perf = 0
-            open_ok = 0
-            close_ok = 0
+
             for code_key in codes_in_group:
                 p = perf_map.get(code_key)
                 if p is None:
                     continue
-                with_perf += 1
                 ov = p.get('t+1收入开盘盈利')
                 cv = p.get('t+1收入收盘盈利')
                 if is_valid_number(ov):
                     open_vals.append(ov)
-                    open_ok += 1
                 if is_valid_number(cv):
                     close_vals.append(cv)
-                    close_ok += 1
                 # 样本数要求两者都有效
                 if is_valid_number(ov) and is_valid_number(cv):
                     valid_count += 1
 
-            # 计算均值与样本数（基于有效样本）
+            # 计算均值（基于有效样本）
             open_mean = round(sum(open_vals) / len(open_vals), 2) if open_vals else None
             close_mean = round(sum(close_vals) / len(close_vals), 2) if close_vals else None
 
-            group_stats[f'开板{label}_开盘收益'] = open_mean
-            group_stats[f'开板{label}_收盘收益'] = close_mean
-            group_stats[f'开板{label}_样本数'] = valid_count
+            # 只有存在有效样本时才记录
+            if valid_count > 0:
+                detail_stats[str(open_count)] = {
+                    "开盘": open_mean,
+                    "收盘": close_mean,
+                    "样本": valid_count
+                }
 
-            # 可选调试输出：设置环境变量 OPEN_BREAK_DEBUG=1 时打印缺失概况
-            try:
-                import os
-                if os.getenv('OPEN_BREAK_DEBUG') == '1':
-                    print(f"[OPEN_BREAK_DEBUG][{date}] 组={label} 总数={total_in_group} 有绩效={with_perf} 开盘有效={open_ok} 收盘有效={close_ok} 有效样本(两者均有效)={valid_count}")
-            except Exception:
-                pass
-
-        return group_stats
+        return detail_stats
     except Exception as e:
-        print(f"计算开板次数分组统计失败: {str(e)}")
+        print(f"计算开板次数统计失败: {str(e)}")
         return {}
 
 
@@ -705,13 +682,15 @@ def analyze_zt_stocks_performance(date, analysis_type='涨停'):
             '详细数据': performance
         }
 
-        # 基于涨停开板次数的分组统计（仅对涨停分析执行）
+        # 基于涨停开板次数的明细统计（仅对涨停分析执行）
         if analysis_type == '涨停':
             try:
-                group_stats = compute_open_break_group_stats(stock_df, performance, date)
-                stats.update(group_stats)
+                import json
+                open_break_detail = compute_open_break_group_stats(stock_df, performance, date)
+                # 序列化为 JSON 字符串存储到单列
+                stats['开板收益明细'] = json.dumps(open_break_detail, ensure_ascii=False) if open_break_detail else ''
             except Exception as e:
-                print(f"按开板次数分组统计失败: {str(e)}")
+                print(f"按开板次数统计失败: {str(e)}")
 
         return stats
     except Exception as e:
@@ -882,15 +861,43 @@ def merge_and_save_analysis(dapan_stats, zt_stats, excel_path='./excel/market_an
         print(f"合并和保存数据时出错: {str(e)}")
 
 
+def is_date_data_incomplete(date_row, force_update=False):
+    """
+    检查某日期的数据是否不完整（需要更新）
+
+    Args:
+        date_row: DataFrame，该日期对应的数据行
+        force_update: 是否强制更新，默认为 False
+
+    Returns:
+        bool: True 表示数据不完整或需要强制更新
+    """
+    if force_update:
+        return True
+
+    if date_row.empty:
+        return False
+
+    # 关键列：缺少任一列或值为空则认为不完整
+    key_cols = ['涨停_次日收入开盘', '涨停_次日收入收盘', '连板_次日收入开盘', '涨停_开板收益明细']
+    for col in key_cols:
+        if col not in date_row.columns or pd.isna(date_row[col].iloc[0]):
+            return True
+    return False
+
+
 @timer
-def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_analysis.xlsx', max_workers=2):
+def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_analysis.xlsx', max_workers=2,
+                         force_update=False):
     """
     分析指定时间段的市场数据并保存
+
     Args:
         start_date: 开始日期，格式为 'YYYYMMDD'
         end_date: 结束日期，格式为 'YYYYMMDD'
         excel_path: Excel文件路径
         max_workers: 最大线程数
+        force_update: 是否强制更新已存在的数据，默认为 False
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y%m%d')
@@ -914,21 +921,10 @@ def fupan_all_statistics(start_date, end_date=None, excel_path='./excel/market_a
             if date not in existing_dates:
                 new_dates.append(date)
             else:
-                # 检查现有数据是否完整（涨停分析数据是否为空）
                 date_row = existing_df[existing_df['日期'].astype(str) == date]
-                if not date_row.empty:
-                    # 检查关键的涨停分析列是否为空
-                    key_cols = ['涨停_次日收入开盘', '涨停_次日收入收盘', '连板_次日收入开盘']
-                    is_incomplete = False
-                    for col in key_cols:
-                        if col in date_row.columns:
-                            if pd.isna(date_row[col].iloc[0]):
-                                is_incomplete = True
-                                break
-
-                    if is_incomplete:
-                        incomplete_dates.append(date)
-                        new_dates.append(date)
+                if is_date_data_incomplete(date_row, force_update):
+                    incomplete_dates.append(date)
+                    new_dates.append(date)
 
         if not new_dates:
             print("所有日期的数据都已存在且完整，无需更新")
