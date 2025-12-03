@@ -27,7 +27,7 @@ SIG_UNKNOWN = 'Unknown'
 LOG_FRAGMENT_TO_SIGNAL_MAP = {
     '买入成交': SIG_BUY_EXECUTED,  # 最具体的，放在最前面（捕获实际成交日）
     '买入信号: 止损纠错': SIG_STOP_LOSS_CORRECTION,  # 纠错买入信号
-    '【快速通道】': SIG_FAST_TRACK,
+    '快速通道': SIG_FAST_TRACK,
     '回踩确认': SIG_PULLBACK_CONFIRM,
     '*** 回踩等待期内出现回调': SIG_PULLBACK_CONFIRM,  # 备用匹配规则
     '进入【回踩等待】模式': SIG_PULLBACK_WAIT,

@@ -47,7 +47,7 @@ class BreakoutStrategy(bt.Strategy):
         ('enable_stop_loss_correction', True),  # 是否启用止损纠错机制
         ('stop_loss_correction_window', 7),  # 止损后的纠错观察窗口（自然日，含周末）
         ('correction_trend_min_strength', 1.0),  # 纠错触发的最小趋势强度（MA5近N日涨幅%）
-        ('correction_max_gain_pct', 20.0),  # 止损纠错的最大涨幅阈值（%），超过则视为高位不纠错
+        ('correction_max_gain_pct', 20.0),  # 纠错前的最大涨幅阈值（%），超过则视为正常获利回吐，不纠错
         
         # -- 二次确认信号参数 --
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
@@ -639,7 +639,7 @@ class BreakoutStrategy(bt.Strategy):
                             if size > 0:
                                 self.current_observation_scores = self.psq_scores.copy()
                                 self.order = self.buy(size=size)
-                                self.log(f'买入信号:【快速通道】{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
+                                self.log(f'买入信号: 快速通道{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
                     
                     # 如果不走快速通道，则进入标准观察期
                     if not is_fast_track:

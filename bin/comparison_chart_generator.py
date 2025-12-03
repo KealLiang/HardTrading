@@ -25,6 +25,36 @@ plt.rcParams['axes.unicode_minus'] = False
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
 
+# 信号类型配置：(匹配模式, 显示名称)
+# 与 main.py 中的 signal_patterns 保持对应
+SIGNAL_TYPE_CONFIG = [
+    ('二次确认信号', '二次确认'),       # 标准通道：观察期内二次确认
+    ('买入信号: 快速通道', '快速通道'),  # 快速通道：信号日当天买入
+    ('买入信号: 回踩确认', '回踩确认'),  # 缓冲通道：回调后买入
+    ('买入信号: 止损纠错', '止损纠错'),  # 止损纠错：价格合适买入
+]
+
+
+def _extract_signal_type(details: str) -> str:
+    """
+    从详情字段中提取简短的信号类型描述
+    
+    Args:
+        details: scan_summary中的详情字段
+        
+    Returns:
+        简短的信号类型，如 "止损纠错"、"回踩确认"、"二次确认" 等
+    """
+    if not details:
+        return "Signal"
+    
+    for pattern, signal_type in SIGNAL_TYPE_CONFIG:
+        if pattern in details:
+            return signal_type
+    
+    return "Signal"
+
+
 class ComparisonChartGenerator:
     """股票对比图生成器"""
 
@@ -60,15 +90,15 @@ class ComparisonChartGenerator:
 
         return 'BreakoutStrategy'
 
-    def parse_scan_summary(self, summary_file_path: str) -> Dict[str, List[Tuple[str, str]]]:
+    def parse_scan_summary(self, summary_file_path: str) -> Dict[str, List[Tuple[str, str, str]]]:
         """
-        解析scan_summary文件，提取股票代码和信号日期的对应关系
+        解析scan_summary文件，提取股票代码、信号日期和信号类型的对应关系
         
         Args:
             summary_file_path: summary文件路径
             
         Returns:
-            Dict[日期, List[Tuple[股票代码, 股票名称]]]
+            Dict[日期, List[Tuple[股票代码, 股票名称, 信号类型]]]
         """
         date_stocks_map = defaultdict(list)
 
@@ -82,12 +112,15 @@ class ComparisonChartGenerator:
                     # 解析格式：股票: 300732 设研院, 信号日期: 2025-08-11, 价格: 12.22, 评分: 0，详情: ...
                     stock_match = re.search(r'股票:\s*(\d{6})\s*([^,]*)', line)
                     date_match = re.search(r'信号日期:\s*(\d{4}-\d{2}-\d{2})', line)
+                    details_match = re.search(r'详情:\s*(.+)$', line)
 
                     if stock_match and date_match:
                         code = stock_match.group(1)
                         name = stock_match.group(2).strip()
                         signal_date = date_match.group(1)
-                        date_stocks_map[signal_date].append((code, name))
+                        details = details_match.group(1).strip() if details_match else ''
+                        signal_type = _extract_signal_type(details)
+                        date_stocks_map[signal_date].append((code, name, signal_type))
 
             logging.info(f"解析完成，共找到 {len(date_stocks_map)} 个交易日的信号")
             for date, stocks in sorted(date_stocks_map.items(), reverse=True)[:5]:
@@ -212,14 +245,14 @@ class ComparisonChartGenerator:
 
         return sorted(results, key=sort_key)
 
-    def create_comparison_chart(self, signal_date: str, stocks_info: List[Tuple[str, str]],
+    def create_comparison_chart(self, signal_date: str, stocks_info: List[Tuple[str, str, str]],
                                 max_cols: int = 3) -> str:
         """
         为指定日期的股票创建对比图
         
         Args:
             signal_date: 信号日期
-            stocks_info: [(股票代码, 股票名称), ...]
+            stocks_info: [(股票代码, 股票名称, 信号类型), ...]
             max_cols: 每行最大列数
             
         Returns:
@@ -242,7 +275,8 @@ class ComparisonChartGenerator:
         # 3. 计算每只股票的涨幅并排序
         def get_stock_change(stock_info):
             """获取股票涨幅，用于排序"""
-            stock_code, stock_name = stock_info
+            stock_code = stock_info[0]
+            stock_name = stock_info[1]
 
             # 如果信号日期就是当前日期，使用当天的涨跌幅（收盘价相对于开盘价）
             if signal_date_yyyymmdd == current_date:
@@ -284,11 +318,13 @@ class ComparisonChartGenerator:
         stock_labels = []
 
         # 根据trade_log精确收集对应日期的图片
-        for stock_code, stock_name in stocks_info:
+        for stock_code, stock_name, signal_type in stocks_info:
             image_info_list = self.find_stock_trade_images_by_log(stock_code, signal_date)
             for img_path, img_type in image_info_list:
                 all_images.append(img_path)
-                label = f"{stock_code} {stock_name}\n({img_type})"
+                # 使用信号类型替换原来的img_type（Signal Only -> 信号类型）
+                display_type = signal_type if img_type == "Signal Only" else img_type
+                label = f"{stock_code} {stock_name}\n({display_type})"
                 stock_labels.append(label)
 
         if not all_images:
@@ -305,7 +341,9 @@ class ComparisonChartGenerator:
         fig_height = rows * 4  # 每个子图4英寸高
 
         fig = plt.figure(figsize=(fig_width, fig_height))
-        fig.suptitle(f'信号日期: {signal_date} 股票对比图 ({len(stocks_info)}只股票, {total_images}张图)',
+        # 更新标题：显示实际股票数量
+        unique_stocks = len(stocks_info)
+        fig.suptitle(f'信号日期: {signal_date} 股票对比图 ({unique_stocks}只股票, {total_images}张图)',
                      fontsize=16, fontweight='bold')
 
         gs = GridSpec(rows, cols, figure=fig, hspace=0.3, wspace=0.2)
