@@ -510,8 +510,15 @@ def batch_analyze_weekly_growth_win_rate(directory: str = 'bin/candidate_temp',
 
 
 # 获取热点概念词云
-def get_hot_clouds():
-    hot_words_cloud(0)
+def get_hot_clouds(date: str = None, concept_only: bool = True):
+    """
+    生成每日A股热门股的概念词云图
+    
+    Args:
+        date: 日期字符串，格式为 'YYYYMMDD'，默认为 None 表示最近一个交易日
+        concept_only: 是否仅生成概念词云图，默认为 True。为 False 时生成概念+行业合并图
+    """
+    hot_words_cloud(date, concept_only)
 
 
 def get_index_data():
@@ -625,6 +632,7 @@ def daily_routine():
         (draw_ths_fupan_html, "生成涨跌高度html"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
+        (get_hot_clouds, "生成热门概念词云"),
         (auction_fengdan_analyze, "复盘分析封单数据"),
     ]
 
@@ -909,7 +917,7 @@ def generate_ladder_chart():
 
     # 定义优先原因列表
     priority_reasons = [
-        # "创新药"
+        "商业航天"
     ]
     # 定义低优先原因列表（只有在没有其他分组可匹配时才使用）
     low_priority_reasons = [
@@ -1097,10 +1105,14 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 
 
 if __name__ == '__main__':
+    # === 热门天梯 ===
+    # whimsical_fupan_analyze()
+    # generate_ladder_chart()
+
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
-    full_scan_routine()
+    daily_routine()
+    # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
@@ -1123,9 +1135,6 @@ if __name__ == '__main__':
     # draw_ths_fupan()        # PNG静态图
     # draw_ths_fupan_html()     # HTML交互图
     
-    # whimsical_fupan_analyze()
-    # generate_ladder_chart()
-    
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
     # clean_synonym_groups()  # 清理旧词
@@ -1136,7 +1145,7 @@ if __name__ == '__main__':
     # analyze_advanced_on()
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
-    # get_hot_clouds()
+    # get_hot_clouds('20251201')
     # find_dragon()
     # find_similar_trends()
     # get_stock_concept_and_industry()
