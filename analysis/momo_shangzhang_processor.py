@@ -243,7 +243,7 @@ def identify_momo_shangzhang_stocks(momo_df, start_date, end_date):
             }
 
             result.append(entry)
-            print(f"【默默上涨】股票入选: {stock_name} ({stock_code}) 入选日期: {entry_date_str}")
+            # print(f"【默默上涨】股票入选: {stock_name} ({stock_code}) 入选日期: {entry_date_str}")
 
     # 转换为DataFrame
     result_df = pd.DataFrame(result)

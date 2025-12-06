@@ -39,7 +39,7 @@ MAX_TRACKING_DAYS_AFTER_BREAK = 11
 # 断板后折叠行的天数阈值，超过这个天数的股票会在Excel中自动折叠（隐藏）
 # 例如设置为7，断板7天后该股票所在行会被折叠，减少显示数据量
 # 设置为None表示不自动折叠任何行
-COLLAPSE_DAYS_AFTER_BREAK = 15
+COLLAPSE_DAYS_AFTER_BREAK = 12
 
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
