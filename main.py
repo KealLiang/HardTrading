@@ -28,6 +28,7 @@ from analysis.stock_price_plotter import plot_multiple_stocks
 from analysis.time_price_sharing import analyze_abnormal_stocks_time_sharing
 from analysis.whimsical import process_zt_data
 from analysis.ladder_chart import build_ladder_chart
+from analysis.erban_longtou_analyzer import analyze_erban_longtou
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
@@ -909,7 +910,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20251010'  # 调整为Excel中有数据的日期范围
-    end_date = None  # 过了0点需指定日期
+    end_date = '20251205'  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -917,7 +918,8 @@ def generate_ladder_chart():
 
     # 定义优先原因列表
     priority_reasons = [
-        "商业航天"
+        "商业航天",
+        "海峡两岸",
     ]
     # 定义低优先原因列表（只有在没有其他分组可匹配时才使用）
     low_priority_reasons = [
@@ -940,6 +942,33 @@ def generate_ladder_chart():
     print("\n" + "="*60)
     extract_stock_codes_from_excel(excel_file, output_txt)
     print("="*60 + "\n")
+
+
+def erban_longtou_analysis():
+    """
+    二板定龙头分析
+    
+    分析指定时间段内二连板股票的晋级率、胜率、题材特征和量价关系，
+    生成Markdown格式的分析报告，帮助理解市场热点和龙头股特征。
+    """
+    # 配置参数
+    start_date = '20251001'  # 开始日期
+    end_date = '20251201'  # 结束日期，None表示到今天
+    min_concept_samples = 2  # 题材统计最小样本数
+    output_path = None  # 输出路径，None表示自动生成
+    
+    # 执行分析
+    report_path = analyze_erban_longtou(
+        start_date=start_date,
+        end_date=end_date,
+        output_path=output_path,
+        min_concept_samples=min_concept_samples
+    )
+    
+    if report_path:
+        print(f"\n🎉 分析完成！报告已保存至: {report_path}")
+    else:
+        print("\n❌ 分析失败，未生成报告")
 
 
 def generate_comparison_charts(candidate_model: str = 'a', recent_days: int = 10):
@@ -1111,7 +1140,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1126,6 +1155,9 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
+    
+    # === 二板定龙头分析 ===
+    erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
     
     # === 跳空高开股票分析功能 ===
     # analyze_gap_up_stocks('20250901', '20251029', min_gap=2.0, max_gap=6.0, filter_enabled=True,

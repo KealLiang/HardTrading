@@ -15,6 +15,7 @@ __pycache__/
 .deps/
 env/
 images/
+reports/
 local.ini
 run_main.py
 .specstory/**
