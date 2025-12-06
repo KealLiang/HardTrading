@@ -76,7 +76,7 @@ class MoodAnalyzer:
         }
 
         # 确保输出目录存在
-        self.base_dir = "mood"
+        self.base_dir = "reports/mood"
         os.makedirs(self.base_dir, exist_ok=True)
 
     def _map_fields(self, df: pd.DataFrame) -> pd.DataFrame:
