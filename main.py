@@ -910,7 +910,7 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart():
     start_date = '20251010'  # 调整为Excel中有数据的日期范围
-    end_date = '20251205'  # 过了0点需指定日期
+    end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -1141,7 +1141,7 @@ if __name__ == '__main__':
     # === 复盘相关 ===
     # get_stock_datas()
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
@@ -1157,7 +1157,7 @@ if __name__ == '__main__':
     # analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
     
     # === 二板定龙头分析 ===
-    erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
+    # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
     
     # === 跳空高开股票分析功能 ===
     # analyze_gap_up_stocks('20250901', '20251029', min_gap=2.0, max_gap=6.0, filter_enabled=True,
