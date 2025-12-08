@@ -21,6 +21,9 @@
     "09:20:15",
     "09:25:20"
   ],
+  "dual_screenshot_times": [
+    "09:15:10"
+  ],
   "use_block_input": true,
   "restore_mouse": true,
   "minimize_after_capture": true,

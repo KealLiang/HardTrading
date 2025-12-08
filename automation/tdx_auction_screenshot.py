@@ -90,6 +90,8 @@ DEFAULT_CONFIG = {
     "sort_click_count": 2,
     # 时间点
     "auction_times": ["09:15:00", "09:20:00", "09:25:00"],
+    # 需要截两张（正序+逆序）并合并的时间点（必须是 auction_times 的子集）
+    "dual_screenshot_times": ["09:15:00"],  # 默认只有 09:15 截两张，其他时间点只截一张
     # 执行期行为
     "use_block_input": True,  # 执行期间临时阻断用户鼠标/键盘输入
     "restore_mouse": True,  # 执行后恢复鼠标位置
@@ -346,8 +348,17 @@ class TDXScreenshotter:
             self.logger.warning(f"图片保存失败，已回退为 PNG：{fallback_path}，错误：{e}")
             return False
 
-    def take_screenshot(self, time_tag: Optional[str] = None) -> Optional[str]:
-        """截取两张图（正序+逆序）并合并为一张，返回保存路径。"""
+    def take_screenshot(self, time_tag: Optional[str] = None, take_dual: bool = True) -> Optional[str]:
+        """
+        截图方法。
+        
+        Args:
+            time_tag: 时间标签（用于文件名）
+            take_dual: 是否截两张（正序+逆序）并合并。False 时只截一张（正序）
+        
+        Returns:
+            保存路径
+        """
         today = datetime.now().strftime('%Y%m%d')
         tag = time_tag or datetime.now().strftime('%H%M')
 
@@ -363,7 +374,17 @@ class TDXScreenshotter:
         if img1 is None:
             return None
 
-        # 再次点击封单额表头，切换排序
+        # 如果只需要一张，直接保存并返回
+        if not take_dual:
+            self._save_image(img1, save_path)
+            try:
+                size_kb = os.path.getsize(save_path) / 1024.0
+                self.logger.info(f"截图完成: {save_path} ({size_kb:.1f} KB)")
+            except Exception:
+                self.logger.info(f"截图完成: {save_path}")
+            return save_path
+
+        # 需要两张：再次点击封单额表头，切换排序
         self.logger.info("切换排序方向...")
         self._safe_click(tuple(self.cfg["fengdan_header_point"]), "封单额表头（切换排序）", clicks=1)
         time.sleep(0.3)  # 等待排序完成
@@ -389,10 +410,31 @@ class TDXScreenshotter:
 
         return save_path
 
-    def run_once(self, time_point: Optional[str] = None) -> None:
-        """执行一次完整流程：激活 -> 点击 -> 截图。"""
+    def run_once(self, time_point: Optional[str] = None, take_dual: Optional[bool] = None) -> None:
+        """
+        执行一次完整流程：激活 -> 点击 -> 截图。
+        
+        Args:
+            time_point: 时间点字符串（如 "09:15:00"），用于判断是否需要截两张
+            take_dual: 是否截两张。None 时根据 time_point 和配置自动判断
+        """
         tag = (time_point or datetime.now().strftime('%H:%M:%S')).replace(':', '')[:4]
         self.logger.info(f"开始 {tag} 截图流程...")
+
+        # 判断是否需要截两张
+        if take_dual is None:
+            # 根据时间点判断
+            if time_point:
+                dual_times = self.cfg.get("dual_screenshot_times", [])
+                take_dual = time_point in dual_times
+            else:
+                # 没有时间点时，默认截两张（保持向后兼容）
+                take_dual = True
+        
+        if take_dual:
+            self.logger.info("将截取两张图片（正序+逆序）并合并")
+        else:
+            self.logger.info("将只截取一张图片（正序）")
 
         original_pos = pag.position()
         use_block = bool(self.cfg.get("use_block_input", True))
@@ -419,7 +461,7 @@ class TDXScreenshotter:
         try:
             _block_input(use_block)
             self.prepare_view()
-            path = self.take_screenshot(tag)
+            path = self.take_screenshot(tag, take_dual=take_dual)
         finally:
             _unblock_input()
             if self.cfg.get("restore_mouse", True):
@@ -529,7 +571,8 @@ def run_auto():
         epilog="""
 使用示例:
   python automation/tdx_auction_screenshot.py start              # 启动定时截图
-  python automation/tdx_auction_screenshot.py snap               # 立即截图一次
+  python automation/tdx_auction_screenshot.py snap               # 立即截图一次（默认截两张）
+  python automation/tdx_auction_screenshot.py snap 1              # 立即截图一次（只截一张）
   python automation/tdx_auction_screenshot.py calibrate          # 校准坐标
   python automation/tdx_auction_screenshot.py --config custom.json start  # 使用自定义配置
         """
@@ -540,6 +583,13 @@ def run_auto():
         default="start",
         choices=["start", "run", "scheduler", "snap", "shot", "once", "calibrate", "config", "status"],
         help="执行命令 (默认: start)"
+    )
+    parser.add_argument(
+        "snap_mode",
+        nargs="?",
+        type=str,
+        default=None,
+        help="snap 模式参数：1 表示只截一张，不传或传其他值表示截两张（默认）"
     )
     parser.add_argument(
         "--config",
@@ -559,7 +609,11 @@ def run_auto():
         scheduler = TDXAuctionScreenshotScheduler(shooter)
         scheduler.start()
     elif cmd in ("snap", "shot", "once"):
-        shooter.run_once()
+        # 解析 snap_mode 参数
+        take_dual = True  # 默认截两张
+        if args.snap_mode == "1":
+            take_dual = False
+        shooter.run_once(take_dual=take_dual)
     elif cmd in ("calibrate", "config"):
         interactive_calibrate(cfg)
     elif cmd == "status":
@@ -567,6 +621,8 @@ def run_auto():
         print("调度器状态：")
         print("  运行中: 否 (仅查询状态，未启动)")
         print("  计划时间:", ", ".join(cfg["auction_times"]))
+        dual_times = cfg.get("dual_screenshot_times", [])
+        print("  双截图时间:", ", ".join(dual_times) if dual_times else "无")
         print("  下次运行:", next_run)
         print("  配置文件:", args.config)
         print("  项目根目录:", PROJECT_ROOT)
