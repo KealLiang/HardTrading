@@ -161,7 +161,7 @@ def normalize_reason(reason):
     # 检查原因属于哪个组
     for main_reason, synonyms in synonym_groups.items():
         for synonym in synonyms:
-            # 处理通配符匹配
+            # 处理通配符匹配（带%的模糊匹配）
             if '%' in synonym:
                 # 转换SQL风格通配符为正则表达式
                 pattern = synonym.replace('%', '(.*)')
@@ -169,18 +169,24 @@ def normalize_reason(reason):
                 match = regex.search(reason)
 
                 if match:
-                    # 计算匹配的具体部分
-                    matched_text = reason
-                    for group in match.groups():
-                        matched_text = matched_text.replace(group, '')
-
-                    # 匹配强度 = 匹配文本长度 / 原文长度
-                    match_strength = len(matched_text) / len(reason)
+                    # 根据'%'的数量决定匹配强度：一个'%' > 两个'%'
+                    percent_count = synonym.count('%')
+                    if percent_count == 1:
+                        # 一个'%'的模糊匹配，强度0.6
+                        match_strength = 0.6
+                    else:
+                        # 两个'%'的模糊匹配，强度0.4
+                        match_strength = 0.4
                     matches.append((main_reason, match_strength, synonym))
 
-            # 保留原有的包含匹配
+            # 不带%的同义词：完全相等为精确匹配，包含为模糊匹配
             elif synonym in reason:
-                match_strength = len(synonym) / len(reason)
+                if synonym == reason:
+                    # 完全相等：精确匹配，强度最高
+                    match_strength = 1.0
+                else:
+                    # 包含但不完全相等：模糊匹配，强度0.8
+                    match_strength = 0.8
                 matches.append((main_reason, match_strength, synonym))
 
     # 如果有匹配，选择匹配强度最高的
@@ -215,19 +221,14 @@ def get_reason_match_type(original_reason, normalized_reason):
 
     synonyms = synonym_groups[normalized_reason]
 
-    # 检查是否有精确匹配（不带%的同义词）
+    # 检查是否有精确匹配（不带%的同义词完全相等）或模糊匹配（包含但不完全相等）
     for synonym in synonyms:
-        if '%' not in synonym and synonym in original_reason:
-            # 精确匹配
-            return 'exact'
-
-    # 检查是否有模糊匹配（带%的同义词）
-    for synonym in synonyms:
-        if '%' in synonym:
-            pattern = synonym.replace('%', '(.*)')
-            regex = re.compile(f"^{pattern}$")
-            if regex.search(original_reason):
-                # 模糊匹配
+        if '%' not in synonym:
+            if synonym == original_reason:
+                # 完全相等：精确匹配
+                return 'exact'
+            elif synonym in original_reason:
+                # 包含但不完全相等：模糊匹配
                 return 'fuzzy'
 
     return 'unmatched'
@@ -344,7 +345,7 @@ def get_stock_reason_labels(all_stocks, top_reasons, k=2):
     """
     为每只股票计算主+次标签（默认最多2个标签）。
     返回: { stock_key: {"primary": str, "secondaries": [str], "details": [(original, grouped, score)]} }
-    说明: details 为“按主类去重后”的明细（每个分组只保留最高分的一条），便于用于批注展示，避免重复。
+    说明: details 为"按主类去重后"的明细（每个分组只保留最高分的一条），便于用于批注展示，避免重复。
     """
     labels = {}
     if not CONCEPT_TIERING_AVAILABLE:
@@ -399,7 +400,7 @@ def get_stock_reason_labels(all_stocks, top_reasons, k=2):
         primary = sorted_groups[0][0]
         secondaries = [g for g, _ in sorted_groups[1:k]] if k > 1 else []
 
-        # 构造“按组去重”的明细，顺序与排序一致
+        # 构造"按组去重"的明细，顺序与排序一致
         unique_details = [(group_best[g][0], g, group_best[g][1]) for g, _ in sorted_groups]
 
         labels[stock_key] = {
