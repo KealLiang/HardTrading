@@ -92,10 +92,15 @@ ATTENTION_DAYS_WINDOW = 2
 DEBUG_MODE = False
 
 # ==================== 龙头股筛选相关参数 ====================
-# 【筛选门槛】
-MIN_BOARD_LEVEL_FOR_LEADER = 2  # 龙头股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 龙头股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0  # 龙头股最低长周期涨幅门槛（%）
+# 【筛选门槛 - 主板股】
+MIN_BOARD_LEVEL_FOR_LEADER = 2  # 主板股最低连板数门槛
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0  # 主板股最低长周期涨幅门槛（%）
+
+# 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
+MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 70.0  # 非主板股最低长周期涨幅门槛（%）
 
 # 【名额分配规则】按板块活跃度排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 4  # 最热板块（排名第1）
@@ -4226,10 +4231,15 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     - 默认板块（第3名到 LEADER_QUOTA_DEFAULT_THRESHOLD 之间）：LEADER_QUOTA_DEFAULT 只
     - 非热门板块（LEADER_QUOTA_DEFAULT_THRESHOLD 之后）：LEADER_QUOTA_COLD 只
     
-    筛选条件（由全局参数控制）：
-    - 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER
-    - 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-    - 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+    筛选条件（由全局参数控制，区分主板和非主板）：
+    - 主板股：
+      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER (默认2)
+      * 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER (默认20%)
+      * 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER (默认60%)
+    - 非主板股（创业板/科创板/北交所）：
+      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN (默认1)
+      * 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN (默认30%)
+      * 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN (默认70%)
     - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
     - 排除概念组：LEADER_EXCLUDE_CONCEPTS
     
@@ -4352,17 +4362,50 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
             candidate_df = group_df
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只股票, 名额{quota})")
 
-        # 筛选符合龙头条件的股票
-        # 1. 连板数门槛筛选
-        board_mask = candidate_df['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
+        # 筛选符合龙头条件的股票（区分主板和非主板）
+        # 首先确定每只股票的市场类型
+        def get_stock_market_type(stock_code):
+            """获取股票市场类型"""
+            try:
+                pure_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+                if pure_code.startswith(('sh', 'sz', 'bj')):
+                    pure_code = pure_code[2:]
+                return get_stock_market(pure_code)
+            except:
+                return 'main'  # 默认按主板处理
 
-        # 2. 涨幅门槛筛选（短周期或长周期满足一个即可）
-        short_mask = candidate_df['short_period_change'] >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-        long_mask = candidate_df['long_period_change'] >= MIN_LONG_PERIOD_CHANGE_FOR_LEADER
-        change_mask = short_mask | long_mask
+        candidate_df['market_type'] = candidate_df['stock_code'].apply(get_stock_market_type)
+
+        # 1. 连板数门槛筛选（根据市场类型）
+        def check_board_level(row):
+            if row['market_type'] == 'main':
+                return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
+            else:  # 非主板（创业板/科创板/北交所）
+                return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
+
+        board_mask = candidate_df.apply(check_board_level, axis=1)
+
+        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可）
+        def check_change_threshold(row):
+            if row['market_type'] == 'main':
+                short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
+                long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+            else:  # 非主板
+                short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+                long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+
+            short_ok = row['short_period_change'] >= short_threshold
+            long_ok = row['long_period_change'] >= long_threshold
+            return short_ok | long_ok
+
+        change_mask = candidate_df.apply(check_change_threshold, axis=1)
 
         # 3. 组合筛选条件
-        qualified_df = candidate_df[board_mask & change_mask]
+        qualified_df = candidate_df[board_mask & change_mask].copy()
+
+        # 删除临时添加的market_type列
+        if 'market_type' in qualified_df.columns:
+            qualified_df = qualified_df.drop(columns=['market_type'])
 
         if qualified_df.empty:
             print(f"    概念组 {concept_group} 无符合条件的股票")
