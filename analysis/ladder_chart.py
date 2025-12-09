@@ -95,19 +95,23 @@ DEBUG_MODE = False
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 2  # 主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 60.0  # 主板股最低长周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 70.0  # 主板股最低长周期涨幅门槛（%），min和max设成一样表示不要求长周期涨多少
+MAX_LONG_PERIOD_CHANGE_FOR_LEADER = 70.0  # 主板股最高长周期涨幅门槛（%，避免涨幅过高）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 70.0  # 非主板股最低长周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 25.0  # 非主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 75.0  # 非主板股最低长周期涨幅门槛（%）
+MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 75.0  # 非主板股最高长周期涨幅门槛（%，避免涨幅过高）
 
 # 【名额分配规则】按板块活跃度排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 4  # 最热板块（排名第1）
-LEADER_QUOTA_TOP2 = 3  # 次热板块（排名第2）
-LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第3到默认阈值之间）
+LEADER_QUOTA_TOP2 = 4  # 次热板块（排名第2）
+LEADER_QUOTA_TOP3 = 3  # 第三热板块（排名第3）
+LEADER_QUOTA_TOP4 = 3  # 第四热板块（排名第4）
+LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第5到默认阈值之间）
 LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
-LEADER_QUOTA_DEFAULT_THRESHOLD = 0.5  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+LEADER_QUOTA_DEFAULT_THRESHOLD = 0.2  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
@@ -4228,7 +4232,9 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     动态名额分配策略（由全局参数控制）：
     - 最热板块（第1名）：LEADER_QUOTA_TOP1 只
     - 次热板块（第2名）：LEADER_QUOTA_TOP2 只
-    - 默认板块（第3名到 LEADER_QUOTA_DEFAULT_THRESHOLD 之间）：LEADER_QUOTA_DEFAULT 只
+    - 第三热板块（第3名）：LEADER_QUOTA_TOP3 只
+    - 第四热板块（第4名）：LEADER_QUOTA_TOP4 只
+    - 默认板块（第5名到 LEADER_QUOTA_DEFAULT_THRESHOLD 之间）：LEADER_QUOTA_DEFAULT 只
     - 非热门板块（LEADER_QUOTA_DEFAULT_THRESHOLD 之后）：LEADER_QUOTA_COLD 只
     
     筛选条件（由全局参数控制，区分主板和非主板）：
@@ -4337,8 +4343,12 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
             quota = LEADER_QUOTA_TOP1  # 最热门
         elif rank == 2:
             quota = LEADER_QUOTA_TOP2  # 次热门
-        elif rank <= total_concept_count * LEADER_QUOTA_DEFAULT_THRESHOLD:
-            quota = LEADER_QUOTA_DEFAULT  # 默认（前N%）
+        elif rank == 3:
+            quota = LEADER_QUOTA_TOP3  # 第三热门
+        elif rank == 4:
+            quota = LEADER_QUOTA_TOP4  # 第四热门
+        elif rank >= 5 and rank <= total_concept_count * LEADER_QUOTA_DEFAULT_THRESHOLD:
+            quota = LEADER_QUOTA_DEFAULT  # 默认（第5名到前N%）
         else:
             quota = LEADER_QUOTA_COLD  # 非热门（后N%）
 
@@ -4394,18 +4404,23 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
         board_mask = candidate_df.apply(check_board_level, axis=1)
 
-        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可）
+        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可，且长周期涨幅不能超过上限）
         def check_change_threshold(row):
             if row['market_type'] == 'main':
                 short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
                 long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+                long_max_threshold = MAX_LONG_PERIOD_CHANGE_FOR_LEADER
             else:  # 非主板
                 short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
                 long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+                long_max_threshold = MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
 
             short_ok = row['short_period_change'] >= short_threshold
             long_ok = row['long_period_change'] >= long_threshold
-            return short_ok | long_ok
+            long_not_too_high = row['long_period_change'] < long_max_threshold
+
+            # 短周期或长周期满足一个即可，且长周期涨幅不能超过上限
+            return (short_ok | long_ok) & long_not_too_high
 
         change_mask = candidate_df.apply(check_change_threshold, axis=1)
 
@@ -4423,14 +4438,28 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         qualified_concepts += 1
         print(f"    概念组 {concept_group} 有{len(qualified_df)}只符合条件的股票")
 
-        # 排序逻辑：优先按长周期涨跌幅，再按最高连板数，最后按短周期涨跌幅
+        # 选领涨股的排序逻辑，排序后跳着选
         qualified_df = qualified_df.sort_values(
-            by=['long_period_change', 'max_board_level', 'short_period_change'],
+            by=['short_period_change', 'long_period_change', 'max_board_level'],
             ascending=[False, False, False]
         )
 
-        # 根据动态名额选出龙头
-        leaders = qualified_df.head(quota)
+        # 根据动态名额选出龙头（跳着取：先取偶数索引，名额未满再取奇数索引）
+        total_count = len(qualified_df)
+        selected_indices = []
+
+        # 先取偶数索引（第1、3、5...只）
+        even_indices = [i for i in range(0, total_count, 2)]
+        selected_indices.extend(even_indices[:quota])
+
+        # 如果名额还没满，再取奇数索引（第2、4、6...只）
+        if len(selected_indices) < quota:
+            odd_indices = [i for i in range(1, total_count, 2)]
+            remaining_quota = quota - len(selected_indices)
+            selected_indices.extend(odd_indices[:remaining_quota])
+
+        # 保持选择顺序（先偶数索引，再奇数索引），不重新排序
+        leaders = qualified_df.iloc[selected_indices]
         print(f"    从概念组 {concept_group} 选出{len(leaders)}只龙头股")
 
         # 添加到龙头股列表
