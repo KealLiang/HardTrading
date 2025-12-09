@@ -4281,10 +4281,19 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     # 为DataFrame添加必要的指标
     temp_df = concept_grouped_df.copy()
 
-    # 确保long_period_change列存在，如果不存在则填充默认值
+    # 确保long_period_change列存在，如果不存在则重新计算（calculate_stock_period_change已有lru_cache缓存）
     if 'long_period_change' not in temp_df.columns:
-        print("  long_period_change列不存在，将使用默认值0.0")
-        temp_df['long_period_change'] = 0.0
+        end_date_str = date_mapping.get(formatted_trading_days[-1])
+        if end_date_str:
+            temp_df['long_period_change'] = temp_df.apply(
+                lambda row: calculate_stock_period_change(
+                    row['stock_code'],
+                    get_n_trading_days_before(end_date_str, period_days_long).replace('-', ''),
+                    end_date_str
+                ) or 0.0, axis=1
+            )
+        else:
+            temp_df['long_period_change'] = 0.0
 
     # 计算额外的指标
     metrics = temp_df.apply(calculate_additional_metrics, axis=1, result_type='expand')
@@ -4352,14 +4361,14 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
         # 根据开关决定候选范围
         if SELECT_LEADERS_FROM_ACTIVE_ONLY:
-            # 只从活跃股（未被折叠）中选择
+            # 只从活跃股（未被折叠）中选择，使用.copy()确保数据完整性
             candidate_df = group_df[~group_df.apply(
                 lambda row: should_collapse_row(row, formatted_trading_days, date_mapping), axis=1
-            )]
+            )].copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只, 活跃{len(candidate_df)}只, 名额{quota})")
         else:
-            # 从全部股票中选择
-            candidate_df = group_df
+            # 从全部股票中选择，使用.copy()确保数据完整性
+            candidate_df = group_df.copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只股票, 名额{quota})")
 
         # 筛选符合龙头条件的股票（区分主板和非主板）
