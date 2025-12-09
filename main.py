@@ -909,7 +909,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20251010'  # 调整为Excel中有数据的日期范围
+    start_date = '20251020'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
@@ -918,8 +918,7 @@ def generate_ladder_chart():
 
     # 定义优先原因列表
     priority_reasons = [
-        "商业航天",
-        "海峡两岸",
+        # "海峡两岸",
     ]
     # 定义低优先原因列表（只有在没有其他分组可匹配时才使用）
     low_priority_reasons = [
@@ -1136,12 +1135,12 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
     # daily_routine()
-    full_scan_routine()
+    # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
