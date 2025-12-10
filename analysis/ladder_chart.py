@@ -84,9 +84,9 @@ NEW_HIGH_MARKER = '!!'
 
 # 关注度榜加粗相关参数
 # 关注度榜取前N名
-ATTENTION_TOP_N = 10
+ATTENTION_TOP_N = 15
 # 统计最近N个交易日
-ATTENTION_DAYS_WINDOW = 2
+ATTENTION_DAYS_WINDOW = 3
 
 # 调试模式开关（控制详细分析日志的输出）
 DEBUG_MODE = False
