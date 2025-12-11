@@ -4440,26 +4440,12 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
         # 选领涨股的排序逻辑，排序后跳着选
         qualified_df = qualified_df.sort_values(
-            by=['short_period_change', 'long_period_change', 'max_board_level'],
+            by=['long_period_change', 'short_period_change', 'max_board_level'],
             ascending=[False, False, False]
         )
 
-        # 根据动态名额选出龙头（跳着取：先取偶数索引，名额未满再取奇数索引）
-        total_count = len(qualified_df)
-        selected_indices = []
-
-        # 先取偶数索引（第1、3、5...只）
-        even_indices = [i for i in range(0, total_count, 2)]
-        selected_indices.extend(even_indices[:quota])
-
-        # 如果名额还没满，再取奇数索引（第2、4、6...只）
-        if len(selected_indices) < quota:
-            odd_indices = [i for i in range(1, total_count, 2)]
-            remaining_quota = quota - len(selected_indices)
-            selected_indices.extend(odd_indices[:remaining_quota])
-
-        # 保持选择顺序（先偶数索引，再奇数索引），不重新排序
-        leaders = qualified_df.iloc[selected_indices]
+        # 根据动态名额选出龙头
+        leaders = qualified_df.head(quota)
         print(f"    从概念组 {concept_group} 选出{len(leaders)}只龙头股")
 
         # 添加到龙头股列表
