@@ -649,10 +649,10 @@ def full_scan_routine(candidate_model='a'):
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
         (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
          f"记录突破策略{candidate_model}扫描结果"),
-        (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
-        (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
-        (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'),
-         f"记录止跌反弹策略{candidate_model}扫描结果"),
+        # (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
+        # (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
+        # (lambda: record_scan_to_history(f'bin/candidate_stocks_rebound_{candidate_model}', f'rebound_{candidate_model}'),
+        #  f"记录止跌反弹策略{candidate_model}扫描结果"),
         # (lambda: find_candidate_stocks_weekly_growth(), "筛选周增长的候选股"),
         # (lambda: strategy_scan('b'), "执行突破策略扫描b"),
         # (lambda: generate_comparison_charts('b'), "生成突破策略对比图b"),
@@ -1135,12 +1135,12 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
     # daily_routine()
-    # full_scan_routine()
+    full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
