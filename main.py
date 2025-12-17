@@ -1139,8 +1139,8 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
-    full_scan_routine()
+    daily_routine()
+    # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
