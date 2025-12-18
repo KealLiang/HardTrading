@@ -408,7 +408,7 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
     board_days = all_board_data.get(formatted_day)
 
     # 检查是否为炸板股票（优先使用缓存，如果没有缓存则重新计算）
-    from analysis.ladder_chart import get_cached_zaban_format, check_stock_in_zaban
+    from analysis.helper.ladder_chart_helpers import get_cached_zaban_format, check_stock_in_zaban
     is_zaban = get_cached_zaban_format(pure_stock_code, formatted_day)
     if is_zaban is None:
         # 如果缓存中没有，重新计算
@@ -598,15 +598,14 @@ def fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_
             if date_yyyymmdd_check:
                 # 检查是否有连板数据或成交量数据
                 if (all_board_data.get(formatted_day_reverse) is not None or
-                    get_stock_daily_volume_change(pure_stock_code, date_yyyymmdd_check) is not None):
+                        get_stock_daily_volume_change(pure_stock_code, date_yyyymmdd_check) is not None):
                     last_data_date = date_yyyymmdd_check
                     break
 
         volume_trend = ""
         if last_data_date:
             volume_trend = get_volume_trend_indicator(pure_stock_code, last_data_date,
-                                                    formatted_trading_days, date_mapping)
-
+                                                      formatted_trading_days, date_mapping)
 
         warning_cell = ws.cell(row=row_idx, column=warning_col, value=volume_trend)
         warning_cell.border = BORDER_STYLE

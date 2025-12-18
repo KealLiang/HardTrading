@@ -13,6 +13,28 @@ from openpyxl.utils import get_column_letter
 from analysis.concept_analyzer import (
     analyze_concepts_from_ladder_data, format_concept_analysis_summary
 )
+from analysis.helper.ladder_chart_helpers import (
+    # 常量
+    VOLUME_DAYS, VOLUME_RATIO_THRESHOLD, VOLUME_RATIO_LOW_THRESHOLD,
+    NEW_HIGH_MARKER,
+    MA_SLOPE_DAYS, HIGH_GAIN_TRACKING_THRESHOLD, COLLAPSE_DAYS_AFTER_BREAK,
+    # 缓存管理
+    clear_helper_caches, cache_zaban_format,  # 股票数据
+    get_stock_data_df, get_stock_data, get_stock_daily_pct_change,
+    # 成交量
+    add_volume_ratio_to_text,
+    # 新高标记
+    get_new_high_markers_cached,
+    # MA斜率
+    get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics,
+    # 跟踪判断
+    clear_high_gain_cache,
+    should_track_after_break as _should_track_after_break,
+    should_track_before_entry, calculate_last_board_date,
+    should_collapse_row as _should_collapse_row,
+    # 炸板检查
+    check_stock_in_zaban, check_stock_in_shouban,
+)
 from analysis.loader.fupan_data_loader import (
     OUTPUT_FILE, load_stock_data
 )
@@ -22,7 +44,6 @@ from analysis.momo_shangzhang_processor import (
 from decorators.practical import timer
 from utils.date_util import get_trading_days, count_trading_days_between, get_n_trading_days_before, \
     get_valid_trading_date_pair
-from utils.file_util import read_stock_data
 from utils.stock_util import get_stock_market
 from utils.theme_color_util import (
     extract_reasons, get_reason_colors, get_stock_reason_group, normalize_reason,
@@ -58,29 +79,9 @@ PERIOD_DAYS_CHANGE = 10
 # 计算最近30天的涨跌幅
 PERIOD_DAYS_LONG = 30
 
-# 持续跟踪的涨幅阈值，如果股票在PERIOD_DAYS_CHANGE天内涨幅超过此值，即便没有涨停也会继续跟踪
-# 例如设置为15，表示如果股票在最近10天内涨幅超过15%，即便没有涨停也会继续跟踪
-HIGH_GAIN_TRACKING_THRESHOLD = 15.0
-
-# 高涨幅计算缓存，避免重复计算
-_high_gain_cache = {}
-
-# 新高标记缓存，避免重复计算
-_new_high_markers_cache = None
-
-# 成交量分析相关参数
-# 计算成交量比的天数，当天成交量与前X天平均成交量的比值
-VOLUME_DAYS = 4
-# 成交量比阈值，超过该值则在单元格中显示成交量比
-VOLUME_RATIO_THRESHOLD = 2.2
-# 成交量比低阈值，低于该值则在单元格中显示成交量比
-VOLUME_RATIO_LOW_THRESHOLD = 0.4
-
-# 新高分析相关参数
-# 计算新高的天数，当天收盘价与前X天最高价的比较
-NEW_HIGH_DAYS = 200
-# 新高标记符号
-NEW_HIGH_MARKER = '!!'
+# 注意：以下常量已移动到 ladder_chart_helpers.py：
+# - HIGH_GAIN_TRACKING_THRESHOLD, VOLUME_DAYS, VOLUME_RATIO_THRESHOLD, VOLUME_RATIO_LOW_THRESHOLD
+# - NEW_HIGH_DAYS, NEW_HIGH_MARKER, MA_SLOPE_DAYS, MA_SLOPE_THRESHOLD_PCT, COLLAPSE_DAYS_AFTER_BREAK
 
 # 关注度榜加粗相关参数
 # 关注度榜取前N名
@@ -95,14 +96,14 @@ DEBUG_MODE = False
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 2  # 主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 70.0  # 主板股最低长周期涨幅门槛（%），min和max设成一样表示不要求长周期涨多少
-MAX_LONG_PERIOD_CHANGE_FOR_LEADER = 70.0  # 主板股最高长周期涨幅门槛（%，避免涨幅过高）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 80.0  # 主板股最低长周期涨幅门槛（%），min和max设成一样表示不要求长周期涨多少
+MAX_LONG_PERIOD_CHANGE_FOR_LEADER = 120.0  # 主板股最高长周期涨幅门槛（%，避免涨幅过高）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 25.0  # 非主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 75.0  # 非主板股最低长周期涨幅门槛（%）
-MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 75.0  # 非主板股最高长周期涨幅门槛（%，避免涨幅过高）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 90.0  # 非主板股最低长周期涨幅门槛（%）
+MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 130.0  # 非主板股最高长周期涨幅门槛（%，避免涨幅过高）
 
 # 【名额分配规则】按板块活跃度排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 4  # 最热板块（排名第1）
@@ -120,22 +121,8 @@ LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的�
 # 【工作表管理】
 MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
 
-# 均线斜率分析相关参数
-# 计算均线斜率的天数
-MA_SLOPE_DAYS = 5
-# 均线斜率显示阈值，只有相对变化超过此阈值才显示趋势标记
-MA_SLOPE_THRESHOLD_PCT = 2  # 单位：%，均线日变化率阈值
-# 均线斜率缓存
-_ma_slope_cache = {}
-
-# 炸板格式缓存，用于在A和B sheet之间共享炸板格式信息
-_zaban_format_cache = {}
-
 # 关注度榜前N名股票缓存
 _top_attention_stocks_cache = None
-
-# 斜率统计信息（用于分析和调试）
-_slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -161,415 +148,11 @@ PERIOD_CHANGE_COLORS = {
 
 def clear_caches():
     """清理所有缓存"""
-    global _high_gain_cache, _new_high_markers_cache, _ma_slope_cache, _slope_stats, _zaban_format_cache, _top_attention_stocks_cache
-    _high_gain_cache.clear()
-    _new_high_markers_cache = None
-    _ma_slope_cache.clear()
-    _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
-    _zaban_format_cache.clear()
+    global _top_attention_stocks_cache
+    # 清理 helpers 模块的缓存
+    clear_helper_caches()
     _top_attention_stocks_cache = None
     print("已清理所有缓存")
-
-
-def cache_zaban_format(stock_code, formatted_day, is_zaban):
-    """
-    缓存炸板格式信息
-
-    Args:
-        stock_code: 股票代码
-        formatted_day: 格式化的日期
-        is_zaban: 是否为炸板
-    """
-    global _zaban_format_cache
-    key = f"{stock_code}_{formatted_day}"
-    _zaban_format_cache[key] = is_zaban
-
-
-def get_cached_zaban_format(stock_code, formatted_day):
-    """
-    获取缓存的炸板格式信息
-
-    Args:
-        stock_code: 股票代码
-        formatted_day: 格式化的日期
-
-    Returns:
-        bool: 是否为炸板，如果缓存中没有则返回None
-    """
-    global _zaban_format_cache
-    key = f"{stock_code}_{formatted_day}"
-    return _zaban_format_cache.get(key)
-
-
-@lru_cache(maxsize=1000)
-def get_stock_data_df(stock_code):
-    """缓存股票文件读取结果"""
-    return read_stock_data(stock_code)
-
-
-@lru_cache(maxsize=1000)
-def get_stock_data(stock_code, date_str_yyyymmdd):
-    """
-    获取指定股票在特定日期的数据，使用缓存避免重复读取文件
-
-    Args:
-        stock_code: 股票代码
-        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-
-    Returns:
-        tuple: (DataFrame, 目标行, 目标索引) 如果数据不存在则返回(None, None, None)
-    """
-    try:
-        if not stock_code:
-            return None, None, None
-
-        # 目标日期（YYYY-MM-DD格式）
-        target_date = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
-
-        df = get_stock_data_df(stock_code)
-
-        # 如果没有找到文件
-        if df is None:
-            return None, None, None
-
-        # 查找目标日期的数据
-        target_row = df[df['日期'] == target_date]
-
-        # 如果找到数据
-        if not target_row.empty:
-            # 获取目标日期的索引
-            target_idx = df[df['日期'] == target_date].index[0]
-            return df, target_row, target_idx
-
-        # 如果没有找到对应日期的数据
-        return df, None, None
-
-    except Exception as e:
-        print(f"获取股票 {stock_code} 在 {date_str_yyyymmdd} 的数据时出错: {e}")
-        return None, None, None
-
-
-def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd):
-    """
-    获取指定股票在特定日期的涨跌幅
-
-    Args:
-        stock_code: 股票代码
-        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-
-    Returns:
-        float: 涨跌幅百分比，如果数据不存在则返回None
-    """
-    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd)
-
-    if target_row is not None and not target_row.empty:
-        return target_row['涨跌幅'].values[0]
-
-    return None
-
-
-def get_volume_ratio(stock_code, date_str_yyyymmdd):
-    """
-    获取指定股票在特定日期的成交量比(当天成交量/前N天平均成交量)
-
-    Args:
-        stock_code: 股票代码
-        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
-
-    Returns:
-        tuple: (成交量比, 是否超过高阈值, 是否低于低阈值) 如果数据不存在则返回(None, False, False)
-    """
-    df, target_row, target_idx = get_stock_data(stock_code, date_str_yyyymmdd)
-
-    if df is None or target_row is None or target_row.empty:
-        return None, False, False
-
-    try:
-        # 获取当天成交量
-        current_volume = target_row['成交量'].values[0]
-
-        # 确保有足够的历史数据来计算平均成交量
-        if target_idx >= VOLUME_DAYS:
-            # 获取前VOLUME_DAYS天的数据
-            prev_volumes = df.iloc[target_idx - VOLUME_DAYS:target_idx]['成交量'].values
-
-            # 计算平均成交量
-            avg_volume = prev_volumes.mean()
-
-            # 计算成交量比
-            if avg_volume > 0:
-                volume_ratio = current_volume / avg_volume
-
-                # 判断是否超过高阈值或低于低阈值
-                is_high_volume = volume_ratio >= VOLUME_RATIO_THRESHOLD
-                is_low_volume = volume_ratio <= VOLUME_RATIO_LOW_THRESHOLD
-
-                return volume_ratio, is_high_volume, is_low_volume
-
-    except Exception as e:
-        print(f"计算股票 {stock_code} 在 {date_str_yyyymmdd} 的成交量比时出错: {e}")
-
-    return None, False, False
-
-
-def add_volume_ratio_to_text(text, stock_code, date_str_yyyymmdd):
-    """
-    根据成交量比向文本添加成交量信息
-
-    Args:
-        text: 原始文本
-        stock_code: 股票代码
-        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
-
-    Returns:
-        str: 添加成交量信息后的文本
-    """
-    volume_ratio, is_high_volume, is_low_volume = get_volume_ratio(stock_code, date_str_yyyymmdd)
-
-    if volume_ratio is not None and (is_high_volume or is_low_volume):
-        return f"{text}[{volume_ratio:.1f}]"
-
-    return text
-
-
-def is_new_high(stock_code, date_str_yyyymmdd, days=NEW_HIGH_DAYS):
-    """
-    检查指定股票在特定日期是否突破新高
-
-    Args:
-        stock_code: 股票代码
-        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
-        days: 检查新高的天数，默认为NEW_HIGH_DAYS
-
-    Returns:
-        bool: 是否突破新高
-    """
-    try:
-        # 读取股票数据
-        stock_data = get_stock_data_df(stock_code)
-        if stock_data is None or stock_data.empty:
-            return False
-
-        # 将日期字符串转换为datetime格式，然后转为字符串格式匹配数据
-        target_date_str = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
-
-        # 找到目标日期的数据
-        target_row = stock_data[stock_data['日期'] == target_date_str]
-        if target_row.empty:
-            return False
-
-        target_idx = target_row.index[0]
-        current_close = target_row['收盘'].values[0]
-
-        # 确保有足够的历史数据
-        if target_idx < days:
-            # 如果历史数据不足，使用所有可用的历史数据
-            historical_data = stock_data.iloc[:target_idx]
-        else:
-            # 获取前days天的数据
-            historical_data = stock_data.iloc[target_idx - days:target_idx]
-
-        if historical_data.empty:
-            return False
-
-        # 获取历史最高价
-        historical_high = historical_data['最高'].max()
-
-        # 判断是否突破新高（当前收盘价大于历史最高价）
-        return current_close > historical_high
-
-    except Exception as e:
-        print(f"检查股票 {stock_code} 在 {date_str_yyyymmdd} 是否突破新高时出错: {e}")
-        return False
-
-
-def is_new_high_cached(stock_data, date_str_yyyymmdd, days=NEW_HIGH_DAYS):
-    """
-    使用缓存的股票数据检查是否突破新高（性能优化版）
-
-    Args:
-        stock_data: 已缓存的股票数据DataFrame
-        date_str_yyyymmdd: 日期字符串(YYYYMMDD格式)
-        days: 检查新高的天数，默认为NEW_HIGH_DAYS
-
-    Returns:
-        bool: 是否突破新高
-    """
-    try:
-        if stock_data is None or stock_data.empty:
-            return False
-
-        # 将日期字符串转换为匹配格式
-        target_date_str = f"{date_str_yyyymmdd[:4]}-{date_str_yyyymmdd[4:6]}-{date_str_yyyymmdd[6:8]}"
-
-        # 找到目标日期的数据
-        target_row = stock_data[stock_data['日期'] == target_date_str]
-        if target_row.empty:
-            return False
-
-        target_idx = target_row.index[0]
-        current_close = target_row['收盘'].values[0]
-
-        # 确保有足够的历史数据
-        if target_idx < days:
-            # 如果历史数据不足，使用所有可用的历史数据
-            historical_data = stock_data.iloc[:target_idx]
-        else:
-            # 获取前days天的数据
-            historical_data = stock_data.iloc[target_idx - days:target_idx]
-
-        if historical_data.empty:
-            return False
-
-        # 获取历史最高价
-        historical_high = historical_data['最高'].max()
-
-        # 判断是否突破新高（当前收盘价大于历史最高价）
-        return current_close > historical_high
-
-    except Exception:
-        # 静默处理错误，避免大量错误输出影响性能
-        return False
-
-
-def calculate_new_high_markers(result_df, formatted_trading_days, date_mapping):
-    """
-    计算每只股票的新高标记日期（优化版）
-
-    Args:
-        result_df: 显著连板股票DataFrame
-        formatted_trading_days: 格式化的交易日列表
-        date_mapping: 日期映射
-
-    Returns:
-        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
-    """
-    new_high_markers = {}
-    stock_data_cache = {}  # 缓存股票数据，避免重复读取
-
-    print(f"开始计算{len(result_df)}只股票的新高标记...")
-
-    for idx, (_, stock) in enumerate(result_df.iterrows()):
-        if idx % 50 == 0:  # 每50只股票打印一次进度
-            print(f"新高标记计算进度: {idx}/{len(result_df)}")
-
-        stock_code = stock['stock_code']
-        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
-            pure_stock_code = pure_stock_code[2:]
-
-        # 缓存股票数据
-        if pure_stock_code not in stock_data_cache:
-            stock_data_cache[pure_stock_code] = get_stock_data_df(pure_stock_code)
-
-        stock_data = stock_data_cache[pure_stock_code]
-        if stock_data is None or stock_data.empty:
-            continue
-
-        latest_new_high_date = None
-
-        # 只检查跟踪期内的交易日，避免非跟踪日出现标记
-        for formatted_day in formatted_trading_days:
-            date_yyyymmdd = date_mapping.get(formatted_day)
-            if date_yyyymmdd and is_new_high_cached(stock_data, date_yyyymmdd):
-                latest_new_high_date = formatted_day
-
-        if latest_new_high_date:
-            new_high_markers[stock_code] = latest_new_high_date
-
-    print(f"新高标记计算完成，共找到{len(new_high_markers)}只股票有新高标记")
-    return new_high_markers
-
-
-def calculate_new_high_markers_fast(result_df, formatted_trading_days, date_mapping):
-    """
-    快速计算新高标记（进一步优化版）
-
-    Args:
-        result_df: 显著连板股票DataFrame
-        formatted_trading_days: 格式化的交易日列表
-        date_mapping: 日期映射
-
-    Returns:
-        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
-    """
-    new_high_markers = {}
-
-    # 预处理：提取所有需要的股票代码
-    stock_codes = set()
-    stock_code_mapping = {}  # 完整代码到纯代码的映射
-
-    for _, stock in result_df.iterrows():
-        stock_code = stock['stock_code']
-        pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-        if pure_stock_code.startswith(('sh', 'sz', 'bj')):
-            pure_stock_code = pure_stock_code[2:]
-
-        stock_codes.add(pure_stock_code)
-        stock_code_mapping[stock_code] = pure_stock_code
-
-    print(f"开始批量加载{len(stock_codes)}只股票的数据...")
-
-    # 批量加载股票数据
-    stock_data_cache = {}
-    loaded_count = 0
-    for pure_code in stock_codes:
-        stock_data_cache[pure_code] = get_stock_data_df(pure_code)
-        loaded_count += 1
-        if loaded_count % 100 == 0:
-            print(f"数据加载进度: {loaded_count}/{len(stock_codes)}")
-
-    print(f"开始计算{len(result_df)}只股票的新高标记...")
-
-    # 批量计算新高标记
-    for idx, (_, stock) in enumerate(result_df.iterrows()):
-        if idx % 100 == 0:  # 每100只股票打印一次进度
-            print(f"新高标记计算进度: {idx}/{len(result_df)}")
-
-        stock_code = stock['stock_code']
-        pure_stock_code = stock_code_mapping[stock_code]
-
-        stock_data = stock_data_cache.get(pure_stock_code)
-        if stock_data is None or stock_data.empty:
-            continue
-
-        latest_new_high_date = None
-
-        # 只检查跟踪期内的交易日
-        for formatted_day in formatted_trading_days:
-            date_yyyymmdd = date_mapping.get(formatted_day)
-            if date_yyyymmdd and is_new_high_cached(stock_data, date_yyyymmdd):
-                latest_new_high_date = formatted_day
-
-        if latest_new_high_date:
-            new_high_markers[stock_code] = latest_new_high_date
-
-    print(f"新高标记计算完成，共找到{len(new_high_markers)}只股票有新高标记")
-    return new_high_markers
-
-
-def get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping):
-    """
-    获取缓存的新高标记，避免重复计算
-
-    Args:
-        result_df: 显著连板股票DataFrame
-        formatted_trading_days: 格式化的交易日列表
-        date_mapping: 日期映射
-
-    Returns:
-        dict: 股票代码到新高标记日期的映射 {stock_code: formatted_date}
-    """
-    global _new_high_markers_cache
-
-    # 如果缓存为空，则计算新高标记
-    if _new_high_markers_cache is None:
-        print("首次计算新高标记...")
-        _new_high_markers_cache = calculate_new_high_markers_fast(result_df, formatted_trading_days, date_mapping)
-    else:
-        print(f"使用缓存的新高标记，共{len(_new_high_markers_cache)}只股票有新高标记")
-
-    return _new_high_markers_cache
 
 
 def load_top_attention_stocks(end_date_yyyymmdd, days_window=ATTENTION_DAYS_WINDOW, top_n=ATTENTION_TOP_N):
@@ -2086,393 +1669,23 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
 
 def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE):
     """
-    判断是否应该跟踪断板后的股票
-
-    现在不仅跟踪断板后的连板股，也跟踪持续高涨幅的非涨停股票
-
-    优化策略：
-    1. 优先检查传统连板跟踪逻辑
-    2. 只有在传统逻辑返回False时才检查高涨幅
-    3. 使用缓存避免重复计算
-
-    Args:
-        stock: 股票数据
-        current_date_obj: 当前日期对象
-        max_tracking_days: 断板后跟踪的最大天数
-        period_days: 计算涨跌幅的周期天数
-
-    Returns:
-        bool: 是否应该跟踪
+    判断是否应该跟踪断板后的股票（包装函数）
     """
-    # 如果没有设置最大跟踪天数，始终跟踪
-    if max_tracking_days is None:
-        return True
-
-    # 优先检查传统的连板跟踪逻辑
-    last_board_date = stock.get('last_board_date')
-    if last_board_date:
-        # 计算当前日期与最后连板日期的交易日天数差
-        days_after_break = count_trading_days_between(last_board_date, current_date_obj)
-        # 如果在跟踪期限内，直接返回True，无需计算涨跌幅
-        if days_after_break <= max_tracking_days:
-            return True
-        # 如果超过跟踪期限，检查是否为高涨幅股票
-        elif should_track_high_gain_stock(stock['stock_code'], current_date_obj, period_days):
-            return True
-        else:
-            return False
-
-    # 如果没有连板记录，检查是否为高涨幅股票
-    return should_track_high_gain_stock(stock['stock_code'], current_date_obj, period_days)
-
-
-def should_track_high_gain_stock(stock_code, current_date_obj, period_days):
-    """
-    判断是否应该跟踪高涨幅股票（即便没有涨停）
-
-    优化策略：
-    1. 使用缓存避免重复计算
-    2. 缓存键包含股票代码、日期和周期天数
-
-    Args:
-        stock_code: 股票代码
-        current_date_obj: 当前日期对象
-        period_days: 计算涨跌幅的周期天数
-
-    Returns:
-        bool: 是否应该跟踪
-    """
-    global _high_gain_cache
-
-    try:
-        current_date_str = current_date_obj.strftime('%Y%m%d')
-
-        # 创建缓存键
-        cache_key = f"{stock_code}_{current_date_str}_{period_days}"
-
-        # 检查缓存
-        if cache_key in _high_gain_cache:
-            return _high_gain_cache[cache_key]
-
-        # 计算当前日期前period_days个交易日的开始日期
-        start_date = get_n_trading_days_before(current_date_str, period_days)
-
-        if '-' in start_date:
-            start_date = start_date.replace('-', '')
-
-        # 计算期间涨跌幅
-        period_change = calculate_stock_period_change(stock_code, start_date, current_date_str)
-
-        # 判断是否超过阈值
-        result = period_change is not None and period_change >= HIGH_GAIN_TRACKING_THRESHOLD
-
-        # 缓存结果
-        _high_gain_cache[cache_key] = result
-
-        return result
-
-    except Exception:
-        # 如果计算出错，缓存False结果，不影响正常跟踪逻辑
-        _high_gain_cache[cache_key] = False
-        return False
-
-
-def clear_high_gain_cache():
-    """
-    清理高涨幅计算缓存，释放内存
-    """
-    global _high_gain_cache
-    _high_gain_cache.clear()
-
-
-def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
-    """
-    计算股票N日均线的斜率（百分比变化率）
-    
-    Args:
-        stock_code: 股票代码
-        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
-        ma_days: 均线天数，默认为MA_SLOPE_DAYS
-        
-    Returns:
-        float: 均线日变化率（%），正数表示上升，负数表示下降，None表示数据不足
-    """
-    global _ma_slope_cache
-
-    try:
-        # 创建缓存键
-        cache_key = f"{stock_code}_{end_date_yyyymmdd}_{ma_days}"
-
-        # 检查缓存
-        if cache_key in _ma_slope_cache:
-            return _ma_slope_cache[cache_key]
-
-        # 获取股票数据
-        df = get_stock_data_df(stock_code)
-        if df is None or df.empty:
-            _ma_slope_cache[cache_key] = None
-            return None
-
-        # 转换结束日期格式
-        end_date_str = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
-
-        # 找到结束日期的位置
-        end_row = df[df['日期'] == end_date_str]
-        if end_row.empty:
-            # 如果找不到确切日期，找最接近的日期
-            all_dates = pd.to_datetime(df['日期'])
-            end_date_dt = pd.to_datetime(end_date_str)
-            valid_dates = all_dates[all_dates <= end_date_dt]
-            if valid_dates.empty:
-                _ma_slope_cache[cache_key] = None
-                return None
-            closest_date = valid_dates.max()
-            end_idx = df[df['日期'] == closest_date.strftime('%Y-%m-%d')].index[0]
-        else:
-            end_idx = end_row.index[0]
-
-        # 确保有足够的数据计算均线和斜率
-        # 需要至少ma_days + 2天的数据来计算斜率（至少需要2个均线点）
-        min_required_days = ma_days + 2
-        if end_idx < min_required_days - 1:
-            _ma_slope_cache[cache_key] = None
-            return None
-
-        # 获取用于计算的数据段
-        data_segment = df.iloc[end_idx - min_required_days + 1:end_idx + 1]
-
-        # 计算均线
-        data_segment = data_segment.copy()
-        data_segment['ma'] = data_segment['收盘'].rolling(window=ma_days).mean()
-
-        # 获取有效的均线数据（去除NaN）
-        ma_data = data_segment['ma'].dropna()
-        if len(ma_data) < 2:
-            _ma_slope_cache[cache_key] = None
-            return None
-
-        # 计算斜率：使用最后两个均线值的相对变化率
-        current_ma = ma_data.iloc[-1]
-        previous_ma = ma_data.iloc[-2]
-
-        # 斜率 = (最新均线值 - 前一个均线值) / 前一个均线值 * 100，转换为百分比
-        if previous_ma != 0:
-            slope_pct = ((current_ma - previous_ma) / previous_ma) * 100
-        else:
-            slope_pct = 0.0  # 避免除零错误
-
-        # 更新斜率统计信息
-        global _slope_stats
-        _slope_stats['min'] = min(_slope_stats['min'], slope_pct)
-        _slope_stats['max'] = max(_slope_stats['max'], slope_pct)
-        _slope_stats['count'] += 1
-        _slope_stats['sum'] += slope_pct
-
-        # 调试信息：记录斜率范围（可选，用于分析实际取值范围）
-        # print(f"DEBUG: {stock_code} 斜率={slope_pct:.4f}%, 均线值={current_ma:.2f}->{previous_ma:.2f}")
-
-        # 缓存结果
-        _ma_slope_cache[cache_key] = slope_pct
-        return slope_pct
-
-    except Exception as e:
-        print(f"计算股票 {stock_code} 在 {end_date_yyyymmdd} 的均线斜率时出错: {e}")
-        _ma_slope_cache[cache_key] = None
-        return None
-
-
-def get_ma_slope_indicator(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
-    """
-    获取均线斜率指示符
-    
-    Args:
-        stock_code: 股票代码
-        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
-        ma_days: 均线天数，默认为MA_SLOPE_DAYS
-        
-    Returns:
-        str: '↑' 表示明显上升趋势，'↓' 表示明显下降趋势，'' 表示数据不足或趋势不明显
-    """
-    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
-
-    if slope_pct is None:
-        return ''  # 数据不足时不显示标记
-
-    # 只有当斜率的绝对值超过百分比阈值时才显示标记
-    if abs(slope_pct) < MA_SLOPE_THRESHOLD_PCT:
-        return ''  # 趋势不够明显，不显示标记
-    elif slope_pct > 0:
-        return '↑'  # 明显上升趋势
-    else:
-        return '↓'  # 明显下降趋势
-
-
-def clear_ma_slope_cache():
-    """
-    清理均线斜率计算缓存，释放内存
-    """
-    global _ma_slope_cache
-    _ma_slope_cache.clear()
-
-
-def print_slope_statistics():
-    """
-    打印均线斜率的统计信息，帮助分析合适的阈值
-    """
-    global _slope_stats
-
-    if _slope_stats['count'] == 0:
-        print("📊 均线斜率统计：无数据")
-        return
-
-    avg_slope = _slope_stats['sum'] / _slope_stats['count']
-
-    print(f"📊 均线斜率统计信息 (基于{_slope_stats['count']}个样本):")
-    print(f"   最小值: {_slope_stats['min']:.4f}%")
-    print(f"   最大值: {_slope_stats['max']:.4f}%")
-    print(f"   平均值: {avg_slope:.4f}%")
-    print(f"   当前阈值: ±{MA_SLOPE_THRESHOLD_PCT:.2f}% (绝对值小于此值不显示标记)")
-
-    # 计算在当前阈值下会显示标记的比例
-    if _slope_stats['count'] > 0:
-        # 这里只是估算，实际需要遍历所有计算过的斜率值
-        range_width = _slope_stats['max'] - _slope_stats['min']
-        threshold_range = 2 * MA_SLOPE_THRESHOLD_PCT  # 上下阈值范围
-        estimated_filtered_ratio = max(0, (range_width - threshold_range) / range_width) if range_width > 0 else 0
-        print(f"   预估显示标记比例: {estimated_filtered_ratio:.1%}")
-
-    print(f"   💡 建议：如果希望过滤更多噪音，可增大MA_SLOPE_THRESHOLD_PCT值")
-
-
-def should_track_before_entry(current_date_obj, entry_date, max_tracking_days_before):
-    """
-    判断是否应该跟踪入选前的股票
-
-    Args:
-        current_date_obj: 当前日期对象
-        entry_date: 入选日期对象
-        max_tracking_days_before: 入选前跟踪的最大天数
-
-    Returns:
-        bool: 是否应该跟踪
-    """
-    # 如果不跟踪入选前的走势
-    if max_tracking_days_before <= 0:
-        return False
-
-    # 计算当前日期与首次显著连板日期的交易日天数差
-    days_before_entry = count_trading_days_between(current_date_obj, entry_date)
-
-    # 如果在入选前跟踪天数范围内，显示涨跌幅
-    return 1 <= days_before_entry <= max_tracking_days_before
-
-
-def calculate_last_board_date(stock, formatted_trading_days):
-    """
-    计算股票的最后连板日期（遍历所有交易日，找到最后一次有连板数据的日期）
-    
-    Args:
-        stock: 股票数据（需包含all_board_data字段）
-        formatted_trading_days: 格式化的交易日列表
-        
-    Returns:
-        datetime: 最后连板日期，如果没有连板记录则返回None
-    """
-    all_board_data = stock.get('all_board_data', {})
-    last_board_date = None
-
-    for formatted_day in formatted_trading_days:
-        board_days = all_board_data.get(formatted_day)
-        if pd.notna(board_days) and board_days:
-            # 解析日期
-            try:
-                if '年' in formatted_day:
-                    current_date = datetime.strptime(formatted_day, '%Y年%m月%d日')
-                else:
-                    current_date = datetime.strptime(formatted_day, '%Y/%m/%d')
-                last_board_date = current_date
-            except:
-                continue
-
-    return last_board_date
+    return _should_track_after_break(
+        stock, current_date_obj, max_tracking_days, period_days,
+        calculate_stock_period_change
+    )
 
 
 def should_collapse_row(stock, formatted_trading_days, date_mapping):
     """
-    判断是否应该折叠此行（在Excel中隐藏）
-    直接使用全局参数 COLLAPSE_DAYS_AFTER_BREAK
-
-    Args:
-        stock: 股票数据
-        formatted_trading_days: 格式化的交易日列表
-        date_mapping: 日期映射
-
-    Returns:
-        bool: 是否应该折叠此行
+    判断是否应该折叠此行（包装函数）
     """
-    # 如果未设置折叠天数，不折叠
-    if COLLAPSE_DAYS_AFTER_BREAK is None:
-        return False
+    return _should_collapse_row(stock, formatted_trading_days, date_mapping, COLLAPSE_DAYS_AFTER_BREAK)
 
-    # 获取最后一次连板的日期
-    last_board_date = stock.get('last_board_date')
-    if not last_board_date:
-        return False
-
-    # 获取分析周期的结束日期
-    try:
-        end_date_str = date_mapping.get(formatted_trading_days[-1])
-        if not end_date_str:
-            return False
-        end_date = datetime.strptime(end_date_str, '%Y%m%d')
-    except Exception as e:
-        print(f"解析结束日期时出错: {e}")
-        return False
-
-    # 计算断板天数
-    days_since_break = count_trading_days_between(last_board_date, end_date)
-
-    # 如果断板天数超过阈值，则折叠此行
-    return days_since_break > COLLAPSE_DAYS_AFTER_BREAK
-
-
-def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
-    """
-    检查股票在炸板数据中是否有记录
-    
-    Args:
-        zaban_df: 炸板数据DataFrame
-        pure_stock_code: 纯股票代码
-        formatted_day: 格式化的日期
-        
-    Returns:
-        bool: 是否在炸板数据中有记录
-    """
-    if zaban_df is None or zaban_df.empty:
-        return False
-
-    # 将日期格式转换为YYYYMMDD格式
-    try:
-        if '年' in formatted_day:
-            # 中文格式: YYYY年MM月DD日
-            date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
-        else:
-            # 标准格式: YYYY/MM/DD
-            date_obj = datetime.strptime(formatted_day, '%Y/%m/%d')
-
-        date_yyyymmdd = date_obj.strftime('%Y%m%d')
-
-        # 查找该股票在该日期是否有炸板记录
-        zaban_records = zaban_df[
-            (zaban_df['date'] == date_yyyymmdd) &
-            (zaban_df['stock_code'].str.contains(pure_stock_code, na=False))
-            ]
-
-        return not zaban_records.empty
-
-    except Exception as e:
-        print(f"检查炸板数据时出错: {e}")
-        return False
+    # 注意：以下函数已移动到 ladder_chart_helpers.py：
+    # calculate_ma_slope, get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics
+    # should_track_before_entry, calculate_last_board_date, check_stock_in_zaban
 
 
 def add_zaban_underline(cell):
@@ -2499,31 +1712,6 @@ def add_zaban_underline(cell):
         bottom=Side(style='double', color="000000")
     )
     cell.border = new_border
-
-
-def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
-    """
-    检查股票在首板数据中是否有记录
-
-    Args:
-        shouban_df: 首板数据DataFrame
-        pure_stock_code: 纯股票代码
-        formatted_day: 格式化的日期
-
-    Returns:
-        bool: 是否在首板数据中有记录
-    """
-    if shouban_df is None or shouban_df.empty:
-        return False
-
-    # 查找在首板数据中是否有该股票在该日期的记录
-    shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
-    if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(
-            shouban_row[formatted_day].values[0]):
-        # 该股票在该日期有首板记录
-        return True
-
-    return False
 
 
 def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
@@ -3194,7 +2382,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
         # 创建成交量工作表
         if should_create_volume_sheet:
-            from analysis.volume_ladder_chart import create_volume_concept_grouped_sheet
+            from analysis.helper.volume_ladder_chart import create_volume_concept_grouped_sheet
 
             # 使用与概念分组相同的数据
             volume_grouped_df = grouped_df if 'grouped_df' in locals() else result_df.copy()

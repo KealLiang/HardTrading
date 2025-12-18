@@ -6,7 +6,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis.volume_ladder_chart import (
+from analysis.helper.volume_ladder_chart import (
     calculate_volume_ma, 
     get_volume_trend_indicator,
     VOLUME_MA_DAYS,
