@@ -3649,10 +3649,10 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     # 转换为DataFrame
     leader_df = pd.DataFrame(leader_stocks)
 
-    # 按原始排序逻辑重新排序（不再按概念分组）
+    # 按概念优先级排序后，再按入选日期和涨幅排序（与概念分组sheet保持一致的分组效果）
     leader_df = leader_df.sort_values(
-        by=['first_significant_date', 'concept_priority', 'board_level_at_first'],
-        ascending=[True, True, False]
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+        ascending=[True, True, True, False, False]
     )
 
     return leader_df
