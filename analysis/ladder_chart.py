@@ -18,9 +18,10 @@ from analysis.helper.ladder_chart_helpers import (
     VOLUME_DAYS, VOLUME_RATIO_THRESHOLD, VOLUME_RATIO_LOW_THRESHOLD,
     NEW_HIGH_MARKER,
     MA_SLOPE_DAYS, HIGH_GAIN_TRACKING_THRESHOLD, COLLAPSE_DAYS_AFTER_BREAK,
+    INTRADAY_GAIN_THRESHOLD, INTRADAY_DROP_THRESHOLD,
     # 缓存管理
     clear_helper_caches, cache_zaban_format,  # 股票数据
-    get_stock_data_df, get_stock_data, get_stock_daily_pct_change,
+    get_stock_data_df, get_stock_data, get_stock_daily_pct_change, get_intraday_pct_change,
     # 成交量
     add_volume_ratio_to_text,
     # 新高标记
@@ -1564,10 +1565,18 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
         cell.value = cell_value
 
-        # 设置背景色 - 根据涨跌幅
+        # 设置背景色 - 根据涨跌幅（相对昨日）
         color = get_color_for_pct_change(pct_change)
         if color:
             cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+        # 日内涨跌幅判断 - 只对字体上色，不影响背景色
+        intraday_change = get_intraday_pct_change(stock_code, date_yyyymmdd)
+        if pd.notna(intraday_change):
+            if intraday_change > INTRADAY_GAIN_THRESHOLD:
+                cell.font = Font(color="8B0000")  # 深红色字体 - 日内大涨
+            elif intraday_change < INTRADAY_DROP_THRESHOLD:
+                cell.font = Font(color="008B8B")  # 深青色字体 - 日内大跌
     else:
         cell.value = "停牌"
 
@@ -3651,7 +3660,8 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
     # 按概念优先级排序后，再按入选日期和涨幅排序（与概念分组sheet保持一致的分组效果）
     leader_df = leader_df.sort_values(
-        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change', 'board_level_at_first'],
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
+            'board_level_at_first'],
         ascending=[True, True, True, False, False]
     )
 

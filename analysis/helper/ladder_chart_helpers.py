@@ -43,6 +43,12 @@ MA_SLOPE_THRESHOLD_PCT = 2  # 单位：%，均线日变化率阈值
 # 持续跟踪的涨幅阈值，如果股票在PERIOD_DAYS_CHANGE天内涨幅超过此值，即便没有涨停也会继续跟踪
 HIGH_GAIN_TRACKING_THRESHOLD = 15.0
 
+# ==================== 日内涨跌幅标记相关参数 ====================
+# 日内涨幅阈值，超过此值字体标深红色
+INTRADAY_GAIN_THRESHOLD = 7.0
+# 日内跌幅阈值，低于此值字体标深橄榄色（负数）
+INTRADAY_DROP_THRESHOLD = -7.0
+
 # ==================== 折叠相关参数 ====================
 # 断板后折叠行的天数阈值，超过这个天数的股票会在Excel中自动折叠（隐藏）
 # 设置为None表示不自动折叠任何行
@@ -172,6 +178,32 @@ def get_stock_daily_pct_change(stock_code, date_str_yyyymmdd):
 
     if target_row is not None and not target_row.empty:
         return target_row['涨跌幅'].values[0]
+
+    return None
+
+
+def get_intraday_pct_change(stock_code, date_str_yyyymmdd):
+    """
+    获取指定股票在特定日期的日内涨跌幅
+    日内涨跌幅 = (收盘价 - 开盘价) / 开盘价 × 100%
+
+    Args:
+        stock_code: 股票代码
+        date_str_yyyymmdd: 目标日期 (YYYYMMDD)
+
+    Returns:
+        float: 日内涨跌幅百分比，如果数据不存在则返回None
+    """
+    _, target_row, _ = get_stock_data(stock_code, date_str_yyyymmdd)
+
+    if target_row is not None and not target_row.empty:
+        try:
+            open_price = target_row['开盘'].values[0]
+            close_price = target_row['收盘'].values[0]
+            if open_price > 0:
+                return (close_price - open_price) / open_price * 100
+        except (KeyError, IndexError):
+            pass
 
     return None
 
