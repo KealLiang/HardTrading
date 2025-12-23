@@ -1072,7 +1072,8 @@ def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
 
 def analyze_volume_surge_pattern(start_date='20250101', end_date='20250131',
                                  volume_surge_ratio=2.0, volume_avg_days=5,
-                                 min_lianban=2, before_days=30, after_days=10):
+                                 min_lianban=2, before_days=50, after_days=10,
+                                 min_pct_change=4.0):
     """
     分析"爆量分歧转一致"形态并生成K线图
     
@@ -1094,6 +1095,7 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date='20250131',
         min_lianban: 最小连板数，只分析达到此连板数的股票，默认2
         before_days: 形态日期前显示的交易日数，默认30
         after_days: 形态日期后显示的交易日数，默认10
+        min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
     
     输出：
         - K线图保存在: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/
@@ -1116,7 +1118,8 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date='20250131',
         volume_avg_days=volume_avg_days,
         min_lianban_count=min_lianban,
         before_days=before_days,
-        after_days=after_days
+        after_days=after_days,
+        min_pct_change=min_pct_change
     )
 
     # 执行分析

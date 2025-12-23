@@ -94,7 +94,7 @@ def _get_font_properties():
     """获取一个可用的中文字体属性，优先使用相对路径。"""
     font_path = 'fonts/微软雅黑.ttf'
     if os.path.exists(font_path):
-        print(f"成功加载字体: {font_path}")
+        # print(f"成功加载字体: {font_path}")
         return FontProperties(fname=font_path)
 
     # 备用字体查找

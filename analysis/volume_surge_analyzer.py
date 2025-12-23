@@ -40,10 +40,12 @@ class VolumeSurgeConfig(PatternAnalysisConfig):
         volume_surge_ratio: 爆量阈值（当日量/前N日均量），默认2.0表示量能翻倍
         volume_avg_days: 计算均量的天数，默认5天
         min_lianban_count: 最小连板数，只分析达到此连板数的股票，默认2
+        min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
     """
     volume_surge_ratio: float = 2.0
     volume_avg_days: int = 5
     min_lianban_count: int = 2
+    min_pct_change: float = 3.0  # 信号日最小涨幅%
 
 
 class VolumeSurgeAnalyzer(PatternAnalyzerBase):
@@ -175,17 +177,46 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         """
         构建连板股候选池
         筛选在日期范围内达到min_lianban_count连板的股票
+        
+        注意：
+        - min_lianban_count=1 时，需要同时读取首板数据
+        - min_lianban_count>=2 时，只读取连板数据
         """
         logging.info("构建连板股候选池...")
 
+        # 如果 min_lianban_count=1，需要同时读取首板数据
+        if self.config.min_lianban_count == 1:
+            self._collect_from_sheet(self.shouban_data, board_count_default=1)
+
+        # 读取连板数据
+        self._collect_from_sheet(self.lianban_data, board_count_default=None)
+
+        logging.info(f"候选池中共有 {len(self.lianban_candidates)} 只连板股")
+
+    def _collect_from_sheet(self, sheet_data, board_count_default=None):
+        """
+        从指定sheet收集候选股票
+        
+        Args:
+            sheet_data: 数据sheet（连板数据或首板数据）
+            board_count_default: 默认板数（首板时为1，连板时为None从数据中解析）
+        """
         for date_col in self.date_columns:
-            for idx, cell_value in self.lianban_data[date_col].items():
+            if date_col not in sheet_data.columns:
+                continue
+
+            for idx, cell_value in sheet_data[date_col].items():
                 parsed = self._parse_lianban_cell(cell_value)
                 if not parsed:
                     continue
 
                 code = parsed['code']
-                board_count = self._extract_board_count(parsed['jitian_jiban'])
+
+                # 解析板数
+                if board_count_default is not None:
+                    board_count = board_count_default  # 首板固定为1
+                else:
+                    board_count = self._extract_board_count(parsed['jitian_jiban'])
 
                 # 只收集达到最小连板数的股票
                 if board_count >= self.config.min_lianban_count:
@@ -193,20 +224,22 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                         self.lianban_candidates[code] = {
                             'name': parsed['name'],
                             'max_board': board_count,
-                            'lianban_dates': []
+                            'lianban_dates': [],
+                            'reason': parsed.get('reason', '')  # 涨停原因
                         }
                     else:
                         self.lianban_candidates[code]['max_board'] = max(
                             self.lianban_candidates[code]['max_board'],
                             board_count
                         )
+                        # 更新为最新的涨停原因
+                        if parsed.get('reason'):
+                            self.lianban_candidates[code]['reason'] = parsed['reason']
 
-                    # 记录连板日期
+                    # 记录涨停日期（用于后续检测爆量）
                     date_str = self._parse_column_date(date_col).strftime('%Y%m%d')
                     if date_str not in self.lianban_candidates[code]['lianban_dates']:
                         self.lianban_candidates[code]['lianban_dates'].append(date_str)
-
-        logging.info(f"候选池中共有 {len(self.lianban_candidates)} 只连板股")
 
     def _get_volume_surge_info(self, code_6digit: str, date_str: str) -> Optional[Dict]:
         """
@@ -274,6 +307,10 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             # 计算涨幅
             pct_change = (current_close - prev_close) / prev_close * 100
 
+            # 条件3：信号日涨幅 >= 最小涨幅阈值
+            if pct_change < self.config.min_pct_change:
+                return None
+
             return {
                 'date': target_date.strftime('%Y%m%d'),
                 'volume_ratio': round(volume_ratio, 2),
@@ -289,15 +326,25 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             return None
 
     def filter_stocks(self):
-        """筛选符合爆量分歧转一致形态的股票"""
+        """
+        筛选符合爆量分歧转一致形态的股票
+        
+        形态定义：
+        - t-1日：至少 min_lianban_count 连板（涨停日）
+        - t日（信号日）：上涨 + 爆量（不要求涨停）
+        
+        信号日是涨停后的下一个交易日
+        """
         logging.info("开始筛选爆量分歧转一致形态...")
 
-        # 先构建连板股候选池
+        # 先构建连板股候选池（收集所有涨停日及其板数）
         self._build_lianban_candidates()
 
         if not self.lianban_candidates:
             logging.warning("未找到符合条件的连板股")
             return
+
+        from utils.date_util import get_next_trading_day
 
         # 遍历候选池，检测爆量日
         for code, info in tqdm(self.lianban_candidates.items(), desc="检测爆量日"):
@@ -307,12 +354,22 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             if code not in self._signal_details:
                 self._signal_details[code] = {}
 
-            # 遍历该股票的所有连板日期，检测是否有爆量
+            # 遍历该股票的所有涨停日期
             for lianban_date in info['lianban_dates']:
-                surge_info = self._get_volume_surge_info(code_6digit, lianban_date)
+                # 信号日是涨停日的下一个交易日
+                signal_date = get_next_trading_day(lianban_date)
+                if not signal_date:
+                    continue
+
+                # 跳过超出日期范围的信号日
+                if signal_date < self.config.start_date or signal_date > self.config.end_date:
+                    continue
+
+                # 检测信号日是否满足：上涨 + 爆量
+                surge_info = self._get_volume_surge_info(code_6digit, signal_date)
 
                 if surge_info:
-                    # 存储信号详情，便于后续多信号场景使用
+                    # 存储信号详情
                     self._signal_details[code][surge_info['date']] = surge_info
 
                     pattern_info = PatternInfo(
@@ -325,7 +382,9 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                             'volume_ratio': surge_info['volume_ratio'],
                             'pct_change': surge_info['pct_change'],
                             'current_volume': surge_info['current_volume'],
-                            'avg_volume': surge_info['avg_volume']
+                            'avg_volume': surge_info['avg_volume'],
+                            'reason': info.get('reason', ''),  # 涨停原因
+                            'prev_lianban_date': lianban_date  # 前一日涨停日期
                         }
                     )
                     self.filtered_stocks.append(pattern_info)
@@ -377,8 +436,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
     def get_chart_title(self, pattern_info: PatternInfo) -> str:
         """获取图表标题"""
         extra = pattern_info.extra_data
-        code_6digit = self._extract_stock_code(pattern_info.code)
-
+        header = self._format_stock_header(pattern_info)
         signal_count = extra.get('signal_count', 1)
 
         if signal_count > 1:
@@ -387,14 +445,14 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             avg_volume_ratio = sum(s.get('volume_ratio', 0) for s in all_signals) / len(all_signals)
             dates_str = ', '.join(pattern_info.pattern_dates)
             title = (
-                f"{code_6digit} {pattern_info.name} - 爆量分歧转一致 ({signal_count}次)\n"
-                f"信号日期: {dates_str}\n"
+                f"{header}\n"
+                f"信号日期: {dates_str} ({signal_count}次)\n"
                 f"平均量比: {avg_volume_ratio:.1f}倍 | 最高连板: {extra.get('max_board', 'N/A')}板"
             )
         else:
             # 单信号情况
             title = (
-                f"{code_6digit} {pattern_info.name} - 爆量分歧转一致\n"
+                f"{header}\n"
                 f"形态日期: {pattern_info.pattern_date} | "
                 f"量比: {extra.get('volume_ratio', 'N/A')}倍 | "
                 f"涨幅: {extra.get('pct_change', 'N/A')}% | "
@@ -405,7 +463,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
     def get_summary_columns(self) -> List[str]:
         """获取汇总报告的列名列表"""
         return [
-            '股票代码', '股票名称', '信号次数', '形态日期', '量比',
+            '股票代码', '股票名称', '涨停原因', '信号次数', '形态日期', '量比',
             '当日涨幅%', '最高连板数', '图表路径'
         ]
 
@@ -431,6 +489,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         return {
             '股票代码': pattern_info.code,
             '股票名称': pattern_info.name,
+            '涨停原因': extra.get('reason', ''),
             '信号次数': signal_count,
             '形态日期': ', '.join(pattern_info.pattern_dates),
             '量比': volume_ratio_str,

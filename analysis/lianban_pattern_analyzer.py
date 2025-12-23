@@ -327,10 +327,11 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
             # 获取终止日期
             end_date = self._find_end_date(code, date_records)
 
-            # 计算最高板数和最大连续天数
+            # 计算最高板数和最大连续天数，获取涨停原因
             max_board = 0
             max_continuous = 0
             all_dates = []
+            reason = ''  # 涨停原因类别
 
             for date_col, parsed in date_records.items():
                 board_count = self._extract_board_count(parsed['jitian_jiban'])
@@ -341,6 +342,10 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
 
                 date_dt = self._parse_column_date(date_col)
                 all_dates.append(date_dt.strftime('%Y%m%d'))
+
+                # 取最新的涨停原因（最后一条记录的reason）
+                if parsed.get('reason'):
+                    reason = parsed['reason']
 
             # 确定连板类型描述
             if max_board == max_continuous:
@@ -360,7 +365,8 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
                     'max_board_count': max_board,
                     'continuous_days': max_continuous,
                     'board_type': board_type,
-                    'all_lianban_dates': sorted(all_dates)
+                    'all_lianban_dates': sorted(all_dates),
+                    'reason': reason  # 涨停原因类别
                 }
             )
 
@@ -461,10 +467,10 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
     def get_chart_title(self, pattern_info: PatternInfo) -> str:
         """获取图表标题"""
         extra = pattern_info.extra_data
-        code_6digit = self._extract_stock_code(pattern_info.code)
+        header = self._format_stock_header(pattern_info)
 
         title = (
-            f"{code_6digit} {pattern_info.name} - 连板分析\n"
+            f"{header}\n"
             f"首板: {extra.get('first_board_date', 'N/A')} | "
             f"终止: {extra.get('end_date', 'N/A')} | "
             f"最高: {extra.get('max_board_count', 'N/A')}板 | "
@@ -473,10 +479,14 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
         )
         return title
 
+    def get_sort_date_column(self) -> str:
+        """连板分析使用首板日期排序"""
+        return '首板日期'
+
     def get_summary_columns(self) -> List[str]:
         """获取汇总报告的列名列表"""
         return [
-            '股票代码', '股票名称', '首板日期', '终止日期',
+            '股票代码', '股票名称', '涨停原因', '首板日期', '终止日期',
             '最高板数', '连续天数', '连板类型', '图表路径'
         ]
 
@@ -491,12 +501,27 @@ class LianbanPatternAnalyzer(PatternAnalyzerBase):
         return {
             '股票代码': pattern_info.code,
             '股票名称': pattern_info.name,
+            '涨停原因': extra.get('reason', ''),
             '首板日期': first_date,
             '终止日期': end_date,
             '最高板数': extra.get('max_board_count', ''),
             '连续天数': extra.get('continuous_days', ''),
             '连板类型': extra.get('board_type', ''),
             '图表路径': f"./{filename}"
+        }
+
+    def build_simple_summary_row(self, pattern_info: PatternInfo) -> Dict[str, Any]:
+        """构建简要报告的单行数据（信号日为首板日期）"""
+        extra = pattern_info.extra_data
+        first_date = extra.get('first_board_date', pattern_info.pattern_date)
+        # 格式化为 yyyy年mm月dd日
+        formatted_date = f"{first_date[:4]}年{first_date[4:6]}月{first_date[6:8]}日"
+
+        return {
+            '股票代码': self._extract_stock_code(pattern_info.code),
+            '股票名称': pattern_info.name,
+            '涨停原因': extra.get('reason', ''),
+            '信号日': formatted_date
         }
 
     def _calculate_chart_range(self, pattern_info: PatternInfo) -> tuple:

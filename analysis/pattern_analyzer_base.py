@@ -189,6 +189,26 @@ class PatternAnalyzerBase(ABC):
             return full_code.split('.')[0]
         return full_code
 
+    def _format_stock_header(self, pattern_info: PatternInfo) -> str:
+        """
+        生成带涨停原因的股票标题头（供子类 get_chart_title 使用）
+        
+        格式：{6位代码} {股票名} 【{涨停原因}】
+        
+        Args:
+            pattern_info: 形态信息
+            
+        Returns:
+            格式化的标题头字符串
+        """
+        code_6digit = self._extract_stock_code(pattern_info.code)
+        reason = pattern_info.extra_data.get('reason', '')
+
+        if reason:
+            return f"{code_6digit} {pattern_info.name} 【{reason}】"
+        else:
+            return f"{code_6digit} {pattern_info.name}"
+
     def merge_patterns_by_stock(self):
         """
         合并同一股票在日期范围内重叠的信号
@@ -403,26 +423,133 @@ class PatternAnalyzerBase(ABC):
 
         logging.debug(f"已生成图表: {filename}")
 
+    def get_sort_date_column(self) -> str:
+        """
+        获取用于排序的日期列名（子类可重写）
+        
+        Returns:
+            日期列名，默认为 '形态日期'
+        """
+        return '形态日期'
+
+    def get_simple_summary_columns(self) -> List[str]:
+        """
+        获取简要报告需要的列名（子类可重写）
+        
+        Returns:
+            列名列表，默认为 ['股票代码', '股票名称', '涨停原因', '信号日']
+        """
+        return ['股票代码', '股票名称', '涨停原因', '信号日']
+
+    def build_simple_summary_row(self, pattern_info: PatternInfo) -> Dict[str, Any]:
+        """
+        构建简要报告的单行数据（子类可重写）
+        
+        Args:
+            pattern_info: 形态信息
+            
+        Returns:
+            单行数据字典
+        """
+        # 获取信号日期并格式化为 yyyy年mm月dd日
+        pattern_date = pattern_info.pattern_date
+        formatted_date = f"{pattern_date[:4]}年{pattern_date[4:6]}月{pattern_date[6:8]}日"
+
+        return {
+            '股票代码': self._extract_stock_code(pattern_info.code),
+            '股票名称': pattern_info.name,
+            '涨停原因': pattern_info.extra_data.get('reason', ''),
+            '信号日': formatted_date
+        }
+
     def generate_summary_report(self) -> str:
         """
         生成汇总报告CSV
+        
+        - 自动移除"图表路径"列
+        - 按日期倒序排序
         
         Returns:
             报告文件路径
         """
         columns = self.get_summary_columns()
+        # 移除"图表路径"列
+        columns = [c for c in columns if c != '图表路径']
+
         summary_data = []
 
         for pattern_info in self.filtered_stocks:
             row = self.build_summary_row(pattern_info)
+            # 移除"图表路径"字段
+            row.pop('图表路径', None)
             summary_data.append(row)
 
         summary_df = pd.DataFrame(summary_data, columns=columns)
+
+        # 按日期列倒序排序
+        sort_col = self.get_sort_date_column()
+        if sort_col in summary_df.columns:
+            summary_df = summary_df.sort_values(by=sort_col, ascending=False)
+
         summary_path = os.path.join(self.output_dir, 'summary.csv')
         summary_df.to_csv(summary_path, index=False, encoding='utf-8-sig')
 
         logging.info(f"汇总报告已生成: {summary_path}")
         return summary_path
+
+    def generate_simple_summary(self) -> str:
+        """
+        生成简要汇总报告TXT
+        
+        格式：按日期分组，每行一只股票（代码 名称），不同日期用分隔线区分
+        按信号日倒序，方便复制使用
+        
+        Returns:
+            报告文件路径
+        """
+        simple_data = []
+
+        for pattern_info in self.filtered_stocks:
+            row = self.build_simple_summary_row(pattern_info)
+            simple_data.append(row)
+
+        columns = self.get_simple_summary_columns()
+        simple_df = pd.DataFrame(simple_data, columns=columns)
+
+        # 按信号日倒序
+        if '信号日' in simple_df.columns:
+            simple_df = simple_df.sort_values(by='信号日', ascending=False)
+
+        # 生成 TXT 文件，按日期分组
+        simple_path = os.path.join(self.output_dir, 'summary_simple.txt')
+
+        with open(simple_path, 'w', encoding='utf-8') as f:
+            current_date = None
+            first_group = True
+
+            for _, row in simple_df.iterrows():
+                signal_date = row.get('信号日', '')
+                # 将 yyyy年mm月dd日 转为 yyyy-mm-dd
+                if '年' in signal_date:
+                    date_formatted = signal_date.replace('年', '-').replace('月', '-').replace('日', '')
+                else:
+                    date_formatted = signal_date
+
+                # 日期变化时写入分隔符和新日期
+                if date_formatted != current_date:
+                    if not first_group:
+                        f.write('=' * 50 + '\n')
+                    f.write(f"{date_formatted}\n")
+                    current_date = date_formatted
+                    first_group = False
+
+                # 写入股票信息：代码 名称
+                code = row.get('股票代码', '')
+                name = row.get('股票名称', '')
+                f.write(f"{code} {name}\n")
+
+        logging.info(f"简要报告已生成: {simple_path}")
+        return simple_path
 
     def run(self):
         """执行完整分析流程"""
@@ -452,9 +579,13 @@ class PatternAnalyzerBase(ABC):
         # Phase 5: 生成汇总报告
         summary_path = self.generate_summary_report()
 
+        # Phase 6: 生成简要报告
+        simple_path = self.generate_simple_summary()
+
         logging.info("=" * 60)
         logging.info(f"{self.pattern_name}分析完成！")
         logging.info(f"共分析 {len(self.filtered_stocks)} 只股票")
         logging.info(f"图表保存在: {self.output_dir}")
         logging.info(f"汇总报告: {summary_path}")
+        logging.info(f"简要报告: {simple_path}")
         logging.info("=" * 60)
