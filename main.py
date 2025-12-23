@@ -195,7 +195,7 @@ def batch_backtest_from_codes():
     """
     # 方式1: 手动指定股票列表
     stock_codes = ['300033', '300059', '000062', '300204', '600610', '002693', '301357', '600744', '002173', '002640',
-                  '002104', '002658']
+                   '002104', '002658']
 
     # 方式2: 从其他来源获取（示例：读取某个板块的所有股票）
     # from fetch.astock_concept import get_concept_stocks
@@ -248,7 +248,7 @@ def generate_fupan_candidates():
     - 缩小回测范围提高效率
     """
     from bin.generate_stock_list import generate_fupan_stock_list
-    
+
     # 示例1: 提取多种类型的热门股
     generate_fupan_stock_list(
         sheet_names=['连板数据', '默默上涨', '关注度榜', '非主关注度榜'],
@@ -256,7 +256,7 @@ def generate_fupan_candidates():
         end_date='20251020',
         output_prefix='hot_stocks_202509'
     )
-    
+
     # 示例2: 提取所有类型的股票（不限日期）
     # generate_fupan_stock_list(
     #     sheet_names=None,  # None表示所有sheet
@@ -342,10 +342,10 @@ def strategy_scan(candidate_model='a'):
     signal_patterns = [
         # '*** 触发【突破观察哨】',
         # '突破信号',
-        '*** 二次确认信号',      # 标准通道：观察期内二次确认
-        '买入信号: 快速通道',     # 快速通道：信号日当天买入
-        '买入信号: 回踩确认',     # 缓冲通道：回调后买入
-        '买入信号: 止损纠错',     # 止损纠错：价格合适买入
+        '*** 二次确认信号',  # 标准通道：观察期内二次确认
+        '买入信号: 快速通道',  # 快速通道：信号日当天买入
+        '买入信号: 回踩确认',  # 缓冲通道：回调后买入
+        '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
     start_date = '20250910'
@@ -447,7 +447,7 @@ def review_history(start_date: str, end_date: str, model: str = None, before_day
     """
     try:
         files = review_historical_selections(start_date, end_date, model, before_days)
-        
+
         if files:
             print(f"\n✅ 成功生成 {len(files)} 张回顾对比图")
             print(f"📁 回顾图保存在: bin/candidate_history/review_charts/")
@@ -456,9 +456,9 @@ def review_history(start_date: str, end_date: str, model: str = None, before_day
                 print(f"  📊 {os.path.basename(file)}")
         else:
             print("❌ 未找到符合条件的历史记录或生成失败")
-        
+
         return files
-        
+
     except Exception as e:
         logging.error(f"回顾历史记录失败: {e}")
         import traceback
@@ -647,7 +647,8 @@ def full_scan_routine(candidate_model='a'):
     scan_steps = [
         (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
-        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
+        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}',
+                                        f'breakout_{candidate_model}'),
          f"记录突破策略{candidate_model}扫描结果"),
         # (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
         # (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
@@ -891,7 +892,7 @@ def clean_synonym_groups(lookback_days=60, dry_run=False):
     清理synonym_groups中未使用的旧概念词
     """
     from utils.synonym_cleaner import SynonymCleaner
-    
+
     cleaner = SynonymCleaner(lookback_days=lookback_days)
     cleaner.clean(dry_run=dry_run)
 
@@ -931,16 +932,16 @@ def generate_ladder_chart():
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=True, sheet_name=sheet_name,
                        create_leader_sheet=True, create_volume_sheet=True)
-    
+
     # 导出股票代码到候选股票txt文件
     from utils.export_stock_codes import extract_stock_codes_from_excel
     from analysis.loader.fupan_data_loader import OUTPUT_FILE
-    
+
     excel_file = OUTPUT_FILE
     output_txt = "bin/candidate_temp/candidate_stocks.txt"
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     extract_stock_codes_from_excel(excel_file, output_txt)
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
 
 def erban_longtou_analysis():
@@ -955,7 +956,7 @@ def erban_longtou_analysis():
     end_date = '20251201'  # 结束日期，None表示到今天
     min_concept_samples = 2  # 题材统计最小样本数
     output_path = None  # 输出路径，None表示自动生成
-    
+
     # 执行分析
     report_path = analyze_erban_longtou(
         start_date=start_date,
@@ -963,7 +964,7 @@ def erban_longtou_analysis():
         output_path=output_path,
         min_concept_samples=min_concept_samples
     )
-    
+
     if report_path:
         print(f"\n🎉 分析完成！报告已保存至: {report_path}")
     else:
@@ -1044,13 +1045,13 @@ def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
         after_days: 终止后显示的交易日数，默认10
     
     输出：
-        - K线图保存在: analysis/lianban_charts/{start_date}_{end_date}/
-        - 汇总报告: analysis/lianban_charts/{start_date}_{end_date}/summary.csv
+        - K线图保存在: analysis/pattern_charts/{连续板分析|最高板分析|非连续板分析}/{start_date}_{end_date}/
+        - 汇总报告: summary.csv
     """
-    from analysis.lianban_analyzer import LianbanAnalyzer, LianbanAnalysisConfig
-    
+    from analysis.lianban_pattern_analyzer import LianbanPatternAnalyzer, LianbanPatternConfig
+
     # 创建配置
-    config = LianbanAnalysisConfig(
+    config = LianbanPatternConfig(
         start_date=start_date,
         end_date=end_date,
         min_lianban_count=min_lianban,
@@ -1058,14 +1059,73 @@ def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
         before_days=before_days,
         after_days=after_days
     )
-    
+
     # 执行分析
-    analyzer = LianbanAnalyzer(config)
+    analyzer = LianbanPatternAnalyzer(config)
     analyzer.run()
-    
+
     print(f"\n✅ 分析完成！共生成 {len(analyzer.filtered_stocks)} 张图表")
     print(f"📁 图表保存在: {analyzer.output_dir}")
+
+    return analyzer.output_dir
+
+
+def analyze_volume_surge_pattern(start_date='20250101', end_date='20250131',
+                                 volume_surge_ratio=2.0, volume_avg_days=5,
+                                 min_lianban=2, before_days=30, after_days=10):
+    """
+    分析"爆量分歧转一致"形态并生成K线图
     
+    形态定义：
+    - 强势连板股在某日出现爆量（当日量能较近期明显放大）
+    - 但当日仍然上涨（今收 > 昨收，不要求涨停）
+    - 这种形态代表分歧后资金选择继续做多
+    
+    核心目的：
+    - 寻找这类形态的规律
+    - 观察后续走势
+    - 分析什么时段什么形态的股票资金最愿意买入
+    
+    Args:
+        start_date: 开始日期，格式YYYYMMDD，默认'20250101'
+        end_date: 结束日期，格式YYYYMMDD，默认'20250131'
+        volume_surge_ratio: 爆量阈值（当日量/前N日均量），默认2.0表示量能翻倍
+        volume_avg_days: 计算均量的天数，默认5天
+        min_lianban: 最小连板数，只分析达到此连板数的股票，默认2
+        before_days: 形态日期前显示的交易日数，默认30
+        after_days: 形态日期后显示的交易日数，默认10
+    
+    输出：
+        - K线图保存在: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/
+        - 汇总报告: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/summary.csv
+    
+    使用示例：
+        # 分析2025年1月的爆量分歧形态
+        analyze_volume_surge_pattern('20250101', '20250131')
+        
+        # 只分析3连板以上的股票，量能放大1.5倍以上即视为爆量
+        analyze_volume_surge_pattern('20250101', '20250131', volume_surge_ratio=1.5, min_lianban=3)
+    """
+    from analysis.volume_surge_analyzer import VolumeSurgeAnalyzer, VolumeSurgeConfig
+
+    # 创建配置
+    config = VolumeSurgeConfig(
+        start_date=start_date,
+        end_date=end_date,
+        volume_surge_ratio=volume_surge_ratio,
+        volume_avg_days=volume_avg_days,
+        min_lianban_count=min_lianban,
+        before_days=before_days,
+        after_days=after_days
+    )
+
+    # 执行分析
+    analyzer = VolumeSurgeAnalyzer(config)
+    analyzer.run()
+
+    print(f"\n✅ 分析完成！共生成 {len(analyzer.filtered_stocks)} 张图表")
+    print(f"📁 图表保存在: {analyzer.output_dir}")
+
     return analyzer.output_dir
 
 
@@ -1101,7 +1161,7 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
         - 汇总报告: analysis/gap_up_charts/{start_date}_{end_date}/summary.csv
     """
     from analysis.gap_up_analyzer import GapUpAnalyzer, GapUpAnalysisConfig
-    
+
     # 创建配置
     config = GapUpAnalysisConfig(
         start_date=start_date,
@@ -1113,22 +1173,22 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
         filter_min_change=filter_min_change,
         filter_max_change=filter_max_change
     )
-    
+
     # 执行分析
     analyzer = GapUpAnalyzer(config)
     analyzer.run()
-    
+
     # 统计结果
     from collections import defaultdict
     stock_groups = defaultdict(list)
     for stock_info in analyzer.filtered_stocks:
         key = (stock_info.code, stock_info.name)
         stock_groups[key].append(stock_info)
-    
+
     print(f"\n✅ 分析完成！")
     print(f"📊 共 {len(stock_groups)} 只股票，{len(analyzer.filtered_stocks)} 次跳空记录")
     print(f"📁 图表保存在: {analyzer.output_dir}")
-    
+
     return analyzer.output_dir
 
 
@@ -1139,7 +1199,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1153,19 +1213,20 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
 
     # === 连板股分析图功能 ===
-    # analyze_lianban_stocks('20250901', '20251015', min_lianban=3, lianban_type=1)  # 连续板分析
-    
+    # analyze_lianban_stocks('20251101', '20251222', min_lianban=3, lianban_type=1)  # 连续板分析
+    analyze_volume_surge_pattern('20251130', '20251222', min_lianban=1, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
-    
+
     # === 跳空高开股票分析功能 ===
     # analyze_gap_up_stocks('20250901', '20251029', min_gap=2.0, max_gap=6.0, filter_enabled=True,
     #                       filter_days=20, filter_min_change=-20.0, filter_max_change=20.0)  # 跳空分析
-    
+
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
     # draw_ths_fupan_html()     # HTML交互图
-    
+
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
     # clean_synonym_groups()  # 清理旧词
@@ -1191,7 +1252,7 @@ if __name__ == '__main__':
     # pullback_rebound_simulate()  # 止跌反弹策略回测
     # weekly_volume_momentum_simulate()  # 扬帆起航策略回测
     # run_psq_analysis()
-    
+
     # === 大批量回测（新功能）===
     # generate_stock_lists()  # 生成全部A股列表文件（首次使用前运行一次）
     # generate_fupan_candidates()  # 从复盘数据提取热门股候选（可反复运行）
