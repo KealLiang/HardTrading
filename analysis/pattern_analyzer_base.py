@@ -15,10 +15,11 @@
 
 import logging
 import os
+import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import matplotlib.pyplot as plt
 import mplfinance as mpf
@@ -28,7 +29,8 @@ from tqdm import tqdm
 from utils.backtrade.visualizer import read_stock_data, _setup_mpf_style
 from utils.date_util import (
     get_n_trading_days_before,
-    get_next_trading_day
+    get_next_trading_day,
+    get_current_or_prev_trading_day
 )
 
 
@@ -67,7 +69,7 @@ class PatternAnalysisConfig:
     
     Attributes:
         start_date: 开始日期，格式 YYYYMMDD
-        end_date: 结束日期，格式 YYYYMMDD
+        end_date: 结束日期，格式 YYYYMMDD（可为None，自动取最近交易日）
         before_days: 形态日期前显示的交易日数
         after_days: 形态日期后显示的交易日数
         data_dir: 股票数据目录
@@ -75,12 +77,19 @@ class PatternAnalysisConfig:
         fupan_file: 复盘数据文件路径
     """
     start_date: str
-    end_date: str
+    end_date: Optional[str] = None
     before_days: int = 30
     after_days: int = 10
     data_dir: str = './data/astocks'
     output_dir: str = './analysis/pattern_charts'
     fupan_file: str = './excel/fupan_stocks.xlsx'
+
+    def __post_init__(self):
+        """初始化后处理：如果 end_date 为 None，自动设为最近交易日"""
+        if self.end_date is None:
+            today_str = datetime.now().strftime('%Y%m%d')
+            self.end_date = get_current_or_prev_trading_day(today_str)
+            logging.info(f"end_date 未指定，自动设为最近交易日: {self.end_date}")
 
 
 class PatternAnalyzerBase(ABC):
@@ -108,9 +117,16 @@ class PatternAnalyzerBase(ABC):
         self.pattern_name = pattern_name
         self.filtered_stocks: List[PatternInfo] = []
 
-        # 创建输出目录
+        # 构建输出目录路径
         date_range = f"{config.start_date}_{config.end_date}"
         self.output_dir = os.path.join(config.output_dir, pattern_name, date_range)
+
+        # 清空已有目录（避免新旧数据混杂）
+        if os.path.exists(self.output_dir):
+            shutil.rmtree(self.output_dir)
+            logging.info(f"已清空旧目录: {self.output_dir}")
+
+        # 重新创建输出目录
         os.makedirs(self.output_dir, exist_ok=True)
 
         logging.info(f"{pattern_name}分析器初始化完成，输出目录: {self.output_dir}")

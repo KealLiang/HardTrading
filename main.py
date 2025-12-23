@@ -1022,7 +1022,7 @@ def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
         print("❌ 分析失败或无数据")
 
 
-def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
+def analyze_lianban_stocks(start_date='20250101', end_date=None,
                            min_lianban=3, lianban_type=1,
                            before_days=30, after_days=10):
     """
@@ -1070,7 +1070,7 @@ def analyze_lianban_stocks(start_date='20250101', end_date='20250131',
     return analyzer.output_dir
 
 
-def analyze_volume_surge_pattern(start_date='20250101', end_date='20250131',
+def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
                                  volume_surge_ratio=2.0, volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
                                  min_pct_change=4.0):
@@ -1216,8 +1216,8 @@ if __name__ == '__main__':
     # fetch_ths_fupan()
 
     # === 连板股分析图功能 ===
-    # analyze_lianban_stocks('20251101', '20251222', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251130', '20251222', min_lianban=1, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+    # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
+    analyze_volume_surge_pattern('20251130', min_lianban=1, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征

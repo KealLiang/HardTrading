@@ -263,11 +263,18 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
             # 确保目标日期在数据范围内
             if target_date not in stock_data.index:
-                # 尝试查找最接近的日期
+                # 尝试查找最接近的日期（用于处理日期格式微小差异）
                 idx = stock_data.index.searchsorted(target_date, side='right') - 1
                 if idx < 0 or idx >= len(stock_data):
                     return None
-                target_date = stock_data.index[idx]
+                found_date = stock_data.index[idx]
+
+                # 关键修复：如果找到的日期早于目标日期，说明目标日期后无数据（停牌）
+                # 这种情况不应该用前一天数据来判断，直接跳过
+                if found_date < target_date:
+                    return None
+
+                target_date = found_date
                 # 如果日期差距太大，放弃
                 if abs((target_date - datetime.strptime(date_str, '%Y%m%d')).days) > 3:
                     return None
@@ -282,6 +289,10 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             current_row = stock_data.iloc[idx]
             current_volume = current_row['Volume']
             current_close = current_row['Close']
+
+            # 检查数据有效性（停牌日数据为空或成交量为0）
+            if pd.isna(current_volume) or pd.isna(current_close) or current_volume <= 0:
+                return None
 
             # 获取前一日收盘价
             prev_close = stock_data.iloc[idx - 1]['Close']
