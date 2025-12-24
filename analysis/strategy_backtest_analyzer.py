@@ -61,9 +61,14 @@ class TradeRecord:
     avg_close_change_pct: float = 0.0  # 持有期间平均收盘涨幅（每日收盘相对前日收盘的平均值）
 
     # 信号日数据
+    signal_open: float = 0.0  # 信号日开盘价
     signal_close: float = 0.0  # 信号日收盘价
+    signal_high: float = 0.0  # 信号日最高价
+    signal_low: float = 0.0  # 信号日最低价
     signal_volume: float = 0.0  # 信号日成交量
     signal_volume_ratio: float = 0.0  # 信号日量比（当日量/前N日均量）
+    signal_change_pct: float = 0.0  # 信号日涨幅%
+    signal_amplitude: float = 0.0  # 信号日振幅%
     max_lianban: int = 0  # 最高连板数
 
     # a+1日（建仓日）详细数据
@@ -311,8 +316,13 @@ class StrategyBacktestAnalyzer:
         buy_row = buy_data.iloc[0]
 
         # 记录信号日数据
+        trade.signal_open = signal_row['开盘']
         trade.signal_close = signal_row['收盘']
+        trade.signal_high = signal_row['最高']
+        trade.signal_low = signal_row['最低']
         trade.signal_volume = signal_row['成交量']
+        trade.signal_change_pct = signal_row['涨跌幅']
+        trade.signal_amplitude = signal_row['振幅']
 
         # 记录买入信息（a+1日）
         trade.buy_date = buy_date
@@ -613,8 +623,8 @@ class StrategyBacktestAnalyzer:
         # a+1日详细分析（建仓日）
         lines.append(self._generate_day1_analysis())
 
-        # 量比分组分析
-        lines.append(self._generate_volume_ratio_analysis())
+        # 信号日质量分析（量比+K线形态）
+        lines.append(self._generate_signal_day_quality_analysis())
 
         # 连板数分组分析
         lines.append(self._generate_lianban_analysis())
@@ -831,9 +841,9 @@ class StrategyBacktestAnalyzer:
                 return "长下影阳线"
             elif upper_ratio > 0.4:
                 return "长上影阳线"
-            elif body_pct > 6:
+            elif body_pct > 9:
                 return "大阳线"
-            elif body_pct > 3:
+            elif body_pct > 5:
                 return "中阳线"
             else:
                 return "小阳线"
@@ -843,9 +853,9 @@ class StrategyBacktestAnalyzer:
                 return "长下影阴线"
             elif upper_ratio > 0.4:
                 return "长上影阴线"
-            elif body_pct < -6:
+            elif body_pct < -9:
                 return "大阴线"
-            elif body_pct < -3:
+            elif body_pct < -5:
                 return "中阴线"
             else:
                 return "小阴线"
@@ -873,10 +883,20 @@ class StrategyBacktestAnalyzer:
             'pl_ratio': pl_ratio
         }
 
-    def _generate_volume_ratio_analysis(self) -> str:
-        """生成量比分析"""
-        lines = ["\n## 📊 信号日量比分析\n"]
-        lines.append("分析信号日量比（当日成交量/前N日均量）对胜率的影响：\n")
+    def _generate_signal_day_quality_analysis(self) -> str:
+        """生成信号日质量分析（量比+K线形态）"""
+        lines = ["\n## 📊 信号日质量分析\n"]
+        lines.append("分析信号日（a日）的各项指标对最终交易成败的影响：\n")
+
+        valid_trades = [t for t in self.trades if t.is_valid]
+
+        if not valid_trades:
+            lines.append("*无有效交易数据*\n")
+            return '\n'.join(lines)
+
+        # === 1. 信号日量比分析 ===
+        lines.append("### 1. 信号日量比（当日成交量/前N日均量）\n")
+        lines.append("分析信号日量比对胜率的影响：\n")
 
         groups = {
             '低量比(<3)': {'range': (0, 3), 'trades': []},
@@ -885,37 +905,89 @@ class StrategyBacktestAnalyzer:
             '超高量比(>10)': {'range': (10, float('inf')), 'trades': []},
         }
 
-        valid_trades = [t for t in self.trades if t.is_valid and t.signal_volume_ratio > 0]
+        trades_with_vol = [t for t in valid_trades if t.signal_volume_ratio > 0]
 
-        if not valid_trades:
-            lines.append("*无有效量比数据*\n")
-            return '\n'.join(lines)
+        if trades_with_vol:
+            for trade in trades_with_vol:
+                for group_name, group_data in groups.items():
+                    low, high = group_data['range']
+                    if low <= trade.signal_volume_ratio < high:
+                        group_data['trades'].append(trade)
+                        break
 
-        for trade in valid_trades:
+            lines.append("| 量比区间 | 交易数 | 胜率 | 平均收益 | 盈亏比 |")
+            lines.append("|----------|--------|------|----------|--------|")
+
             for group_name, group_data in groups.items():
-                low, high = group_data['range']
-                if low <= trade.signal_volume_ratio < high:
-                    group_data['trades'].append(trade)
-                    break
+                trades = group_data['trades']
+                if trades:
+                    stats = self._calc_group_stats(trades)
+                    lines.append(
+                        f"| {group_name} | {stats['count']} | {stats['win_rate']:.1f}% | {stats['avg_profit']:+.2f}% | {stats['pl_ratio']:.2f} |")
+        else:
+            lines.append("*无有效量比数据*\n")
 
-        lines.append("| 量比区间 | 交易数 | 胜率 | 平均收益 | 盈亏比 |")
-        lines.append("|----------|--------|------|----------|--------|")
+        # === 2. 信号日K线形态分析 ===
+        lines.append("\n### 2. 信号日K线形态\n")
+        lines.append("分析信号日K线形态对胜率的影响（关注长K线和长影线的影响）：\n")
 
-        for group_name, group_data in groups.items():
-            trades = group_data['trades']
-            if trades:
-                count = len(trades)
-                win_count = len([t for t in trades if t.is_win])
-                win_rate = win_count / count * 100
-                avg_profit = sum(t.profit_pct for t in trades) / count
+        # 识别每只股票信号日的K线形态
+        kline_groups = defaultdict(list)
+        for trade in valid_trades:
+            if trade.signal_open > 0 and trade.signal_close > 0 and trade.signal_high > 0 and trade.signal_low > 0:
+                kline_type = self._identify_kline_pattern(
+                    trade.signal_open, trade.signal_close, trade.signal_high, trade.signal_low
+                )
+                kline_groups[kline_type].append(trade)
 
-                profits = [t.profit_pct for t in trades if t.profit_pct > 0]
-                losses = [t.profit_pct for t in trades if t.profit_pct < 0]
-                avg_win = sum(profits) / len(profits) if profits else 0
-                avg_loss = abs(sum(losses) / len(losses)) if losses else 0
-                pl_ratio = avg_win / avg_loss if avg_loss > 0 else 0
+        if kline_groups:
+            lines.append("| K线形态 | 交易数 | 胜率 | 平均收益 | 盈亏比 |")
+            lines.append("|----------|--------|------|----------|--------|")
 
-                lines.append(f"| {group_name} | {count} | {win_rate:.1f}% | {avg_profit:+.2f}% | {pl_ratio:.2f} |")
+            # 按胜率排序
+            sorted_kline = sorted(kline_groups.items(),
+                                  key=lambda x: self._calc_group_stats(x[1])['win_rate'],
+                                  reverse=True)
+
+            for kline_type, trades in sorted_kline:
+                stats = self._calc_group_stats(trades)
+                lines.append(
+                    f"| {kline_type} | {stats['count']} | {stats['win_rate']:.1f}% | {stats['avg_profit']:+.2f}% | {stats['pl_ratio']:.2f} |")
+        else:
+            lines.append("*无有效K线数据*\n")
+
+        # === 3. 信号日振幅分析 ===
+        lines.append("\n### 3. 信号日振幅\n")
+        lines.append("分析信号日振幅（反映K线长度）对胜率的影响：\n")
+
+        amplitude_groups = {
+            '小振幅(<5%)': {'range': (0, 5), 'trades': []},
+            '中振幅(5~8%)': {'range': (5, 8), 'trades': []},
+            '大振幅(8~12%)': {'range': (8, 12), 'trades': []},
+            '超大振幅(>12%)': {'range': (12, float('inf')), 'trades': []},
+        }
+
+        trades_with_amp = [t for t in valid_trades if t.signal_amplitude > 0]
+
+        if trades_with_amp:
+            for trade in trades_with_amp:
+                for group_name, group_data in amplitude_groups.items():
+                    low, high = group_data['range']
+                    if low <= trade.signal_amplitude < high:
+                        group_data['trades'].append(trade)
+                        break
+
+            lines.append("| 振幅区间 | 交易数 | 胜率 | 平均收益 | 盈亏比 |")
+            lines.append("|----------|--------|------|----------|--------|")
+
+            for group_name, group_data in amplitude_groups.items():
+                trades = group_data['trades']
+                if trades:
+                    stats = self._calc_group_stats(trades)
+                    lines.append(
+                        f"| {group_name} | {stats['count']} | {stats['win_rate']:.1f}% | {stats['avg_profit']:+.2f}% | {stats['pl_ratio']:.2f} |")
+        else:
+            lines.append("*无有效振幅数据*\n")
 
         return '\n'.join(lines)
 
