@@ -635,7 +635,8 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3), "爆量分歧转一致筛选"),
+        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3),
+         "爆量分歧转一致筛选"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -1074,7 +1075,7 @@ def analyze_lianban_stocks(start_date='20250101', end_date=None,
 def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
                                  volume_surge_ratio=2.0, volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
-                                 min_pct_change=4.0):
+                                 min_pct_change=4.0, continuous_surge_days=2):
     """
     分析"爆量分歧转一致"形态并生成K线图
     
@@ -1088,6 +1089,13 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
     - 观察后续走势
     - 分析什么时段什么形态的股票资金最愿意买入
     
+    检测逻辑：
+    - 优先检测单日爆量：当日量能 >= 前N日均量 * volume_surge_ratio
+    - 如果单日爆量检测失败，会检测连续爆量：
+      * 回溯最近 continuous_surge_days 日，检查是否都上涨
+      * 使用连续爆量开始之前的均量作为基准（跳过连续爆量期间）
+      * 连续爆量期间平均量能 >= 基准均量 * volume_surge_ratio
+    
     Args:
         start_date: 开始日期，格式YYYYMMDD，默认'20250101'
         end_date: 结束日期，格式YYYYMMDD，默认'20250131'
@@ -1097,17 +1105,12 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         before_days: 形态日期前显示的交易日数，默认30
         after_days: 形态日期后显示的交易日数，默认10
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
+        continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
+            会检查最近N日是否每日连续爆量上涨，使用连续爆量开始之前的均量作为基准
     
     输出：
         - K线图保存在: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/
         - 汇总报告: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/summary.csv
-    
-    使用示例：
-        # 分析2025年1月的爆量分歧形态
-        analyze_volume_surge_pattern('20250101', '20250131')
-        
-        # 只分析3连板以上的股票，量能放大1.5倍以上即视为爆量
-        analyze_volume_surge_pattern('20250101', '20250131', volume_surge_ratio=1.5, min_lianban=3)
     """
     from analysis.volume_surge_analyzer import VolumeSurgeAnalyzer, VolumeSurgeConfig
 
@@ -1120,7 +1123,8 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         min_lianban_count=min_lianban,
         before_days=before_days,
         after_days=after_days,
-        min_pct_change=min_pct_change
+        min_pct_change=min_pct_change,
+        continuous_surge_days=continuous_surge_days
     )
 
     # 执行分析
@@ -1289,8 +1293,9 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251201', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
-    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250630_20251223/summary.csv')
+    analyze_volume_surge_pattern('20251201', '20251224', min_lianban=2, volume_surge_ratio=3.0,
+                                 volume_avg_days=3)  # 爆量分歧分析
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250630_20251224/summary.csv')
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征

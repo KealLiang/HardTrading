@@ -41,11 +41,14 @@ class VolumeSurgeConfig(PatternAnalysisConfig):
         volume_avg_days: 计算均量的天数，默认5天
         min_lianban_count: 最小连板数，只分析达到此连板数的股票，默认2
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
+        continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
+            会检查最近N日是否连续爆量上涨，使用连续爆量开始之前的均量作为基准
     """
     volume_surge_ratio: float = 2.0
     volume_avg_days: int = 5
     min_lianban_count: int = 2
     min_pct_change: float = 3.0  # 信号日最小涨幅%
+    continuous_surge_days: int = 2  # 连续爆量检测天数
 
 
 class VolumeSurgeAnalyzer(PatternAnalyzerBase):
@@ -243,7 +246,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
     def _get_volume_surge_info(self, code_6digit: str, date_str: str) -> Optional[Dict]:
         """
-        检测指定日期是否为爆量日
+        检测指定日期是否为爆量日（支持单日爆量和连续爆量检测）
         
         Args:
             code_6digit: 6位股票代码
@@ -301,40 +304,158 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             if current_close <= prev_close:
                 return None
 
-            # 计算前N日均量
-            prev_volumes = stock_data.iloc[idx - self.config.volume_avg_days:idx]['Volume']
-            avg_volume = prev_volumes.mean()
+            # 先尝试单日爆量检测（原有逻辑）
+            result = self._check_single_day_surge(stock_data, idx, current_volume, current_close, prev_close)
+            if result:
+                return result
 
-            if avg_volume <= 0:
-                return None
+            # 如果单日爆量检测失败，尝试连续爆量检测
+            if self.config.continuous_surge_days > 1:
+                result = self._check_continuous_surge(stock_data, idx, current_close, prev_close)
+                if result:
+                    return result
 
-            # 计算量比
-            volume_ratio = current_volume / avg_volume
-
-            # 条件2：爆量（量比 >= 阈值）
-            if volume_ratio < self.config.volume_surge_ratio:
-                return None
-
-            # 计算涨幅
-            pct_change = (current_close - prev_close) / prev_close * 100
-
-            # 条件3：信号日涨幅 >= 最小涨幅阈值
-            if pct_change < self.config.min_pct_change:
-                return None
-
-            return {
-                'date': target_date.strftime('%Y%m%d'),
-                'volume_ratio': round(volume_ratio, 2),
-                'pct_change': round(pct_change, 2),
-                'current_volume': current_volume,
-                'avg_volume': round(avg_volume, 0),
-                'current_close': current_close,
-                'prev_close': prev_close
-            }
+            return None
 
         except Exception as e:
             logging.debug(f"检测股票 {code_6digit} 在 {date_str} 的爆量信息时出错: {e}")
             return None
+
+    def _check_single_day_surge(self, stock_data: pd.DataFrame, idx: int,
+                                current_volume: float, current_close: float,
+                                prev_close: float) -> Optional[Dict]:
+        """
+        检测单日爆量（原有逻辑）
+        
+        Returns:
+            爆量信息字典，如果不是爆量日返回None
+        """
+        # 计算前N日均量
+        prev_volumes = stock_data.iloc[idx - self.config.volume_avg_days:idx]['Volume']
+        avg_volume = prev_volumes.mean()
+
+        if avg_volume <= 0:
+            return None
+
+        # 计算量比
+        volume_ratio = current_volume / avg_volume
+
+        # 条件2：爆量（量比 >= 阈值）
+        if volume_ratio < self.config.volume_surge_ratio:
+            return None
+
+        # 计算涨幅
+        pct_change = (current_close - prev_close) / prev_close * 100
+
+        # 条件3：信号日涨幅 >= 最小涨幅阈值
+        if pct_change < self.config.min_pct_change:
+            return None
+
+        target_date = stock_data.index[idx]
+        return {
+            'date': target_date.strftime('%Y%m%d'),
+            'volume_ratio': round(volume_ratio, 2),
+            'pct_change': round(pct_change, 2),
+            'current_volume': current_volume,
+            'avg_volume': round(avg_volume, 0),
+            'current_close': current_close,
+            'prev_close': prev_close,
+            'surge_type': 'single'  # 标记为单日爆量
+        }
+
+    def _check_continuous_surge(self, stock_data: pd.DataFrame, idx: int,
+                                current_close: float, prev_close: float) -> Optional[Dict]:
+        """
+        检测连续爆量（新增逻辑）
+        
+        逻辑：
+        1. 回溯最近 continuous_surge_days 日
+        2. 计算连续爆量开始之前的均量作为基准（跳过连续爆量期间）
+        3. 检查连续爆量期间的每一天是否都：
+           - 上涨
+           - 满足最小涨幅阈值
+           - 单日量能 >= 基准均量 * volume_surge_ratio（严格每日都爆量）
+        
+        Returns:
+            爆量信息字典，如果不是连续爆量日返回None
+        """
+        continuous_days = self.config.continuous_surge_days
+
+        # 需要足够的历史数据
+        if idx < continuous_days + self.config.volume_avg_days:
+            return None
+
+        # 回溯检查最近 continuous_days 日
+        surge_period_start = idx - continuous_days + 1
+        if surge_period_start < 0:
+            return None
+
+        # 先计算连续爆量开始之前的均量作为基准（跳过连续爆量期间）
+        base_avg_start = surge_period_start - self.config.volume_avg_days
+        if base_avg_start < 0:
+            return None
+
+        base_volumes = stock_data.iloc[base_avg_start:surge_period_start]['Volume']
+        base_avg_volume = base_volumes.mean()
+
+        if base_avg_volume <= 0:
+            return None
+
+        # 检查连续爆量期间的每一天是否都满足条件
+        surge_volumes = []
+        surge_pct_changes = []
+        volume_ratios = []  # 记录每一天的量比
+
+        for i in range(surge_period_start, idx + 1):
+            row = stock_data.iloc[i]
+            prev_row = stock_data.iloc[i - 1]
+
+            volume = row['Volume']
+            close = row['Close']
+            prev_close_val = prev_row['Close']
+
+            # 检查数据有效性
+            if pd.isna(volume) or pd.isna(close) or volume <= 0:
+                return None
+
+            # 必须上涨
+            if close <= prev_close_val:
+                return None
+
+            # 计算涨幅
+            pct_change = (close - prev_close_val) / prev_close_val * 100
+
+            # 每日涨幅都要满足最小涨幅阈值
+            if pct_change < self.config.min_pct_change:
+                return None
+
+            # 关键：每一天都要单独与基准均量比较，必须满足爆量条件
+            daily_volume_ratio = volume / base_avg_volume
+            if daily_volume_ratio < self.config.volume_surge_ratio:
+                return None  # 如果某一天不满足爆量条件，直接返回None
+
+            surge_volumes.append(volume)
+            surge_pct_changes.append(pct_change)
+            volume_ratios.append(daily_volume_ratio)
+
+        # 所有天都满足条件，使用最后一日的数据作为返回结果
+        target_date = stock_data.index[idx]
+        final_pct_change = surge_pct_changes[-1]
+        final_volume = surge_volumes[-1]
+        # 使用最小量比，表示连续爆量期间最保守的爆量倍数
+        min_volume_ratio = min(volume_ratios)
+
+        return {
+            'date': target_date.strftime('%Y%m%d'),
+            'volume_ratio': round(min_volume_ratio, 2),  # 使用最小量比
+            'pct_change': round(final_pct_change, 2),
+            'current_volume': final_volume,
+            'avg_volume': round(base_avg_volume, 0),
+            'current_close': current_close,
+            'prev_close': prev_close,
+            'surge_type': 'continuous',  # 标记为连续爆量
+            'continuous_days': continuous_days  # 连续天数
+        }
 
     def filter_stocks(self):
         """
