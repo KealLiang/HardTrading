@@ -1170,7 +1170,7 @@ def backtest_strategy(summary_csv_path: str,
         backtest_strategy('...summary.csv', strong_rule='and')
     """
     from analysis.strategy_backtest_analyzer import run_backtest
-    
+
     # 转换走强规则
     rule_mapping = {
         'or': 'close_gt_prev_close_or_open',
@@ -1179,14 +1179,14 @@ def backtest_strategy(summary_csv_path: str,
         'open': 'close_gt_open'
     }
     strong_definition = rule_mapping.get(strong_rule, 'close_gt_prev_close_or_open')
-    
+
     result = run_backtest(
         summary_csv_path=summary_csv_path,
         strong_definition=strong_definition,
         min_hold_days=min_hold_days,
         max_hold_days=max_hold_days
     )
-    
+
     if result:
         print(f"\n{'=' * 50}")
         print(f"📊 回测结果摘要")
@@ -1199,7 +1199,7 @@ def backtest_strategy(summary_csv_path: str,
         print(f"{'=' * 50}")
     else:
         print("❌ 回测失败")
-    
+
     return result
 
 
@@ -1288,8 +1288,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251130', '20251223', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
-    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251130_20251223/summary.csv')
+    # analyze_volume_surge_pattern('20251201', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250101_20250620/summary.csv')
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
