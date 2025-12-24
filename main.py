@@ -635,6 +635,7 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         (auction_fengdan_analyze, "复盘分析封单数据"),
+        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3), "爆量分歧转一致筛选"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -1273,7 +1274,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1289,7 +1290,7 @@ if __name__ == '__main__':
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
     # analyze_volume_surge_pattern('20251201', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
-    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250101_20250620/summary.csv')
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250101_20250620/summary.csv')
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
