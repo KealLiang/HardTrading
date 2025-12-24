@@ -1132,6 +1132,77 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
     return analyzer.output_dir
 
 
+def backtest_strategy(summary_csv_path: str,
+                      strong_rule: str = 'or',
+                      min_hold_days: int = 1,
+                      max_hold_days: int = 30):
+    """
+    策略回测分析
+    
+    根据选股策略的信号数据（如summary.csv），回测分析胜率、盈亏比等指标。
+    
+    使用场景：
+    1. 信号日(a日)运行选股
+    2. 次日(a+1日)开盘买入
+    3. 持有条件：股票走强（根据strong_rule定义）
+    4. 卖出条件：不再走强时以收盘价卖出
+    5. T+1规则：最早a+2日可卖出
+    
+    Args:
+        summary_csv_path: 信号汇总CSV文件路径
+            例如: 'analysis/pattern_charts/爆量分歧转一致/20251130_20251223/summary.csv'
+        strong_rule: 走强规则定义
+            - 'or': 收盘>前日收盘 或 收盘>开盘（默认，最宽松）
+            - 'and': 收盘>前日收盘 且 收盘>开盘（最严格）
+            - 'prev': 仅收盘>前日收盘
+            - 'open': 仅收盘>开盘
+        min_hold_days: 最少持有天数，默认1（T+1规则）
+        max_hold_days: 最大持有天数，默认30
+    
+    输出：
+        - 在CSV同目录下生成 backtest_report.md 报告
+    
+    使用示例：
+        # 分析爆量分歧转一致策略的胜率
+        backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251130_20251223/summary.csv')
+        
+        # 使用更严格的走强定义
+        backtest_strategy('...summary.csv', strong_rule='and')
+    """
+    from analysis.strategy_backtest_analyzer import run_backtest
+    
+    # 转换走强规则
+    rule_mapping = {
+        'or': 'close_gt_prev_close_or_open',
+        'and': 'close_gt_prev_close_and_open',
+        'prev': 'close_gt_prev_close',
+        'open': 'close_gt_open'
+    }
+    strong_definition = rule_mapping.get(strong_rule, 'close_gt_prev_close_or_open')
+    
+    result = run_backtest(
+        summary_csv_path=summary_csv_path,
+        strong_definition=strong_definition,
+        min_hold_days=min_hold_days,
+        max_hold_days=max_hold_days
+    )
+    
+    if result:
+        print(f"\n{'=' * 50}")
+        print(f"📊 回测结果摘要")
+        print(f"{'=' * 50}")
+        print(f"有效交易: {result.valid_trades} 笔")
+        print(f"胜率: {result.win_rate:.1f}%")
+        print(f"盈亏比: {result.profit_loss_ratio:.2f}")
+        print(f"期望值: {result.expected_value:.2f}%")
+        print(f"平均持有: {result.avg_hold_days:.1f} 天")
+        print(f"{'=' * 50}")
+    else:
+        print("❌ 回测失败")
+    
+    return result
+
+
 def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
                           min_gap=1.0, max_gap=6.0,
                           filter_enabled=False,
@@ -1217,7 +1288,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251130', min_lianban=1, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+    # analyze_volume_surge_pattern('20251130', '20251223', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251130_20251223/summary.csv')
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
