@@ -100,6 +100,17 @@ class BacktestConfig:
     min_hold_days: int = 1  # 最少持有天数（T+1规则为1）
     max_hold_days: int = 30  # 最大持有天数，防止无限持有
 
+    # 买入控制
+    buy_price_range: tuple = None  # 买入价格范围（开盘涨幅%），例如(-5, 6)表示-5%到6%
+    # None表示不限制，总是买入
+    # (min_pct, max_pct)表示只有次日开盘涨幅在此范围内才买入
+
+    # 走强控制
+    strong_price_range: tuple = None  # 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
+    # None表示不限制，只要满足走强定义即视为走强
+    # (min_pct, max_pct)表示即使满足走强定义，收盘涨幅也必须在此范围内才算走强
+    # 如果收盘涨幅不在范围内，视为"不再走强"，触发卖出
+
     # 数据路径
     data_path: str = './data/astocks'
 
@@ -340,6 +351,13 @@ class StrategyBacktestAnalyzer:
             # a+1日涨幅（收盘价相对信号日收盘价）
             trade.day1_change_pct = (trade.day1_close - trade.signal_close) / trade.signal_close * 100
 
+        # 检查买入价格范围限制
+        if self.config.buy_price_range is not None:
+            min_pct, max_pct = self.config.buy_price_range
+            if not (min_pct <= trade.open_gap_pct <= max_pct):
+                # 开盘涨幅不在允许范围内，不执行买入
+                return trade
+
         # a+1日实体涨幅（收盘-开盘/开盘）
         if trade.buy_price > 0:
             trade.day1_body_pct = (trade.day1_close - trade.buy_price) / trade.buy_price * 100
@@ -462,15 +480,36 @@ class StrategyBacktestAnalyzer:
         return trade
 
     def _check_strong(self, close: float, open_price: float, prev_close: float) -> bool:
-        """检查是否走强"""
+        """
+        检查是否走强
+        
+        逻辑：
+        1. 先检查是否满足走强定义（收盘>前日收盘 或 收盘>开盘等）
+        2. 如果配置了strong_price_range，还需要检查收盘涨幅是否在范围内
+        """
+        # 先检查走强定义
         if self.config.strong_definition == 'close_gt_prev_close':
-            return close > prev_close
+            is_strong_by_definition = close > prev_close
         elif self.config.strong_definition == 'close_gt_open':
-            return close > open_price
+            is_strong_by_definition = close > open_price
         elif self.config.strong_definition == 'close_gt_prev_close_and_open':
-            return close > prev_close and close > open_price
+            is_strong_by_definition = close > prev_close and close > open_price
         else:  # close_gt_prev_close_or_open (默认)
-            return close > prev_close or close > open_price
+            is_strong_by_definition = close > prev_close or close > open_price
+
+        # 如果不满足走强定义，直接返回False
+        if not is_strong_by_definition:
+            return False
+
+        # 如果配置了走强价格范围，需要检查收盘涨幅是否在范围内
+        if self.config.strong_price_range is not None and prev_close > 0:
+            min_pct, max_pct = self.config.strong_price_range
+            close_change_pct = (close - prev_close) / prev_close * 100
+            if not (min_pct <= close_change_pct <= max_pct):
+                # 收盘涨幅不在允许范围内，视为不再走强
+                return False
+
+        return True
 
     def _parse_numeric_range(self, value) -> float:
         """解析可能是范围的数值（如 '3.5-4.2'），返回平均值"""
@@ -1161,6 +1200,8 @@ def run_backtest(summary_csv_path: str,
                  strong_definition: str = 'close_gt_prev_close_or_open',
                  min_hold_days: int = 1,
                  max_hold_days: int = 30,
+                 buy_price_range: tuple = None,
+                 strong_price_range: tuple = None,
                  data_path: str = './data/astocks') -> BacktestResult:
     """
     便捷函数：执行策略回测
@@ -1174,6 +1215,11 @@ def run_backtest(summary_csv_path: str,
             - 'close_gt_prev_close_and_open': 收盘>前日收盘 且 收盘>开盘
         min_hold_days: 最少持有天数（T+1规则为1）
         max_hold_days: 最大持有天数
+        buy_price_range: 买入价格范围（开盘涨幅%），例如(-5, 6)表示-5%到6%
+            None表示不限制，总是买入
+        strong_price_range: 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
+            None表示不限制，只要满足走强定义即视为走强
+            (min_pct, max_pct)表示即使满足走强定义，收盘涨幅也必须在此范围内才算走强
         data_path: 股票数据目录
         
     Returns:
@@ -1183,6 +1229,8 @@ def run_backtest(summary_csv_path: str,
         strong_definition=strong_definition,
         min_hold_days=min_hold_days,
         max_hold_days=max_hold_days,
+        buy_price_range=buy_price_range,
+        strong_price_range=strong_price_range,
         data_path=data_path
     )
 

@@ -1140,7 +1140,9 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
 def backtest_strategy(summary_csv_path: str,
                       strong_rule: str = 'or',
                       min_hold_days: int = 1,
-                      max_hold_days: int = 30):
+                      max_hold_days: int = 30,
+                      buy_price_range: tuple = None,
+                      strong_price_range: tuple = None):
     """
     策略回测分析
     
@@ -1148,8 +1150,8 @@ def backtest_strategy(summary_csv_path: str,
     
     使用场景：
     1. 信号日(a日)运行选股
-    2. 次日(a+1日)开盘买入
-    3. 持有条件：股票走强（根据strong_rule定义）
+    2. 次日(a+1日)开盘买入（可设置买入价格范围限制）
+    3. 持有条件：股票走强（根据strong_rule定义，可设置走强价格范围限制）
     4. 卖出条件：不再走强时以收盘价卖出
     5. T+1规则：最早a+2日可卖出
     
@@ -1163,6 +1165,13 @@ def backtest_strategy(summary_csv_path: str,
             - 'open': 仅收盘>开盘
         min_hold_days: 最少持有天数，默认1（T+1规则）
         max_hold_days: 最大持有天数，默认30
+        buy_price_range: 买入价格范围（开盘涨幅%），例如(-5, 6)表示-5%到6%
+            - None: 不限制，总是买入（默认）
+            - (min_pct, max_pct): 只有次日开盘涨幅在此范围内才买入
+        strong_price_range: 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
+            - None: 不限制，只要满足走强定义即视为走强（默认）
+            - (min_pct, max_pct): 即使满足走强定义，收盘涨幅也必须在此范围内才算走强
+              如果收盘涨幅不在范围内，视为"不再走强"，触发卖出
     
     输出：
         - 在CSV同目录下生成 backtest_report.md 报告
@@ -1173,6 +1182,12 @@ def backtest_strategy(summary_csv_path: str,
         
         # 使用更严格的走强定义
         backtest_strategy('...summary.csv', strong_rule='and')
+        
+        # 只买入开盘涨幅在-5%到6%之间的股票
+        backtest_strategy('...summary.csv', buy_price_range=(-5, 6))
+        
+        # 只持有收盘涨幅在-2%到10%之间的股票（即使满足走强定义）
+        backtest_strategy('...summary.csv', strong_price_range=(-2, 10))
     """
     from analysis.strategy_backtest_analyzer import run_backtest
 
@@ -1189,7 +1204,9 @@ def backtest_strategy(summary_csv_path: str,
         summary_csv_path=summary_csv_path,
         strong_definition=strong_definition,
         min_hold_days=min_hold_days,
-        max_hold_days=max_hold_days
+        max_hold_days=max_hold_days,
+        buy_price_range=buy_price_range,
+        strong_price_range=strong_price_range
     )
 
     if result:
@@ -1293,9 +1310,9 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251201', '20251224', min_lianban=2, volume_surge_ratio=3.0,
-                                 volume_avg_days=3)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250630_20251224/summary.csv')
+    # analyze_volume_surge_pattern('20250101', '20250624', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
+    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251224/summary.csv',
+                      buy_price_range=None, strong_price_range=(-1, 20))
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
