@@ -132,6 +132,14 @@ BORDER_STYLE = Border(
     bottom=Side(style='thin')
 )
 
+# 入选日期加粗边框样式（用于标记股票入选日期）
+ENTRY_DATE_BORDER_STYLE = Border(
+    left=Side(style='thick'),
+    right=Side(style='thick'),
+    top=Side(style='thick'),
+    bottom=Side(style='thick')
+)
+
 # 周期涨跌幅颜色映射
 PERIOD_CHANGE_COLORS = {
     "EXTREME_POSITIVE": "9933FF",  # 深紫色 - 极强势 (≥100%)
@@ -1357,11 +1365,11 @@ def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, 
         period_change_long = calculate_stock_period_change(stock_code, prev_date_long, end_date_str, stock_name)
 
         # 计算入选日前period_days交易日的涨跌幅（用于备注）
-        entry_date_str = entry_date.strftime('%Y%m%d')
-        prev_entry_date = get_n_trading_days_before(entry_date_str, period_days)
-        if '-' in prev_entry_date:
-            prev_entry_date = prev_entry_date.replace('-', '')
-        entry_period_change = calculate_stock_period_change(stock_code, prev_entry_date, entry_date_str, stock_name)
+        # entry_date_str = entry_date.strftime('%Y%m%d')
+        # prev_entry_date = get_n_trading_days_before(entry_date_str, period_days)
+        # if '-' in prev_entry_date:
+        #     prev_entry_date = prev_entry_date.replace('-', '')
+        # entry_period_change = calculate_stock_period_change(stock_code, prev_entry_date, entry_date_str, stock_name)
 
         # 设置单元格值和格式
         if period_change_short is not None and period_change_long is not None:
@@ -1374,9 +1382,9 @@ def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, 
                 period_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
             # 添加入选日涨跌幅信息作为备注
-            if entry_period_change is not None:
-                comment_text = f"入选日前{period_days}日涨幅: {entry_period_change:.2f}%"
-                period_cell.comment = Comment(comment_text, "入选日涨跌幅")
+            # if entry_period_change is not None:
+            #     comment_text = f"入选日前{period_days}日涨幅: {entry_period_change:.2f}%"
+            #     period_cell.comment = Comment(comment_text, "入选日涨跌幅")
         else:
             period_cell = ws.cell(row=row, column=col, value="--/--")
     except Exception as e:
@@ -1588,7 +1596,8 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                        pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE, new_high_markers=None):
+                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE, new_high_markers=None,
+                       latest_entry_dates=None):
     """
     处理每日单元格
 
@@ -1608,6 +1617,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
         new_high_markers: 新高标记映射
+        latest_entry_dates: 每只股票的最新入选日期映射 {pure_stock_code: entry_date}
 
     Returns:
         更新后的股票数据
@@ -1671,6 +1681,28 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
             # 在当前单元格内容后添加新高标记
             current_value = cell.value if cell.value else ""
             cell.value = f"{current_value}{NEW_HIGH_MARKER}"
+
+    # 检查是否为入选日期，如果是则添加加粗边框
+    if latest_entry_dates and pure_stock_code in latest_entry_dates:
+        entry_date = latest_entry_dates[pure_stock_code]
+        # 比较日期对象（忽略时间部分）
+        if isinstance(entry_date, datetime):
+            entry_date_only = entry_date.date()
+            current_date_only = current_date_obj.date()
+            if entry_date_only == current_date_only:
+                # 获取原有边框颜色（如果存在），否则使用黑色
+                existing_border = cell.border if cell.border and cell.border != Border() else BORDER_STYLE
+                border_color = '000000'  # 默认黑色
+                if existing_border.left:
+                    border_color = existing_border.left.color or '000000'
+
+                # 设置加粗边框，保留原有颜色
+                cell.border = Border(
+                    left=Side(style='thick', color=border_color),
+                    right=Side(style='thick', color=border_color),
+                    top=Side(style='thick', color=border_color),
+                    bottom=Side(style='thick', color=border_color)
+                )
 
     return stock
 
@@ -2713,6 +2745,15 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
 
+    # 构建每只股票的最新入选日期映射（用于标记入选日期单元格）
+    latest_entry_dates = {}
+    for _, stock in result_df.iterrows():
+        pure_stock_code = extract_pure_stock_code(stock['stock_code'])
+        entry_date = stock['first_significant_date']
+        # 如果该股票已有记录，取较新的日期
+        if pure_stock_code not in latest_entry_dates or entry_date > latest_entry_dates[pure_stock_code]:
+            latest_entry_dates[pure_stock_code] = entry_date
+
     # 获取结束日期用于均线斜率计算
     end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
 
@@ -2773,7 +2814,8 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                        max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
+                        max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
+                        latest_entry_dates)
 
         # 填充异动预警列
         if show_warning_column and abnormal_detector and formatted_trading_days:
@@ -2913,7 +2955,7 @@ def calculate_max_board_level(all_board_data):
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
                     max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE,
-                    new_high_markers=None):
+                    new_high_markers=None, latest_entry_dates=None):
     """
     填充每日数据
 
@@ -2933,6 +2975,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
         new_high_markers: 新高标记映射
+        latest_entry_dates: 每只股票的最新入选日期映射 {pure_stock_code: entry_date}
     """
     for j, formatted_day in enumerate(formatted_trading_days):
         col_idx = j + date_column_start  # 列索引，从date_column_start开始
@@ -2946,7 +2989,8 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                                    pure_stock_code, stock_details, stock, date_mapping,
-                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
+                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
+                                   latest_entry_dates)
 
 
 def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column=True):
@@ -3171,6 +3215,15 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
     # 计算所有股票的新高标记（使用缓存版本）
     new_high_markers = get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
 
+    # 构建每只股票的最新入选日期映射（用于标记入选日期单元格）
+    latest_entry_dates = {}
+    for _, stock in result_df.iterrows():
+        pure_stock_code = extract_pure_stock_code(stock['stock_code'])
+        entry_date = stock['first_significant_date']
+        # 如果该股票已有记录，取较新的日期
+        if pure_stock_code not in latest_entry_dates or entry_date > latest_entry_dates[pure_stock_code]:
+            latest_entry_dates[pure_stock_code] = entry_date
+
     # 初始化异动检测器（如果需要显示预警列）
     abnormal_detector = None
     if show_warning_column:
@@ -3253,7 +3306,8 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
                                                 period_column, period_days, period_days_long, stock_details,
                                                 date_mapping,
                                                 max_tracking_days, max_tracking_days_before, zaban_df, new_high_markers,
-                                                show_warning_column, abnormal_detector, enable_collapse)
+                                                show_warning_column, abnormal_detector, enable_collapse,
+                                                latest_entry_dates)
 
         # 如果启用折叠并且此行需要折叠
         if enable_collapse and should_collapse:
@@ -3270,7 +3324,8 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
                           formatted_trading_days, date_column_start, show_period_change, period_column,
                           period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
                           max_tracking_days_before, zaban_df, new_high_markers=None,
-                          show_warning_column=True, abnormal_detector=None, enable_collapse=False):
+                          show_warning_column=True, abnormal_detector=None, enable_collapse=False,
+                          latest_entry_dates=None):
     """
     填充单个股票的数据行
 
@@ -3282,6 +3337,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
         show_warning_column: 是否显示异动预警列
         abnormal_detector: 异动检测器实例
         enable_collapse: 是否启用行折叠功能（True=返回是否需要折叠，False=不判断）
+        latest_entry_dates: 每只股票的最新入选日期映射 {pure_stock_code: entry_date}
         其他参数与fill_data_rows相同
     
     Returns:
@@ -3330,7 +3386,8 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers)
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
+                    latest_entry_dates)
 
     # 填充异动预警列
     if show_warning_column and abnormal_detector and formatted_trading_days:
