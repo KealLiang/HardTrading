@@ -1290,11 +1290,11 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
