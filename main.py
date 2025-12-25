@@ -634,7 +634,7 @@ def daily_routine():
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
-        (auction_fengdan_analyze, "复盘分析封单数据"),
+        # (auction_fengdan_analyze, "复盘分析封单数据"),
         (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3),
          "爆量分歧转一致筛选"),
     ]
@@ -649,8 +649,7 @@ def full_scan_routine(candidate_model='a'):
     scan_steps = [
         (lambda: strategy_scan(candidate_model), "执行突破策略扫描"),
         (lambda: generate_comparison_charts(candidate_model), "生成突破策略对比图"),
-        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}',
-                                        f'breakout_{candidate_model}'),
+        (lambda: record_scan_to_history(f'bin/candidate_stocks_breakout_{candidate_model}', f'breakout_{candidate_model}'),
          f"记录突破策略{candidate_model}扫描结果"),
         # (lambda: pullback_rebound_scan(candidate_model), "执行止跌反弹策略扫描"),
         # (lambda: generate_rebound_comparison_charts(candidate_model), "生成止跌反弹策略对比图"),
@@ -1295,7 +1294,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1310,9 +1309,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20250101', '20250624', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3)  # 爆量分歧分析
-    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251224/summary.csv',
-                      buy_price_range=None, strong_price_range=(-1, 20))
+    # analyze_volume_surge_pattern('20251101', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3)  # 爆量分歧分析
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251101_20251224/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
