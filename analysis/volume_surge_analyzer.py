@@ -30,6 +30,12 @@ from analysis.pattern_analyzer_base import (
     PatternAnalyzerBase, PatternAnalysisConfig, PatternInfo
 )
 
+# 关注度榜检查相关全局配置
+# 统计最近N个交易日内的关注度榜数据
+ATTENTION_DAYS_WINDOW = 5
+# 关注度榜取前N名
+ATTENTION_TOP_N = 20
+
 
 @dataclass
 class VolumeSurgeConfig(PatternAnalysisConfig):
@@ -43,12 +49,15 @@ class VolumeSurgeConfig(PatternAnalysisConfig):
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
         continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
             会检查最近N日是否连续爆量上涨，使用连续爆量开始之前的均量作为基准
+        enable_attention_criteria: 是否启用关注度榜入选条件，默认为False。
+            启用时，对于在关注度榜中的股票，连板数要求减1（例如min_lianban_count=2时，关注度榜股票只需1板即可）
     """
     volume_surge_ratio: float = 2.0
     volume_avg_days: int = 5
     min_lianban_count: int = 2
     min_pct_change: float = 3.0  # 信号日最小涨幅%
     continuous_surge_days: int = 2  # 连续爆量检测天数
+    enable_attention_criteria: bool = False  # 是否启用关注度榜入选条件
 
 
 class VolumeSurgeAnalyzer(PatternAnalyzerBase):
@@ -78,6 +87,8 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         self.lianban_candidates: Dict[str, Dict] = {}
         # 存储每个信号的详细数据，用于多信号场景
         self._signal_details: Dict[str, Dict[str, Dict]] = {}  # {code: {date: surge_info}}
+        # 存储关注度榜股票集合（仅在启用关注度榜条件时加载）
+        self.attention_stocks: set = set()
 
     def load_data(self):
         """加载连板数据和首板数据"""
@@ -103,6 +114,10 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
             # 提取并过滤日期列
             self._filter_date_columns()
+
+            # 如果启用关注度榜条件，加载关注度榜数据
+            if self.config.enable_attention_criteria:
+                self._load_attention_stocks()
 
         except FileNotFoundError:
             raise FileNotFoundError(f"未找到复盘数据文件: {self.config.fupan_file}")
@@ -138,6 +153,111 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             return datetime(year, month, day)
         else:
             raise ValueError(f"无法解析日期列: {column_date}")
+
+    def _load_attention_stocks(self):
+        """
+        加载关注度榜股票集合
+        参考 ladder_chart.py 中的 load_top_attention_stocks 实现
+        """
+        try:
+            from analysis.loader.fupan_data_loader import FUPAN_FILE
+            from openpyxl import load_workbook
+            from utils.date_util import get_n_trading_days_before
+
+            # 读取关注度榜数据（从复盘数据源文件读取）
+            wb = load_workbook(FUPAN_FILE, data_only=True)
+
+            # 获取最近N个交易日
+            end_date = self.config.end_date
+            recent_dates = set()
+            recent_dates.add(end_date)
+            for i in range(1, ATTENTION_DAYS_WINDOW):
+                prev_date = get_n_trading_days_before(end_date, i)
+                if '-' in prev_date:
+                    prev_date = prev_date.replace('-', '')
+                recent_dates.add(prev_date)
+
+            attention_stocks = set()
+
+            # 处理两个sheet：【关注度榜】和【非主关注度榜】
+            for sheet_name in ['关注度榜', '非主关注度榜']:
+                if sheet_name not in wb.sheetnames:
+                    continue
+
+                ws = wb[sheet_name]
+
+                # 遍历所有列，查找最近N日的数据
+                for col_idx in range(1, ws.max_column + 1):
+                    header_cell = ws.cell(row=1, column=col_idx)
+                    if not header_cell.value:
+                        continue
+
+                    # 解析日期（格式：2025年11月18日）
+                    col_date = self._parse_attention_date_from_header(header_cell.value)
+                    if not col_date or col_date not in recent_dates:
+                        continue
+
+                    # 读取该列的前top_n行数据（从第2行开始）
+                    for row_idx in range(2, min(2 + ATTENTION_TOP_N, ws.max_row + 1)):
+                        cell_value = ws.cell(row=row_idx, column=col_idx).value
+                        if not cell_value:
+                            continue
+
+                        # 解析数据：600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1
+                        stock_code = self._extract_stock_code_from_attention_data(cell_value)
+                        if stock_code:
+                            attention_stocks.add(stock_code)
+
+            self.attention_stocks = attention_stocks
+            logging.info(
+                f"✓ 加载关注度榜数据：最近{ATTENTION_DAYS_WINDOW}日前{ATTENTION_TOP_N}名，共{len(attention_stocks)}只股票")
+
+        except Exception as e:
+            logging.warning(f"✗ 加载关注度榜数据失败: {e}")
+            self.attention_stocks = set()
+
+    def _parse_attention_date_from_header(self, header_value) -> Optional[str]:
+        """
+        从表头解析日期：2025年11月18日 -> 20251118
+        
+        Args:
+            header_value: 表头值
+            
+        Returns:
+            str: YYYYMMDD格式的日期，解析失败返回None
+        """
+        try:
+            if isinstance(header_value, str) and '年' in header_value:
+                date_obj = datetime.strptime(header_value, '%Y年%m月%d日')
+                return date_obj.strftime('%Y%m%d')
+        except:
+            pass
+        return None
+
+    def _extract_stock_code_from_attention_data(self, cell_value) -> Optional[str]:
+        """
+        从关注度榜数据中提取股票代码
+        
+        输入: "600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1"
+        输出: "600340"（标准化后的纯代码）
+        
+        Args:
+            cell_value: 单元格值
+            
+        Returns:
+            str: 标准化后的股票代码，解析失败返回None
+        """
+        try:
+            parts = str(cell_value).split(';')
+            if len(parts) >= 1:
+                stock_code = parts[0].strip()  # "600340.SH"
+                # 去除市场后缀 .SH/.SZ
+                if '.' in stock_code:
+                    stock_code = stock_code.split('.')[0]
+                return stock_code
+        except:
+            pass
+        return None
 
     def _parse_lianban_cell(self, cell_value: str) -> Optional[Dict]:
         """解析连板数据单元格"""
@@ -183,12 +303,19 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         
         注意：
         - min_lianban_count=1 时，需要同时读取首板数据
-        - min_lianban_count>=2 时，只读取连板数据
+        - 启用关注度榜条件且 min_lianban_count-1=1 时，也需要读取首板数据（因为关注度榜股票可能只需1板）
+        - min_lianban_count>=2 且未启用关注度榜条件时，只读取连板数据
         """
         logging.info("构建连板股候选池...")
 
-        # 如果 min_lianban_count=1，需要同时读取首板数据
-        if self.config.min_lianban_count == 1:
+        # 判断是否需要读取首板数据
+        # 1. 如果 min_lianban_count=1，需要读取首板数据
+        # 2. 如果启用关注度榜条件且降低后需要1板（min_lianban_count-1=1），也需要读取首板数据
+        need_shouban = (self.config.min_lianban_count == 1) or \
+                       (self.config.enable_attention_criteria and
+                        max(1, self.config.min_lianban_count - 1) == 1)
+
+        if need_shouban:
             self._collect_from_sheet(self.shouban_data, board_count_default=1)
 
         # 读取连板数据
@@ -214,6 +341,8 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                     continue
 
                 code = parsed['code']
+                # 提取纯代码（去除市场后缀）用于关注度榜匹配
+                pure_code = code.split('.')[0] if '.' in code else code
 
                 # 解析板数
                 if board_count_default is not None:
@@ -221,8 +350,14 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 else:
                     board_count = self._extract_board_count(parsed['jitian_jiban'])
 
+                # 确定实际需要的最小连板数
+                # 如果启用关注度榜条件且该股票在关注度榜中，则连板数要求减1
+                required_board_count = self.config.min_lianban_count
+                if self.config.enable_attention_criteria and pure_code in self.attention_stocks:
+                    required_board_count = max(1, self.config.min_lianban_count - 1)
+
                 # 只收集达到最小连板数的股票
-                if board_count >= self.config.min_lianban_count:
+                if board_count >= required_board_count:
                     if code not in self.lianban_candidates:
                         self.lianban_candidates[code] = {
                             'name': parsed['name'],
@@ -333,7 +468,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             爆量信息字典，如果不是连续爆量日返回None
         """
         max_continuous_days = self.config.continuous_surge_days
-        
+
         # 从最长的连续天数开始尝试，找到最长的满足条件的期间
         for continuous_days in range(max_continuous_days, 0, -1):
             # 需要足够的历史数据
@@ -346,14 +481,43 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 continue
 
             # 先计算连续爆量开始之前的均量作为基准（跳过连续爆量期间）
+            # 需要往前找足够数量的有效交易日（跳过停牌日）
             base_avg_start = surge_period_start - self.config.volume_avg_days
             if base_avg_start < 0:
                 continue
-            
-            base_volumes = stock_data.iloc[base_avg_start:surge_period_start]['Volume']
+
+            # 获取基准期间的数据，过滤掉停牌日（开盘价为空或为0，或成交量为空或为0）
+            base_period_data = stock_data.iloc[base_avg_start:surge_period_start]
+            # 过滤有效交易日：开盘价和成交量都不为空且大于0
+            valid_base_data = base_period_data[
+                base_period_data['Open'].notna() &
+                (base_period_data['Open'] > 0) &
+                base_period_data['Volume'].notna() &
+                (base_period_data['Volume'] > 0)
+                ]
+
+            # 如果有效交易日不足，继续往前找
+            if len(valid_base_data) < self.config.volume_avg_days:
+                # 往前扩展查找范围，直到找到足够的有效交易日
+                extended_start = base_avg_start
+                while extended_start > 0 and len(valid_base_data) < self.config.volume_avg_days:
+                    extended_start -= 1
+                    extended_data = stock_data.iloc[extended_start:surge_period_start]
+                    valid_base_data = extended_data[
+                        extended_data['Open'].notna() &
+                        (extended_data['Open'] > 0) &
+                        extended_data['Volume'].notna() &
+                        (extended_data['Volume'] > 0)
+                        ]
+
+                # 如果还是不够，跳过这个连续天数
+                if len(valid_base_data) < self.config.volume_avg_days:
+                    continue
+
+            base_volumes = valid_base_data['Volume']
             base_avg_volume = base_volumes.mean()
-            
-            if base_avg_volume <= 0:
+
+            if pd.isna(base_avg_volume) or base_avg_volume <= 0:
                 continue
 
             # 检查连续爆量期间的每一天是否都满足条件
@@ -361,39 +525,53 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             surge_pct_changes = []
             volume_ratios = []  # 记录每一天的量比
             all_days_valid = True
-            
+
             for i in range(surge_period_start, idx + 1):
                 row = stock_data.iloc[i]
-                prev_row = stock_data.iloc[i - 1]
-                
+
                 volume = row['Volume']
                 close = row['Close']
-                prev_close_val = prev_row['Close']
-                
-                # 检查数据有效性
+
+                # 检查当前日数据有效性（停牌日）
                 if pd.isna(volume) or pd.isna(close) or volume <= 0:
                     all_days_valid = False
                     break
-                
+
+                # 往前找最近的有效交易日作为前一日（跳过停牌日）
+                prev_close_val = None
+                for j in range(i - 1, -1, -1):
+                    prev_row = stock_data.iloc[j]
+                    prev_open = prev_row['Open']
+                    prev_close = prev_row['Close']
+                    # 找到有效交易日（开盘价和收盘价都不为空且大于0）
+                    if pd.notna(prev_open) and prev_open > 0 and pd.notna(prev_close) and prev_close > 0:
+                        prev_close_val = prev_close
+                        break
+
+                # 如果找不到有效的前一日，跳过这个连续天数
+                if prev_close_val is None:
+                    all_days_valid = False
+                    break
+
                 # 必须上涨
                 if close <= prev_close_val:
                     all_days_valid = False
                     break
-                
+
                 # 计算涨幅
                 pct_change = (close - prev_close_val) / prev_close_val * 100
-                
+
                 # 每日涨幅都要满足最小涨幅阈值
                 if pct_change < self.config.min_pct_change:
                     all_days_valid = False
                     break
-                
+
                 # 关键：每一天都要单独与基准均量比较，必须满足爆量条件
                 daily_volume_ratio = volume / base_avg_volume
                 if daily_volume_ratio < self.config.volume_surge_ratio:
                     all_days_valid = False
                     break  # 如果某一天不满足爆量条件，尝试更短的期间
-                
+
                 surge_volumes.append(volume)
                 surge_pct_changes.append(pct_change)
                 volume_ratios.append(daily_volume_ratio)

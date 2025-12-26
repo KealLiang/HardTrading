@@ -75,6 +75,7 @@ class PatternAnalysisConfig:
         data_dir: 股票数据目录
         output_dir: 输出目录
         fupan_file: 复盘数据文件路径
+        generate_charts: 是否生成图片，默认为True
     """
     start_date: str
     end_date: Optional[str] = None
@@ -83,6 +84,7 @@ class PatternAnalysisConfig:
     data_dir: str = './data/astocks'
     output_dir: str = './analysis/pattern_charts'
     fupan_file: str = './excel/fupan_stocks.xlsx'
+    generate_charts: bool = True
 
     def __post_init__(self):
         """初始化后处理：如果 end_date 为 None，自动设为最近交易日"""
@@ -587,10 +589,13 @@ class PatternAnalyzerBase(ABC):
         # Phase 3: 合并同一股票的重叠信号
         self.merge_patterns_by_stock()
 
-        # Phase 4: 批量生成图表
-        logging.info(f"开始生成 {len(self.filtered_stocks)} 只股票的K线图...")
-        for pattern_info in tqdm(self.filtered_stocks, desc="生成图表"):
-            self.analyze_single_stock(pattern_info)
+        # Phase 4: 批量生成图表（如果启用）
+        if self.config.generate_charts:
+            logging.info(f"开始生成 {len(self.filtered_stocks)} 只股票的K线图...")
+            for pattern_info in tqdm(self.filtered_stocks, desc="生成图表"):
+                self.analyze_single_stock(pattern_info)
+        else:
+            logging.info(f"跳过图表生成（generate_charts=False），共 {len(self.filtered_stocks)} 只股票")
 
         # Phase 5: 生成汇总报告
         summary_path = self.generate_summary_report()
