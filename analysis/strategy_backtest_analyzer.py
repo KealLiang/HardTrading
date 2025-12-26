@@ -84,6 +84,10 @@ class TradeRecord:
     # 是否有效交易
     is_valid: bool = False  # 是否有完整的交易数据
 
+    # K线序列模式（从首次涨停到信号日）
+    kline_sequence: str = ''  # K线序列，例如："大阳线-长下影阳线-大阳线"
+    first_board_date: str = ''  # 首次涨停日期
+
 
 @dataclass
 class BacktestConfig:
@@ -209,6 +213,10 @@ class StrategyBacktestAnalyzer:
         # 3. 计算统计
         print("\n[3/4] 计算统计指标...")
         self.result = self._calculate_statistics()
+
+        # 3.5. 统计K线序列模式（仅在控制台打印）
+        print("\n[3.5/4] 统计K线序列模式...")
+        self._print_kline_sequence_stats()
 
         # 4. 生成报告
         print("\n[4/4] 生成分析报告...")
@@ -372,6 +380,12 @@ class StrategyBacktestAnalyzer:
 
         # 获取买入日的索引位置
         buy_idx = buy_data.index[0]
+
+        # 获取信号日在stock_data中的位置索引
+        signal_idx = stock_data[stock_data['日期_str'] == signal_date].index[0]
+
+        # 分析K线序列（从首次涨停到信号日）
+        trade = self._analyze_kline_sequence(trade, stock_data, signal_idx=signal_idx)
 
         # 模拟持有过程
         trade = self._simulate_holding(trade, stock_data, buy_idx)
@@ -537,6 +551,98 @@ class StrategyBacktestAnalyzer:
             return int(value)
         except:
             return 0
+
+    def _analyze_kline_sequence(self, trade: TradeRecord, stock_data: pd.DataFrame, signal_idx: int) -> TradeRecord:
+        """
+        分析从首次涨停到信号日的K线序列
+        
+        逻辑：
+        1. 信号日（t日）是爆量分歧转一致日，不是涨停日
+        2. 涨停日是信号日的前一天（t-1日）
+        3. 先从信号日往前找第一个涨停日（t-1日）
+        4. 再从t-1日往前找首次涨停日
+        5. 序列：首次涨停日 -> ... -> t-1日（涨停日）-> t日（信号日）
+        
+        Args:
+            trade: 交易记录
+            stock_data: 股票数据
+            signal_idx: 信号日在stock_data中的索引
+            
+        Returns:
+            更新后的交易记录（包含kline_sequence和first_board_date）
+        """
+        try:
+            # 第一步：从信号日往前找第一个涨停日（应该是t-1日）
+            prev_board_idx = None
+            max_lookback = min(5, signal_idx)  # 最多回溯5天找t-1日的涨停
+
+            for i in range(signal_idx - 1, max(0, signal_idx - max_lookback) - 1, -1):
+                row = stock_data.iloc[i]
+                change_pct = row.get('涨跌幅', 0)
+
+                # 判断是否涨停（涨幅 >= 9.5%）
+                if change_pct >= 9.5:
+                    prev_board_idx = i
+                    break
+
+            # 如果没找到t-1日的涨停，说明数据可能有问题，尝试从信号日往前找
+            if prev_board_idx is None:
+                for i in range(signal_idx, max(0, signal_idx - max_lookback) - 1, -1):
+                    row = stock_data.iloc[i]
+                    change_pct = row.get('涨跌幅', 0)
+                    if change_pct >= 9.5:
+                        prev_board_idx = i
+                        break
+
+            if prev_board_idx is None:
+                # 如果还是没找到，返回空序列
+                return trade
+
+            # 第二步：从t-1日（涨停日）往前找首次涨停日
+            first_board_idx = prev_board_idx
+            max_lookback_from_board = min(20, prev_board_idx)  # 最多回溯20天找首板
+
+            for i in range(prev_board_idx - 1, max(0, prev_board_idx - max_lookback_from_board) - 1, -1):
+                row = stock_data.iloc[i]
+                change_pct = row.get('涨跌幅', 0)
+
+                # 判断是否涨停（涨幅 >= 9.5%）
+                if change_pct >= 9.5:
+                    first_board_idx = i
+                else:
+                    # 如果遇到非涨停日，说明已经找到首次涨停日了
+                    break
+
+            # 记录首次涨停日期
+            first_board_row = stock_data.iloc[first_board_idx]
+            trade.first_board_date = first_board_row['日期'].strftime('%Y%m%d')
+
+            # 第三步：分析从首次涨停到信号日的K线序列（包括信号日）
+            # 使用实体K识别（只基于最高价和最低价）
+            kline_patterns = []
+            for i in range(first_board_idx, signal_idx + 1):
+                row = stock_data.iloc[i]
+                high = row['最高']
+                low = row['最低']
+
+                # 获取前一日收盘价作为参考（用于计算实体大小）
+                if i > 0:
+                    prev_row = stock_data.iloc[i - 1]
+                    prev_close = prev_row['收盘']
+                else:
+                    prev_close = low  # 如果没有前一日数据，使用最低价
+
+                # 识别实体K形态（只基于最高价和最低价）
+                kline_type = self._identify_entity_kline(high, low, prev_close)
+                kline_patterns.append(kline_type)
+
+            # 组合成序列字符串
+            trade.kline_sequence = '-'.join(kline_patterns)
+
+        except Exception as e:
+            logging.warning(f"分析K线序列失败 {trade.stock_code} {trade.signal_date}: {e}")
+
+        return trade
 
     def _calculate_statistics(self) -> BacktestResult:
         """计算统计指标"""
@@ -825,6 +931,42 @@ class StrategyBacktestAnalyzer:
             lines.append("*无有效量比数据*\n")
 
         return '\n'.join(lines)
+
+    def _identify_entity_kline(self, high: float, low: float, prev_close: float) -> str:
+        """
+        识别实体K线形态（只基于最高价和最低价）
+        
+        分类：
+        - 一字板：最高价 == 最低价
+        - 大实体：实体大小（最高-最低）相对前日收盘 >= 7%
+        - 中实体：实体大小 3-7%
+        - 小实体：实体大小 < 3%
+        
+        Args:
+            high: 最高价
+            low: 最低价
+            prev_close: 前一日收盘价（用于计算实体大小）
+            
+        Returns:
+            实体K形态名称
+        """
+        if high <= 0 or low <= 0 or prev_close <= 0:
+            return "数据异常"
+
+        # 一字板：最高价等于最低价
+        if abs(high - low) < 0.01:  # 考虑浮点数误差
+            return "一字板"
+
+        # 计算实体大小（最高-最低）相对前日收盘的比例
+        entity_size = (high - low) / prev_close * 100
+
+        # 根据实体大小分类
+        if entity_size >= 7:
+            return "大实体"
+        elif entity_size >= 3:
+            return "中实体"
+        else:
+            return "小实体"
 
     def _identify_kline_pattern(self, open_price: float, close: float,
                                 high: float, low: float) -> str:
@@ -1194,6 +1336,83 @@ class StrategyBacktestAnalyzer:
                 f"6. **样本量提醒**: ⚠️ 有效交易仅 {r.valid_trades} 笔，统计结果可能存在偏差，建议增加样本后再做结论。")
 
         return '\n\n'.join(conclusions)
+
+    def _print_kline_sequence_stats(self):
+        """统计并打印K线序列模式（仅在控制台输出）"""
+        valid_trades = [t for t in self.trades if t.is_valid and t.kline_sequence]
+
+        if not valid_trades:
+            print("⚠️  未找到有效的K线序列数据")
+            return
+
+        # 按K线序列分组统计
+        from collections import defaultdict
+        sequence_groups = defaultdict(list)
+
+        for trade in valid_trades:
+            sequence_groups[trade.kline_sequence].append(trade)
+
+        print(f"\n{'=' * 80}")
+        print(f"K线序列模式统计（从首次涨停到信号日）")
+        print(f"共 {len(valid_trades)} 笔有效交易，{len(sequence_groups)} 种不同模式")
+        print(f"{'=' * 80}\n")
+
+        # 计算每个模式的统计指标
+        stats_list = []
+        for sequence, trades in sequence_groups.items():
+            count = len(trades)
+            win_count = len([t for t in trades if t.is_win])
+            win_rate = win_count / count * 100 if count > 0 else 0
+
+            profits = [t.profit_pct for t in trades if t.profit_pct > 0]
+            losses = [t.profit_pct for t in trades if t.profit_pct < 0]
+
+            avg_profit = sum(profits) / len(profits) if profits else 0
+            avg_loss = abs(sum(losses) / len(losses)) if losses else 0
+            avg_return = sum(t.profit_pct for t in trades) / count
+
+            pl_ratio = avg_profit / avg_loss if avg_loss > 0 else 0
+
+            win_rate_decimal = win_rate / 100
+            expected_value = (win_rate_decimal * avg_profit - (1 - win_rate_decimal) * avg_loss)
+
+            stats_list.append({
+                'sequence': sequence,
+                'count': count,
+                'win_rate': win_rate,
+                'avg_return': avg_return,
+                'avg_profit': avg_profit,
+                'avg_loss': avg_loss,
+                'pl_ratio': pl_ratio,
+                'expected_value': expected_value
+            })
+
+        # 按样本数降序排序，然后按期望值降序排序
+        stats_list.sort(key=lambda x: (-x['count'], -x['expected_value']))
+
+        # 打印表格
+        print(f"{'K线序列':<50} {'样本数':<8} {'胜率':<8} {'平均收益':<10} {'盈亏比':<8} {'期望值':<10}")
+        print(f"{'-' * 50} {'-' * 8} {'-' * 8} {'-' * 10} {'-' * 8} {'-' * 10}")
+
+        for stats in stats_list:
+            sequence = stats['sequence']
+            # 如果序列太长，截断显示
+            if len(sequence) > 48:
+                sequence = sequence[:45] + "..."
+
+            print(f"{sequence:<50} {stats['count']:<8} {stats['win_rate']:>6.1f}%  "
+                  f"{stats['avg_return']:>+8.2f}%  {stats['pl_ratio']:>6.2f}  "
+                  f"{stats['expected_value']:>+8.2f}%")
+
+        print(f"\n{'=' * 80}")
+        print(f"统计说明：")
+        print(f"  - K线序列：从首次涨停日到信号日的每日K线形态，用'-'连接")
+        print(f"  - 样本数：该序列模式出现的交易次数")
+        print(f"  - 胜率：该序列模式下的盈利交易占比")
+        print(f"  - 平均收益：该序列模式下的平均收益率")
+        print(f"  - 盈亏比：平均盈利/平均亏损")
+        print(f"  - 期望值：胜率×平均盈利 - (1-胜率)×平均亏损")
+        print(f"{'=' * 80}\n")
 
 
 def run_backtest(summary_csv_path: str,
