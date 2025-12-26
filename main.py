@@ -1290,11 +1290,11 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1310,7 +1310,7 @@ if __name__ == '__main__':
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
     # analyze_volume_surge_pattern('20251101', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251101_20251224/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250630_20251224/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
