@@ -258,16 +258,52 @@ class StrategyBacktestAnalyzer:
             return pd.DataFrame()
 
     def _simulate_trades(self, signals: pd.DataFrame):
-        """模拟交易"""
+        """
+        模拟交易
+        
+        注意：同一只股票在持仓期间不会重复买入，避免重复计算
+        """
         self.trades = []
+
+        # 持仓状态跟踪：{stock_code: {'buy_date': 'YYYYMMDD', 'sell_date': 'YYYYMMDD' or None}}
+        holdings: Dict[str, Dict] = {}
 
         for _, row in tqdm(signals.iterrows(), total=len(signals), desc="模拟交易"):
             # 处理多个信号日期的情况（如 "20251216, 20251217"）
             signal_dates = self._parse_signal_dates(row.get('signal_date', ''))
 
+            code = row.get('code', '')
+            clean_code = code.split('.')[0] if '.' in code else code
+
             for signal_date in signal_dates:
+                # 获取买入日期（信号日次日）
+                buy_date = get_next_trading_day(signal_date)
+                if not buy_date:
+                    continue
+
+                # 检查是否已持仓
+                if clean_code in holdings:
+                    holding = holdings[clean_code]
+                    # 如果仍在持仓中（未卖出或买入日期 <= 卖出日期），跳过该信号
+                    if holding['sell_date'] is None:
+                        # 仍在持仓中且未卖出，跳过
+                        continue
+                    elif buy_date <= holding['sell_date']:
+                        # 买入日期在持仓期间或等于卖出日期，跳过
+                        # 注意：卖出日期是T日，T+1日才能买入，所以用 <=
+                        continue
+                    # 如果已卖出且买入日期 > 卖出日期，可以买入（新的一笔交易）
+
+                # 执行交易
                 trade = self._execute_single_trade(row, signal_date)
                 self.trades.append(trade)
+
+                # 更新持仓状态
+                if trade.is_valid and trade.buy_date:
+                    holdings[clean_code] = {
+                        'buy_date': trade.buy_date,
+                        'sell_date': trade.sell_date if trade.sell_date else None
+                    }
 
     def _parse_signal_dates(self, date_str) -> List[str]:
         """解析信号日期（可能是多个）"""
