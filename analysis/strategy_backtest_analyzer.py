@@ -1229,18 +1229,9 @@ class StrategyBacktestAnalyzer:
 
         for lianban in sorted(lianban_groups.keys()):
             trades = lianban_groups[lianban]
-            count = len(trades)
-            win_count = len([t for t in trades if t.is_win])
-            win_rate = win_count / count * 100
-            avg_profit = sum(t.profit_pct for t in trades) / count
-
-            profits = [t.profit_pct for t in trades if t.profit_pct > 0]
-            losses = [t.profit_pct for t in trades if t.profit_pct < 0]
-            avg_win = sum(profits) / len(profits) if profits else 0
-            avg_loss = abs(sum(losses) / len(losses)) if losses else 0
-            pl_ratio = avg_win / avg_loss if avg_loss > 0 else 0
-
-            lines.append(f"| {lianban}板 | {count} | {win_rate:.1f}% | {avg_profit:+.2f}% | {pl_ratio:.2f} |")
+            stats = self._calc_group_stats(trades)
+            lines.append(
+                f"| {lianban}板 | {stats['count']} | {stats['win_rate']:.1f}% | {stats['avg_profit']:+.2f}% | {stats['pl_ratio']:.2f} |")
 
         return '\n'.join(lines)
 

@@ -1074,7 +1074,8 @@ def analyze_lianban_stocks(start_date='20250101', end_date=None,
 def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
                                  volume_surge_ratio=2.0, volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
-                                 min_pct_change=4.0, continuous_surge_days=2):
+                                 min_pct_change=4.0, continuous_surge_days=2,
+                                 enable_attention_criteria=True, generate_charts=True):
     """
     分析"爆量分歧转一致"形态并生成K线图
     
@@ -1106,6 +1107,9 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
         continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
             会检查最近N日是否每日连续爆量上涨，使用连续爆量开始之前的均量作为基准
+        enable_attention_criteria: 是否启用关注度榜入选条件，默认为False。
+            启用时，对于在关注度榜中的股票，连板数要求减1（例如min_lianban=2时，关注度榜股票只需1板即可）
+        generate_charts: 是否生成图片，默认为True。设为False时跳过图片生成，仅生成汇总报告，用于快速回测
     
     输出：
         - K线图保存在: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/
@@ -1123,7 +1127,9 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         before_days=before_days,
         after_days=after_days,
         min_pct_change=min_pct_change,
-        continuous_surge_days=continuous_surge_days
+        continuous_surge_days=continuous_surge_days,
+        enable_attention_criteria=enable_attention_criteria,
+        generate_charts=generate_charts
     )
 
     # 执行分析
@@ -1294,7 +1300,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1309,8 +1315,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251101', '20251224', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250630_20251224/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    # analyze_volume_surge_pattern('20251201', '20251226', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
+    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
