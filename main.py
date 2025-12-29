@@ -1075,7 +1075,7 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
                                  volume_surge_ratio=2.0, volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
                                  min_pct_change=4.0, continuous_surge_days=2,
-                                 enable_attention_criteria=True, generate_charts=True):
+                                 enable_attention_criteria=False, generate_charts=True):
     """
     分析"爆量分歧转一致"形态并生成K线图
     
@@ -1374,8 +1374,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251201', '20251229', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    analyze_volume_surge_pattern('20251201', '20251229', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251229/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
     # === 二板定龙头分析 ===

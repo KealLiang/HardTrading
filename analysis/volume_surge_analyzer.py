@@ -32,9 +32,9 @@ from analysis.pattern_analyzer_base import (
 
 # 关注度榜检查相关全局配置
 # 统计最近N个交易日内的关注度榜数据
-ATTENTION_DAYS_WINDOW = 5
+ATTENTION_DAYS_WINDOW = 1
 # 关注度榜取前N名
-ATTENTION_TOP_N = 20
+ATTENTION_TOP_N = 15
 
 
 @dataclass
@@ -89,6 +89,9 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         self._signal_details: Dict[str, Dict[str, Dict]] = {}  # {code: {date: surge_info}}
         # 存储关注度榜股票集合（仅在启用关注度榜条件时加载）
         self.attention_stocks: set = set()
+        # 存储按日期索引的关注度榜数据：{date_str: set(stock_codes)}
+        # 用于回测时按日期快速获取关注度榜股票集合，避免重复加载
+        self.attention_stocks_by_date: Dict[str, set] = {}
 
     def load_data(self):
         """加载连板数据和首板数据"""
@@ -156,28 +159,20 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
     def _load_attention_stocks(self):
         """
-        加载关注度榜股票集合
+        一次性加载所有关注度榜数据，按日期索引存储
         参考 ladder_chart.py 中的 load_top_attention_stocks 实现
+        
+        优化：一次性加载所有数据，避免重复读取Excel文件
         """
         try:
             from analysis.loader.fupan_data_loader import FUPAN_FILE
             from openpyxl import load_workbook
-            from utils.date_util import get_n_trading_days_before
 
             # 读取关注度榜数据（从复盘数据源文件读取）
             wb = load_workbook(FUPAN_FILE, data_only=True)
 
-            # 获取最近N个交易日
-            end_date = self.config.end_date
-            recent_dates = set()
-            recent_dates.add(end_date)
-            for i in range(1, ATTENTION_DAYS_WINDOW):
-                prev_date = get_n_trading_days_before(end_date, i)
-                if '-' in prev_date:
-                    prev_date = prev_date.replace('-', '')
-                recent_dates.add(prev_date)
-
-            attention_stocks = set()
+            # 清空按日期索引的数据
+            self.attention_stocks_by_date = {}
 
             # 处理两个sheet：【关注度榜】和【非主关注度榜】
             for sheet_name in ['关注度榜', '非主关注度榜']:
@@ -186,7 +181,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
                 ws = wb[sheet_name]
 
-                # 遍历所有列，查找最近N日的数据
+                # 遍历所有列，加载所有日期的数据
                 for col_idx in range(1, ws.max_column + 1):
                     header_cell = ws.cell(row=1, column=col_idx)
                     if not header_cell.value:
@@ -194,8 +189,12 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
                     # 解析日期（格式：2025年11月18日）
                     col_date = self._parse_attention_date_from_header(header_cell.value)
-                    if not col_date or col_date not in recent_dates:
+                    if not col_date:
                         continue
+
+                    # 初始化该日期的关注度榜集合
+                    if col_date not in self.attention_stocks_by_date:
+                        self.attention_stocks_by_date[col_date] = set()
 
                     # 读取该列的前top_n行数据（从第2行开始）
                     for row_idx in range(2, min(2 + ATTENTION_TOP_N, ws.max_row + 1)):
@@ -206,15 +205,48 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                         # 解析数据：600340.SH; 华夏幸福; 3.31; 10.0%; 998637.5; 1
                         stock_code = self._extract_stock_code_from_attention_data(cell_value)
                         if stock_code:
-                            attention_stocks.add(stock_code)
+                            self.attention_stocks_by_date[col_date].add(stock_code)
 
-            self.attention_stocks = attention_stocks
+            # 加载默认的关注度榜集合（基于end_date）
+            self._get_attention_stocks_for_date(self.config.end_date)
+
             logging.info(
-                f"✓ 加载关注度榜数据：最近{ATTENTION_DAYS_WINDOW}日前{ATTENTION_TOP_N}名，共{len(attention_stocks)}只股票")
+                f"✓ 加载关注度榜数据：共{len(self.attention_stocks_by_date)}个日期，"
+                f"默认集合（end_date={self.config.end_date}）共{len(self.attention_stocks)}只股票")
 
         except Exception as e:
             logging.warning(f"✗ 加载关注度榜数据失败: {e}")
             self.attention_stocks = set()
+            self.attention_stocks_by_date = {}
+
+    def _get_attention_stocks_for_date(self, max_date: str) -> set:
+        """
+        获取指定日期及之前N个交易日内的关注度榜股票集合
+        
+        Args:
+            max_date: 最大日期（YYYYMMDD格式）
+            
+        Returns:
+            关注度榜股票集合
+        """
+        from utils.date_util import get_n_trading_days_before
+
+        # 获取最近N个交易日
+        recent_dates = set()
+        recent_dates.add(max_date)
+        for i in range(1, ATTENTION_DAYS_WINDOW):
+            prev_date = get_n_trading_days_before(max_date, i)
+            if '-' in prev_date:
+                prev_date = prev_date.replace('-', '')
+            recent_dates.add(prev_date)
+
+        # 合并这些日期的关注度榜股票
+        attention_stocks = set()
+        for date_str in recent_dates:
+            if date_str in self.attention_stocks_by_date:
+                attention_stocks.update(self.attention_stocks_by_date[date_str])
+
+        return attention_stocks
 
     def _parse_attention_date_from_header(self, header_value) -> Optional[str]:
         """
@@ -296,7 +328,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
         return 0
 
-    def _build_lianban_candidates(self):
+    def _build_lianban_candidates(self, max_date=None):
         """
         构建连板股候选池
         筛选在日期范围内达到min_lianban_count连板的股票
@@ -305,6 +337,10 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         - min_lianban_count=1 时，需要同时读取首板数据
         - 启用关注度榜条件且 min_lianban_count-1=1 时，也需要读取首板数据（因为关注度榜股票可能只需1板）
         - min_lianban_count>=2 且未启用关注度榜条件时，只读取连板数据
+        
+        Args:
+            max_date: 最大日期限制（YYYYMMDD格式），只收集该日期及之前的连板股。
+                     如果为None，则使用config.end_date。回测时应该传入信号日，避免使用未来数据。
         """
         logging.info("构建连板股候选池...")
 
@@ -316,23 +352,40 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                         max(1, self.config.min_lianban_count - 1) == 1)
 
         if need_shouban:
-            self._collect_from_sheet(self.shouban_data, board_count_default=1)
+            self._collect_from_sheet(self.shouban_data, board_count_default=1, max_date=max_date)
 
         # 读取连板数据
-        self._collect_from_sheet(self.lianban_data, board_count_default=None)
+        self._collect_from_sheet(self.lianban_data, board_count_default=None, max_date=max_date)
 
         logging.info(f"候选池中共有 {len(self.lianban_candidates)} 只连板股")
 
-    def _collect_from_sheet(self, sheet_data, board_count_default=None):
+    def _collect_from_sheet(self, sheet_data, board_count_default=None, max_date=None):
         """
         从指定sheet收集候选股票
         
         Args:
             sheet_data: 数据sheet（连板数据或首板数据）
             board_count_default: 默认板数（首板时为1，连板时为None从数据中解析）
+            max_date: 最大日期限制（YYYYMMDD格式），只收集该日期及之前的连板股。
+                     如果为None，则使用config.end_date。回测时应该传入信号日，避免使用未来数据。
         """
+        # 确定最大日期限制
+        if max_date is None:
+            max_date = self.config.end_date
+        max_date_dt = datetime.strptime(max_date, '%Y%m%d')
+
+        # 关键修复：获取该日期及之前的关注度榜股票集合
+        attention_stocks_for_date = set()
+        if self.config.enable_attention_criteria:
+            attention_stocks_for_date = self._get_attention_stocks_for_date(max_date)
+
         for date_col in self.date_columns:
             if date_col not in sheet_data.columns:
+                continue
+
+            # 关键修复：只收集max_date及之前的连板股，避免使用未来数据
+            col_date = self._parse_column_date(date_col)
+            if col_date > max_date_dt:
                 continue
 
             for idx, cell_value in sheet_data[date_col].items():
@@ -353,7 +406,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 # 确定实际需要的最小连板数
                 # 如果启用关注度榜条件且该股票在关注度榜中，则连板数要求减1
                 required_board_count = self.config.min_lianban_count
-                if self.config.enable_attention_criteria and pure_code in self.attention_stocks:
+                if self.config.enable_attention_criteria and pure_code in attention_stocks_for_date:
                     required_board_count = max(1, self.config.min_lianban_count - 1)
 
                 # 只收集达到最小连板数的股票
@@ -398,6 +451,12 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
         try:
             target_date = datetime.strptime(date_str, '%Y%m%d')
+
+            # 关键修复：回测时只能使用目标日期及之前的数据，避免使用未来数据
+            # 过滤掉目标日期之后的数据
+            stock_data = stock_data[stock_data.index <= target_date].copy()
+            if stock_data.empty:
+                return None
 
             # 确保目标日期在数据范围内
             if target_date not in stock_data.index:
@@ -611,57 +670,67 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         """
         logging.info("开始筛选爆量分歧转一致形态...")
 
-        # 先构建连板股候选池（收集所有涨停日及其板数）
-        self._build_lianban_candidates()
-
-        if not self.lianban_candidates:
-            logging.warning("未找到符合条件的连板股")
-            return
-
         from utils.date_util import get_next_trading_day
 
-        # 遍历候选池，检测爆量日
-        for code, info in tqdm(self.lianban_candidates.items(), desc="检测爆量日"):
-            code_6digit = code.split('.')[0] if '.' in code else code
+        # 按日期逐个检测，确保回测时只使用该日期及之前的数据
+        # 生成所有需要检测的信号日期
+        signal_dates = set()
+        for date_col in self.date_columns:
+            lianban_date = self._parse_column_date(date_col).strftime('%Y%m%d')
+            signal_date = get_next_trading_day(lianban_date)
+            if signal_date and self.config.start_date <= signal_date <= self.config.end_date:
+                signal_dates.add(signal_date)
 
-            # 初始化信号详情存储
-            if code not in self._signal_details:
-                self._signal_details[code] = {}
+        signal_dates = sorted(list(signal_dates))
 
-            # 遍历该股票的所有涨停日期
-            for lianban_date in info['lianban_dates']:
-                # 信号日是涨停日的下一个交易日
-                signal_date = get_next_trading_day(lianban_date)
-                if not signal_date:
-                    continue
+        # 对每个信号日，只使用该日期及之前的数据来收集候选股和检测
+        for signal_date in tqdm(signal_dates, desc="按日期检测爆量日"):
+            # 清空候选池，重新收集该日期及之前的候选股
+            # 关键修复：使用该信号日及之前的关注度榜数据
+            self.lianban_candidates = {}
+            self._build_lianban_candidates(max_date=signal_date)
 
-                # 跳过超出日期范围的信号日
-                if signal_date < self.config.start_date or signal_date > self.config.end_date:
-                    continue
+            if not self.lianban_candidates:
+                continue
 
-                # 检测信号日是否满足：上涨 + 爆量
-                surge_info = self._get_volume_surge_info(code_6digit, signal_date)
+            # 遍历候选池，检测该信号日的爆量
+            for code, info in self.lianban_candidates.items():
+                code_6digit = code.split('.')[0] if '.' in code else code
 
-                if surge_info:
-                    # 存储信号详情
-                    self._signal_details[code][surge_info['date']] = surge_info
+                # 初始化信号详情存储
+                if code not in self._signal_details:
+                    self._signal_details[code] = {}
 
-                    pattern_info = PatternInfo(
-                        code=code,
-                        name=info['name'],
-                        pattern_date=surge_info['date'],
-                        pattern_type="爆量分歧转一致",
-                        extra_data={
-                            'max_board': info['max_board'],
-                            'volume_ratio': surge_info['volume_ratio'],
-                            'pct_change': surge_info['pct_change'],
-                            'current_volume': surge_info['current_volume'],
-                            'avg_volume': surge_info['avg_volume'],
-                            'reason': info.get('reason', ''),  # 涨停原因
-                            'prev_lianban_date': lianban_date  # 前一日涨停日期
-                        }
-                    )
-                    self.filtered_stocks.append(pattern_info)
+                # 遍历该股票的所有涨停日期
+                for lianban_date in info['lianban_dates']:
+                    # 信号日是涨停日的下一个交易日
+                    expected_signal_date = get_next_trading_day(lianban_date)
+                    if not expected_signal_date or expected_signal_date != signal_date:
+                        continue
+
+                    # 检测信号日是否满足：上涨 + 爆量
+                    surge_info = self._get_volume_surge_info(code_6digit, signal_date)
+
+                    if surge_info:
+                        # 存储信号详情
+                        self._signal_details[code][surge_info['date']] = surge_info
+
+                        pattern_info = PatternInfo(
+                            code=code,
+                            name=info['name'],
+                            pattern_date=surge_info['date'],
+                            pattern_type="爆量分歧转一致",
+                            extra_data={
+                                'max_board': info['max_board'],
+                                'volume_ratio': surge_info['volume_ratio'],
+                                'pct_change': surge_info['pct_change'],
+                                'current_volume': surge_info['current_volume'],
+                                'avg_volume': surge_info['avg_volume'],
+                                'reason': info.get('reason', ''),  # 涨停原因
+                                'prev_lianban_date': lianban_date  # 前一日涨停日期
+                            }
+                        )
+                        self.filtered_stocks.append(pattern_info)
 
         logging.info(f"筛选完成，符合条件的形态: {len(self.filtered_stocks)} 个")
 
