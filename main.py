@@ -1230,6 +1230,65 @@ def backtest_strategy(summary_csv_path: str,
     return result
 
 
+def analyze_open_minutes_pattern(summary_csv_path: str,
+                                  strong_rule: str = 'or',
+                                  min_hold_days: int = 1,
+                                  max_hold_days: int = 30,
+                                  buy_price_range: tuple = None,
+                                  strong_price_range: tuple = None):
+    """
+    分析建仓日开盘前15分钟走势对交易成功率和赔率的影响
+    
+    根据选股策略的信号数据，回测分析后，进一步分析建仓日（a+1日）开盘前15分钟
+    （9:30-9:45）的走势模式，结合开盘涨幅和开盘后走势，统计不同模式下的胜率和赔率。
+    
+    使用场景：
+    1. 信号日(a日)运行选股
+    2. 次日(a+1日)开盘买入
+    3. 分析建仓日开盘前15分钟的走势模式
+    4. 统计不同模式（如：平开且直接拉升、高开且先跌后拉等）的成功率和赔率
+    
+    Args:
+        summary_csv_path: 信号汇总CSV文件路径
+            例如: 'analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv'
+        strong_rule: 走强规则定义
+            - 'or': 收盘>前日收盘 或 收盘>开盘（默认，最宽松）
+            - 'and': 收盘>前日收盘 且 收盘>开盘（最严格）
+            - 'prev': 仅收盘>前日收盘
+            - 'open': 仅收盘>开盘
+        min_hold_days: 最少持有天数，默认1（T+1规则）
+        max_hold_days: 最大持有天数，默认30
+        buy_price_range: 买入价格范围（开盘涨幅%），例如(-5, 6)表示-5%到6%
+            - None: 不限制，总是买入（默认）
+            - (min_pct, max_pct): 只有次日开盘涨幅在此范围内才买入
+        strong_price_range: 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
+            - None: 不限制，只要满足走强定义即视为走强（默认）
+            - (min_pct, max_pct): 即使满足走强定义，收盘涨幅也必须在此范围内才算走强
+    """
+    from analysis.open_minutes_analyzer import analyze_open_minutes
+    
+    # 映射strong_rule到strong_definition
+    rule_mapping = {
+        'or': 'close_gt_prev_close_or_open',
+        'and': 'close_gt_prev_close_and_open',
+        'prev': 'close_gt_prev_close',
+        'open': 'close_gt_open'
+    }
+    strong_definition = rule_mapping.get(strong_rule, 'close_gt_prev_close_or_open')
+    
+    # 调用分析函数
+    report_path = analyze_open_minutes(
+        summary_csv_path=summary_csv_path,
+        strong_definition=strong_definition,
+        min_hold_days=min_hold_days,
+        max_hold_days=max_hold_days,
+        buy_price_range=buy_price_range,
+        strong_price_range=strong_price_range
+    )
+    
+    return report_path
+
+
 def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
                           min_gap=1.0, max_gap=6.0,
                           filter_enabled=False,
@@ -1316,7 +1375,8 @@ if __name__ == '__main__':
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
     # analyze_volume_surge_pattern('20251201', '20251226', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
-    backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
     # === 二板定龙头分析 ===
     # erban_longtou_analysis()  # 分析二板股票的晋级率、胜率和特征
