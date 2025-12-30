@@ -1715,6 +1715,42 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     return stock
 
 
+def _is_long_period_change_above_threshold(stock_code, end_date_str):
+    """
+    检查股票在指定日期的长周期涨幅是否超过阈值（使用缓存）
+
+    Args:
+        stock_code: 股票代码
+        end_date_str: 结束日期字符串 (YYYYMMDD格式)
+
+    Returns:
+        bool: 是否超过阈值
+    """
+    # 使用缓存键：股票代码 + 日期
+    cache_key = f"{stock_code}_{end_date_str}"
+
+    # 检查缓存
+    if cache_key in _long_period_change_cache:
+        return _long_period_change_cache[cache_key]
+
+    # 计算长周期涨幅
+    try:
+        start_date = get_n_trading_days_before(end_date_str, PERIOD_DAYS_LONG)
+        if '-' in start_date:
+            start_date = start_date.replace('-', '')
+        long_period_change = calculate_stock_period_change(
+            stock_code, start_date, end_date_str
+        )
+        is_high_gain = (long_period_change is not None and
+                        long_period_change >= LONG_PERIOD_CHANGE_THRESHOLD)
+        # 缓存结果
+        _long_period_change_cache[cache_key] = is_high_gain
+        return is_high_gain
+    except Exception:
+        # 如果计算出错，返回False
+        return False
+
+
 def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE):
     """
     判断是否应该跟踪断板后的股票（包装函数）
@@ -1726,27 +1762,7 @@ def should_track_after_break(stock, current_date_obj, max_tracking_days, period_
         try:
             current_date_str = current_date_obj.strftime('%Y%m%d')
             stock_code = stock['stock_code']
-
-            # 使用缓存键：股票代码 + 日期
-            cache_key = f"{stock_code}_{current_date_str}"
-
-            # 检查缓存
-            if cache_key in _long_period_change_cache:
-                is_high_gain = _long_period_change_cache[cache_key]
-            else:
-                # 计算长周期涨幅
-                start_date = get_n_trading_days_before(current_date_str, PERIOD_DAYS_LONG)
-                if '-' in start_date:
-                    start_date = start_date.replace('-', '')
-                long_period_change = calculate_stock_period_change(
-                    stock_code, start_date, current_date_str
-                )
-                is_high_gain = (long_period_change is not None and
-                                long_period_change >= LONG_PERIOD_CHANGE_THRESHOLD)
-                # 缓存结果
-                _long_period_change_cache[cache_key] = is_high_gain
-
-            if is_high_gain:
+            if _is_long_period_change_above_threshold(stock_code, current_date_str):
                 adjusted_max_tracking_days = max_tracking_days + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
         except Exception:
             # 如果计算出错，使用原始值
@@ -1771,27 +1787,7 @@ def should_collapse_row(stock, formatted_trading_days, date_mapping):
             end_date_str = date_mapping.get(formatted_trading_days[-1])
             if end_date_str:
                 stock_code = stock['stock_code']
-
-                # 使用缓存键：股票代码 + 结束日期
-                cache_key = f"{stock_code}_{end_date_str}"
-
-                # 检查缓存
-                if cache_key in _long_period_change_cache:
-                    is_high_gain = _long_period_change_cache[cache_key]
-                else:
-                    # 计算长周期涨幅
-                    start_date = get_n_trading_days_before(end_date_str, PERIOD_DAYS_LONG)
-                    if '-' in start_date:
-                        start_date = start_date.replace('-', '')
-                    long_period_change = calculate_stock_period_change(
-                        stock_code, start_date, end_date_str
-                    )
-                    is_high_gain = (long_period_change is not None and
-                                    long_period_change >= LONG_PERIOD_CHANGE_THRESHOLD)
-                    # 缓存结果
-                    _long_period_change_cache[cache_key] = is_high_gain
-
-                if is_high_gain:
+                if _is_long_period_change_above_threshold(stock_code, end_date_str):
                     adjusted_collapse_days = COLLAPSE_DAYS_AFTER_BREAK + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
         except Exception:
             # 如果计算出错，使用原始值
