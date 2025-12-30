@@ -826,7 +826,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20250930'
+    start_date = '20251101'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -1374,7 +1374,7 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251201', '20251229', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
+    # analyze_volume_surge_pattern('20251201', '20251229', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
     # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251229/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
@@ -1393,7 +1393,7 @@ if __name__ == '__main__':
     # update_synonym_groups()  # 添加新词
     # clean_synonym_groups()  # 清理旧词
     # fupan_statistics_to_excel()
-    # fupan_statistics_excel_plot()
+    fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
