@@ -52,15 +52,20 @@ from utils.theme_color_util import (
     extract_reasons_with_match_type
 )
 
+# 强龙长周期涨幅阈值，超过此阈值的股票将获得额外的跟踪天数和折叠天数
+LONG_PERIOD_CHANGE_THRESHOLD = 110.0  # 单位：%
+# 强龙股票的额外跟踪天数和折叠天数
+EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN = 6
+
 # 断板后跟踪的最大天数，超过这个天数后不再显示涨跌幅
 # 例如设置为5，会显示断板后的第1、2、3、4、5个交易日，从第6个交易日开始不再显示
 # 设置为None表示一直跟踪到分析周期结束
-MAX_TRACKING_DAYS_AFTER_BREAK = 11
+MAX_TRACKING_DAYS_AFTER_BREAK = 9
 
 # 断板后折叠行的天数阈值，超过这个天数的股票会在Excel中自动折叠（隐藏）
 # 例如设置为7，断板7天后该股票所在行会被折叠，减少显示数据量
 # 设置为None表示不自动折叠任何行
-COLLAPSE_DAYS_AFTER_BREAK = 12
+COLLAPSE_DAYS_AFTER_BREAK = 10
 
 # 入选前跟踪的最大天数，显示入选前的第1、2、3、...个交易日的涨跌幅
 # 例如设置为3，会显示入选前的第1、2、3个交易日的涨跌幅
@@ -112,7 +117,7 @@ LEADER_QUOTA_TOP3 = 3  # 第三热板块（排名第3）
 LEADER_QUOTA_TOP4 = 3  # 第四热板块（排名第4）
 LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第5到默认阈值之间）
 LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
-LEADER_QUOTA_DEFAULT_THRESHOLD = 0.2  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+LEADER_QUOTA_DEFAULT_THRESHOLD = 0.15  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
@@ -123,6 +128,8 @@ MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量�
 
 # 关注度榜前N名股票缓存
 _top_attention_stocks_cache = None
+# 缓存长周期涨幅判断结果，避免重复计算
+_long_period_change_cache = {}
 
 # 单元格边框样式
 BORDER_STYLE = Border(
@@ -156,10 +163,11 @@ PERIOD_CHANGE_COLORS = {
 
 def clear_caches():
     """清理所有缓存"""
-    global _top_attention_stocks_cache
+    global _top_attention_stocks_cache, _long_period_change_cache
     # 清理 helpers 模块的缓存
     clear_helper_caches()
     _top_attention_stocks_cache = None
+    _long_period_change_cache.clear()
     print("已清理所有缓存")
 
 
@@ -1710,9 +1718,42 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
 def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE):
     """
     判断是否应该跟踪断板后的股票（包装函数）
+    如果长周期涨幅超过阈值，则增加额外的跟踪天数
     """
+    # 计算长周期涨幅，如果超过阈值，则增加额外的跟踪天数
+    adjusted_max_tracking_days = max_tracking_days
+    if max_tracking_days is not None:
+        try:
+            current_date_str = current_date_obj.strftime('%Y%m%d')
+            stock_code = stock['stock_code']
+
+            # 使用缓存键：股票代码 + 日期
+            cache_key = f"{stock_code}_{current_date_str}"
+
+            # 检查缓存
+            if cache_key in _long_period_change_cache:
+                is_high_gain = _long_period_change_cache[cache_key]
+            else:
+                # 计算长周期涨幅
+                start_date = get_n_trading_days_before(current_date_str, PERIOD_DAYS_LONG)
+                if '-' in start_date:
+                    start_date = start_date.replace('-', '')
+                long_period_change = calculate_stock_period_change(
+                    stock_code, start_date, current_date_str
+                )
+                is_high_gain = (long_period_change is not None and
+                                long_period_change >= LONG_PERIOD_CHANGE_THRESHOLD)
+                # 缓存结果
+                _long_period_change_cache[cache_key] = is_high_gain
+
+            if is_high_gain:
+                adjusted_max_tracking_days = max_tracking_days + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
+        except Exception:
+            # 如果计算出错，使用原始值
+            pass
+
     return _should_track_after_break(
-        stock, current_date_obj, max_tracking_days, period_days,
+        stock, current_date_obj, adjusted_max_tracking_days, period_days,
         calculate_stock_period_change
     )
 
@@ -1720,8 +1761,43 @@ def should_track_after_break(stock, current_date_obj, max_tracking_days, period_
 def should_collapse_row(stock, formatted_trading_days, date_mapping):
     """
     判断是否应该折叠此行（包装函数）
+    如果长周期涨幅超过阈值，则增加额外的折叠天数
     """
-    return _should_collapse_row(stock, formatted_trading_days, date_mapping, COLLAPSE_DAYS_AFTER_BREAK)
+    # 计算长周期涨幅，如果超过阈值，则增加额外的折叠天数
+    adjusted_collapse_days = COLLAPSE_DAYS_AFTER_BREAK
+    if COLLAPSE_DAYS_AFTER_BREAK is not None:
+        try:
+            # 使用最后一个交易日作为结束日期来计算长周期涨幅
+            end_date_str = date_mapping.get(formatted_trading_days[-1])
+            if end_date_str:
+                stock_code = stock['stock_code']
+
+                # 使用缓存键：股票代码 + 结束日期
+                cache_key = f"{stock_code}_{end_date_str}"
+
+                # 检查缓存
+                if cache_key in _long_period_change_cache:
+                    is_high_gain = _long_period_change_cache[cache_key]
+                else:
+                    # 计算长周期涨幅
+                    start_date = get_n_trading_days_before(end_date_str, PERIOD_DAYS_LONG)
+                    if '-' in start_date:
+                        start_date = start_date.replace('-', '')
+                    long_period_change = calculate_stock_period_change(
+                        stock_code, start_date, end_date_str
+                    )
+                    is_high_gain = (long_period_change is not None and
+                                    long_period_change >= LONG_PERIOD_CHANGE_THRESHOLD)
+                    # 缓存结果
+                    _long_period_change_cache[cache_key] = is_high_gain
+
+                if is_high_gain:
+                    adjusted_collapse_days = COLLAPSE_DAYS_AFTER_BREAK + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
+        except Exception:
+            # 如果计算出错，使用原始值
+            pass
+
+    return _should_collapse_row(stock, formatted_trading_days, date_mapping, adjusted_collapse_days)
 
     # 注意：以下函数已移动到 ladder_chart_helpers.py：
     # calculate_ma_slope, get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics
