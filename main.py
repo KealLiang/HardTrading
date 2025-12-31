@@ -635,7 +635,7 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3),
+        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(2.0, 3.0), volume_avg_days=3),
          "爆量分歧转一致筛选"),
     ]
 
@@ -1072,9 +1072,9 @@ def analyze_lianban_stocks(start_date='20250101', end_date=None,
 
 
 def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
-                                 volume_surge_ratio=2.0, volume_avg_days=5,
+                                 continuous_surge_days=2, volume_surge_ratio=(2.0, 3.0), volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
-                                 min_pct_change=4.0, continuous_surge_days=2,
+                                 min_pct_change=4.0,
                                  enable_attention_criteria=False, generate_charts=True):
     """
     分析"爆量分歧转一致"形态并生成K线图
@@ -1090,23 +1090,28 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
     - 分析什么时段什么形态的股票资金最愿意买入
     
     检测逻辑：
-    - 优先检测单日爆量：当日量能 >= 前N日均量 * volume_surge_ratio
-    - 如果单日爆量检测失败，会检测连续爆量：
-      * 回溯最近 continuous_surge_days 日，检查是否都上涨
-      * 使用连续爆量开始之前的均量作为基准（跳过连续爆量期间）
-      * 连续爆量期间平均量能 >= 基准均量 * volume_surge_ratio
+    - 从最长连续天数开始尝试，找到最长的满足条件的连续爆量期间
+    - 对于每个候选期间，计算连续爆量开始之前的均量作为基准
+    - 检查连续爆量期间的每一天是否都满足：上涨 + 涨幅阈值 + 量能阈值
     
     Args:
         start_date: 开始日期，格式YYYYMMDD，默认'20250101'
         end_date: 结束日期，格式YYYYMMDD，默认'20250131'
-        volume_surge_ratio: 爆量阈值（当日量/前N日均量），默认2.0表示量能翻倍
+        continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
+            则会检查最近N日是否每日连续爆量上涨，使用连续爆量开始之前的均量作为基准
+        volume_surge_ratio: 爆量阈值（当日量/前N日均量），可以是单个值或元组。
+            如果是元组，数量必须等于continuous_surge_days，不同连续天数对应不同阈值：
+            - 连续N天使用第1个阈值
+            - 连续N-1天使用第2个阈值
+            - ...
+            - 单日使用第N个阈值
+            例如：continuous_surge_days=2时，volume_surge_ratio=(2.0, 3.0)表示
+            连续2天需要>=2.0，单日需要>=3.0。默认(2.0, 3.0)表示连续2天需要>=2.0，单日需要>=3.0
         volume_avg_days: 计算均量的天数，默认5天
         min_lianban: 最小连板数，只分析达到此连板数的股票，默认2
         before_days: 形态日期前显示的交易日数，默认30
         after_days: 形态日期后显示的交易日数，默认10
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
-        continuous_surge_days: 连续爆量检测天数，默认2。如果单日爆量检测失败，
-            则会检查最近N日是否每日连续爆量上涨，使用连续爆量开始之前的均量作为基准
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False。
             启用时，对于在关注度榜中的股票，连板数要求减1（例如min_lianban=2时，关注度榜股票只需1板即可）
         generate_charts: 是否生成图片，默认为True。设为False时跳过图片生成，仅生成汇总报告，用于快速回测
@@ -1359,7 +1364,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1374,8 +1379,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251201', '20251229', min_lianban=2, volume_surge_ratio=3.0, volume_avg_days=3, continuous_surge_days=3, generate_charts=True)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251229/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    analyze_volume_surge_pattern('20251201', '20251230', min_lianban=2, continuous_surge_days=2, volume_surge_ratio=(2.0, 3.0), volume_avg_days=5, generate_charts=True)  # 爆量分歧分析
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20250601_20251230/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
     # === 二板定龙头分析 ===
@@ -1393,7 +1398,7 @@ if __name__ == '__main__':
     # update_synonym_groups()  # 添加新词
     # clean_synonym_groups()  # 清理旧词
     # fupan_statistics_to_excel()
-    fupan_statistics_excel_plot()
+    # fupan_statistics_excel_plot()
     # find_yidong()
     # daily_group_analyze()
     # analyze_advanced_on()
