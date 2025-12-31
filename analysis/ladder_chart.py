@@ -28,6 +28,7 @@ from analysis.helper.ladder_chart_helpers import (
     get_new_high_markers_cached,
     # MA斜率
     get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics,
+    is_ma_trend_rising, is_ma_trend_falling,
     # 跟踪判断
     clear_high_gain_cache,
     should_track_after_break as _should_track_after_break,
@@ -99,25 +100,23 @@ DEBUG_MODE = False
 
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
-MIN_BOARD_LEVEL_FOR_LEADER = 2  # 主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 80.0  # 主板股最低长周期涨幅门槛（%），min和max设成一样表示不要求长周期涨多少
-MAX_LONG_PERIOD_CHANGE_FOR_LEADER = 120.0  # 主板股最高长周期涨幅门槛（%，避免涨幅过高）
+MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 25.0  # 主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 85.0  # 主板股最低长周期涨幅门槛（%）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 90.0  # 非主板股最低长周期涨幅门槛（%）
-MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 130.0  # 非主板股最高长周期涨幅门槛（%，避免涨幅过高）
 
 # 【名额分配规则】按板块活跃度排名动态分配龙头数量
-LEADER_QUOTA_TOP1 = 4  # 最热板块（排名第1）
+LEADER_QUOTA_TOP1 = 5  # 最热板块（排名第1）
 LEADER_QUOTA_TOP2 = 4  # 次热板块（排名第2）
 LEADER_QUOTA_TOP3 = 3  # 第三热板块（排名第3）
-LEADER_QUOTA_TOP4 = 3  # 第四热板块（排名第4）
+LEADER_QUOTA_TOP4 = 2  # 第四热板块（排名第4）
 LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第5到默认阈值之间）
 LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
-LEADER_QUOTA_DEFAULT_THRESHOLD = 0.15  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+LEADER_QUOTA_DEFAULT_THRESHOLD = 0.1  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
@@ -3729,23 +3728,41 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
         board_mask = candidate_df.apply(check_board_level, axis=1)
 
-        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可，且长周期涨幅不能超过上限）
+        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可，并加入趋势判断）
+        # 获取结束日期用于趋势计算
+        end_date_str = date_mapping.get(formatted_trading_days[-1])
+        if end_date_str:
+            # 统一格式为YYYYMMDD（去除可能的'-'分隔符）
+            end_date_yyyymmdd = end_date_str.replace('-', '')
+        else:
+            end_date_yyyymmdd = None
+
         def check_change_threshold(row):
             if row['market_type'] == 'main':
                 short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
                 long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
-                long_max_threshold = MAX_LONG_PERIOD_CHANGE_FOR_LEADER
             else:  # 非主板
                 short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
                 long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-                long_max_threshold = MAX_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
 
             short_ok = row['short_period_change'] >= short_threshold
             long_ok = row['long_period_change'] >= long_threshold
-            long_not_too_high = row['long_period_change'] < long_max_threshold
 
-            # 短周期或长周期满足一个即可，且长周期涨幅不能超过上限
-            return (short_ok | long_ok) & long_not_too_high
+            # 如果无法获取结束日期，则无法进行趋势判断，回退到原有逻辑
+            if end_date_yyyymmdd is None:
+                return short_ok | long_ok
+
+            # 获取股票代码
+            stock_code = row['stock_code']
+
+            # 条件1：满足短周期条件 + 必须处于明显上升趋势
+            condition1 = short_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
+
+            # 条件2：满足长周期条件 + 不能处于明显下降趋势
+            condition2 = long_ok and not is_ma_trend_falling(stock_code, end_date_yyyymmdd)
+
+            # 满足条件1或条件2即可入选
+            return condition1 | condition2
 
         change_mask = candidate_df.apply(check_change_threshold, axis=1)
 

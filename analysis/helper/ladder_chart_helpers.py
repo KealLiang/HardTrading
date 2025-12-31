@@ -632,6 +632,48 @@ def get_ma_slope_indicator(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS)
         return '↓'  # 明显下降趋势
 
 
+def is_ma_trend_rising(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
+    """
+    判断股票是否处于明显上升趋势（用于筛选逻辑）
+
+    Args:
+        stock_code: 股票代码
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+
+    Returns:
+        bool: True表示明显上升趋势，False表示非上升趋势（包括数据不足、趋势不明显或下降）
+    """
+    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+
+    if slope_pct is None:
+        return False  # 数据不足视为非上升趋势
+
+    # 只有当斜率超过阈值且为正数时才认为是明显上升趋势
+    return slope_pct >= MA_SLOPE_THRESHOLD_PCT
+
+
+def is_ma_trend_falling(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
+    """
+    判断股票是否处于明显下降趋势（用于筛选逻辑）
+
+    Args:
+        stock_code: 股票代码
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+
+    Returns:
+        bool: True表示明显下降趋势，False表示非下降趋势（包括数据不足、趋势不明显或上升）
+    """
+    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+
+    if slope_pct is None:
+        return False  # 数据不足视为非下降趋势
+
+    # 只有当斜率低于负阈值时才认为是明显下降趋势
+    return slope_pct <= -MA_SLOPE_THRESHOLD_PCT
+
+
 def clear_ma_slope_cache():
     """
     清理均线斜率计算缓存，释放内存
