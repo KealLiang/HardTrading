@@ -20,7 +20,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple, Union
 
 import mplfinance as mpf
 import pandas as pd
@@ -36,6 +36,15 @@ ATTENTION_DAYS_WINDOW = 1
 # 关注度榜取前N名
 ATTENTION_TOP_N = 15
 
+# 调试跟踪配置（用于定位特定股票未入选原因）
+# 格式：{股票代码: [日期列表]}，例如：{'002347': ['20251230']}
+# 只有配置了待跟踪的股票代码和日期才会打印调试日志
+# 示例：
+#   DEBUG_TRACK_STOCKS = {'002347': ['20251230']}  # 跟踪002347在20251230的检测过程
+#   DEBUG_TRACK_STOCKS = {'002347': []}  # 跟踪002347在所有日期的检测过程
+#   DEBUG_TRACK_STOCKS = {}  # 不跟踪任何股票（默认）
+DEBUG_TRACK_STOCKS: Dict[str, List[str]] = {}
+
 
 @dataclass
 class VolumeSurgeConfig(PatternAnalysisConfig):
@@ -43,7 +52,14 @@ class VolumeSurgeConfig(PatternAnalysisConfig):
     爆量分歧转一致分析配置
     
     Attributes:
-        volume_surge_ratio: 爆量阈值（当日量/前N日均量），默认2.0表示量能翻倍
+        volume_surge_ratio: 爆量阈值（当日量/前N日均量），可以是单个值或元组。
+            如果是元组，数量必须等于continuous_surge_days，不同连续天数对应不同阈值：
+            - 连续N天使用第1个阈值
+            - 连续N-1天使用第2个阈值
+            - ...
+            - 单日使用第N个阈值
+            例如：continuous_surge_days=2时，volume_surge_ratio=(2.0, 3.0)表示
+            连续2天需要>=2.0，单日需要>=3.0
         volume_avg_days: 计算均量的天数，默认5天
         min_lianban_count: 最小连板数，只分析达到此连板数的股票，默认2
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
@@ -52,7 +68,7 @@ class VolumeSurgeConfig(PatternAnalysisConfig):
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False。
             启用时，对于在关注度榜中的股票，连板数要求减1（例如min_lianban_count=2时，关注度榜股票只需1板即可）
     """
-    volume_surge_ratio: float = 2.0
+    volume_surge_ratio: Union[float, Tuple[float, ...]] = 2.0
     volume_avg_days: int = 5
     min_lianban_count: int = 2
     min_pct_change: float = 3.0  # 信号日最小涨幅%
@@ -80,6 +96,21 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         """
         super().__init__(config, "爆量分歧转一致")
         self.config: VolumeSurgeConfig = config
+
+        # 验证 volume_surge_ratio 和 continuous_surge_days 的匹配关系
+        if isinstance(config.volume_surge_ratio, (tuple, list)):
+            if len(config.volume_surge_ratio) != config.continuous_surge_days:
+                raise ValueError(
+                    f"volume_surge_ratio 的数量({len(config.volume_surge_ratio)}) "
+                    f"必须等于 continuous_surge_days({config.continuous_surge_days})"
+                )
+            # 转换为元组并验证所有值都是正数
+            config.volume_surge_ratio = tuple(config.volume_surge_ratio)
+            if any(ratio <= 0 for ratio in config.volume_surge_ratio):
+                raise ValueError("volume_surge_ratio 的所有值必须大于0")
+        else:
+            # 单个值的情况，转换为元组以便统一处理
+            config.volume_surge_ratio = (config.volume_surge_ratio,) * config.continuous_surge_days
         self.lianban_data = None
         self.shouban_data = None
         self.date_columns = []
@@ -92,6 +123,47 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         # 存储按日期索引的关注度榜数据：{date_str: set(stock_codes)}
         # 用于回测时按日期快速获取关注度榜股票集合，避免重复加载
         self.attention_stocks_by_date: Dict[str, set] = {}
+
+    def _should_debug(self, code: str, date_str: str) -> bool:
+        """
+        判断是否需要打印调试日志
+        
+        Args:
+            code: 股票代码（6位或带后缀）
+            date_str: 日期字符串 YYYYMMDD
+            
+        Returns:
+            是否需要打印调试日志
+        """
+        if not DEBUG_TRACK_STOCKS:
+            return False
+
+        # 提取纯代码（去除市场后缀）
+        pure_code = code.split('.')[0] if '.' in code else code
+
+        # 检查是否在跟踪列表中
+        if pure_code in DEBUG_TRACK_STOCKS:
+            track_dates = DEBUG_TRACK_STOCKS[pure_code]
+            # 如果日期列表为空，表示跟踪该股票的所有日期
+            if not track_dates:
+                return True
+            # 检查是否在指定日期列表中
+            return date_str in track_dates
+
+        return False
+
+    def _debug_log(self, code: str, date_str: str, message: str):
+        """
+        打印调试日志（仅在配置了跟踪目标时）
+        
+        Args:
+            code: 股票代码
+            date_str: 日期字符串
+            message: 日志消息
+        """
+        if self._should_debug(code, date_str):
+            pure_code = code.split('.')[0] if '.' in code else code
+            logging.info(f"[调试跟踪] {pure_code} @ {date_str}: {message}")
 
     def load_data(self):
         """加载连板数据和首板数据"""
@@ -396,6 +468,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 code = parsed['code']
                 # 提取纯代码（去除市场后缀）用于关注度榜匹配
                 pure_code = code.split('.')[0] if '.' in code else code
+                date_str = col_date.strftime('%Y%m%d')
 
                 # 解析板数
                 if board_count_default is not None:
@@ -431,6 +504,11 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                     date_str = self._parse_column_date(date_col).strftime('%Y%m%d')
                     if date_str not in self.lianban_candidates[code]['lianban_dates']:
                         self.lianban_candidates[code]['lianban_dates'].append(date_str)
+                else:
+                    # 关键失败点1：板数不足，未进入候选池
+                    if self._should_debug(pure_code, date_str):
+                        self._debug_log(pure_code, date_str,
+                                        f"✗ 未进入候选池: 板数{board_count} < 要求{required_board_count}")
 
     def _get_volume_surge_info(self, code_6digit: str, date_str: str) -> Optional[Dict]:
         """
@@ -447,6 +525,8 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
         stock_data = read_stock_data(code_6digit, self.config.data_dir)
         if stock_data is None or stock_data.empty:
+            if self._should_debug(code_6digit, date_str):
+                self._debug_log(code_6digit, date_str, "✗ 无法读取股票数据或数据为空")
             return None
 
         try:
@@ -456,6 +536,8 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             # 过滤掉目标日期之后的数据
             stock_data = stock_data[stock_data.index <= target_date].copy()
             if stock_data.empty:
+                if self._should_debug(code_6digit, date_str):
+                    self._debug_log(code_6digit, date_str, f"✗ 过滤后数据为空（可能停牌）")
                 return None
 
             # 确保目标日期在数据范围内
@@ -463,23 +545,31 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 # 尝试查找最接近的日期（用于处理日期格式微小差异）
                 idx = stock_data.index.searchsorted(target_date, side='right') - 1
                 if idx < 0 or idx >= len(stock_data):
+                    if self._should_debug(code_6digit, date_str):
+                        self._debug_log(code_6digit, date_str, "✗ 无法找到目标日期（可能停牌）")
                     return None
                 found_date = stock_data.index[idx]
 
                 # 关键修复：如果找到的日期早于目标日期，说明目标日期后无数据（停牌）
-                # 这种情况不应该用前一天数据来判断，直接跳过
                 if found_date < target_date:
+                    if self._should_debug(code_6digit, date_str):
+                        self._debug_log(code_6digit, date_str, f"✗ 目标日期无数据（停牌）")
                     return None
 
                 target_date = found_date
                 # 如果日期差距太大，放弃
                 if abs((target_date - datetime.strptime(date_str, '%Y%m%d')).days) > 3:
+                    if self._should_debug(code_6digit, date_str):
+                        self._debug_log(code_6digit, date_str, f"✗ 日期差距过大")
                     return None
 
             idx = stock_data.index.get_loc(target_date)
 
             # 需要足够的历史数据计算均量
             if idx < self.config.volume_avg_days:
+                if self._should_debug(code_6digit, date_str):
+                    self._debug_log(code_6digit, date_str,
+                                    f"✗ 历史数据不足（需要{self.config.volume_avg_days}天）")
                 return None
 
             # 获取当日数据
@@ -489,28 +579,35 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
             # 检查数据有效性（停牌日数据为空或成交量为0）
             if pd.isna(current_volume) or pd.isna(current_close) or current_volume <= 0:
+                if self._should_debug(code_6digit, date_str):
+                    self._debug_log(code_6digit, date_str, "✗ 当日数据无效（停牌）")
                 return None
 
             # 获取前一日收盘价
             prev_close = stock_data.iloc[idx - 1]['Close']
 
-            # 条件1：当日上涨（今收 > 昨收）
+            # 关键失败点3：未上涨
             if current_close <= prev_close:
+                if self._should_debug(code_6digit, date_str):
+                    self._debug_log(code_6digit, date_str,
+                                    f"✗ 未上涨: 今收={current_close:.2f} <= 昨收={prev_close:.2f}")
                 return None
 
             # 使用连续爆量检测（支持1到continuous_surge_days天，整合了单日爆量检测）
-            result = self._check_continuous_surge(stock_data, idx, current_close, prev_close)
+            result = self._check_continuous_surge(stock_data, idx, current_close, prev_close, code_6digit, date_str)
             if result:
                 return result
 
+            # 关键失败点4：爆量检测失败（具体原因在_check_continuous_surge中已记录）
             return None
 
         except Exception as e:
-            logging.debug(f"检测股票 {code_6digit} 在 {date_str} 的爆量信息时出错: {e}")
+            logging.error(f"检测股票 {code_6digit} 在 {date_str} 的爆量信息时出错: {e}")
             return None
 
     def _check_continuous_surge(self, stock_data: pd.DataFrame, idx: int,
-                                current_close: float, prev_close: float) -> Optional[Dict]:
+                                current_close: float, prev_close: float,
+                                code_6digit: str = '', date_str: str = '') -> Optional[Dict]:
         """
         检测连续爆量（支持1到continuous_surge_days天，整合了单日爆量检测）
         
@@ -527,6 +624,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             爆量信息字典，如果不是连续爆量日返回None
         """
         max_continuous_days = self.config.continuous_surge_days
+        failed_reasons = []  # 汇总所有失败原因
 
         # 从最长的连续天数开始尝试，找到最长的满足条件的期间
         for continuous_days in range(max_continuous_days, 0, -1):
@@ -584,9 +682,11 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             surge_pct_changes = []
             volume_ratios = []  # 记录每一天的量比
             all_days_valid = True
+            failed_reason = None  # 记录失败原因
 
             for i in range(surge_period_start, idx + 1):
                 row = stock_data.iloc[i]
+                check_date = stock_data.index[i].strftime('%Y%m%d')
 
                 volume = row['Volume']
                 close = row['Close']
@@ -594,6 +694,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 # 检查当前日数据有效性（停牌日）
                 if pd.isna(volume) or pd.isna(close) or volume <= 0:
                     all_days_valid = False
+                    failed_reason = f"{check_date}数据无效"
                     break
 
                 # 往前找最近的有效交易日作为前一日（跳过停牌日）
@@ -610,11 +711,13 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 # 如果找不到有效的前一日，跳过这个连续天数
                 if prev_close_val is None:
                     all_days_valid = False
+                    failed_reason = f"{check_date}找不到有效的前一日"
                     break
 
                 # 必须上涨
                 if close <= prev_close_val:
                     all_days_valid = False
+                    failed_reason = f"{check_date}未上涨(今收{close:.2f}<=昨收{prev_close_val:.2f})"
                     break
 
                 # 计算涨幅
@@ -623,12 +726,18 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                 # 每日涨幅都要满足最小涨幅阈值
                 if pct_change < self.config.min_pct_change:
                     all_days_valid = False
+                    failed_reason = f"{check_date}涨幅不足({pct_change:.2f}%<{self.config.min_pct_change}%)"
                     break
 
                 # 关键：每一天都要单独与基准均量比较，必须满足爆量条件
+                # 根据连续天数获取对应的阈值：连续N天使用第1个阈值，连续N-1天使用第2个阈值，以此类推
+                threshold_index = max_continuous_days - continuous_days
+                required_ratio = self.config.volume_surge_ratio[threshold_index]
+
                 daily_volume_ratio = volume / base_avg_volume
-                if daily_volume_ratio < self.config.volume_surge_ratio:
+                if daily_volume_ratio < required_ratio:
                     all_days_valid = False
+                    failed_reason = f"{check_date}量比不足({daily_volume_ratio:.2f}<{required_ratio}, 成交量{volume:.0f}, 基准均量{base_avg_volume:.0f})"
                     break  # 如果某一天不满足爆量条件，尝试更短的期间
 
                 surge_volumes.append(volume)
@@ -654,8 +763,18 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
                     'surge_type': 'continuous' if continuous_days > 1 else 'single',  # 标记类型
                     'continuous_days': continuous_days  # 实际连续天数
                 }
+            else:
+                # 记录失败原因（只记录第一次尝试的失败原因，通常是最有意义的）
+                if failed_reason and not failed_reasons:
+                    failed_reasons.append(failed_reason)
 
-        # 没有找到满足条件的连续爆量期间
+        # 关键失败点4：所有连续天数检测均失败，汇总失败原因
+        if self._should_debug(code_6digit, date_str):
+            if failed_reasons:
+                self._debug_log(code_6digit, date_str, f"✗ 爆量检测失败: {failed_reasons[0]}")
+            else:
+                self._debug_log(code_6digit, date_str,
+                                f"✗ 爆量检测失败: 历史数据不足或无法计算基准均量")
         return None
 
     def filter_stocks(self):
@@ -692,6 +811,21 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
 
             if not self.lianban_candidates:
                 continue
+
+            # 关键失败点2：检查配置了跟踪的股票是否在候选池中
+            if DEBUG_TRACK_STOCKS:
+                for track_code, track_dates in DEBUG_TRACK_STOCKS.items():
+                    if not track_dates or signal_date in track_dates:
+                        # 检查该股票是否在候选池中
+                        found_in_candidates = False
+                        for code in self.lianban_candidates.keys():
+                            pure_code = code.split('.')[0] if '.' in code else code
+                            if pure_code == track_code:
+                                found_in_candidates = True
+                                break
+                        if not found_in_candidates:
+                            self._debug_log(track_code, signal_date,
+                                            f"✗ 不在候选池中（未达到最小连板数要求: {self.config.min_lianban_count}板）")
 
             # 遍历候选池，检测该信号日的爆量
             for code, info in self.lianban_candidates.items():
