@@ -348,10 +348,10 @@ def strategy_scan(candidate_model='a'):
         '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
-    start_date = '20250910'
+    start_date = '20251201'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20251120'  # 只看这个日期之后的
+    details_after_date = '20251210'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -1360,7 +1360,7 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
@@ -1379,7 +1379,7 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251201', '20251230', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=True)  # 爆量分歧分析
+    # analyze_volume_surge_pattern('20251201', '20251230', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=True)  # 爆量分歧分析
     # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251230/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
