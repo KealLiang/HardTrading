@@ -14,6 +14,7 @@ ladder_chart_helpers.py
 from datetime import datetime
 from functools import lru_cache
 
+import numpy as np
 import pandas as pd
 
 from utils.date_util import count_trading_days_between, get_n_trading_days_before
@@ -34,10 +35,18 @@ NEW_HIGH_DAYS = 200
 NEW_HIGH_MARKER = '!!'
 
 # ==================== 均线斜率分析相关参数 ====================
-# 计算均线斜率的天数
+# 是否启用双均线趋势判断（同时考虑5日和10日均线）
+ENABLE_DUAL_MA_TREND = True  # True=使用双均线判断（更严格），False=仅使用5日均线（原逻辑）
+# 短周期均线的天数（趋势强度）
 MA_SLOPE_DAYS = 5
-# 均线斜率显示阈值，只有相对变化超过此阈值才显示趋势标记
-MA_SLOPE_THRESHOLD_PCT = 2  # 单位：%，均线日变化率阈值
+# 长周期均线天数（趋势确认，用于双均线趋势判断）
+MA_SLOPE_DAYS_LONG = 10
+# 短周期均线斜率阈值（5日均线），只有相对变化超过此阈值才显示趋势标记，定量
+MA_SLOPE_THRESHOLD_PCT = 2.0  # 单位：%，短周期均线日变化率阈值
+# 长周期均线斜率阈值（10日均线），长周期变化相对较慢，定性
+MA_SLOPE_THRESHOLD_PCT_LONG = 1.0  # 单位：%，长周期均线日变化率阈值
+# 斜率计算使用的均线点数量（用于提高稳定性，避免单日波动影响）
+MA_SLOPE_POINTS = 3  # 使用最近N个均线点计算斜率，建议3-5个点
 
 # ==================== 高涨幅跟踪相关参数 ====================
 # 持续跟踪的涨幅阈值，如果股票在PERIOD_DAYS_CHANGE天内涨幅超过此值，即便没有涨停也会继续跟踪
@@ -514,9 +523,71 @@ def get_new_high_markers_cached(result_df, formatted_trading_days, date_mapping)
 
 # ==================== 均线斜率相关函数 ====================
 
+def get_ma_value(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
+    """
+    获取股票在指定日期的N日均线值
+    
+    Args:
+        stock_code: 股票代码
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+        
+    Returns:
+        float: 均线值，None表示数据不足
+    """
+    try:
+        # 获取股票数据
+        df = get_stock_data_df(stock_code)
+        if df is None or df.empty:
+            return None
+
+        # 转换结束日期格式
+        end_date_str = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+
+        # 找到结束日期的位置
+        end_row = df[df['日期'] == end_date_str]
+        if end_row.empty:
+            # 如果找不到确切日期，找最接近的日期
+            all_dates = pd.to_datetime(df['日期'])
+            end_date_dt = pd.to_datetime(end_date_str)
+            valid_dates = all_dates[all_dates <= end_date_dt]
+            if valid_dates.empty:
+                return None
+            closest_date = valid_dates.max()
+            end_idx = df[df['日期'] == closest_date.strftime('%Y-%m-%d')].index[0]
+        else:
+            end_idx = end_row.index[0]
+
+        # 确保有足够的数据计算均线
+        if end_idx < ma_days - 1:
+            return None
+
+        # 获取用于计算的数据段
+        data_segment = df.iloc[end_idx - ma_days + 1:end_idx + 1]
+
+        # 计算均线
+        ma_value = data_segment['收盘'].mean()
+        return ma_value
+
+    except Exception as e:
+        return None
+
+
 def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
     """
     计算股票N日均线的斜率（百分比变化率）
+    
+    使用最近MA_SLOPE_POINTS个均线点（默认3个）进行线性回归计算斜率：
+    - 使用numpy.polyfit进行线性回归，拟合最佳直线
+    - 计算拟合直线的斜率，转换为百分比变化率
+    - 这样可以减少单日波动的影响，更准确地反映整体趋势
+    
+    相比简单的两点比较，线性回归的优势：
+    1. 考虑所有数据点，而非仅首尾两点
+    2. 通过最小二乘法找到最佳拟合直线
+    3. 对异常值有更好的鲁棒性
+    
+    如果线性回归失败（如数据点共线），会回退到简单方法。
 
     Args:
         stock_code: 股票代码
@@ -580,15 +651,53 @@ def calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
             _ma_slope_cache[cache_key] = None
             return None
 
-        # 计算斜率：使用最后两个均线值的相对变化率
-        current_ma = ma_data.iloc[-1]
-        previous_ma = ma_data.iloc[-2]
+        # 计算斜率：使用最近N个均线点进行线性回归，提高稳定性
+        # 取最近MA_SLOPE_POINTS个均线值（如果不足则使用全部）
+        recent_ma_points = ma_data.iloc[-min(MA_SLOPE_POINTS, len(ma_data)):].values
 
-        # 斜率 = (最新均线值 - 前一个均线值) / 前一个均线值 * 100，转换为百分比
-        if previous_ma != 0:
-            slope_pct = ((current_ma - previous_ma) / previous_ma) * 100
-        else:
-            slope_pct = 0.0  # 避免除零错误
+        if len(recent_ma_points) < 2:
+            _ma_slope_cache[cache_key] = None
+            return None
+
+        # 使用numpy的线性回归计算斜率（更科学准确）
+        # x轴：时间点索引 [0, 1, 2, ...]
+        # y轴：均线值
+        x = np.arange(len(recent_ma_points))
+        y = recent_ma_points
+
+        # 使用numpy.polyfit进行线性回归，返回[斜率, 截距]
+        # 如果数据点较少或方差为0，使用简单方法作为备选
+        try:
+            # 计算线性回归
+            coeffs = np.polyfit(x, y, 1)  # 1次多项式（线性）
+            slope = coeffs[0]  # 斜率（绝对变化量）
+
+            # 转换为百分比变化率（相对于第一个均线值）
+            if recent_ma_points[0] != 0:
+                slope_pct = (slope / recent_ma_points[0]) * 100
+            else:
+                # 如果第一个值为0，使用最后一个值作为基准
+                if recent_ma_points[-1] != 0:
+                    slope_pct = (slope / recent_ma_points[-1]) * 100
+                else:
+                    slope_pct = 0.0
+        except (np.linalg.LinAlgError, ValueError):
+            # 如果线性回归失败（如数据点共线或方差为0），回退到简单方法
+            if len(recent_ma_points) == 2:
+                current_ma = recent_ma_points[-1]
+                previous_ma = recent_ma_points[-2]
+                if previous_ma != 0:
+                    slope_pct = ((current_ma - previous_ma) / previous_ma) * 100
+                else:
+                    slope_pct = 0.0
+            else:
+                # 多个点时，使用首尾两点的变化率
+                first_ma = recent_ma_points[0]
+                last_ma = recent_ma_points[-1]
+                if first_ma != 0:
+                    slope_pct = ((last_ma - first_ma) / first_ma) * 100 / (len(recent_ma_points) - 1)
+                else:
+                    slope_pct = 0.0
 
         # 更新斜率统计信息
         _slope_stats['min'] = min(_slope_stats['min'], slope_pct)
@@ -635,43 +744,99 @@ def get_ma_slope_indicator(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS)
 def is_ma_trend_rising(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
     """
     判断股票是否处于明显上升趋势（用于筛选逻辑）
+    
+    如果启用双均线判断（ENABLE_DUAL_MA_TREND=True），则同时考虑5日和10日均线：
+    - 5日均线斜率向上（>=MA_SLOPE_THRESHOLD_PCT，默认2%）
+    - 10日均线斜率向上（>=MA_SLOPE_THRESHOLD_PCT_LONG，默认1.2%）
+    - 5日均线在10日均线上方（多头排列）
+    
+    如果未启用双均线判断，则仅使用5日均线斜率判断（原逻辑）
 
     Args:
         stock_code: 股票代码
         end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
-        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS（兼容旧接口）
 
     Returns:
         bool: True表示明显上升趋势，False表示非上升趋势（包括数据不足、趋势不明显或下降）
     """
-    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+    if not ENABLE_DUAL_MA_TREND:
+        # 原逻辑：仅使用5日均线
+        slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+        if slope_pct is None:
+            return False
+        return slope_pct >= MA_SLOPE_THRESHOLD_PCT
 
-    if slope_pct is None:
-        return False  # 数据不足视为非上升趋势
+    # 双均线判断逻辑
+    # 1. 5日均线斜率向上（使用短周期阈值）
+    slope_5 = calculate_ma_slope(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS)
+    if slope_5 is None or slope_5 < MA_SLOPE_THRESHOLD_PCT:
+        return False
 
-    # 只有当斜率超过阈值且为正数时才认为是明显上升趋势
-    return slope_pct >= MA_SLOPE_THRESHOLD_PCT
+    # 2. 10日均线斜率向上（使用长周期阈值）
+    slope_10 = calculate_ma_slope(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS_LONG)
+    if slope_10 is None or slope_10 < MA_SLOPE_THRESHOLD_PCT_LONG:
+        return False
+
+    # 3. 多头排列：5日均线在10日均线上方
+    ma_5 = get_ma_value(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS)
+    ma_10 = get_ma_value(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS_LONG)
+    if ma_5 is None or ma_10 is None:
+        return False
+
+    if ma_5 <= ma_10:
+        return False  # 不是多头排列
+
+    return True
 
 
 def is_ma_trend_falling(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
     """
     判断股票是否处于明显下降趋势（用于筛选逻辑）
+    
+    如果启用双均线判断（ENABLE_DUAL_MA_TREND=True），则同时考虑5日和10日均线：
+    - 5日均线斜率向下（<=-MA_SLOPE_THRESHOLD_PCT，默认-2%）
+    - 10日均线斜率向下（<=-MA_SLOPE_THRESHOLD_PCT_LONG，默认-1.2%）
+    - 5日均线在10日均线下方（空头排列）
+    
+    如果未启用双均线判断，则仅使用5日均线斜率判断（原逻辑）
 
     Args:
         stock_code: 股票代码
         end_date_yyyymmdd: 结束日期 (YYYYMMDD格式)
-        ma_days: 均线天数，默认为MA_SLOPE_DAYS
+        ma_days: 均线天数，默认为MA_SLOPE_DAYS（兼容旧接口）
 
     Returns:
         bool: True表示明显下降趋势，False表示非下降趋势（包括数据不足、趋势不明显或上升）
     """
-    slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+    if not ENABLE_DUAL_MA_TREND:
+        # 原逻辑：仅使用5日均线
+        slope_pct = calculate_ma_slope(stock_code, end_date_yyyymmdd, ma_days)
+        if slope_pct is None:
+            return False
+        return slope_pct <= -MA_SLOPE_THRESHOLD_PCT
 
-    if slope_pct is None:
-        return False  # 数据不足视为非下降趋势
+    # 双均线判断逻辑
+    # 1. 5日均线斜率向下（使用短周期阈值）
+    slope_5 = calculate_ma_slope(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS)
+    if slope_5 is None or slope_5 > -MA_SLOPE_THRESHOLD_PCT:
+        return False
 
-    # 只有当斜率低于负阈值时才认为是明显下降趋势
-    return slope_pct <= -MA_SLOPE_THRESHOLD_PCT
+    # 2. 10日均线斜率向下（使用长周期阈值）
+    slope_10 = calculate_ma_slope(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS_LONG)
+    if slope_10 is None or slope_10 > -MA_SLOPE_THRESHOLD_PCT_LONG:
+        return False
+
+    # 3. 空头排列：5日均线在10日均线下方
+    ma_5 = get_ma_value(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS)
+    ma_10 = get_ma_value(stock_code, end_date_yyyymmdd, MA_SLOPE_DAYS_LONG)
+    if ma_5 is None or ma_10 is None:
+        return False
+
+    if ma_5 >= ma_10:
+        return False  # 不是空头排列
+
+    return True
 
 
 def clear_ma_slope_cache():
