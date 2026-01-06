@@ -117,6 +117,8 @@ LEADER_QUOTA_TOP4 = 3  # 第四热板块（排名第4）
 LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第5到默认阈值之间）
 LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
 LEADER_QUOTA_DEFAULT_THRESHOLD = 0.1  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+# 【大龙股额外入选规则】
+LEADER_EXTRA_LONG_PERIOD_THRESHOLD = 120.0  # 大龙股长周期涨幅阈值（%），超过此阈值的股票作为额外入选，不占用名额（设为0表示不启用大龙筛选）
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
@@ -2786,7 +2788,7 @@ def count_stock_entries(result_df):
 def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                    formatted_trading_days, date_column_start, show_period_change, period_column,
                    period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df, show_warning_column=True, enable_collapse=False):
+                   max_tracking_days_before, zaban_df, show_warning_column=True, enable_collapse=False, start_row=4):
     """
     填充数据行
 
@@ -2809,6 +2811,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         zaban_df: 炸板数据DataFrame
         show_warning_column: 是否显示异动预警列
         enable_collapse: 是否启用行折叠功能（True=收集折叠行索引，False=不折叠）
+        start_row: 起始行索引，默认为4（第1行是日期标题，第2-3行是大盘指标）
     
     Returns:
         list: 需要折叠的行索引列表（仅当enable_collapse=True时返回）
@@ -2843,7 +2846,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
     rows_to_collapse = []
 
     for i, (_, stock) in enumerate(result_df.iterrows()):
-        row_idx = i + 4  # 行索引，从第4行开始（第1行是日期标题，第2-3行是大盘指标）
+        row_idx = i + start_row  # 行索引，默认从第4行开始（第1行是日期标题，第2-3行是大盘指标）
 
         # 提取基本股票信息
         stock_code = stock['stock_code']
@@ -3193,13 +3196,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
             ascending=[True, False, False]
         )
 
-    # 其他分组：按原有逻辑排序
-    if not other_df.empty:
-        other_df = other_df.sort_values(
-            by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
-                'board_level_at_first'],
-            ascending=[True, True, True, False, False]
-        )
+    # 其他分组：按原有逻辑排序（与龙头股排序规则一致）
+    other_df = sort_leader_stocks_for_output(other_df)
 
     # 合并排序结果
     concept_grouped_df = pd.concat([other_df, momo_df], ignore_index=True)
@@ -3548,6 +3546,26 @@ def save_excel_file(wb, output_file):
     print(f"梯队形态涨停复盘图已生成: {output_file}")
 
 
+def sort_leader_stocks_for_output(leader_df):
+    """
+    对龙头股DataFrame进行最终输出排序（与概念分组sheet保持一致的分组效果）
+    
+    Args:
+        leader_df: 龙头股DataFrame
+        
+    Returns:
+        pandas.DataFrame: 排序后的DataFrame
+    """
+    if leader_df.empty:
+        return leader_df
+
+    return leader_df.sort_values(
+        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
+            'board_level_at_first'],
+        ascending=[True, True, True, False, False]
+    )
+
+
 def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, formatted_trading_days,
                                              period_days, period_days_long):
     """
@@ -3581,7 +3599,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         period_days_long: 长周期天数
         
     Returns:
-        pandas.DataFrame: 筛选出的龙头股DataFrame
+        tuple: (普通龙头股DataFrame, 大龙股DataFrame) 大龙股为长周期涨幅超过LEADER_EXTRA_LONG_PERIOD_THRESHOLD的股票，不占用名额
     """
     print(f"开始从概念分组中筛选龙头股...")
 
@@ -3679,9 +3697,64 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         concept_quota[concept_group] = quota
         print(f"  排名第{rank}: {concept_group} (活跃{active_count}只) -> 分配{quota}个龙头名额")
 
-    # 第四步：按概念分组筛选龙头股
+    # 第四步：按概念分组筛选龙头股（优化：只筛选一次，先筛选所有符合条件的股票，再分配名额）
     print(f"\n第四步：筛选龙头股 (候选范围: {'仅活跃股' if SELECT_LEADERS_FROM_ACTIVE_ONLY else '全部股票'})...")
-    leader_stocks = []
+
+    # 定义筛选函数（在循环外定义，避免重复定义）
+    def get_stock_market_type(stock_code):
+        """获取股票市场类型"""
+        try:
+            pure_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
+            if pure_code.startswith(('sh', 'sz', 'bj')):
+                pure_code = pure_code[2:]
+            return get_stock_market(pure_code)
+        except:
+            return 'main'  # 默认按主板处理
+
+    # 获取结束日期用于趋势计算
+    end_date_str = date_mapping.get(formatted_trading_days[-1])
+    if end_date_str:
+        end_date_yyyymmdd = end_date_str.replace('-', '')
+    else:
+        end_date_yyyymmdd = None
+
+    def check_board_level(row):
+        """检查连板数门槛"""
+        if row['market_type'] == 'main':
+            return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
+        else:  # 非主板（创业板/科创板/北交所）
+            return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
+
+    def check_change_threshold(row):
+        """检查涨幅门槛和趋势"""
+        if row['market_type'] == 'main':
+            short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
+            long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
+        else:  # 非主板
+            short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+            long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+
+        short_ok = row['short_period_change'] >= short_threshold
+        long_ok = row['long_period_change'] >= long_threshold
+
+        # 如果无法获取结束日期，则无法进行趋势判断，回退到原有逻辑
+        if end_date_yyyymmdd is None:
+            return short_ok | long_ok
+
+        # 获取股票代码
+        stock_code = row['stock_code']
+
+        # 条件1：满足短周期条件 + 必须处于明显上升趋势
+        condition1 = short_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
+
+        # 条件2：满足长周期条件 + 不能处于明显下降趋势
+        condition2 = long_ok and not is_ma_trend_falling(stock_code, end_date_yyyymmdd)
+
+        # 满足条件1或条件2即可入选
+        return condition1 | condition2
+
+    # 第一步：筛选所有符合条件的股票（不管名额）
+    all_qualified_stocks = {}  # concept_group -> DataFrame
     total_concepts = 0
     qualified_concepts = 0
 
@@ -3695,78 +3768,18 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
         # 根据开关决定候选范围
         if SELECT_LEADERS_FROM_ACTIVE_ONLY:
-            # 只从活跃股（未被折叠）中选择，使用.copy()确保数据完整性
             candidate_df = group_df[~group_df.apply(
                 lambda row: should_collapse_row(row, formatted_trading_days, date_mapping), axis=1
             )].copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只, 活跃{len(candidate_df)}只, 名额{quota})")
         else:
-            # 从全部股票中选择，使用.copy()确保数据完整性
             candidate_df = group_df.copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只股票, 名额{quota})")
 
         # 筛选符合龙头条件的股票（区分主板和非主板）
-        # 首先确定每只股票的市场类型
-        def get_stock_market_type(stock_code):
-            """获取股票市场类型"""
-            try:
-                pure_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-                if pure_code.startswith(('sh', 'sz', 'bj')):
-                    pure_code = pure_code[2:]
-                return get_stock_market(pure_code)
-            except:
-                return 'main'  # 默认按主板处理
-
         candidate_df['market_type'] = candidate_df['stock_code'].apply(get_stock_market_type)
-
-        # 1. 连板数门槛筛选（根据市场类型）
-        def check_board_level(row):
-            if row['market_type'] == 'main':
-                return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER
-            else:  # 非主板（创业板/科创板/北交所）
-                return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
-
         board_mask = candidate_df.apply(check_board_level, axis=1)
-
-        # 2. 涨幅门槛筛选（根据市场类型，短周期或长周期满足一个即可，并加入趋势判断）
-        # 获取结束日期用于趋势计算
-        end_date_str = date_mapping.get(formatted_trading_days[-1])
-        if end_date_str:
-            # 统一格式为YYYYMMDD（去除可能的'-'分隔符）
-            end_date_yyyymmdd = end_date_str.replace('-', '')
-        else:
-            end_date_yyyymmdd = None
-
-        def check_change_threshold(row):
-            if row['market_type'] == 'main':
-                short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-                long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
-            else:  # 非主板
-                short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-                long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-
-            short_ok = row['short_period_change'] >= short_threshold
-            long_ok = row['long_period_change'] >= long_threshold
-
-            # 如果无法获取结束日期，则无法进行趋势判断，回退到原有逻辑
-            if end_date_yyyymmdd is None:
-                return short_ok | long_ok
-
-            # 获取股票代码
-            stock_code = row['stock_code']
-
-            # 条件1：满足短周期条件 + 必须处于明显上升趋势
-            condition1 = short_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
-
-            # 条件2：满足长周期条件 + 不能处于明显下降趋势
-            condition2 = long_ok and not is_ma_trend_falling(stock_code, end_date_yyyymmdd)
-
-            # 满足条件1或条件2即可入选
-            return condition1 | condition2
-
         change_mask = candidate_df.apply(check_change_threshold, axis=1)
-
-        # 3. 组合筛选条件
         qualified_df = candidate_df[board_mask & change_mask].copy()
 
         # 删除临时添加的market_type列
@@ -3780,37 +3793,131 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         qualified_concepts += 1
         print(f"    概念组 {concept_group} 有{len(qualified_df)}只符合条件的股票")
 
-        # 选领涨股的排序逻辑，排序后跳着选
+        # 排序（不管名额，先全部排序）
         qualified_df = qualified_df.sort_values(
             by=['long_period_change', 'short_period_change', 'max_board_level'],
             ascending=[False, False, False]
         )
 
-        # 根据动态名额选出龙头
-        leaders = qualified_df.head(quota)
-        print(f"    从概念组 {concept_group} 选出{len(leaders)}只龙头股")
+        # 保存所有符合条件的股票（用于后续分配名额和分离大龙股）
+        all_qualified_stocks[concept_group] = qualified_df
 
-        # 添加到龙头股列表
+    print(
+        f"\n筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票")
+
+    # 第二步：按名额分配龙头股
+    leader_stocks = []
+    for concept_group, qualified_df in all_qualified_stocks.items():
+        quota = concept_quota[concept_group]
+        leaders = qualified_df.head(quota)
+        print(f"    从概念组 {concept_group} 按名额选出{len(leaders)}只龙头股")
         for _, leader in leaders.iterrows():
             leader_stocks.append(leader.to_dict())
 
-    print(
-        f"\n龙头股筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票，共选出{len(leader_stocks)}只龙头股")
-
     if not leader_stocks:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
     # 转换为DataFrame
     leader_df = pd.DataFrame(leader_stocks)
 
-    # 按概念优先级排序后，再按入选日期和涨幅排序（与概念分组sheet保持一致的分组效果）
-    leader_df = leader_df.sort_values(
-        by=['concept_priority', 'concept_group', 'first_significant_date', 'long_period_change',
-            'board_level_at_first'],
-        ascending=[True, True, True, False, False]
-    )
+    # 第五步：分离大龙股（长周期涨幅超过阈值，不占用名额）
+    # 如果阈值为0，则关闭大龙股功能，直接返回所有龙头股
+    if LEADER_EXTRA_LONG_PERIOD_THRESHOLD <= 0:
+        print(f"\n大龙股功能已关闭（阈值={LEADER_EXTRA_LONG_PERIOD_THRESHOLD}），返回所有龙头股")
+        return sort_leader_stocks_for_output(leader_df), pd.DataFrame()
 
-    return leader_df
+    print(f"\n第五步：分离大龙股（长周期涨幅>={LEADER_EXTRA_LONG_PERIOD_THRESHOLD}%，不占用名额）...")
+
+    # 从所有符合条件的股票中找出所有超过阈值的大龙股（不限于已分配的龙头股）
+    all_extra_leaders_list = []
+    for concept_group, qualified_df in all_qualified_stocks.items():
+        extra_mask = qualified_df['long_period_change'] >= LEADER_EXTRA_LONG_PERIOD_THRESHOLD
+        extra_stocks = qualified_df[extra_mask]
+        if not extra_stocks.empty:
+            all_extra_leaders_list.append(extra_stocks)
+
+    # 合并所有大龙股并去重（避免同一只股票在多个概念组中重复）
+    if all_extra_leaders_list:
+        all_extra_leaders_df = pd.concat(all_extra_leaders_list, ignore_index=True)
+        all_extra_leaders_df = all_extra_leaders_df.drop_duplicates(subset=['stock_code'], keep='first')
+        print(f"  从所有符合条件的股票中发现{len(all_extra_leaders_df)}只大龙股（不占用名额）")
+    else:
+        all_extra_leaders_df = pd.DataFrame()
+        print(f"  未发现大龙股")
+
+    # 从已分配的龙头股中移除大龙股（这些大龙股不占用名额）
+    if not all_extra_leaders_df.empty:
+        extra_stock_codes = set(all_extra_leaders_df['stock_code'])
+        normal_leaders_mask = ~leader_df['stock_code'].isin(extra_stock_codes)
+        normal_leaders_df = leader_df[normal_leaders_mask].copy()
+        # 大龙股就是所有符合条件的超过阈值的股票
+        extra_leaders_df = all_extra_leaders_df.copy()
+    else:
+        normal_leaders_df = leader_df.copy()
+        extra_leaders_df = pd.DataFrame()
+
+    if len(extra_leaders_df) > 0:
+        print(f"  发现{len(extra_leaders_df)}只大龙股，从名额中移除")
+
+        # 第六步：补充名额（只补充不超过阈值且不超过名额的股票）
+        print(f"\n第六步：补充名额（从已筛选的符合条件的股票中补充，跳过超过阈值的股票）...")
+
+        # 统计每个概念组被移除的大龙股数量
+        extra_by_concept = extra_leaders_df.groupby('concept_group').size().to_dict()
+
+        # 统计每个概念组当前已选中的普通龙头股数量（用于控制名额上限）
+        normal_by_concept = normal_leaders_df.groupby(
+            'concept_group').size().to_dict() if not normal_leaders_df.empty else {}
+
+        # 获取所有已选中的股票代码（包括普通龙头股和大龙股）
+        all_selected_stock_codes = set(leader_df['stock_code']) | set(extra_leaders_df['stock_code'])
+
+        for concept_group, removed_count in extra_by_concept.items():
+            if concept_group not in all_qualified_stocks:
+                continue
+
+            # 获取该概念组的名额上限
+            quota = concept_quota[concept_group]
+
+            # 获取该概念组当前已选中的普通龙头股数量
+            current_normal_count = normal_by_concept.get(concept_group, 0)
+
+            # 计算还需要补充的数量（不超过名额上限）
+            need_supplement = min(removed_count, quota - current_normal_count)
+
+            if need_supplement <= 0:
+                print(f"    概念组 {concept_group} 已达到名额上限（{quota}只），无需补充")
+                continue
+
+            # 获取该概念组所有符合条件的股票（已排序）
+            qualified_df = all_qualified_stocks[concept_group]
+
+            # 从符合条件的股票中排除已选中的，并且排除超过阈值的股票
+            remaining_df = qualified_df[
+                ~qualified_df['stock_code'].isin(all_selected_stock_codes) &
+                (qualified_df['long_period_change'] < LEADER_EXTRA_LONG_PERIOD_THRESHOLD)
+                ]
+
+            if remaining_df.empty:
+                print(f"    概念组 {concept_group} 无剩余符合条件的股票可补充（需补充{need_supplement}只）")
+                continue
+
+            # 补充名额（但不超过需要补充的数量）
+            supplement_count = min(need_supplement, len(remaining_df))
+            if supplement_count > 0:
+                supplement_leaders = remaining_df.head(supplement_count)
+                print(f"    概念组 {concept_group} 补充{len(supplement_leaders)}只龙头股（跳过超过阈值的股票）")
+                # 批量添加，避免循环中使用pd.concat
+                normal_leaders_df = pd.concat([normal_leaders_df, supplement_leaders], ignore_index=True)
+                all_selected_stock_codes.update(supplement_leaders['stock_code'])
+
+    # 按概念优先级排序后，再按入选日期和涨幅排序（与概念分组sheet保持一致的分组效果）
+    normal_leaders_df = sort_leader_stocks_for_output(normal_leaders_df)
+    extra_leaders_df = sort_leader_stocks_for_output(extra_leaders_df)
+
+    print(f"\n龙头股筛选完成: 普通龙头股{len(normal_leaders_df)}只，大龙股{len(extra_leaders_df)}只（不占用名额）")
+
+    return normal_leaders_df, extra_leaders_df
 
 
 def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock_data, stock_entry_count,
@@ -3827,16 +3934,16 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
     """
     print(f"开始创建龙头股工作表内容")
 
-    # 选出龙头股
-    leader_df = select_leader_stocks_from_concept_groups(
+    # 选出龙头股（返回普通龙头股和大龙股）
+    normal_leaders_df, extra_leaders_df = select_leader_stocks_from_concept_groups(
         concept_grouped_df, date_mapping, formatted_trading_days, period_days, period_days_long
     )
 
-    if leader_df.empty:
+    if normal_leaders_df.empty and extra_leaders_df.empty:
         print("未找到符合条件的龙头股，跳过龙头股工作表创建")
         return
 
-    print(f"成功筛选出{len(leader_df)}只龙头股，开始填充工作表内容")
+    print(f"成功筛选出普通龙头股{len(normal_leaders_df)}只，大龙股{len(extra_leaders_df)}只，开始填充工作表内容")
 
     # 复用现有的表头和数据填充逻辑
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
@@ -3844,11 +3951,27 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
 
-    # 填充龙头股数据行
-    fill_data_rows(ws, leader_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
-                   stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
-                   period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df)
+    # 填充普通龙头股数据行
+    current_row = 4  # 从第4行开始（第1行是日期标题，第2-3行是大盘指标）
+
+    if not normal_leaders_df.empty:
+        # 填充普通龙头股
+        fill_data_rows(ws, normal_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
+                       stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
+                       period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                       max_tracking_days_before, zaban_df, show_warning_column=False, start_row=current_row)
+        current_row += len(normal_leaders_df)
+
+    # 如果有大龙股，先空一行，再填充大龙股
+    if not extra_leaders_df.empty:
+        # 空一行（跳过当前行）
+        current_row += 1
+
+        # 填充大龙股（从current_row开始）
+        fill_data_rows(ws, extra_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
+                       stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
+                       period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                       max_tracking_days_before, zaban_df, show_warning_column=False, start_row=current_row)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, False)  # 龙头股工作表不显示预警列
