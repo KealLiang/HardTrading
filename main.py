@@ -635,8 +635,8 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
-         "爆量分歧转一致筛选"),
+        # (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
+        #  "爆量分歧转一致筛选"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -1360,11 +1360,11 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
