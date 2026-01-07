@@ -98,6 +98,11 @@ ATTENTION_DAYS_WINDOW = 3
 # 调试模式开关（控制详细分析日志的输出）
 DEBUG_MODE = False
 
+# 上色与分组分离开关
+# True  : 在【涨停梯队_概念分组】sheet 中，上色尽量使用与分组不同的热门概念
+# False : 使用原有逻辑（分组与上色完全独立）
+ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
+
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
@@ -1951,24 +1956,31 @@ def prepare_stock_data(result_df, priority_reasons, low_priority_reasons=None):
     all_concepts, stock_concepts = collect_stock_concepts(result_df)
 
     # 获取热门概念的颜色映射
-    reason_colors, top_reasons = get_reason_colors(all_concepts, priority_reasons=priority_reasons,
-                                                   low_priority_reasons=low_priority_reasons)
+    reason_colors, top_reasons = get_reason_colors(
+        all_concepts,
+        priority_reasons=priority_reasons,
+        low_priority_reasons=low_priority_reasons
+    )
 
-    # 为每只股票确定主要概念组
+    # 为每只股票准备概念数据并确定主要概念组（用于分组/基础上色）
     all_stocks = prepare_stock_concept_data(stock_concepts)
-
-    # 获取每只股票的主要概念组
-    stock_reason_group = get_stock_reason_group(all_stocks, top_reasons, low_priority_reasons=low_priority_reasons)
+    stock_reason_group = get_stock_reason_group(
+        all_stocks,
+        top_reasons,
+        low_priority_reasons=low_priority_reasons
+    )
 
     # 创建理由计数器
     reason_counter = Counter(all_concepts)
 
     # 返回股票数据
+    # 额外返回 stock_concepts，便于在按概念分组 sheet 中做更细粒度的上色控制
     return {
         'reason_colors': reason_colors,
         'top_reasons': top_reasons,
         'stock_reason_group': stock_reason_group,
-        'reason_counter': reason_counter
+        'reason_counter': reason_counter,
+        'stock_concepts': stock_concepts,
     }
 
 
@@ -3100,6 +3112,90 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
     ws.row_dimensions[1].height = 30
 
 
+def _build_color_reason_group_for_concept_sheet(concept_grouped_df, stock_data, stock_reason_group):
+    """
+    为【涨停梯队_概念分组】sheet 计算用于上色的概念组：
+    - 默认使用 stock_reason_group
+    - 当 ENABLE_COLOR_DIFFERENT_FROM_GROUP 为 True 时：
+      * 若某只股票的分组概念 == 上色概念，则尝试在该股其它热门概念中选择“次选概念”用于上色，
+        以减少“分组 = 上色 = 同一热门概念”造成的视觉臃肿。
+    """
+    # 默认：直接使用原始映射
+    color_reason_group = stock_reason_group
+
+    if not ENABLE_COLOR_DIFFERENT_FROM_GROUP:
+        return color_reason_group
+
+    try:
+        stock_concepts = stock_data.get('stock_concepts', {})
+        top_reasons = stock_data.get('top_reasons', [])
+        reason_colors = stock_data.get('reason_colors', {})
+
+        adjusted_group = {}
+
+        # 预先构建 {reason: rank} 映射，便于按 top_reasons 顺序比较
+        reason_rank = {r: i for i, r in enumerate(top_reasons)}
+
+        for _, row in concept_grouped_df.iterrows():
+            stock_code = row.get('stock_code')
+            stock_name = row.get('stock_name')
+            concept_group = row.get('concept_group')
+            if not stock_code or not stock_name:
+                continue
+
+            stock_key = f"{stock_code}_{stock_name}"
+            base_reason = stock_reason_group.get(stock_key)
+
+            # 只有当“当前上色原因”和“概念分组”完全一致时，才尝试寻找备选上色原因
+            if not base_reason or not concept_group or base_reason != concept_group:
+                continue
+
+            # 获取该股票的所有规范化概念列表
+            concept_entry = stock_concepts.get(stock_key)
+            if not concept_entry:
+                continue
+            if isinstance(concept_entry, tuple):
+                reasons, _reason_details = concept_entry
+            else:
+                reasons = concept_entry
+
+            if not reasons:
+                continue
+
+            # 在该股票的所有概念中，找出可用于上色的候选概念：
+            # 1) 有颜色（在 reason_colors 中）
+            # 2) 不等于当前分组概念
+            candidate_reasons = [
+                r for r in reasons
+                if r in reason_colors and r != concept_group
+            ]
+
+            if not candidate_reasons:
+                continue
+
+            # 按 top_reasons 的顺序选择“次选概念”：
+            # - top_reasons 中越靠前，rank 越小，优先级越高
+            # - 若某个候选概念不在 top_reasons 中，则认为 rank 很大（靠后）
+            def _candidate_key(r):
+                return reason_rank.get(r, len(reason_rank) + 100)
+
+            candidate_reasons.sort(key=_candidate_key)
+            new_reason = candidate_reasons[0]
+
+            adjusted_group[stock_key] = new_reason
+
+        if adjusted_group:
+            # 复制一份原始映射，避免影响其它 sheet 的逻辑
+            new_mapping = dict(stock_reason_group)
+            new_mapping.update(adjusted_group)
+            color_reason_group = new_mapping
+
+    except Exception as e:
+        print(f"按概念分组 sheet 计算独立上色概念失败，使用原有上色逻辑: {e}")
+
+    return color_reason_group
+
+
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                          formatted_trading_days, date_column_start, show_period_change, period_column,
                                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
@@ -3205,6 +3301,15 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     # 删除临时排序字段
     concept_grouped_df = concept_grouped_df.drop(columns=['momo_volume', 'momo_change'])
 
+    # ---------------- 上色用概念组（可选：与分组区分） ----------------
+    stock_reason_group = stock_data['stock_reason_group']
+    color_reason_group = _build_color_reason_group_for_concept_sheet(
+        concept_grouped_df,
+        stock_data,
+        stock_reason_group,
+    )
+
+    # ---------------- Excel 结构与数据填充 ----------------
     # 设置Excel表头和日期列
     show_warning_column = True  # 默认显示异动预警列
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
@@ -3214,8 +3319,10 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     add_market_indicators(ws, date_columns, label_col=2)
 
     # 填充数据行，使用重新排序的数据
+    # 注意：此处使用 color_reason_group 作为上色依据，
+    # 而分组逻辑依然基于 concept_group，不会被修改。
     rows_to_collapse = fill_data_rows_with_concept_groups(ws, concept_grouped_df, shouban_df,
-                                                          stock_data['stock_reason_group'],
+                                                          color_reason_group,
                                                           stock_data['reason_colors'], stock_entry_count,
                                                           formatted_trading_days,
                                                           date_column_start, show_period_change, period_column,
