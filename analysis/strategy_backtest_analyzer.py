@@ -27,6 +27,7 @@ from tqdm import tqdm
 
 from utils.date_util import get_next_trading_day
 from utils.file_util import read_stock_data
+from utils.stock_util import stock_limit_ratio
 
 
 @dataclass
@@ -108,6 +109,10 @@ class BacktestConfig:
     buy_price_range: tuple = None  # 买入价格范围（开盘涨幅%），例如(-5, 6)表示-5%到6%
     # None表示不限制，总是买入
     # (min_pct, max_pct)表示只有次日开盘涨幅在此范围内才买入
+
+    buy_mode: str = 'open'  # 买入模式
+    # 'open': 使用开盘价买入（默认，原有逻辑）
+    # 'limit_up': 使用涨停价买入，要求建仓日最高价必须等于涨停价，否则放弃建仓
 
     # 走强控制
     strong_price_range: tuple = None  # 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
@@ -381,13 +386,45 @@ class StrategyBacktestAnalyzer:
 
         # 记录买入信息（a+1日）
         trade.buy_date = buy_date
-        trade.buy_price = buy_row['开盘']
 
         # a+1日详细数据
         trade.day1_close = buy_row['收盘']
         trade.day1_high = buy_row['最高']
         trade.day1_low = buy_row['最低']
         trade.day1_volume = buy_row['成交量']
+
+        # 计算涨停价（基于信号日收盘价，即前日收盘价），供所有买入模式使用
+        limit_up_price = None
+        if trade.signal_close > 0:
+            try:
+                limit_ratio = stock_limit_ratio(clean_code)
+                # 计算涨停价（四舍五入到2位小数，符合A股规则）
+                limit_up_price = round(trade.signal_close * (1.0 + limit_ratio), 2)
+            except Exception as e:
+                logging.warning(f"无法确定股票 {clean_code} 的涨跌停限制: {e}")
+
+        # 一字涨停过滤：若建仓日最低价等于涨停价，则视为一字板，无法建仓（所有模式通用）
+        if limit_up_price is not None and abs(trade.day1_low - limit_up_price) <= 0.01:
+            return trade
+
+        # 根据买入模式确定买入价
+        if self.config.buy_mode == 'limit_up':
+            # 涨停价买入模式：要求建仓日最高价必须等于涨停价
+            if limit_up_price is None:
+                # 无法计算涨停价，放弃建仓
+                return trade
+
+            # 检查建仓日最高价是否等于涨停价（允许约等，考虑浮点误差）
+            # 使用0.01的容差，因为价格是2位小数
+            if abs(trade.day1_high - limit_up_price) > 0.01:
+                # 最高价不等于涨停价，放弃建仓
+                return trade
+
+            # 满足条件，使用最高价（即涨停价）建仓
+            trade.buy_price = trade.day1_high
+        else:
+            # 默认模式：使用开盘价买入
+            trade.buy_price = buy_row['开盘']
 
         # 计算开盘涨幅（a+1日开盘价相对信号日收盘价）
         if trade.signal_close > 0:
@@ -1448,6 +1485,7 @@ def run_backtest(summary_csv_path: str,
                  max_hold_days: int = 30,
                  buy_price_range: tuple = None,
                  strong_price_range: tuple = None,
+                 buy_mode: str = 'open',
                  data_path: str = './data/astocks') -> BacktestResult:
     """
     便捷函数：执行策略回测
@@ -1466,6 +1504,9 @@ def run_backtest(summary_csv_path: str,
         strong_price_range: 走强价格范围（收盘涨幅%），例如(-2, 10)表示-2%到10%
             None表示不限制，只要满足走强定义即视为走强
             (min_pct, max_pct)表示即使满足走强定义，收盘涨幅也必须在此范围内才算走强
+        buy_mode: 买入模式
+            'open': 使用开盘价买入（默认，原有逻辑）
+            'limit_up': 使用涨停价买入，要求建仓日最高价必须等于涨停价，否则放弃建仓
         data_path: 股票数据目录
         
     Returns:
@@ -1477,6 +1518,7 @@ def run_backtest(summary_csv_path: str,
         max_hold_days=max_hold_days,
         buy_price_range=buy_price_range,
         strong_price_range=strong_price_range,
+        buy_mode=buy_mode,
         data_path=data_path
     )
 

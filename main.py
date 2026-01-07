@@ -1152,7 +1152,8 @@ def backtest_strategy(summary_csv_path: str,
                       min_hold_days: int = 1,
                       max_hold_days: int = 30,
                       buy_price_range: tuple = None,
-                      strong_price_range: tuple = None):
+                      strong_price_range: tuple = None,
+                      buy_mode: str = 'open'):
     """
     策略回测分析
     
@@ -1160,7 +1161,7 @@ def backtest_strategy(summary_csv_path: str,
     
     使用场景：
     1. 信号日(a日)运行选股
-    2. 次日(a+1日)开盘买入（可设置买入价格范围限制）
+    2. 次日(a+1日)买入（根据buy_mode选择开盘价或涨停价买入，可设置买入价格范围限制）
     3. 持有条件：股票走强（根据strong_rule定义，可设置走强价格范围限制）
     4. 卖出条件：不再走强时以收盘价卖出
     5. T+1规则：最早a+2日可卖出
@@ -1182,6 +1183,9 @@ def backtest_strategy(summary_csv_path: str,
             - None: 不限制，只要满足走强定义即视为走强（默认）
             - (min_pct, max_pct): 即使满足走强定义，收盘涨幅也必须在此范围内才算走强
               如果收盘涨幅不在范围内，视为"不再走强"，触发卖出
+        buy_mode: 买入模式
+            - 'open': 使用开盘价买入（默认，原有逻辑）
+            - 'limit_up': 使用涨停价买入，要求建仓日最高价必须等于涨停价，否则放弃建仓
     
     输出：
         - 在CSV同目录下生成 backtest_report.md 报告
@@ -1198,6 +1202,9 @@ def backtest_strategy(summary_csv_path: str,
         
         # 只持有收盘涨幅在-2%到10%之间的股票（即使满足走强定义）
         backtest_strategy('...summary.csv', strong_price_range=(-2, 10))
+        
+        # 使用涨停价买入模式（要求建仓日涨停）
+        backtest_strategy('...summary.csv', buy_mode='limit_up')
     """
     from analysis.strategy_backtest_analyzer import run_backtest
 
@@ -1216,7 +1223,8 @@ def backtest_strategy(summary_csv_path: str,
         min_hold_days=min_hold_days,
         max_hold_days=max_hold_days,
         buy_price_range=buy_price_range,
-        strong_price_range=strong_price_range
+        strong_price_range=strong_price_range,
+        buy_mode=buy_mode
     )
 
     if result:
@@ -1379,8 +1387,8 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251201', '20251230', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=True)  # 爆量分歧分析
-    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251201_20251230/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))
+    # analyze_volume_surge_pattern('20250101', '20250630', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=False)  # 爆量分歧分析
+    # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251210_20260106/summary.csv', buy_price_range=None, strong_price_range=(-3, 20), buy_mode='open')
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
     # === 二板定龙头分析 ===
