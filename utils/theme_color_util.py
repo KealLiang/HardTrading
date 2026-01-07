@@ -206,7 +206,7 @@ def get_reason_match_type(original_reason, normalized_reason):
         normalized_reason: 规范化后的原因（即所属的主分组名）
     
     Returns:
-        str: 'exact' 表示精确匹配（不带%），'fuzzy' 表示模糊匹配（带%），'unmatched' 表示未匹配
+        str: 'exact' 表示精确匹配（不带%），'fuzzy' 表示模糊匹配（带%或包含匹配），'unmatched' 表示未匹配
     """
     # 移除空格
     original_reason = re.sub(r'\s+', '', original_reason)
@@ -221,14 +221,25 @@ def get_reason_match_type(original_reason, normalized_reason):
 
     synonyms = synonym_groups[normalized_reason]
 
-    # 检查是否有精确匹配（不带%的同义词完全相等）或模糊匹配（包含但不完全相等）
+    # 优先检查不带%的同义词：完全相等为精确匹配，包含为模糊匹配
+    # 这样可以确保精确匹配优先于通配符匹配
     for synonym in synonyms:
         if '%' not in synonym:
             if synonym == original_reason:
-                # 完全相等：精确匹配
+                # 完全相等：精确匹配（优先级最高）
                 return 'exact'
             elif synonym in original_reason:
-                # 包含但不完全相等：模糊匹配
+                # 包含但不完全相等：部分精确匹配（优先级高于通配符匹配）
+                return 'fuzzy'
+
+    # 然后检查通配符匹配（带%的同义词）
+    for synonym in synonyms:
+        if '%' in synonym:
+            # 转换SQL风格通配符为正则表达式
+            pattern = synonym.replace('%', '(.*)')
+            regex = re.compile(f"^{pattern}$")
+            if regex.search(original_reason):
+                # 通配符匹配：模糊匹配（优先级低于部分精确匹配）
                 return 'fuzzy'
 
     return 'unmatched'
