@@ -4053,7 +4053,8 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
     print(f"成功筛选出普通龙头股{len(normal_leaders_df)}只，大龙股{len(extra_leaders_df)}只，开始填充工作表内容")
 
     # 复用现有的表头和数据填充逻辑
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
+                                      show_warning_column=True)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -4066,7 +4067,7 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
         fill_data_rows(ws, normal_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                        stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                        period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, show_warning_column=False, start_row=current_row)
+                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row)
         current_row += len(normal_leaders_df)
 
     # 如果有大龙股，先空一行，再填充大龙股
@@ -4078,10 +4079,11 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
         fill_data_rows(ws, extra_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                        stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                        period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, show_warning_column=False, start_row=current_row)
+                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row)
 
     # 调整列宽
-    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, False)  # 龙头股工作表不显示预警列
+    adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,
+                         show_warning_column=True)  # 龙头股工作表显示预警列
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
