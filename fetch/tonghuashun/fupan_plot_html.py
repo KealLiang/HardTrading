@@ -315,16 +315,74 @@ def _inject_click_copy_script(html_path, copyable_trace_indices):
             const point = data.points[0];
             
             // 判断是否点击的是支持复制的图层
-            if (copyableTraceIndices.includes(point.curveNumber)) {{
-                // 获取股票代码字符串（customdata[1]）
-                const stockCodes = point.customdata[1];
-                
-                if (stockCodes && stockCodes.trim() !== '') {{
+            // 注意：默默上涨和盈亏折线可能重叠，如果点击的是盈亏折线（通常是默默上涨索引+1），
+            // 需要从默默上涨的trace中获取数据
+            let targetTraceIndex = point.curveNumber;
+            let stockCodes = null;
+            
+            // 首先检查点击的trace是否在可复制列表中
+            if (copyableTraceIndices.includes(targetTraceIndex)) {{
+                // 正常处理：从当前trace的customdata获取数据
+                if (point.customdata) {{
+                    if (Array.isArray(point.customdata)) {{
+                        // 如果是数组，直接取第二个元素
+                        if (point.customdata.length > 1) {{
+                            stockCodes = point.customdata[1];
+                        }}
+                        // 如果是嵌套数组（二维数组），取第二个子数组
+                        else if (point.customdata.length > 0 && Array.isArray(point.customdata[0])) {{
+                            if (point.customdata[0].length > 1) {{
+                                stockCodes = point.customdata[0][1];
+                            }}
+                        }}
+                    }} else if (typeof point.customdata === 'object') {{
+                        // 如果是对象，尝试访问第二个属性
+                        const keys = Object.keys(point.customdata);
+                        if (keys.length > 1) {{
+                            stockCodes = point.customdata[keys[1]];
+                        }}
+                    }}
+                }}
+            }} else {{
+                // 如果不在可复制列表中，检查是否是盈亏折线（默默上涨索引+1）
+                // 尝试从默默上涨trace获取数据
+                const momoTraceIndex = targetTraceIndex - 1;
+                if (copyableTraceIndices.includes(momoTraceIndex)) {{
+                    // 从Plotly的图形数据中获取默默上涨trace的customdata
+                    const gd = plotDiv;
+                    if (gd && gd.data && gd.data[momoTraceIndex]) {{
+                        const momoTrace = gd.data[momoTraceIndex];
+                        if (momoTrace.customdata) {{
+                            // 根据点击的x坐标找到对应的数据点
+                            const xValues = momoTrace.x;
+                            let xIndex = -1;
+                            for (let i = 0; i < xValues.length; i++) {{
+                                if (xValues[i] === point.x) {{
+                                    xIndex = i;
+                                    break;
+                                }}
+                            }}
+                            if (xIndex >= 0 && momoTrace.customdata[xIndex]) {{
+                                const customdataPoint = momoTrace.customdata[xIndex];
+                                if (Array.isArray(customdataPoint) && customdataPoint.length > 1) {{
+                                    stockCodes = customdataPoint[1];
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            
+            // 处理股票代码字符串
+            if (stockCodes !== null && stockCodes !== undefined) {{
+                const codesStr = String(stockCodes).trim();
+                if (codesStr !== '') {{
                     // 复制到剪贴板
-                    copyToClipboard(stockCodes);
+                    copyToClipboard(codesStr);
                     
                     // 显示提示信息
-                    showCopyNotification(point.x, '已复制 ' + stockCodes.split('\\n').length + ' 只股票代码！');
+                    const codeCount = codesStr.split('\\n').filter(line => line.trim() !== '').length;
+                    showCopyNotification(point.x, '已复制 ' + codeCount + ' 只股票代码！');
                 }} else {{
                     showCopyNotification(point.x, '该日期无股票代码');
                 }}
@@ -1112,9 +1170,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 )
 
         # 准备 customdata（二维数组：[股票列表用于hover, 股票代码用于复制]）
+        # 使用嵌套列表格式，与旧版本保持一致（旧版本此格式工作正常）
         momo_customdata = [[stocks, codes] for stocks, codes in zip(momo_all_stocks, momo_stock_codes)]
 
-        copyable_trace_indices.append(len(fig.data))
+        # 先记录当前trace索引（添加trace之前的索引，添加后就是新trace的索引）
+        momo_trace_index_before = len(fig.data)
         fig.add_trace(
             go.Scatter(
                 x=date_labels,
@@ -1140,6 +1200,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 yaxis='y3',  # 使用第三个Y轴
             )
         )
+        # 添加trace后，记录其索引（新添加的trace索引就是添加前的len(fig.data)）
+        copyable_trace_indices.append(momo_trace_index_before)
 
         # 初始化y4_title（如果没有盈亏数据，使用默认值）
         y4_title = '隔日平均盈亏(%)' if buy_days_before == 1 else f't-{buy_days_before}日买入平均盈亏(%)'
