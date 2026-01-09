@@ -21,6 +21,7 @@ from plotly.subplots import make_subplots
 # 导入工具函数
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utils.stock_util import stock_limit_ratio
+from utils.following_profit_calculator import calculate_daily_profit_with_stock_details_from_momo_results
 
 # 配置悬浮窗换行阈值
 LIANBAN_STOCKS_PER_LINE = 5  # 连板天梯图层：每5只股票换行
@@ -482,7 +483,62 @@ def extract_stock_codes_from_df(df, code_column='股票代码'):
     return codes
 
 
-def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=None):
+def _generate_profit_explanation(buy_days_before: int) -> str:
+    """
+    生成盈亏说明文字（根据buy_days_before动态生成）
+    
+    Args:
+        buy_days_before: 买入日相对于当前日的前N个交易日
+        
+    Returns:
+        str: 说明文字
+    """
+    if buy_days_before == 1:
+        return "使用t-1日选出的股票，t-1日开盘买入，t日收盘卖出"
+    else:
+        return f"使用t-{buy_days_before}日选出的股票，t-{buy_days_before}日开盘买入，t日收盘卖出"
+
+
+def _generate_stock_info_explanation(buy_days_before: int) -> str:
+    """
+    生成股票信息说明文字（说明括号内数据的含义）
+    
+    Args:
+        buy_days_before: 买入日相对于当前日的前N个交易日
+        
+    Returns:
+        str: 说明文字
+    """
+    if buy_days_before == 1:
+        return "说明：括号内为(区间涨幅, 区间成交额, 隔日盈亏%)"
+    else:
+        return f"说明：括号内为(区间涨幅, 区间成交额, t-{buy_days_before}日买入盈亏%)"
+
+
+def _add_profit_to_stock_info(stock_info: str, profit: float) -> str:
+    """
+    在股票信息字符串的括号中添加盈亏信息
+    
+    Args:
+        stock_info: 股票信息字符串，格式为"股票名称(涨幅, 成交额)"
+        profit: 盈亏百分比
+        
+    Returns:
+        str: 添加盈亏后的股票信息，格式为"股票名称(涨幅, 成交额, 盈亏%)"
+    """
+    if not stock_info.endswith(')'):
+        return stock_info
+
+    last_open = stock_info.rfind('(')
+    if last_open <= 0:
+        return stock_info
+
+    base_info = stock_info[:last_open]
+    inside_paren = stock_info[last_open + 1:-1]
+    return f"{base_info}({inside_paren}, {profit:.2f}%)"
+
+
+def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=None, buy_days_before=1):
     """
     读取数据并生成HTML交互式图表
     
@@ -491,6 +547,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         start_date: 开始日期（格式: YYYYMMDD）
         end_date: 结束日期（格式: YYYYMMDD）
         output_path: 输出HTML文件路径（可选）
+        buy_days_before: 买入日相对于当前日的前N个交易日，默认为1（表示t-1日买入）
+            - 1: t-1日买入，t日卖出（隔日盈亏）
+            - 2: t-2日买入，t日卖出
+            - 3: t-3日买入，t日卖出
     
     Returns:
         str: 生成的HTML文件路径
@@ -959,10 +1019,63 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
 
     # 默默上涨线（独立Y轴）- 显示平均涨幅
     momo_trace_index = None
+    profit_trace_index = None  # 盈亏折线索引
+    stock_profits_detail = {}  # 每只股票的盈亏详情
     momo_annotations = []  # 用于存储样本数量的annotations
     if has_momo_data and momo_results:
+        # 先计算每日盈亏并获取每只股票的盈亏详情（在创建trace之前）
+        try:
+            profit_results, stock_profits_detail = calculate_daily_profit_with_stock_details_from_momo_results(
+                momo_results, buy_days_before=buy_days_before
+            )
+
+            # 重新格式化股票名称，加入盈亏信息
+            # 重要说明：
+            # - stock_profits_detail[date_str] 存储的是：t-N日选出的股票在t日的盈亏（N = buy_days_before）
+            # - 对于t日显示的每只股票，如果它在t-N日也被选出了，则显示它的盈亏
+            # - 如果它在t-N日没有被选出（新入选的股票），则不显示盈亏（保持原格式）
+            #   因为新入选当天是不知道隔日数据的，所以括号里没有隔日盈亏
+            # momo_results格式: (date, avg_zhangfu, momo_stocks_data, top_3_stocks, sample_count, codes_str)
+            for idx, item in enumerate(momo_results):
+                date_str = item[0]
+                original_stocks_data = item[2]  # 原始格式：股票名称(涨幅, 成交额)
+                codes_str = item[5]  # t日显示的股票代码列表
+
+                # 获取该日期的盈亏详情（这些盈亏是基于t-N日选出的股票计算的，N = buy_days_before）
+                # stock_profits_detail[date_str] = {股票代码: 盈亏}，其中股票代码是t-N日选出的股票
+                date_profits = stock_profits_detail.get(date_str, {})
+
+                # 重新格式化股票名称，加入盈亏
+                new_stocks_data = []
+                stock_codes_list = codes_str.split('\n') if codes_str else []
+                for stock_idx, stock_info in enumerate(original_stocks_data):
+                    if stock_idx < len(stock_codes_list):
+                        clean_code = stock_codes_list[stock_idx].strip()
+                        # 检查这只股票是否在t-N日被选出（如果在，则会有盈亏数据）
+                        profit = date_profits.get(clean_code)
+                        if profit is not None:
+                            # 格式：股票名称(涨幅, 成交额, 盈亏%)
+                            # 含义：如果买入此股（在t-N日），则t日盈亏为profit%
+                            new_stock_info = _add_profit_to_stock_info(stock_info, profit)
+                            new_stocks_data.append(new_stock_info)
+                        else:
+                            # 如果这只股票在t-N日没有被选出（新入选），则不显示盈亏
+                            new_stocks_data.append(stock_info)
+                    else:
+                        new_stocks_data.append(stock_info)
+
+                # 更新momo_results中的股票信息
+                date_str, avg_zhangfu, _, top_3_stocks, sample_count, codes_str = item
+                momo_results[idx] = (date_str, avg_zhangfu, new_stocks_data,
+                                     top_3_stocks, sample_count, codes_str)
+        except Exception as e:
+            print(f"⚠ 计算默默上涨每日盈亏时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            stock_profits_detail = {}
+
         momo_zhangfus = [item[1] for item in momo_results]  # 平均涨幅
-        # 悬浮窗显示所有股票（包含成交额），每3只换行
+        # 悬浮窗显示所有股票（包含成交额和盈亏），每3只换行
         momo_all_stocks = [format_stock_list_for_hover(item[2], MOMO_STOCKS_PER_LINE) for item in momo_results]
         # 提取股票代码字符串（用于点击复制）
         momo_stock_codes = [item[5] for item in momo_results]  # item[5] 是代码字符串
@@ -1017,8 +1130,8 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 showlegend=True,  # 显示图例
                 legendgroup='momo',  # 图例分组
                 customdata=momo_customdata,
-                # 独立悬浮窗，去掉日期（顶部已有），添加点击提示
-                hovertemplate='平均涨幅: %{y:.1f}%<br>股票: %{customdata[0]}<br><i>💡 点击节点复制股票代码</i><extra></extra>',
+                # 独立悬浮窗，去掉日期（顶部已有），添加点击提示和说明
+                hovertemplate=f'平均涨幅: %{{y:.1f}}%<br>股票: %{{customdata[0]}}<br><i>💡 点击节点复制股票代码</i><br><i>{_generate_stock_info_explanation(buy_days_before)}</i><extra></extra>',
                 hoverinfo='all',
                 hoverlabel=dict(
                     bgcolor='rgba(139, 69, 19, 0.9)',  # 棕色背景
@@ -1028,12 +1141,65 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             )
         )
 
+        # 初始化y4_title（如果没有盈亏数据，使用默认值）
+        y4_title = '隔日平均盈亏(%)' if buy_days_before == 1 else f't-{buy_days_before}日买入平均盈亏(%)'
+
+        # 添加盈亏折线（使用y4轴，默认隐藏）
+        if stock_profits_detail:
+            try:
+                # 创建日期到盈亏的映射
+                profit_dict = {item[0]: (item[1], item[2]) for item in profit_results}
+
+                # 按照date_labels的顺序提取盈亏值，确保日期对齐
+                profit_values = []
+                profit_counts = []
+                for item in momo_results:
+                    date_str = item[0]
+                    if date_str in profit_dict:
+                        profit_value, profit_count = profit_dict[date_str]
+                        profit_values.append(profit_value)
+                        profit_counts.append(profit_count)
+                    else:
+                        profit_values.append(None)
+                        profit_counts.append(0)
+
+                # 添加盈亏折线（使用y4轴，默认隐藏，使用与默默上涨相同的date_labels）
+                profit_trace_index = len(fig.data)
+                # 根据buy_days_before动态生成折线名称（y4_title已在前面初始化）
+                profit_trace_name = y4_title
+                fig.add_trace(
+                    go.Scatter(
+                        x=date_labels,
+                        y=profit_values,
+                        name=profit_trace_name,
+                        mode='lines+markers',
+                        line=dict(color='darkorange', width=2, dash='dash'),
+                        marker=dict(symbol='circle', size=6),
+                        visible=False,  # 默认隐藏，跟随默默上涨图层
+                        showlegend=True,
+                        legendgroup='momo',  # 与默默上涨同一图例组
+                        hovertemplate=f'平均盈亏: %{{y:.2f}}%<br>有效样本: %{{customdata}}只<br><i>说明：{_generate_profit_explanation(buy_days_before)}</i><br><extra></extra>',
+                        customdata=profit_counts,
+                        yaxis='y4',  # 使用第四个Y轴（独立Y轴）
+                    )
+                )
+            except Exception as e:
+                print(f"⚠ 添加盈亏折线时出错: {e}")
+                import traceback
+                traceback.print_exc()
+                profit_trace_index = None
+
     # 创建图层切换按钮（如果有默默上涨数据）
     updatemenus = []
     if momo_trace_index is not None:
         total_traces = len(fig.data)
         # 为每个annotation设置visible属性（跟随图层切换）
         annotations_count = len(momo_annotations)
+
+        # 确定盈亏折线的索引（如果存在）
+        profit_trace_indices = []
+        if profit_trace_index is not None:
+            profit_trace_indices = [profit_trace_index]
 
         updatemenus = [
             dict(
@@ -1042,11 +1208,13 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 buttons=[
                     dict(
                         args=[
-                            {"visible": [True if i != momo_trace_index else False for i in range(total_traces)]},
+                            {"visible": [True if (i != momo_trace_index and i not in profit_trace_indices) else False
+                                         for i in range(total_traces)]},
                             {
                                 "yaxis.visible": True,
                                 "yaxis2.visible": True,
                                 "yaxis3.visible": False,
+                                "yaxis4.visible": False,
                                 # 隐藏所有样本数量annotations
                                 "annotations": [dict(ann, visible=False) for ann in momo_annotations],
                             }
@@ -1056,11 +1224,13 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                     ),
                     dict(
                         args=[
-                            {"visible": [False if i != momo_trace_index else True for i in range(total_traces)]},
+                            {"visible": [False if (i != momo_trace_index and i not in profit_trace_indices) else True
+                                         for i in range(total_traces)]},
                             {
                                 "yaxis.visible": False,
                                 "yaxis2.visible": False,
                                 "yaxis3.visible": True,
+                                "yaxis4.visible": True,
                                 # 显示所有样本数量annotations
                                 "annotations": [dict(ann, visible=True) for ann in momo_annotations],
                             }
@@ -1154,6 +1324,23 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
             ticksuffix='%',
             visible=False,  # 默认隐藏（连板天梯图层不显示）
         ),
+        # 配置第四个Y轴（盈亏专用，显示在左侧，标题根据buy_days_before动态生成）
+        yaxis4=dict(
+            title=dict(
+                text=y4_title,
+                font=dict(color='darkorange', size=12, family='SimHei')
+            ),
+            overlaying='y',  # 覆盖在主Y轴上
+            side='left',  # 显示在左侧
+            showgrid=False,  # 不显示网格线，避免与其他轴混淆
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor='gray',
+            tickfont=dict(color='darkorange', size=10),
+            tickformat='.2f',
+            ticksuffix='%',
+            visible=False,  # 默认隐藏（连板天梯图层不显示）
+        ),
     )
 
     # 添加网格线
@@ -1203,7 +1390,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
     return output_path
 
 
-def draw_fupan_lb_html(start_date=None, end_date=None, output_path=None):
+def draw_fupan_lb_html(start_date=None, end_date=None, output_path=None, buy_days_before=1):
     """
     生成HTML交互式复盘图的便捷函数
     
@@ -1211,12 +1398,16 @@ def draw_fupan_lb_html(start_date=None, end_date=None, output_path=None):
         start_date: 开始日期（格式: YYYYMMDD）
         end_date: 结束日期（格式: YYYYMMDD）
         output_path: 输出HTML文件路径（可选）
+        buy_days_before: 买入日相对于当前日的前N个交易日，默认为1（表示t-1日买入）
+            - 1: t-1日买入，t日卖出（隔日盈亏）
+            - 2: t-2日买入，t日卖出
+            - 3: t-3日买入，t日卖出
     
     Returns:
         str: 生成的HTML文件路径
     """
     fupan_file = "./excel/fupan_stocks.xlsx"
-    return read_and_plot_html(fupan_file, start_date, end_date, output_path)
+    return read_and_plot_html(fupan_file, start_date, end_date, output_path, buy_days_before)
 
 
 if __name__ == '__main__':

@@ -811,9 +811,9 @@ def draw_ths_fupan_html():
     生成HTML交互式复盘图
     """
     start_date = '20250930'  # 开始日期
-    # end_date = '20250115'  # 结束日期
+    # end_date = '20260108'  # 结束日期
     end_date = None
-    draw_fupan_lb_html(start_date, end_date)
+    draw_fupan_lb_html(start_date, end_date, buy_days_before=1)
 
 
 def fupan_statistics_to_excel():
@@ -1372,7 +1372,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1400,7 +1400,7 @@ if __name__ == '__main__':
 
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    # draw_ths_fupan_html()     # HTML交互图
+    draw_ths_fupan_html()     # HTML交互图
 
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
