@@ -985,7 +985,7 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
         Returns:
             str: 生成的HTML文件路径
         """
-        from analysis.volume_surge_html_chart import generate_html_charts_for_analyzer
+        from analysis.html_gen.volume_surge_html_chart import generate_html_charts_for_analyzer
         return generate_html_charts_for_analyzer(self, columns=columns)
 
 
