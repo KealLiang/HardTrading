@@ -631,12 +631,13 @@ def daily_routine():
         (generate_ladder_chart, "生成热门股天梯"),
         (draw_ths_fupan, "绘制涨跌高度图"),
         (draw_ths_fupan_html, "生成涨跌高度html"),
+        (lambda: generate_momo_html_charts(days=20, columns=2, after_days=20), "默默上涨生成html走势图"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        # (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
-        #  "爆量分歧转一致筛选"),
+        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
+         "爆量分歧转一致筛选"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -1075,7 +1076,7 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
                                  continuous_surge_days=2, volume_surge_ratio=(2.0, 3.0), volume_avg_days=5,
                                  min_lianban=2, before_days=50, after_days=10,
                                  min_pct_change=4.0,
-                                 enable_attention_criteria=False, generate_charts=True):
+                                 enable_attention_criteria=False, generate_charts=False, generate_html=True):
     """
     分析"爆量分歧转一致"形态并生成K线图
     
@@ -1114,7 +1115,8 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         min_pct_change: 信号日最小涨幅(%)，默认3.0，用于过滤大阴线
         enable_attention_criteria: 是否启用关注度榜入选条件，默认为False。
             启用时，对于在关注度榜中的股票，连板数要求减1（例如min_lianban=2时，关注度榜股票只需1板即可）
-        generate_charts: 是否生成图片，默认为True。设为False时跳过图片生成，仅生成汇总报告，用于快速回测
+        generate_charts: 是否生成图片，默认False。设为False时跳过图片生成，仅生成汇总报告，用于快速回测
+        generate_html: 是否生成html图，默认True
     
     输出：
         - K线图保存在: analysis/pattern_charts/爆量分歧转一致/{start_date}_{end_date}/
@@ -1146,13 +1148,14 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
         print(f"📁 图表保存在: {analyzer.output_dir}")
 
     # 生成HTML交互式图表（单个文件，支持1/2/3列布局）
-    print("\n📊 开始生成HTML交互式图表...")
-    html_path = analyzer.generate_html_charts(columns=3)  # 默认2列，可改为1或3
-    if html_path:
-        print(f"✅ HTML图表生成完成！")
-        print(f"📁 HTML图表保存在: {html_path}")
-    else:
-        print("⚠️  未生成HTML图表")
+    if generate_html:
+        print("\n📊 开始生成HTML交互式图表...")
+        html_path = analyzer.generate_html_charts(columns=2)  # 默认2列，可改为1或3
+        if html_path:
+            print(f"✅ HTML图表生成完成！")
+            print(f"📁 HTML图表保存在: {html_path}")
+        else:
+            print("⚠️  未生成HTML图表")
 
     return analyzer.output_dir
 
@@ -1397,7 +1400,7 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20251220', '20260112', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=False)  # 爆量分歧分析
+    analyze_volume_surge_pattern('20251220', '20260112', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5)  # 爆量分歧分析
     # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251210_20260106/summary.csv', buy_price_range=None, strong_price_range=(-3, 20), buy_mode='open')
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
@@ -1413,7 +1416,7 @@ if __name__ == '__main__':
     # draw_ths_fupan_html()     # HTML交互图
     
     # === 【默默上涨】HTML图表生成 ===
-    generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
+    # generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
 
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词

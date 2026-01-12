@@ -432,7 +432,7 @@ def generate_momo_html_charts(
         columns: int = 2,
         before_days: int = 30,
         after_days: int = 10,
-        output_dir: str = './analysis/momo_charts',
+        output_dir: str = './images/html_charts',
         data_dir: str = './data/astocks'
 ) -> Optional[str]:
     """

@@ -290,8 +290,8 @@ def generate_html_charts_for_analyzer(
     Returns:
         str: 生成的HTML文件路径
     """
-    if output_dir is None:
-        output_dir = analyzer.output_dir
+    # 输出路径统一改为 images/html_charts
+    output_dir = './images/html_charts'
 
     if columns not in [1, 2, 3]:
         logging.warning(f"列数 {columns} 无效，使用默认值2")
@@ -302,11 +302,14 @@ def generate_html_charts_for_analyzer(
 
     logging.info(f"开始生成HTML图表，共 {len(analyzer.filtered_stocks)} 只股票，布局: {columns}列...")
 
+    # 按入选日期倒序排序（最近的在前）
+    sorted_stocks = sorted(analyzer.filtered_stocks, key=lambda x: x.pattern_date, reverse=True)
+
     # 收集所有图表的figure对象
     chart_figures = []
     chart_titles = []
 
-    for pattern_info in analyzer.filtered_stocks:
+    for pattern_info in sorted_stocks:
         try:
             code_6digit = analyzer._extract_stock_code(pattern_info.code)
 
@@ -377,6 +380,9 @@ def generate_html_charts_for_analyzer(
 
     # 创建包含所有图表的HTML
     html_content = _create_combined_html(chart_figures, chart_titles, columns, rows)
+
+    # 创建输出目录
+    os.makedirs(output_dir, exist_ok=True)
 
     # 保存HTML文件
     html_filename = f"volume_surge_charts_{columns}cols.html"
