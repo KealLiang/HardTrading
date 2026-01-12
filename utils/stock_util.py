@@ -1,3 +1,11 @@
+import logging
+from typing import Optional
+
+import pandas as pd
+
+from utils.file_util import read_stock_data
+
+
 def format_stock_code(code) -> str:
     """
     格式化股票代码为6位字符串，补全前导零
@@ -110,3 +118,97 @@ def get_stock_market(code: str) -> str:
         return 'main'
     else:
         raise ValueError(f"无法识别的股票代码市场: {code}")
+
+
+def calculate_period_change_from_date(stock_code: str, end_date_yyyymmdd: str, trading_days: int,
+                                      data_path: str = './data/astocks') -> Optional[float]:
+    """
+    从指定日期往前数N个交易日，计算涨跌幅
+    
+    基于该股票实际的K线数据条数，排除停牌日（开盘价为空或为0的行视为停牌）
+    使用开始日的开盘价和结束日的收盘价计算涨跌幅
+    
+    Args:
+        stock_code: 股票代码（6位数字字符串）
+        end_date_yyyymmdd: 结束日期 (YYYYMMDD)，即入选日
+        trading_days: 往前数的交易日数量（如60、120）
+        data_path: 股票数据目录，默认'./data/astocks'
+        
+    Returns:
+        float: 涨跌幅百分比，如果数据不存在则返回None
+        
+    Examples:
+        >>> # 计算从20250101往前60个交易日的涨跌幅
+        >>> change = calculate_period_change_from_date('000001', '20250101', 60)
+        >>> print(f"60日涨跌幅: {change:.2f}%")
+    """
+    try:
+        if not stock_code:
+            return None
+
+        # 获取股票数据
+        df = read_stock_data(stock_code, data_path)
+
+        if df is None or df.empty:
+            logging.debug(f"股票 {stock_code} 无数据文件")
+            return None
+
+        # 过滤掉停牌的行（开盘价为空或为0的行视为停牌）
+        valid_df = df[df['开盘'].notna() & (df['开盘'] > 0)].copy()
+
+        if valid_df.empty:
+            logging.debug(f"股票 {stock_code} 过滤停牌后无有效数据")
+            return None
+
+        # 按日期排序（从早到晚）
+        valid_df = valid_df.sort_values('日期').reset_index(drop=True)
+
+        # 格式化结束日期
+        end_date_fmt = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+        end_date_dt = pd.to_datetime(end_date_fmt)
+
+        # 在有效数据中找到结束日期对应的行索引
+        # 确保日期列是datetime类型
+        valid_df['日期'] = pd.to_datetime(valid_df['日期'])
+
+        end_matches = valid_df[valid_df['日期'] == end_date_dt]
+        if end_matches.empty:
+            # 如果结束日期没有数据，找最接近的之前的有效日期
+            valid_dates_before = valid_df[valid_df['日期'] <= end_date_dt]['日期']
+            if valid_dates_before.empty:
+                logging.debug(f"股票 {stock_code} 在 {end_date_fmt} 之前无有效交易数据")
+                return None
+            closest_end_date = valid_dates_before.max()
+            end_matches = valid_df[valid_df['日期'] == closest_end_date]
+            logging.debug(
+                f"股票 {stock_code} 结束日期 {end_date_fmt} 停牌，使用 {closest_end_date.strftime('%Y-%m-%d')}")
+
+        if end_matches.empty:
+            return None
+
+        end_idx = end_matches.index[0]
+
+        # 基于该股票实际的有效K线数据，往前数 trading_days 条
+        start_idx = end_idx - trading_days
+        if start_idx < 0:
+            # 如果数据不足，使用最早的数据
+            logging.debug(f"股票 {stock_code} 数据不足{trading_days}个交易日，使用最早的数据")
+            start_idx = 0
+
+        # 获取起点和终点的价格数据
+        start_price = valid_df.loc[start_idx, '开盘']
+        end_price = valid_df.loc[end_idx, '收盘']
+
+        # 检查价格数据是否有效
+        if pd.isna(start_price) or pd.isna(end_price) or start_price <= 0 or end_price <= 0:
+            logging.debug(f"股票 {stock_code} 价格数据无效: 开盘={start_price}, 收盘={end_price}")
+            return None
+
+        # 计算涨跌幅
+        period_change = ((end_price / start_price) - 1) * 100
+
+        return period_change
+
+    except Exception as e:
+        logging.error(f"计算股票 {stock_code} 从 {end_date_yyyymmdd} 往前{trading_days}个交易日的涨跌幅时出错: {e}")
+        return None

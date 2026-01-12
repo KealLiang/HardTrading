@@ -23,10 +23,13 @@ from plotly.subplots import make_subplots
 
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day, get_trading_days
+from utils.stock_util import calculate_period_change_from_date
 
 # 【默默上涨】相关参数
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 DEFAULT_DAYS = 20  # 默认最近20个交易日
+PERIOD_DAYS = [60, 120]  # 需要额外计算的周期涨跌幅天数（交易日），可配置
+ITEMS_PER_ROW = 3  # 每行显示的涨跌幅数据项数
 
 
 def _parse_momo_cell(cell_value: str) -> Optional[Dict]:
@@ -257,12 +260,71 @@ def load_momo_stocks_for_period(days: int = DEFAULT_DAYS) -> List[Dict]:
         return []
 
 
+def _calculate_period_changes(stock_code: str, entry_date: str, data_dir: str) -> Dict[int, float]:
+    """
+    计算指定股票在多个周期的涨跌幅
+    
+    Args:
+        stock_code: 股票代码（6位数字）
+        entry_date: 入选日期 YYYYMMDD
+        data_dir: 股票数据目录
+        
+    Returns:
+        Dict[int, float]: {周期天数: 涨跌幅百分比}，如果计算失败则不包含该周期
+    """
+    period_changes = {}
+    for days in PERIOD_DAYS:
+        try:
+            change = calculate_period_change_from_date(stock_code, entry_date, days, data_dir)
+            if change is not None:
+                period_changes[days] = change
+        except Exception as e:
+            logging.warning(f"计算股票 {stock_code} 的{days}日涨跌幅时出错: {e}")
+    return period_changes
+
+
+def _format_title_with_changes(stock_code: str, stock_name: str, interval_change: str = None,
+                               period_changes: Dict[int, float] = None) -> str:
+    """
+    格式化图表标题，涨跌幅数据横向排列，每行3项
+    
+    Args:
+        stock_code: 股票代码
+        stock_name: 股票名称
+        interval_change: 区间涨跌幅（来自同花顺数据，格式如"77.6%"）
+        period_changes: 周期涨跌幅字典 {天数: 涨跌幅百分比}
+        
+    Returns:
+        str: 格式化后的标题HTML字符串
+    """
+    title_parts = [f"{stock_code} {stock_name}"]
+
+    # 收集所有涨跌幅数据
+    change_items = []
+    if interval_change:
+        change_items.append(f"区间涨跌幅: {interval_change}")
+
+    if period_changes:
+        for days in PERIOD_DAYS:
+            if days in period_changes:
+                change_items.append(f"{days}日涨跌幅: {period_changes[days]:.2f}%")
+
+    # 将涨跌幅数据按每行3项分组
+    if change_items:
+        for i in range(0, len(change_items), ITEMS_PER_ROW):
+            row_items = change_items[i:i + ITEMS_PER_ROW]
+            title_parts.append(" | ".join(row_items))
+
+    return "<br>".join(title_parts)
+
+
 def _create_single_chart_figure(
         stock_info: Dict,
         chart_df: pd.DataFrame,
         entry_date: str,
         before_days: int = 30,
-        after_days: int = 10
+        after_days: int = 10,
+        data_dir: str = './data/astocks'
 ) -> Optional[go.Figure]:
     """
     创建单个图表的Figure对象
@@ -356,13 +418,17 @@ def _create_single_chart_figure(
         # 4. 生成标题
         code_6digit = stock_info['code'].split('.')[0] if '.' in stock_info['code'] else stock_info['code']
         extra = stock_info.get('extra_data', {})
-        title_parts = [f"{code_6digit} {stock_info['name']}"]
 
-        # 添加区间涨跌幅（如果有）
-        if extra.get('interval_change'):
-            title_parts.append(f"区间涨跌幅: {extra['interval_change']}")
+        # 计算周期涨跌幅
+        period_changes = _calculate_period_changes(code_6digit, entry_date, data_dir)
 
-        title = "<br>".join(title_parts)
+        # 格式化标题
+        title = _format_title_with_changes(
+            stock_code=code_6digit,
+            stock_name=stock_info['name'],
+            interval_change=extra.get('interval_change'),
+            period_changes=period_changes
+        )
 
         # 5. 更新布局
         fig.update_layout(
@@ -510,18 +576,28 @@ def generate_momo_html_charts(
                 chart_df=chart_df,
                 entry_date=entry_date,
                 before_days=before_days,
-                after_days=after_days
+                after_days=after_days,
+                data_dir=data_dir
             )
 
             if fig is not None:
                 chart_figures.append(fig)
-                # 生成标题
+                # 生成标题（与图表中的标题保持一致）
                 code_6digit = stock_info['code'].split('.')[0] if '.' in stock_info['code'] else stock_info['code']
                 extra = stock_info.get('extra_data', {})
-                title_parts = [f"{code_6digit} {stock_info['name']}"]
-                if extra.get('interval_change'):
-                    title_parts.append(f"区间涨跌幅: {extra['interval_change']}")
-                chart_titles.append("<br>".join(title_parts))
+
+                # 计算周期涨跌幅
+                period_changes = _calculate_period_changes(code_6digit, entry_date, data_dir)
+
+                # 格式化标题
+                title = _format_title_with_changes(
+                    stock_code=code_6digit,
+                    stock_name=stock_info['name'],
+                    interval_change=extra.get('interval_change'),
+                    period_changes=period_changes
+                )
+
+                chart_titles.append(title)
 
         except Exception as e:
             logging.error(f"生成股票 {stock_info.get('code')} {stock_info.get('name')} 的HTML图表失败: {e}")
