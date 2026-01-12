@@ -1141,8 +1141,18 @@ def analyze_volume_surge_pattern(start_date='20250101', end_date=None,
     analyzer = VolumeSurgeAnalyzer(config)
     analyzer.run()
 
-    print(f"\n✅ 分析完成！共生成 {len(analyzer.filtered_stocks)} 张图表")
-    print(f"📁 图表保存在: {analyzer.output_dir}")
+    if generate_charts:
+        print(f"\n✅ 分析完成！共生成 {len(analyzer.filtered_stocks)} 张图表")
+        print(f"📁 图表保存在: {analyzer.output_dir}")
+
+    # 生成HTML交互式图表（单个文件，支持1/2/3列布局）
+    print("\n📊 开始生成HTML交互式图表...")
+    html_path = analyzer.generate_html_charts(columns=3)  # 默认2列，可改为1或3
+    if html_path:
+        print(f"✅ HTML图表生成完成！")
+        print(f"📁 HTML图表保存在: {html_path}")
+    else:
+        print("⚠️  未生成HTML图表")
 
     return analyzer.output_dir
 
@@ -1387,7 +1397,7 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    # analyze_volume_surge_pattern('20250101', '20250630', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=False)  # 爆量分歧分析
+    analyze_volume_surge_pattern('20251220', '20260112', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5, generate_charts=False)  # 爆量分歧分析
     # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251210_20260106/summary.csv', buy_price_range=None, strong_price_range=(-3, 20), buy_mode='open')
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
@@ -1400,7 +1410,7 @@ if __name__ == '__main__':
 
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    draw_ths_fupan_html()     # HTML交互图
+    # draw_ths_fupan_html()     # HTML交互图
 
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词

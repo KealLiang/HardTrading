@@ -975,6 +975,19 @@ class VolumeSurgeAnalyzer(PatternAnalyzerBase):
             '图表路径': f"./{filename}"
         }
 
+    def generate_html_charts(self, columns: int = 2) -> str:
+        """
+        生成HTML交互式图表（单个HTML文件）
+        
+        Args:
+            columns: 横向并排显示的列数（1、2或3），默认2
+        
+        Returns:
+            str: 生成的HTML文件路径
+        """
+        from analysis.volume_surge_html_chart import generate_html_charts_for_analyzer
+        return generate_html_charts_for_analyzer(self, columns=columns)
+
 
 if __name__ == '__main__':
     # 测试代码
