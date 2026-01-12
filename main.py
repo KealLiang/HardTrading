@@ -636,7 +636,7 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20251201', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
+        (lambda: analyze_volume_surge_pattern('20251220', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
          "爆量分歧转一致筛选"),
     ]
 
@@ -1400,7 +1400,7 @@ if __name__ == '__main__':
 
     # === 连板股分析图功能 ===
     # analyze_lianban_stocks('20251101', min_lianban=3, lianban_type=1)  # 连续板分析
-    analyze_volume_surge_pattern('20251220', '20260112', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5)  # 爆量分歧分析
+    # analyze_volume_surge_pattern('20251220', '20260112', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5)  # 爆量分歧分析
     # backtest_strategy('analysis/pattern_charts/爆量分歧转一致/20251210_20260106/summary.csv', buy_price_range=None, strong_price_range=(-3, 20), buy_mode='open')
     # analyze_open_minutes_pattern('analysis/pattern_charts/爆量分歧转一致/20251201_20251226/summary.csv', buy_price_range=None, strong_price_range=(-3, 20))  # 分析建仓日开盘前15分钟走势
 
@@ -1416,7 +1416,7 @@ if __name__ == '__main__':
     # draw_ths_fupan_html()     # HTML交互图
     
     # === 【默默上涨】HTML图表生成 ===
-    # generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
+    generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
 
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
