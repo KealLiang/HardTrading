@@ -546,15 +546,22 @@ def _generate_profit_explanation(buy_days_before: int) -> str:
     生成盈亏说明文字（根据buy_days_before动态生成）
     
     Args:
-        buy_days_before: 买入日相对于当前日的前N个交易日
+        buy_days_before: 选股日相对于当前日的前N个交易日
         
     Returns:
         str: 说明文字
     """
-    if buy_days_before == 1:
-        return "使用t-1日选出的股票，t-1日开盘买入，t日收盘卖出"
-    else:
-        return f"使用t-{buy_days_before}日选出的股票，t-{buy_days_before}日开盘买入，t日收盘卖出"
+    # 当前逻辑：在日期t，计算的是t-(N+1)日选出的股票，t-N日买入，t日卖出的盈亏
+    # 对于buy_days_before=1：t-2日选出，t-1日买入，t日卖出
+    select_offset = buy_days_before + 1
+    buy_offset = buy_days_before
+    sell_offset = 0  # 卖出日是当前日期t
+
+    select_day = f"t-{select_offset}" if select_offset > 0 else "t"
+    buy_day = f"t-{buy_offset}" if buy_offset > 0 else "t"
+    sell_day = "t"
+
+    return f"{select_day}日选出，{buy_day}日开盘买入，{sell_day}日收盘卖出"
 
 
 def _generate_stock_info_explanation(buy_days_before: int) -> str:
@@ -562,15 +569,15 @@ def _generate_stock_info_explanation(buy_days_before: int) -> str:
     生成股票信息说明文字（说明括号内数据的含义）
     
     Args:
-        buy_days_before: 买入日相对于当前日的前N个交易日
+        buy_days_before: 选股日相对于当前日的前N个交易日
         
     Returns:
         str: 说明文字
     """
-    if buy_days_before == 1:
-        return "说明：括号内为(区间涨幅, 区间成交额, 隔日盈亏%)"
-    else:
-        return f"说明：括号内为(区间涨幅, 区间成交额, t-{buy_days_before}日买入盈亏%)"
+    # 对于buy_days_before=1，显示"未来2日的盈亏"（选出的第二天买入，第三天卖出）
+    days_after = buy_days_before + 1
+    profit_label = f"未来{days_after}日的盈亏" if buy_days_before == 1 else f"未来{days_after}日的盈亏"
+    return f"说明：括号内为(区间涨幅, 区间成交额, {profit_label}%)"
 
 
 def _add_profit_to_stock_info(stock_info: str, profit: float) -> str:
@@ -605,10 +612,10 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         start_date: 开始日期（格式: YYYYMMDD）
         end_date: 结束日期（格式: YYYYMMDD）
         output_path: 输出HTML文件路径（可选）
-        buy_days_before: 买入日相对于当前日的前N个交易日，默认为1（表示t-1日买入）
-            - 1: t-1日买入，t日卖出（隔日盈亏）
-            - 2: t-2日买入，t日卖出
-            - 3: t-3日买入，t日卖出
+        buy_days_before: 选股日相对于当前日的前N个交易日，默认为1（表示t-1日选出）
+            - 1: t-1日选出，t-1+1=t日开盘买入，t-1+2=t+1日收盘卖出（隔日盈亏）
+            - 2: t-2日选出，t-2+1=t-1日开盘买入，t-2+2=t日收盘卖出
+            - 3: t-3日选出，t-3+1=t-2日开盘买入，t-3+2=t-1日收盘卖出
     
     Returns:
         str: 生成的HTML文件路径
@@ -1087,37 +1094,87 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                 momo_results, buy_days_before=buy_days_before
             )
 
-            # 重新格式化股票名称，加入盈亏信息
+            # 获取所有日期中的最大日期，用于判断t+2日是否已经过去
+            max_date_yyyymmdd = None
+            if momo_results:
+                max_date_str = max([item[0] for item in momo_results])
+                max_date_obj = datetime.strptime(max_date_str, "%Y年%m月%d日")
+                max_date_yyyymmdd = max_date_obj.strftime("%Y%m%d")
+
+            # 重新格式化股票名称，加入"未来2日的盈亏"信息
             # 重要说明：
-            # - stock_profits_detail[date_str] 存储的是：t-N日选出的股票在t日的盈亏（N = buy_days_before）
-            # - 对于t日显示的每只股票，如果它在t-N日也被选出了，则显示它的盈亏
-            # - 如果它在t-N日没有被选出（新入选的股票），则不显示盈亏（保持原格式）
-            #   因为新入选当天是不知道隔日数据的，所以括号里没有隔日盈亏
+            # - 在日期t，显示的是t日选出的股票的"未来2日盈亏"（t+1日买入，t+2日卖出）
+            # - 只有当t+2日已经过去（即最大日期 >= t+2）时，才能显示这个盈亏
+            # - 如果t+2日还没到，则不显示盈亏（保持原格式）
             # momo_results格式: (date, avg_zhangfu, momo_stocks_data, top_3_stocks, sample_count, codes_str)
             for idx, item in enumerate(momo_results):
                 date_str = item[0]
                 original_stocks_data = item[2]  # 原始格式：股票名称(涨幅, 成交额)
                 codes_str = item[5]  # t日显示的股票代码列表
 
-                # 获取该日期的盈亏详情（这些盈亏是基于t-N日选出的股票计算的，N = buy_days_before）
-                # stock_profits_detail[date_str] = {股票代码: 盈亏}，其中股票代码是t-N日选出的股票
-                date_profits = stock_profits_detail.get(date_str, {})
-
                 # 重新格式化股票名称，加入盈亏
                 new_stocks_data = []
                 stock_codes_list = codes_str.split('\n') if codes_str else []
+
+                # 将当前日期转换为日期对象，用于比较
+                current_date_obj = datetime.strptime(date_str, "%Y年%m月%d日")
+                current_date_yyyymmdd = current_date_obj.strftime("%Y%m%d")
+
                 for stock_idx, stock_info in enumerate(original_stocks_data):
                     if stock_idx < len(stock_codes_list):
                         clean_code = stock_codes_list[stock_idx].strip()
-                        # 检查这只股票是否在t-N日被选出（如果在，则会有盈亏数据）
-                        profit = date_profits.get(clean_code)
+
+                        # 查找这只股票的"未来2日的盈亏"
+                        # 重要：在日期t，显示的是t日选出的股票的"未来2日盈亏"（t+1日买入，t+2日卖出）
+                        # 只有当t+2日已经过去（即当前日期 >= t+2）时，才能显示这个盈亏
+                        # 如果t+2日还没到，则不显示盈亏
+                        profit = None
+                        from utils.date_util import get_next_trading_day
+                        from utils.file_util import read_stock_data
+
+                        try:
+                            # 当前日期t就是选股日
+                            select_date_yyyymmdd = current_date_yyyymmdd
+
+                            # 买入日 = t+1日
+                            buy_date_yyyymmdd = get_next_trading_day(select_date_yyyymmdd)
+                            if buy_date_yyyymmdd:
+                                # 卖出日 = t+2日
+                                sell_date_yyyymmdd = get_next_trading_day(buy_date_yyyymmdd)
+
+                                # 只有当卖出日已经过去（即最大日期 >= t+2）时，才能计算盈亏
+                                if sell_date_yyyymmdd and max_date_yyyymmdd and sell_date_yyyymmdd <= max_date_yyyymmdd:
+                                    # 读取股票数据，计算盈亏
+                                    stock_data = read_stock_data(clean_code, './data/astocks')
+                                    if stock_data is not None and not stock_data.empty:
+                                        stock_data = stock_data.sort_values('日期').reset_index(drop=True)
+                                        stock_data['日期_str'] = stock_data['日期'].dt.strftime('%Y%m%d')
+
+                                        # 查找买入日和卖出日的数据
+                                        buy_data = stock_data[stock_data['日期_str'] == buy_date_yyyymmdd]
+                                        sell_data = stock_data[stock_data['日期_str'] == sell_date_yyyymmdd]
+
+                                        if not buy_data.empty and not sell_data.empty:
+                                            buy_row = buy_data.iloc[0]
+                                            sell_row = sell_data.iloc[0]
+
+                                            buy_open = buy_row['开盘']
+                                            sell_close = sell_row['收盘']
+
+                                            if buy_open is not None and sell_close is not None and buy_open != 0:
+                                                # 计算盈亏：(t+2日收盘价 - t+1日开盘价) / t+1日开盘价
+                                                profit = ((sell_close - buy_open) / buy_open) * 100
+                        except Exception as e:
+                            # 如果计算失败，跳过
+                            pass
+
                         if profit is not None:
                             # 格式：股票名称(涨幅, 成交额, 盈亏%)
-                            # 含义：如果买入此股（在t-N日），则t日盈亏为profit%
+                            # 含义：在选股日选出，选股日+1日开盘买入，选股日+2日收盘卖出的盈亏为profit%
                             new_stock_info = _add_profit_to_stock_info(stock_info, profit)
                             new_stocks_data.append(new_stock_info)
                         else:
-                            # 如果这只股票在t-N日没有被选出（新入选），则不显示盈亏
+                            # 如果这只股票从未被选出过，或者卖出日还没到，则不显示盈亏
                             new_stocks_data.append(stock_info)
                     else:
                         new_stocks_data.append(stock_info)
@@ -1204,7 +1261,7 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         copyable_trace_indices.append(momo_trace_index_before)
 
         # 初始化y4_title（如果没有盈亏数据，使用默认值）
-        y4_title = '隔日平均盈亏(%)' if buy_days_before == 1 else f't-{buy_days_before}日买入平均盈亏(%)'
+        y4_title = '隔日平均盈亏(%)' if buy_days_before == 1 else f't-{buy_days_before}日选出平均盈亏(%)'
 
         # 添加盈亏折线（使用y4轴，默认隐藏）
         if stock_profits_detail:
@@ -1460,10 +1517,10 @@ def draw_fupan_lb_html(start_date=None, end_date=None, output_path=None, buy_day
         start_date: 开始日期（格式: YYYYMMDD）
         end_date: 结束日期（格式: YYYYMMDD）
         output_path: 输出HTML文件路径（可选）
-        buy_days_before: 买入日相对于当前日的前N个交易日，默认为1（表示t-1日买入）
-            - 1: t-1日买入，t日卖出（隔日盈亏）
-            - 2: t-2日买入，t日卖出
-            - 3: t-3日买入，t日卖出
+        buy_days_before: 选股日相对于当前日的前N个交易日，默认为1（表示t-1日选出）
+            - 1: t-1日选出，t-1+1=t日开盘买入，t-1+2=t+1日收盘卖出（隔日盈亏）
+            - 2: t-2日选出，t-2+1=t-1日开盘买入，t-2+2=t日收盘卖出
+            - 3: t-3日选出，t-3+1=t-2日开盘买入，t-3+2=t-1日收盘卖出
     
     Returns:
         str: 生成的HTML文件路径
