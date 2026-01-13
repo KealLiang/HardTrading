@@ -1413,10 +1413,10 @@ if __name__ == '__main__':
 
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    # draw_ths_fupan_html()     # HTML交互图
+    draw_ths_fupan_html()     # HTML交互图
     
     # === 【默默上涨】HTML图表生成 ===
-    generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
+    # generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
 
     # === 同义词管理 ===
     # update_synonym_groups()  # 添加新词
