@@ -486,12 +486,13 @@ def _run_scan_analyzer(stock_list, strategy_class, start_date, end_date,
 def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=None,
                                 stock_pool=None, strategy_params=None, signal_patterns=None,
                                 data_path=DEFAULT_DATA_PATH, output_path=DEFAULT_OUTPUT_DIR,
-                                details_after_date=None, candidate_model='a'):
+                                details_after_date=None, candidate_model='a', generate_images=False):
     """
     执行股票扫描并可视化结果的总调度函数。
 
     :param details_after_date: str, 可选。格式如 'YYYYMMDD' 或 'YYYY-MM-DD'。
                                只有信号日期在此日期或之后的股票才会生成详细的可视化报告。
+    :param generate_images: bool, 可选。是否生成PNG图片，默认False。设为False可跳过图片生成以提升速度。
     """
     # --- 1. 日期与路径准备 ---
     start_date_fmt = f"{scan_start_date[:4]}-{scan_start_date[4:6]}-{scan_start_date[6:8]}"
@@ -621,9 +622,12 @@ def scan_and_visualize_analyzer(scan_strategy, scan_start_date, scan_end_date=No
         print("根据过滤条件，没有需要进行可视化分析的信号。")
         return
 
-    print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
+    # --- 6. 对每个过滤后的信号进行可视化（可选） ---
+    if not generate_images:
+        print(f"跳过PNG图片生成（generate_images=False），扫描完成。")
+        return final_signals
 
-    # --- 6. 对每个过滤后的信号进行可视化 ---
+    print(f"开始对 {len(final_signals)} 个独立的交易机会逐一进行可视化分析...")
     # 优化：预先去重，只保留每只股票的第一个信号（通常是最新的）
     import time
     viz_start_time = time.time()

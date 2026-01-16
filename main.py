@@ -362,7 +362,8 @@ def strategy_scan(candidate_model='a'):
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
         candidate_model=candidate_model,
-        output_path=f'bin/candidate_stocks_breakout_{candidate_model}'  # 指定输出目录，按模型区分
+        output_path=f'bin/candidate_stocks_breakout_{candidate_model}',  # 指定输出目录，按模型区分
+        generate_images=False  # 默认False，跳过PNG图片生成以提升速度（已有HTML图表）
     )
 
 
@@ -1019,6 +1020,32 @@ def generate_rebound_comparison_charts(candidate_model: str = 'a', recent_days: 
     return run_auto_generation(base_dir=base_dir, recent_days=recent_days)
 
 
+def generate_strategy_scan_html_charts(candidate_model: str = 'a', recent_days: int = 10, 
+                                       columns: int = 2, before_days: int = 60, after_days: int = 30):
+    """
+    生成策略扫描结果的HTML交互式图表
+    
+    根据scan_summary文件生成策略扫描入选股的HTML交互式图表，按股票分组展示。
+    每只股票一张图，可以显示多个信号日期。一次执行只生成一个HTML文件。
+
+    Args:
+        candidate_model: 使用的候选集模型标识（如 'a'、'b'），用于区分输出目录
+        recent_days: 只处理最近几天的信号，默认10天
+        columns: 横向并排显示的列数（1、2或3），默认2
+        before_days: 信号日前显示的交易日数，默认60
+        after_days: 信号日后显示的交易日数，默认30
+    """
+    from analysis.html_gen.strategy_scan_html_chart import generate_strategy_scan_html_charts as gen_html
+    base_dir = f'bin/candidate_stocks_breakout_{candidate_model}'
+    return gen_html(
+        base_dir=base_dir,
+        recent_days=recent_days,
+        columns=columns,
+        before_days=before_days,
+        after_days=after_days
+    )
+
+
 def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
     """
     集合竞价封单数据复盘分析
@@ -1413,6 +1440,7 @@ if __name__ == '__main__':
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
     # strategy_scan('a')
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
@@ -1434,7 +1462,7 @@ if __name__ == '__main__':
 
     # === 复盘图生成 ===
     # draw_ths_fupan()        # PNG静态图
-    draw_ths_fupan_html()     # HTML交互图
+    # draw_ths_fupan_html()     # HTML交互图
     
     # === 【默默上涨】HTML图表生成 ===
     # generate_momo_html_charts(days=20, columns=2, after_days=20)  # 最近20个交易日的【默默上涨】股票HTML图表
