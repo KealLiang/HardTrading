@@ -30,6 +30,9 @@ ZHANGTING_OPEN_THRESHOLD = 10  # 涨停开板次数阈值（超过此值加下�
 JI_BAN_TIERS = 2  # 次高几板显示阶数（2表示显示第2高和第3高）
 ATTENTION_TOP_N = 10  # 关注度榜取前N名（用于加粗股票名称）
 
+# 高门槛股代码前缀配置（用于区分不同交易门槛的股票）
+HIGH_THRESHOLD_STOCK_PREFIXES = ['8', '688']  # 以这些前缀开头的股票为高门槛股
+
 
 def format_stock_name_with_indicators(stock_code: str, stock_name: str,
                                       zhangting_open_times: str = None,
@@ -601,6 +604,27 @@ def _add_profit_to_stock_info(stock_info: str, profit: float) -> str:
     base_info = stock_info[:last_open]
     inside_paren = stock_info[last_open + 1:-1]
     return f"{base_info}({inside_paren}, {profit:.2f}%)"
+
+
+def _is_high_threshold_stock(stock_code: str) -> bool:
+    """
+    判断股票是否属于高门槛股
+    
+    Args:
+        stock_code: 股票代码（可能包含市场后缀，如 "000001.SZ" 或 "688001.SH"）
+        
+    Returns:
+        bool: True表示高门槛股，False表示正常股
+    """
+    # 清理股票代码（去除市场后缀）
+    clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+    clean_code = clean_code.split('_')[0] if '_' in clean_code else clean_code
+
+    # 检查是否以配置的前缀开头
+    for prefix in HIGH_THRESHOLD_STOCK_PREFIXES:
+        if clean_code.startswith(prefix):
+            return True
+    return False
 
 
 def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=None, buy_days_before=1):
@@ -1266,31 +1290,75 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 添加盈亏折线（使用y4轴，默认隐藏）
         if stock_profits_detail:
             try:
-                # 创建日期到盈亏的映射
-                profit_dict = {item[0]: (item[1], item[2]) for item in profit_results}
+                # 按照date_labels的顺序，分别计算高门槛股和正常股的平均盈亏
+                profit_values_high = []  # 高门槛股盈亏值
+                profit_counts_high = []  # 高门槛股样本数
+                profit_values_normal = []  # 正常股盈亏值
+                profit_counts_normal = []  # 正常股样本数
 
-                # 按照date_labels的顺序提取盈亏值，确保日期对齐
-                profit_values = []
-                profit_counts = []
                 for item in momo_results:
                     date_str = item[0]
-                    if date_str in profit_dict:
-                        profit_value, profit_count = profit_dict[date_str]
-                        profit_values.append(profit_value)
-                        profit_counts.append(profit_count)
-                    else:
-                        profit_values.append(None)
-                        profit_counts.append(0)
+                    codes_str = item[5]  # 股票代码字符串（换行符分隔）
 
-                # 添加盈亏折线（使用y4轴，默认隐藏，使用与默默上涨相同的date_labels）
-                profit_trace_index = len(fig.data)
-                # 根据buy_days_before动态生成折线名称（y4_title已在前面初始化）
-                profit_trace_name = y4_title
+                    # 获取该日期的所有股票盈亏数据
+                    if date_str in stock_profits_detail:
+                        date_profits = stock_profits_detail[date_str]
+
+                        # 将股票分为两组
+                        high_threshold_profits = []
+                        normal_profits = []
+
+                        # 从codes_str中提取股票代码列表
+                        stock_codes_list = codes_str.split('\n') if codes_str else []
+
+                        for stock_code in stock_codes_list:
+                            # 清理股票代码（去除市场后缀，与stock_profits_detail中的格式一致）
+                            clean_code = stock_code.strip()
+                            if not clean_code:
+                                continue
+                            clean_code = clean_code.split('.')[0] if '.' in clean_code else clean_code
+                            clean_code = clean_code.split('_')[0] if '_' in clean_code else clean_code
+
+                            # 查找该股票的盈亏
+                            if clean_code in date_profits:
+                                profit = date_profits[clean_code]
+                                if profit is not None:
+                                    # 判断是否为高门槛股
+                                    if _is_high_threshold_stock(clean_code):
+                                        high_threshold_profits.append(profit)
+                                    else:
+                                        normal_profits.append(profit)
+
+                        # 计算平均盈亏
+                        if high_threshold_profits:
+                            avg_high = sum(high_threshold_profits) / len(high_threshold_profits)
+                            profit_values_high.append(avg_high)
+                            profit_counts_high.append(len(high_threshold_profits))
+                        else:
+                            profit_values_high.append(None)
+                            profit_counts_high.append(0)
+
+                        if normal_profits:
+                            avg_normal = sum(normal_profits) / len(normal_profits)
+                            profit_values_normal.append(avg_normal)
+                            profit_counts_normal.append(len(normal_profits))
+                        else:
+                            profit_values_normal.append(None)
+                            profit_counts_normal.append(0)
+                    else:
+                        # 该日期没有盈亏数据
+                        profit_values_high.append(None)
+                        profit_counts_high.append(0)
+                        profit_values_normal.append(None)
+                        profit_counts_normal.append(0)
+
+                # 添加高门槛股盈亏折线（使用y4轴，默认隐藏）
+                profit_trace_index_high = len(fig.data)
                 fig.add_trace(
                     go.Scatter(
                         x=date_labels,
-                        y=profit_values,
-                        name=profit_trace_name,
+                        y=profit_values_high,
+                        name=f'{y4_title}(高门槛)',
                         mode='lines+markers',
                         line=dict(color='darkorange', width=2, dash='dash'),
                         marker=dict(symbol='circle', size=6),
@@ -1298,10 +1366,32 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
                         showlegend=True,
                         legendgroup='momo',  # 与默默上涨同一图例组
                         hovertemplate=f'平均盈亏: %{{y:.2f}}%<br>有效样本: %{{customdata}}只<br><i>说明：{_generate_profit_explanation(buy_days_before)}</i><br><extra></extra>',
-                        customdata=profit_counts,
+                        customdata=profit_counts_high,
                         yaxis='y4',  # 使用第四个Y轴（独立Y轴）
                     )
                 )
+
+                # 添加正常股盈亏折线（使用y4轴，默认隐藏）
+                profit_trace_index_normal = len(fig.data)
+                fig.add_trace(
+                    go.Scatter(
+                        x=date_labels,
+                        y=profit_values_normal,
+                        name=f'{y4_title}(正常)',
+                        mode='lines+markers',
+                        line=dict(color='darkgreen', width=2, dash='dot'),
+                        marker=dict(symbol='square', size=6),
+                        visible=False,  # 默认隐藏，跟随默默上涨图层
+                        showlegend=True,
+                        legendgroup='momo',  # 与默默上涨同一图例组
+                        hovertemplate=f'平均盈亏: %{{y:.2f}}%<br>有效样本: %{{customdata}}只<br><i>说明：{_generate_profit_explanation(buy_days_before)}</i><br><extra></extra>',
+                        customdata=profit_counts_normal,
+                        yaxis='y4',  # 使用第四个Y轴（独立Y轴）
+                    )
+                )
+
+                # 记录两条折线的索引（用于图层切换）
+                profit_trace_index = [profit_trace_index_high, profit_trace_index_normal]
             except Exception as e:
                 print(f"⚠ 添加盈亏折线时出错: {e}")
                 import traceback
@@ -1318,7 +1408,11 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         # 确定盈亏折线的索引（如果存在）
         profit_trace_indices = []
         if profit_trace_index is not None:
-            profit_trace_indices = [profit_trace_index]
+            # profit_trace_index可能是单个索引或索引列表
+            if isinstance(profit_trace_index, list):
+                profit_trace_indices = profit_trace_index
+            else:
+                profit_trace_indices = [profit_trace_index]
 
         updatemenus = [
             dict(
