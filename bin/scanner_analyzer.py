@@ -24,7 +24,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - 
 
 # --- Constants ---
 DEFAULT_DATA_PATH = './data/astocks'
-DEFAULT_CANDIDATE_FILE = 'bin/candidate_temp/candidate_stocks.txt'
+# DEFAULT_CANDIDATE_FILE = 'bin/candidate_temp/candidate_stocks.txt'
+DEFAULT_CANDIDATE_FILE = 'bin/candidate_temp/candidate_stocks_volume_surge.txt'
 OTHER_CANDIDATE_FILE = 'bin/candidate_temp/candidate_stocks_weekly_growth.txt'
 DEFAULT_OUTPUT_DIR = os.path.join('bin', 'candidate_stocks_result')
 

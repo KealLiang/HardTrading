@@ -348,10 +348,10 @@ def strategy_scan(candidate_model='a'):
         '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
-    start_date = '20251201'
+    start_date = '20251215'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20251210'  # 只看这个日期之后的
+    details_after_date = '20251230'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -408,6 +408,26 @@ def find_candidate_stocks_weekly_growth(offset_days: int = 0):
     # 使用新的"周量增+当日条件"筛选器
     from bin.weekly_growth_scanner import run_filter as run_weekly_filter
     run_weekly_filter(offset_days=offset_days)
+
+
+def find_candidate_stocks_volume_surge(base_date: str = None):
+    """
+    成交量金叉策略选股
+    
+    策略条件：
+    1. 最近30个交易日股价平稳（振幅小于股票涨跌幅限制的2倍）
+    2. 成交量的5日均线和10日均线，30日内出现至少2次金叉，且最近一次金叉是5天内
+    
+    Args:
+        base_date: 基准日期，格式为 'YYYYMMDD' 或 'YYYY-MM-DD'，如果为None则使用今天
+            - 策略只使用基准日之前（含当日）的数据，避免使用未来数据
+            - 例如：base_date='20251210' 表示以2025年12月10日为基准日进行筛选
+    
+    Returns:
+        str: 输出文件路径
+    """
+    from bin.volume_surge_scanner import run_filter as run_volume_surge_filter
+    run_volume_surge_filter(base_date=base_date)
 
 
 def record_scan_to_history(base_dir: str, model: str):
@@ -1391,6 +1411,7 @@ if __name__ == '__main__':
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
+    # find_candidate_stocks_volume_surge('20260114')
     # strategy_scan('a')
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
