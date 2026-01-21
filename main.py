@@ -645,7 +645,7 @@ def daily_routine():
     """
     # 定义日常流程步骤
     daily_steps = [
-        # (get_stock_datas, "拉取A股交易数据"),
+        (get_stock_datas, "拉取A股交易数据"),
         (get_index_data, "拉取各大指数数据"),
         (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
@@ -657,7 +657,7 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20251220', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
+        (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
          "爆量分歧转一致筛选"),
     ]
 
@@ -814,16 +814,16 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20250930"
-    # end_date = '20250512'
+    start_date = "20251201"
+    # end_date = '20251230'
     end_date = None
     # all_fupan(start_date, end_date)
     all_fupan(start_date, end_date, types='all,else')
 
 
 def draw_ths_fupan():
-    start_date = '20250930'  # 开始日期
-    # end_date = '20250115'  # 结束日期
+    start_date = '20251201'  # 开始日期
+    # end_date = '20251230'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
 
@@ -922,7 +922,7 @@ def clean_synonym_groups(lookback_days=60, dry_run=False):
 
 def whimsical_fupan_analyze():
     # 执行归类分析
-    start_date = "20250930"
+    start_date = "20251030"
     end_date = None
 
     process_zt_data(start_date, end_date, clean_output=True)
@@ -933,7 +933,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20251020'  # 调整为Excel中有数据的日期范围
+    start_date = '20251030'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
@@ -1432,7 +1432,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1442,8 +1442,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    # strategy_scan('a')
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    strategy_scan('a')
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
