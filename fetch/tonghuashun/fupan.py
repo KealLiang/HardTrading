@@ -385,7 +385,7 @@ def get_current_trading_date():
         return current_date_str
 
 
-def save_to_excel(dataframes, dates, fupan_type, target_excel_file):
+def save_to_excel(dataframes, dates, fupan_type, target_excel_file, existing_data=None):
     """
     将多个日期的DataFrame保存到一个Excel文件中，日期作为列名。
 
@@ -393,12 +393,14 @@ def save_to_excel(dataframes, dates, fupan_type, target_excel_file):
     :param fupan_type: 复盘类型（对应 Excel 的 sheet 名）。
     :param dataframes: 包含所有日期 DataFrame 的字典，键为日期。
     :param dates: 日期列表。
+    :param existing_data: 已读取的现有数据（可选，避免重复读取）。
     """
-    # 如果文件存在且包含该 sheet，读取已有数据；否则创建新数据
-    if sheet_exists(target_excel_file, fupan_type):
-        existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
-    else:
-        existing_data = pd.DataFrame()
+    # 如果未传入已有数据，则读取；否则复用传入的数据
+    if existing_data is None:
+        if sheet_exists(target_excel_file, fupan_type):
+            existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
+        else:
+            existing_data = pd.DataFrame()
 
     # 整合新数据到已有数据
     new_data = existing_data.copy()
@@ -466,27 +468,34 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         '大跌数据': get_large_decrease_stocks,
         '默默上涨': get_silently_increase_stocks
     }
+
+    # ===== 优化：一次性读取已有数据，避免循环内重复 IO =====
+    cached_existing_data = None
+    cached_existing_dates = set()
+    if sheet_exists(target_excel_file, fupan_type):
+        cached_existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
+        cached_existing_dates = set(cached_existing_data.columns)
+
     # 特殊处理"默默上涨"类型，因为它不能查历史数据
     if fupan_type == '默默上涨':
         # 获取当前应该使用的交易日期
         current_trade_date = get_current_trading_date()
         date_formatted = datetime.strptime(current_trade_date, '%Y%m%d').strftime('%Y年%m月%d日')
 
-        # 检查数据是否已存在
-        if sheet_exists(target_excel_file, fupan_type):
-            existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
-            if date_formatted in existing_data.columns:
-                print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过获取。")
-                return
+        # 检查数据是否已存在（使用缓存）
+        if date_formatted in cached_existing_dates:
+            print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过获取。")
+            return
 
         print(f"正在获取 {current_trade_date} 的 {fupan_type} 数据...")
         # 调用默默上涨函数，不需要任何参数
         stock_data_df = get_silently_increase_stocks()
 
-        # 保存数据
+        # 保存数据（传入缓存的已有数据，避免重复读取）
         if not stock_data_df.empty:
             dataframes = {current_trade_date: stock_data_df}
-            save_to_excel(dataframes, [current_trade_date], fupan_type, target_excel_file)
+            save_to_excel(dataframes, [current_trade_date], fupan_type, target_excel_file,
+                          existing_data=cached_existing_data if cached_existing_data is not None else pd.DataFrame())
         else:
             print(f"未获取到 {fupan_type} 数据")
         return
@@ -501,9 +510,8 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
     for trade_date in trading_days:
         date_formatted = datetime.strptime(trade_date, '%Y%m%d').strftime('%Y年%m月%d日')
 
-        if sheet_exists(target_excel_file, fupan_type) and pd.read_excel(target_excel_file, sheet_name=fupan_type,
-                                                                         index_col=0).columns.isin(
-            [date_formatted]).any():
+        # ===== 优化：使用缓存的日期集合判断，O(1) 复杂度 =====
+        if date_formatted in cached_existing_dates:
             print(f"数据 {date_formatted} ({board_suffix}) 已存在于 {target_excel_file}，跳过获取。")
             exclude_days.append(trade_date)
             continue
@@ -514,10 +522,11 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
         stock_data_df = fupan_functions.get(fupan_type, lambda x, bs: pd.DataFrame())(trade_date, board_suffix)
         dataframes[trade_date] = stock_data_df
 
-    # 保存所有日期数据到一个Excel文件
+    # 保存所有日期数据到一个Excel文件（传入缓存的已有数据，避免重复读取）
     dates_to_save = [d for d in trading_days if d not in exclude_days]
     if dataframes:
-        save_to_excel(dataframes, dates_to_save, fupan_type, target_excel_file)
+        save_to_excel(dataframes, dates_to_save, fupan_type, target_excel_file,
+                      existing_data=cached_existing_data if cached_existing_data is not None else pd.DataFrame())
 
 
 def all_fupan(start_date=None, end_date=None, types='all'):

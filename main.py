@@ -35,6 +35,7 @@ from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
     find_top_yyb_trades
 from fetch.tonghuashun.fupan import all_fupan
+from fetch.tonghuashun.fupan_cleaner import clean_all_fupan_files, clean_fupan_excel
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.fupan_plot_html import draw_fupan_lb_html
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
@@ -821,6 +822,24 @@ def fetch_ths_fupan():
     all_fupan(start_date, end_date, types='all,else')
 
 
+def clean_ths_fupan():
+    """
+    清理 fupan_stocks.xlsx 历史数据，控制文件大小
+    
+    - 保留最近 keep_days 天的数据
+    - 删除前自动备份（备份文件名含起止日期）
+    - dry_run=True 时只预览不实际删除
+    """
+    keep_days = 150  # 保留最近x天数据
+    dry_run = False  # 设为 True 可先预览要删除的数据
+    
+    # 清理所有 fupan 文件（fupan_stocks.xlsx 和 fupan_stocks_non_main.xlsx）
+    clean_all_fupan_files(keep_days=keep_days, dry_run=dry_run)
+    
+    # 或者只清理单个文件：
+    # clean_fupan_excel('./excel/fupan_stocks.xlsx', keep_days=keep_days, dry_run=dry_run)
+
+
 def draw_ths_fupan():
     start_date = '20251201'  # 开始日期
     # end_date = '20251230'  # 结束日期
@@ -1432,18 +1451,19 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
+    # clean_ths_fupan()  # 清理历史数据，控制文件大小
 
     # === 策略形态扫描 ===
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    strategy_scan('a')
-    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # strategy_scan('a')
+    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
