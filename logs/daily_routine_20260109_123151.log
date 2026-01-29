@@ -1,0 +1,10 @@
+2026-01-09 12:31:51,446 - [MainThread] INFO - === 步骤1: 开始拉取各大指数数据 ===
+2026-01-09 12:31:51,446 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-09 12:31:51,446 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-09 12:31:51,891 - [MainThread] INFO - No new data for sh000001.
+2026-01-09 12:31:52,206 - [MainThread] INFO - No new data for sz399001.
+2026-01-09 12:31:52,377 - [MainThread] INFO - No new data for sz399006.
+2026-01-09 12:31:52,778 - [MainThread] INFO - No new data for sh000688.
+2026-01-09 12:31:53,059 - [MainThread] INFO - No new data for bj899050.
+2026-01-09 12:31:53,406 - [MainThread] INFO - No new data for sh000905.
+2026-01-09 12:31:53,734 - [MainThread] INFO - No new data for sz399405.

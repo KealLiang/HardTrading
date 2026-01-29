@@ -1,0 +1,36 @@
+analysis_config:
+  enable_risk_analysis: true
+  enable_sensitivity_analysis: true
+  enable_stability_analysis: true
+backtest_config:
+  initial_amount: 100000
+  stock_pool:
+  - '300033'
+  - '300059'
+  stock_pool_inline: 300033,300059
+  time_range:
+    end_date: '2025-08-22'
+    start_date: '2024-01-01'
+description: 自动生成的BreakoutStrategy快速测试配置
+experiment_name: breakoutstrategy_quick_test
+output_config:
+  generate_charts: false
+  generate_excel_report: false
+  generate_markdown_report: true
+parameter_sets:
+  manual_sets:
+  - description: 基准参数（默认值）
+    name: baseline
+    params:
+      consolidation_lookback: 5
+      consolidation_ma_max_slope: 1.05
+      consolidation_ma_proximity_pct: 0.02
+  - description: 调整参数
+    name: adjusted
+    params:
+      consolidation_lookback: 6
+      consolidation_ma_max_slope: 1.16
+      consolidation_ma_proximity_pct: 0.02
+parameter_strategy:
+  max_combinations: 2
+  type: manual

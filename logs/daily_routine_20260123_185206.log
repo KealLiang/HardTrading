@@ -1,0 +1,1567 @@
+2026-01-23 18:52:06,501 - [MainThread] INFO - === 步骤1: 开始拉取各大指数数据 ===
+2026-01-23 18:52:06,501 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 18:52:06,501 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 18:52:07,047 - [MainThread] INFO - Data for sh000001 updated to data/indexes\sh000001_上证指数.csv
+2026-01-23 18:52:07,401 - [MainThread] INFO - Data for sz399001 updated to data/indexes\sz399001_深证成指.csv
+2026-01-23 18:52:07,711 - [MainThread] INFO - Data for sz399006 updated to data/indexes\sz399006_创业板指.csv
+2026-01-23 18:52:07,989 - [MainThread] INFO - Data for sh000688 updated to data/indexes\sh000688_科创50.csv
+2026-01-23 18:52:08,179 - [MainThread] INFO - Data for bj899050 updated to data/indexes\bj899050_北证50.csv
+2026-01-23 18:52:08,404 - [MainThread] INFO - Data for sh000905 updated to data/indexes\sh000905_中证500.csv
+2026-01-23 18:52:08,675 - [MainThread] INFO - Data for sz399405 updated to data/indexes\sz399405_大盘高贝.csv
+2026-01-23 18:52:09,012 - [MainThread] INFO - Data for sz399409 updated to data/indexes\sz399409_小盘高贝.csv
+2026-01-23 18:52:09,012 - [MainThread] INFO - === 步骤1: 拉取各大指数数据完成 (耗时: 2.51秒) ===
+2026-01-23 18:52:09,012 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 18:52:09,012 - [MainThread] INFO - === 步骤2: 开始拉取热门个股数据 ===
+2026-01-23 18:52:09,012 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 18:52:09,012 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 18:52:09,012 - [MainThread] INFO - Processing for: , output to: ./excel/fupan_stocks.xlsx
+2026-01-23 18:52:09,012 - [MainThread] INFO - --- Starting fupan type: 连板数据 ---
+2026-01-23 18:52:09,115 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:52:09,237 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,344 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,449 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,555 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,662 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,768 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,875 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:09,980 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,087 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,193 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,298 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,407 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,507 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,608 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,709 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:10,810 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,093 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,194 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,294 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,394 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,496 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,598 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,699 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,801 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:11,900 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,001 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,104 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,204 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,309 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,408 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,508 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,608 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,710 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,810 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:12,912 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:13,012 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:13,114 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:13,214 - [MainThread] INFO - 正在获取 20260123 的 连板数据 数据 ()...
+2026-01-23 18:52:22,947 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 连板数据
+2026-01-23 18:52:22,948 - [MainThread] INFO - --- Starting fupan type: 跌停数据 ---
+2026-01-23 18:52:22,948 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:52:23,188 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:23,430 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:23,675 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:23,918 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:24,163 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:24,403 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:24,642 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:24,884 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:25,124 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:25,365 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:26,160 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:26,403 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:26,645 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:26,890 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:27,130 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:27,376 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:27,616 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:27,873 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:28,136 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:28,386 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:28,630 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:28,873 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:29,116 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:29,359 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:29,598 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:29,842 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:30,086 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:30,334 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:30,768 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:31,010 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:31,254 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:31,498 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:31,746 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:31,988 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:32,243 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:32,486 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:32,731 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:32,976 - [MainThread] INFO - 正在获取 20260123 的 跌停数据 数据 ()...
+2026-01-23 18:52:42,792 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 跌停数据
+2026-01-23 18:52:42,794 - [MainThread] INFO - --- Starting fupan type: 炸板数据 ---
+2026-01-23 18:52:42,794 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:52:42,907 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,019 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,133 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,247 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,361 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,472 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,586 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,698 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:43,831 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,010 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,189 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,384 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,550 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,703 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:44,899 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,097 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,306 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,465 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,637 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,763 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:45,915 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:46,109 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:46,294 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:46,485 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:46,685 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:46,834 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,001 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,122 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,263 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,430 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,617 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,783 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:47,965 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:48,123 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:48,854 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:49,001 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:49,134 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:52:49,328 - [MainThread] INFO - 正在获取 20260123 的 炸板数据 数据 ()...
+2026-01-23 18:53:02,675 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 炸板数据
+2026-01-23 18:53:02,675 - [MainThread] INFO - --- Starting fupan type: 首板数据 ---
+2026-01-23 18:53:02,676 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:53:03,005 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:03,211 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:03,545 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:03,857 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:04,153 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:04,485 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:04,781 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:05,100 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:05,430 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:05,722 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:05,977 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:06,300 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:06,619 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:06,907 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:07,182 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:07,475 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:07,801 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:08,085 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:08,400 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:08,700 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:09,024 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:09,324 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:09,614 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:09,932 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:10,223 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:10,538 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:10,845 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:11,128 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:11,420 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:11,689 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:12,007 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:13,225 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:13,543 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:13,761 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:13,977 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:14,215 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:14,544 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:14,820 - [MainThread] INFO - 正在获取 20260123 的 首板数据 数据 ()...
+2026-01-23 18:53:14,820 - [MainThread] INFO - 使用缓存数据：20260123 ()
+2026-01-23 18:53:18,281 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 首板数据
+2026-01-23 18:53:18,281 - [MainThread] INFO - --- Starting fupan type: 反包数据 ---
+2026-01-23 18:53:18,282 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:53:18,380 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,471 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,569 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,669 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,767 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,865 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:18,958 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,050 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,141 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,232 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,329 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,424 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,523 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,622 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,718 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,821 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:19,931 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,025 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,118 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,242 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,360 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,454 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,549 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,643 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,736 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,831 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:20,924 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,017 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,111 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,204 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,297 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,696 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,792 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,886 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:21,976 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:22,070 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:22,162 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:22,253 - [MainThread] INFO - 正在获取 20260123 的 反包数据 数据 ()...
+2026-01-23 18:53:27,107 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 反包数据
+2026-01-23 18:53:27,107 - [MainThread] INFO - --- Starting fupan type: 关注度榜 ---
+2026-01-23 18:53:27,108 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:53:27,205 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,304 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,399 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,500 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,597 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,699 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,804 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:27,906 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,009 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,105 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,201 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,299 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,393 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,489 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,583 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,679 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,779 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:28,880 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,349 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,509 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,655 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,756 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,863 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:29,975 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,080 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,184 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,287 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,389 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,486 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,586 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,687 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,787 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,889 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:30,991 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:31,089 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:31,187 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:31,480 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:31,584 - [MainThread] INFO - 正在获取 20260123 的 关注度榜 数据 ()...
+2026-01-23 18:53:35,939 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 关注度榜
+2026-01-23 18:53:35,939 - [MainThread] INFO - --- Starting fupan type: 大涨数据 ---
+2026-01-23 18:53:35,940 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:53:36,366 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:36,789 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:37,215 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:37,639 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:38,071 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:38,507 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:39,207 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:39,629 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:40,053 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:40,476 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:40,898 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:41,492 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:41,916 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:42,348 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:42,827 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:43,316 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:43,782 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:44,437 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:44,918 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:45,389 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:45,855 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:46,423 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:46,888 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:47,518 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:47,976 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:48,428 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:48,888 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:49,343 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:49,970 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:50,427 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:50,885 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:51,346 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:51,803 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:52,433 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:52,889 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:53,346 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:53,798 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:53:54,254 - [MainThread] INFO - 正在获取 20260123 的 大涨数据 数据 ()...
+2026-01-23 18:54:05,855 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 大涨数据
+2026-01-23 18:54:05,856 - [MainThread] INFO - --- Starting fupan type: 大跌数据 ---
+2026-01-23 18:54:05,857 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for
+2026-01-23 18:54:06,762 - [MainThread] INFO - 数据 2025年12月01日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:07,663 - [MainThread] INFO - 数据 2025年12月02日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:08,562 - [MainThread] INFO - 数据 2025年12月03日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:09,461 - [MainThread] INFO - 数据 2025年12月04日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:10,364 - [MainThread] INFO - 数据 2025年12月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:11,264 - [MainThread] INFO - 数据 2025年12月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:12,609 - [MainThread] INFO - 数据 2025年12月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:13,766 - [MainThread] INFO - 数据 2025年12月10日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:14,689 - [MainThread] INFO - 数据 2025年12月11日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:15,585 - [MainThread] INFO - 数据 2025年12月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:16,485 - [MainThread] INFO - 数据 2025年12月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:17,400 - [MainThread] INFO - 数据 2025年12月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:18,340 - [MainThread] INFO - 数据 2025年12月17日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:19,255 - [MainThread] INFO - 数据 2025年12月18日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:20,332 - [MainThread] INFO - 数据 2025年12月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:21,226 - [MainThread] INFO - 数据 2025年12月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:22,117 - [MainThread] INFO - 数据 2025年12月23日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:23,018 - [MainThread] INFO - 数据 2025年12月24日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:23,908 - [MainThread] INFO - 数据 2025年12月25日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:24,816 - [MainThread] INFO - 数据 2025年12月26日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:25,713 - [MainThread] INFO - 数据 2025年12月29日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:26,775 - [MainThread] INFO - 数据 2025年12月30日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:27,664 - [MainThread] INFO - 数据 2025年12月31日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:28,562 - [MainThread] INFO - 数据 2026年01月05日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:29,455 - [MainThread] INFO - 数据 2026年01月06日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:30,343 - [MainThread] INFO - 数据 2026年01月07日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:31,242 - [MainThread] INFO - 数据 2026年01月08日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:32,163 - [MainThread] INFO - 数据 2026年01月09日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:33,089 - [MainThread] INFO - 数据 2026年01月12日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:34,114 - [MainThread] INFO - 数据 2026年01月13日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:34,932 - [MainThread] INFO - 数据 2026年01月14日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:35,753 - [MainThread] INFO - 数据 2026年01月15日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:36,612 - [MainThread] INFO - 数据 2026年01月16日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:37,606 - [MainThread] INFO - 数据 2026年01月19日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:38,521 - [MainThread] INFO - 数据 2026年01月20日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:39,417 - [MainThread] INFO - 数据 2026年01月21日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:40,522 - [MainThread] INFO - 数据 2026年01月22日 () 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:54:41,420 - [MainThread] INFO - 正在获取 20260123 的 大跌数据 数据 ()...
+2026-01-23 18:54:58,725 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 大跌数据
+2026-01-23 18:54:58,727 - [MainThread] INFO - --- Starting fupan type: 默默上涨 ---
+2026-01-23 18:54:58,771 - [MainThread] INFO - 正在获取 20260123 的 默默上涨 数据...
+2026-01-23 18:55:09,112 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 默默上涨
+2026-01-23 18:55:09,112 - [MainThread] INFO - Processing for: ，非主板, output to: ./excel/fupan_stocks_non_main.xlsx
+2026-01-23 18:55:09,112 - [MainThread] INFO - --- Starting fupan type: 连板数据 ---
+2026-01-23 18:55:09,113 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:09,152 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,190 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,227 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,264 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,299 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,334 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,371 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,406 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,444 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,480 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,516 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,556 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,594 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,639 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,687 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,726 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,767 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,807 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,847 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,885 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,923 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,960 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:09,997 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,041 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,084 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,121 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,171 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,208 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,245 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,282 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,319 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,356 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,391 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,426 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,462 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,498 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,534 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:10,570 - [MainThread] INFO - 正在获取 20260123 的 连板数据 数据 (，非主板)...
+2026-01-23 18:55:16,568 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 连板数据
+2026-01-23 18:55:16,568 - [MainThread] INFO - --- Starting fupan type: 跌停数据 ---
+2026-01-23 18:55:16,569 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:16,638 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:16,709 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:16,777 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:16,850 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:16,921 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:16,996 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,067 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,138 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,208 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,278 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,353 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,425 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,494 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,567 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,635 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,705 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,775 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,847 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,917 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:17,989 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,060 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,129 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,198 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,271 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,339 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,408 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,477 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,546 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,614 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,687 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,755 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,827 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,899 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:18,969 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:19,041 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:19,112 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:19,181 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:19,252 - [MainThread] INFO - 正在获取 20260123 的 跌停数据 数据 (，非主板)...
+2026-01-23 18:55:23,010 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 跌停数据
+2026-01-23 18:55:23,010 - [MainThread] INFO - --- Starting fupan type: 炸板数据 ---
+2026-01-23 18:55:23,011 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:23,059 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,104 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,148 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,193 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,237 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,281 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,325 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,369 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,413 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,457 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,500 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,543 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,585 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,630 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,675 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,718 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,762 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,806 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,850 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,893 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,937 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:23,981 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,024 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,070 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,114 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,158 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,202 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,246 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,290 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,336 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,379 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,427 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,474 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,518 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,561 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,604 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,647 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:24,693 - [MainThread] INFO - 正在获取 20260123 的 炸板数据 数据 (，非主板)...
+2026-01-23 18:55:28,353 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 炸板数据
+2026-01-23 18:55:28,353 - [MainThread] INFO - --- Starting fupan type: 首板数据 ---
+2026-01-23 18:55:28,354 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:28,418 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,486 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,554 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,614 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,676 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,742 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,805 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,868 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,929 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:28,990 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,050 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,113 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,176 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,237 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,298 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,358 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,417 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,478 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,538 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,599 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,660 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,722 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,783 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,845 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,924 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:29,993 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,072 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,506 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,566 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,634 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,696 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,759 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,823 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,888 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:30,951 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:31,015 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:31,076 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:31,139 - [MainThread] INFO - 正在获取 20260123 的 首板数据 数据 (，非主板)...
+2026-01-23 18:55:31,139 - [MainThread] INFO - 使用缓存数据：20260123 (，非主板)
+2026-01-23 18:55:32,283 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 首板数据
+2026-01-23 18:55:32,285 - [MainThread] INFO - --- Starting fupan type: 反包数据 ---
+2026-01-23 18:55:32,286 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:32,356 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,425 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,494 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,570 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,650 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,719 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,789 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,860 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:32,931 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,002 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,073 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,143 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,214 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,284 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,354 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,424 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,493 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,562 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,632 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,701 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,773 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,848 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:33,925 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,011 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,081 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,374 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,445 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,514 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,583 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,652 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,729 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,798 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,868 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:34,938 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:35,008 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:35,077 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:35,147 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:35,216 - [MainThread] INFO - 正在获取 20260123 的 反包数据 数据 (，非主板)...
+2026-01-23 18:55:38,082 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 反包数据
+2026-01-23 18:55:38,082 - [MainThread] INFO - --- Starting fupan type: 关注度榜 ---
+2026-01-23 18:55:38,083 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:55:38,857 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:39,391 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:39,936 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:40,486 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:41,032 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:41,533 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:42,101 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:42,672 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:43,228 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:43,708 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:44,377 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:44,858 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:45,422 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:46,018 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:46,627 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:47,219 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:47,789 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:48,374 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:48,957 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:49,548 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:50,139 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:50,966 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:51,528 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:52,171 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:52,775 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:53,335 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:53,890 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:54,472 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:55,069 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:55,668 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:56,244 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:56,832 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:57,419 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:58,176 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:58,760 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:59,304 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:55:59,889 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:00,317 - [MainThread] INFO - 正在获取 20260123 的 关注度榜 数据 (，非主板)...
+2026-01-23 18:56:08,360 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 关注度榜
+2026-01-23 18:56:08,361 - [MainThread] INFO - --- Starting fupan type: 大涨数据 ---
+2026-01-23 18:56:08,362 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:56:08,468 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:08,576 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:08,687 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:08,794 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:08,899 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,009 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,120 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,228 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,341 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,447 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,554 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,662 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,768 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,875 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:09,982 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,090 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,196 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,304 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,410 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,516 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,622 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,730 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,836 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:10,943 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,054 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,161 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,268 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,382 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,487 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,592 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,700 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,858 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:11,994 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:12,100 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:12,211 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:12,320 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:12,432 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:12,539 - [MainThread] INFO - 正在获取 20260123 的 大涨数据 数据 (，非主板)...
+2026-01-23 18:56:20,186 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 大涨数据
+2026-01-23 18:56:20,186 - [MainThread] INFO - --- Starting fupan type: 大跌数据 ---
+2026-01-23 18:56:20,187 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:56:20,586 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:20,983 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:21,380 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:21,804 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:22,373 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:22,774 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:23,172 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:23,563 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:23,966 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:24,356 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:24,747 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:25,138 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:25,525 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:25,921 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:26,308 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:26,709 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:27,113 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:27,507 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:27,903 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:28,287 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:29,261 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:29,660 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:30,059 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:30,503 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:30,905 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:31,366 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:31,760 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:32,163 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:32,562 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:32,952 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:33,350 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:33,747 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:34,157 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:34,573 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:34,974 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:35,558 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:35,969 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks_non_main.xlsx，跳过获取。
+2026-01-23 18:56:36,387 - [MainThread] INFO - 正在获取 20260123 的 大跌数据 数据 (，非主板)...
+2026-01-23 18:56:56,518 - [MainThread] INFO - Data saved to ./excel/fupan_stocks_non_main.xlsx, sheet: 大跌数据
+2026-01-23 18:56:56,519 - [MainThread] INFO - --- 特殊处理：将非主板关注度榜数据保存到fupan_stocks.xlsx ---
+2026-01-23 18:56:56,520 - [MainThread] INFO - 交易日列表：['20251201', '20251202', '20251203', '20251204', '20251205', '20251208', '20251209', '20251210', '20251211', '20251212', '20251215', '20251216', '20251217', '20251218', '20251219', '20251222', '20251223', '20251224', '20251225', '20251226', '20251229', '20251230', '20251231', '20260105', '20260106', '20260107', '20260108', '20260109', '20260112', '20260113', '20260114', '20260115', '20260116', '20260119', '20260120', '20260121', '20260122', '20260123'] for ，非主板
+2026-01-23 18:56:56,937 - [MainThread] INFO - 数据 2025年12月01日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:57,324 - [MainThread] INFO - 数据 2025年12月02日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:57,750 - [MainThread] INFO - 数据 2025年12月03日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:58,217 - [MainThread] INFO - 数据 2025年12月04日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:58,600 - [MainThread] INFO - 数据 2025年12月05日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:58,983 - [MainThread] INFO - 数据 2025年12月08日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:59,367 - [MainThread] INFO - 数据 2025年12月09日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:56:59,750 - [MainThread] INFO - 数据 2025年12月10日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:00,154 - [MainThread] INFO - 数据 2025年12月11日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:00,540 - [MainThread] INFO - 数据 2025年12月12日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:00,929 - [MainThread] INFO - 数据 2025年12月15日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:01,315 - [MainThread] INFO - 数据 2025年12月16日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:01,694 - [MainThread] INFO - 数据 2025年12月17日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:02,084 - [MainThread] INFO - 数据 2025年12月18日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:02,467 - [MainThread] INFO - 数据 2025年12月19日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:03,145 - [MainThread] INFO - 数据 2025年12月22日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:03,532 - [MainThread] INFO - 数据 2025年12月23日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:03,941 - [MainThread] INFO - 数据 2025年12月24日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:04,333 - [MainThread] INFO - 数据 2025年12月25日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:04,716 - [MainThread] INFO - 数据 2025年12月26日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:05,102 - [MainThread] INFO - 数据 2025年12月29日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:05,491 - [MainThread] INFO - 数据 2025年12月30日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:05,877 - [MainThread] INFO - 数据 2025年12月31日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:06,258 - [MainThread] INFO - 数据 2026年01月05日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:06,650 - [MainThread] INFO - 数据 2026年01月06日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:07,427 - [MainThread] INFO - 数据 2026年01月07日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:07,820 - [MainThread] INFO - 数据 2026年01月08日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:08,213 - [MainThread] INFO - 数据 2026年01月09日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:08,598 - [MainThread] INFO - 数据 2026年01月12日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:08,980 - [MainThread] INFO - 数据 2026年01月13日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:09,480 - [MainThread] INFO - 数据 2026年01月14日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:09,998 - [MainThread] INFO - 数据 2026年01月15日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:10,462 - [MainThread] INFO - 数据 2026年01月16日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:10,899 - [MainThread] INFO - 数据 2026年01月19日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:11,281 - [MainThread] INFO - 数据 2026年01月20日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:11,832 - [MainThread] INFO - 数据 2026年01月21日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:12,225 - [MainThread] INFO - 数据 2026年01月22日 (，非主板) 已存在于 ./excel/fupan_stocks.xlsx，跳过获取。
+2026-01-23 18:57:12,610 - [MainThread] INFO - 正在获取 20260123 的 非主关注度榜 数据 (，非主板)...
+2026-01-23 18:57:21,609 - [MainThread] INFO - Data saved to ./excel/fupan_stocks.xlsx, sheet: 非主关注度榜
+2026-01-23 18:57:21,610 - [MainThread] INFO - === 步骤2: 拉取热门个股数据完成 (耗时: 312.60秒) ===
+2026-01-23 18:57:21,610 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 18:57:21,610 - [MainThread] INFO - === 步骤3: 开始执行题材分析 ===
+2026-01-23 18:57:21,610 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 18:57:21,610 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 18:57:22,710 - [MainThread] INFO - 已清空并将重新创建文件: ./excel/fupan_analysis.xlsx
+2026-01-23 18:57:23,701 - [MainThread] INFO - 成功保存2047个涨停原因到 ./data/reasons/unique_reasons_20251030_to_20260123.json
+2026-01-23 18:57:23,701 - [MainThread] INFO - ======== 未分类原因统计（出现次数 >= 5）========
+2026-01-23 18:57:23,702 - [MainThread] INFO - 液冷: 19次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 园林机械: 18次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 三片罐龙头: 17次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 阿里巴巴概念: 16次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 三胎概念: 15次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 数字营销: 14次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 越南基地: 13次
+2026-01-23 18:57:23,702 - [MainThread] INFO - H股上市: 13次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 新加坡订单: 12次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 型钢: 11次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 物业管理: 11次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 定制家居: 11次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 大消费: 11次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 先进封装: 11次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 天府壹号: 10次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 工业大麻: 10次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 土地收储: 10次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 玻璃微纤维: 10次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 特种线缆: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 中华老字号: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 阿里概念: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 车载显示: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 无尘空调: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 腱绳: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 胎圈钢丝: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 优必选入主: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 北斗导航: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 银发经济: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 生猪养殖: 9次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 铁矿: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 涨价: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 泰国生产基地: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 电子特气: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 铝型材: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 长鑫科技: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 液力传动: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 复产: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 川超: 8次
+2026-01-23 18:57:23,702 - [MainThread] INFO - 常温新品: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 孚悦科技: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 6G天线: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 乘用车拓展: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 幕墙工程: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 智慧交通: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - LNG: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - LED照明: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 瓦楞包装: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 煤气化: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 卫星研制: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 丝杠: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 深海系泊: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 索具龙头: 8次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 环卫装备: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 非理性炒作风险: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 哈药集团: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 拟控股奎芯科技: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 男裤: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 固态断路器: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 终止筹划收购: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 互联网营销: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 商品混凝土: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 体育产业: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 防伪溯源: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 彩票印制: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 碳化硅: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 光纤光缆: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 环保: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 绝缘材料: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 线控转向: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - LNG运贸: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - OSS: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 横琴新区: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - IDC: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 铝挤压模具: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 工程设计: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 医疗服务: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 低轨卫星: 7次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 铬盐龙头: 6次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 防磨抗蚀: 6次
+2026-01-23 18:57:23,703 - [MainThread] INFO - 铝晶粒细化剂: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 石灰石: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 地产: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 烟标: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 低价股: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - MiniLED: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 养老: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 协议转让: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 特种电缆: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 委托理财: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 恒隆合作: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 体检龙头: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 空芯光纤: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 整车项目: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 园区运营: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 金刚石散热: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 客户旺旺: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 冶金龙头: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 集成吊顶龙头: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 改性材料: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 低空安防: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 工业互联网: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 精密箱体: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 北美客户: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 全产业链: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - CRO: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 栗木矿业复产: 6次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 土地重估: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 系统门窗: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 输配电: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 润滑油: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 埃及建厂: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 面板: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 国际工程: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 锂盐: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 固废回收: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 干细胞: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 客户拓展: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 高端木作: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 互动影游: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 维生素B2: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 车路云: 5次
+2026-01-23 18:57:23,704 - [MainThread] INFO - 智慧灯杆: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 科技转型: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 火锅丸滑: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 家居定制: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 功能沙发: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 重型装备: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 相控阵: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 氮化镓: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 参投阿凡达3: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 输配电设备: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 实控人拟变更: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 转向系统: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 卫星遥感: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 资产置换: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - SiP模组: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 供应链: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 中芯国际概念: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 女鞋多品牌: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 数字货币: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 优必选拟入主: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - LCP: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 测试分选机: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 旧梯更新: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 粤港澳大湾区: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - PTA: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 参投超聚变: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - MiniMax合作: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 6G: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 资产出售: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 集成吊顶: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 网红经济: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 版权交易: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 欧洲设子公司: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 阿里合作: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 辅助生殖: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 玻纤新材: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 碳化硅设备: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 源网荷储: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 扩产: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 柴油发动机: 5次
+2026-01-23 18:57:23,705 - [MainThread] INFO - 热电运营: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 负极材料: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - TOPCon: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 海洋经济: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 双主业: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 字节合作: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 阀门管件: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 电子化学品: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 物业租赁: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 职业教育: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - C2M: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 客户资源: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 钽铌锡矿: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - 洁净室: 5次
+2026-01-23 18:57:23,706 - [MainThread] INFO - ================================================
+2026-01-23 18:57:23,713 - [MainThread] INFO - 未分类的涨停原因已保存到工作簿的 '未分类原因' 页
+2026-01-23 18:59:15,924 - [MainThread] INFO - 数据处理完成，已保存到 ./excel/fupan_analysis.xlsx
+2026-01-23 18:59:15,928 - [MainThread] INFO - === 步骤3: 执行题材分析完成 (耗时: 114.32秒) ===
+2026-01-23 18:59:15,929 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 18:59:15,929 - [MainThread] INFO - === 步骤4: 开始生成热门股天梯 ===
+2026-01-23 18:59:15,929 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 18:59:15,929 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 18:59:15,929 - [MainThread] INFO - 未指定结束日期，使用当前日期: 20260123
+2026-01-23 18:59:15,929 - [MainThread] INFO - 开始构建梯队形态涨停复盘图 (20251030 至 20260123)...
+2026-01-23 18:59:15,929 - [MainThread] INFO - 已清理所有缓存
+2026-01-23 18:59:16,025 - [MainThread] INFO - 成功读取连板数据sheet，共有63行，259列
+2026-01-23 18:59:16,025 - [MainThread] INFO - 列名:  ['Unnamed: 0', '2025年01月02日', '2025年01月03日', '2025年01月06日', '2025年01月07日', '2025年01月08日', '2025年01月09日', '2025年01月10日', '2025年01月13日', '2025年01月14日', '2025年01月15日', '2025年01月16日', '2025年01月17日', '2025年01月20日', '2025年01月21日', '2025年01月22日', '2025年01月23日', '2025年01月24日', '2025年01月27日', '2025年02月05日', '2025年02月06日', '2025年02月07日', '2025年02月10日', '2025年02月11日', '2025年02月12日', '2025年02月13日', '2025年02月14日', '2025年02月17日', '2025年02月18日', '2025年02月19日', '2025年02月20日', '2025年02月21日', '2025年02月24日', '2025年02月25日', '2025年02月26日', '2025年02月27日', '2025年02月28日', '2025年03月03日', '2025年03月04日', '2025年03月05日', '2025年03月06日', '2025年03月07日', '2025年03月10日', '2025年03月11日', '2025年03月12日', '2025年03月13日', '2025年03月14日', '2025年03月17日', '2025年03月18日', '2025年03月19日', '2025年03月20日', '2025年03月21日', '2025年03月24日', '2025年03月25日', '2025年03月26日', '2025年03月27日', '2025年03月28日', '2025年03月31日', '2025年04月01日', '2025年04月02日', '2025年04月03日', '2025年04月07日', '2025年04月08日', '2025年04月09日', '2025年04月10日', '2025年04月11日', '2025年04月14日', '2025年04月15日', '2025年04月16日', '2025年04月17日', '2025年04月18日', '2025年04月21日', '2025年04月22日', '2025年04月23日', '2025年04月24日', '2025年04月25日', '2025年04月28日', '2025年04月29日', '2025年04月30日', '2025年05月06日', '2025年05月07日', '2025年05月08日', '2025年05月09日', '2025年05月12日', '2025年05月13日', '2025年05月14日', '2025年05月15日', '2025年05月16日', '2025年05月19日', '2025年05月20日', '2025年05月21日', '2025年05月22日', '2025年05月23日', '2025年05月26日', '2025年05月27日', '2025年05月28日', '2025年05月29日', '2025年05月30日', '2025年06月03日', '2025年06月04日', '2025年06月05日', '2025年06月06日', '2025年06月09日', '2025年06月10日', '2025年06月11日', '2025年06月12日', '2025年06月13日', '2025年06月16日', '2025年06月17日', '2025年06月18日', '2025年06月19日', '2025年06月20日', '2025年06月23日', '2025年06月24日', '2025年06月25日', '2025年06月26日', '2025年06月27日', '2025年06月30日', '2025年07月01日', '2025年07月02日', '2025年07月03日', '2025年07月04日', '2025年07月07日', '2025年07月08日', '2025年07月09日', '2025年07月10日', '2025年07月11日', '2025年07月14日', '2025年07月15日', '2025年07月16日', '2025年07月17日', '2025年07月18日', '2025年07月21日', '2025年07月22日', '2025年07月23日', '2025年07月24日', '2025年07月25日', '2025年07月28日', '2025年07月29日', '2025年07月30日', '2025年07月31日', '2025年08月01日', '2025年08月04日', '2025年08月05日', '2025年08月06日', '2025年08月07日', '2025年08月08日', '2025年08月11日', '2025年08月12日', '2025年08月13日', '2025年08月14日', '2025年08月15日', '2025年08月18日', '2025年08月19日', '2025年08月20日', '2025年08月21日', '2025年08月22日', '2025年08月25日', '2025年08月26日', '2025年08月27日', '2025年08月28日', '2025年08月29日', '2025年09月01日', '2025年09月02日', '2025年09月03日', '2025年09月04日', '2025年09月05日', '2025年09月08日', '2025年09月09日', '2025年09月10日', '2025年09月11日', '2025年09月12日', '2025年09月15日', '2025年09月16日', '2025年09月17日', '2025年09月18日', '2025年09月19日', '2025年09月22日', '2025年09月23日', '2025年09月24日', '2025年09月25日', '2025年09月26日', '2025年09月29日', '2025年09月30日', '2025年10月09日', '2025年10月10日', '2025年10月13日', '2025年10月14日', '2025年10月15日', '2025年10月16日', '2025年10月17日', '2025年10月20日', '2025年10月21日', '2025年10月22日', '2025年10月23日', '2025年10月24日', '2025年10月27日', '2025年10月28日', '2025年10月29日', '2025年10月30日', '2025年10月31日', '2025年11月03日', '2025年11月04日', '2025年11月05日', '2025年11月06日', '2025年11月07日', '2025年11月10日', '2025年11月11日', '2025年11月12日', '2025年11月13日', '2025年11月14日', '2025年11月17日', '2025年11月18日', '2025年11月19日', '2025年11月20日', '2025年11月21日', '2025年11月24日', '2025年11月25日', '2025年11月26日', '2025年11月27日', '2025年11月28日', '2025年12月01日', '2025年12月02日', '2025年12月03日', '2025年12月04日', '2025年12月05日', '2025年12月08日', '2025年12月09日', '2025年12月10日', '2025年12月11日', '2025年12月12日', '2025年12月15日', '2025年12月16日', '2025年12月17日', '2025年12月18日', '2025年12月19日', '2025年12月22日', '2025年12月23日', '2025年12月24日', '2025年12月25日', '2025年12月26日', '2025年12月29日', '2025年12月30日', '2025年12月31日', '2026年01月05日', '2026年01月06日', '2026年01月07日', '2026年01月08日', '2026年01月09日', '2026年01月12日', '2026年01月13日', '2026年01月14日', '2026年01月15日', '2026年01月16日', '2026年01月19日', '2026年01月20日', '2026年01月21日', '2026年01月22日', '2026年01月23日']
+2026-01-23 18:59:16,025 - [MainThread] INFO - 查看数据样本:
+2026-01-23 18:59:16,025 - [MainThread] INFO - 行 0:
+2026-01-23 18:59:16,025 - [MainThread] INFO - Unnamed: 0: 0
+2026-01-23 18:59:16,025 - [MainThread] INFO - 2025年01月02日: 002397.SZ; 梦洁股份; 0;  09:30:00; 2天2板; 3.87;  09:30:00; 1.6%; 2; 微盟合作+床上用品+电子商务+三胎
+2026-01-23 18:59:16,025 - [MainThread] INFO - 2025年01月03日: 603215.SH; 比依股份; 0;  09:30:00; 2天2板; 16.4;  09:30:00; -2.1%; 2; AI眼镜+小家电+网红经济
+2026-01-23 18:59:16,025 - [MainThread] INFO - 2025年01月06日: 000573.SZ; 粤宏远A; 0;  09:30:00; 2天2板; 4.32;  09:30:00; -2.9%; 2; 拟购买博创智能约60%股份+向高端装备制造领域转型
+2026-01-23 18:59:16,025 - [MainThread] INFO - 行 1:
+2026-01-23 18:59:16,026 - [MainThread] INFO - Unnamed: 0: 1
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月02日: 600530.SH; 交大昂立; 0;  09:30:01; 3天3板; 5.31;  09:30:01; 9.9%; 3; 要约收购+电子商务+保健品+养老概念
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月03日: 000981.SZ; 山子高科; 0;  09:30:00; 2天2板; 1.97;  09:30:00; -4.8%; 2; 拟出售子公司股权+低价股+先进封装+无人驾驶
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月06日: 600789.SH; 鲁抗医药; 0;  09:30:00; 2天2板; 10.13;  09:30:00; -1.9%; 2; 抗生素+宠物经济+山东国资
+2026-01-23 18:59:16,026 - [MainThread] INFO - 行 2:
+2026-01-23 18:59:16,026 - [MainThread] INFO - Unnamed: 0: 2
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月02日: 603777.SH; 来伊份; 0;  09:30:31; 9天6板; 13.24;  09:30:31; -2.0%; 2; 礼品+腾讯+电商
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月03日: 002397.SZ; 梦洁股份; 0;  09:30:00; 3天3板; 3.87;  09:30:00; 1.6%; 3; 微盟合作+床上用品+电子商务+三胎
+2026-01-23 18:59:16,026 - [MainThread] INFO - 2025年01月06日: 605208.SH; 永茂泰; 0;  09:33:00; 2天2板; 12.94;  09:33:00; -6.2%; 2; 回购+一体化压铸+有色铝+减速器
+2026-01-23 18:59:16,026 - [MainThread] INFO - 行 3:
+2026-01-23 18:59:16,026 - [MainThread] INFO - Unnamed: 0: 3
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月02日: 603682.SH; 锦和商管; 0;  09:30:31; 2天2板; 5.49;  09:30:31; 0.4%; 2; 新型城镇化+物业管理+IP合作
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月03日: 605033.SH; 美邦股份; 0;  09:30:15; 2天2板; 16.93;  09:30:15; -1.4%; 2; 农药+西部大开发
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月06日: 002552.SZ; 宝鼎科技; 0;  09:34:30; 2天2板; 13.42;  09:34:30; -1.6%; 2; 覆铜板+电子铜箔+黄金+国企
+2026-01-23 18:59:16,027 - [MainThread] INFO - 行 4:
+2026-01-23 18:59:16,027 - [MainThread] INFO - Unnamed: 0: 4
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月02日: 600693.SH; 东百集团; 2;  09:33:16; 6天6板; 6.7;  09:31:31; -6.3%; 6; 零售+免税店+跨境电商
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月03日: 002449.SZ; 国星光电; 1;  09:48:59; 11天6板; 8.81;  09:30:00; -2.1%; 1; AR眼镜+LED封装+广东国资
+2026-01-23 18:59:16,027 - [MainThread] INFO - 2025年01月06日: 002418.SZ; 康盛股份; 0;  09:39:08; 3天2板; 3.37;  09:39:08; 0.3%; 1; 液冷服务器+BBU+股权转让+制冷管路
+2026-01-23 18:59:16,034 - [MainThread] INFO - 处理后的数据: 1245行，包含60个日期列
+2026-01-23 18:59:16,273 - [MainThread] INFO - 成功读取首板数据sheet，共有127行，259列
+2026-01-23 18:59:16,282 - [MainThread] INFO - 处理后的首板数据: 2851行，包含60个日期列
+2026-01-23 18:59:16,289 - [MainThread] INFO - 加载首板数据完成，共有1685只股票
+2026-01-23 18:59:16,395 - [MainThread] INFO - 成功读取炸板数据sheet，共有62行，259列
+2026-01-23 18:59:16,399 - [MainThread] INFO - 成功加载炸板数据，共有1647条记录
+2026-01-23 18:59:16,400 - [MainThread] INFO - 加载炸板数据完成，共有1647条记录
+2026-01-23 18:59:16,400 - [MainThread] INFO - 启用关注度榜入选条件，加载关注度榜数据...
+2026-01-23 18:59:16,665 - [MainThread] INFO - 成功读取关注度榜sheet，共有20行，259
+2026-01-23 18:59:16,667 - [MainThread] INFO - 关注度榜中2025年10月30日列的前5条数据:
+2026-01-23 18:59:16,667 - [MainThread] INFO - 0: 300308.SZ; 中际旭创; 514.74; -1.1%; 1130843.5; 1
+2026-01-23 18:59:16,667 - [MainThread] INFO - 分割后的部分(6个): ['300308.SZ', ' 中际旭创', ' 514.74', ' -1.1%', ' 1130843.5', ' 1']
+2026-01-23 18:59:16,667 - [MainThread] INFO - 1: 000592.SZ; 平潭发展; 6.44; 6.6%; 734370.5; 2
+2026-01-23 18:59:16,667 - [MainThread] INFO - 分割后的部分(6个): ['000592.SZ', ' 平潭发展', ' 6.44', ' 6.6%', ' 734370.5', ' 2']
+2026-01-23 18:59:16,667 - [MainThread] INFO - 2: 603686.SH; 福龙马; 28.13; 10.0%; 613306.0; 3
+2026-01-23 18:59:16,667 - [MainThread] INFO - 分割后的部分(6个): ['603686.SH', ' 福龙马', ' 28.13', ' 10.0%', ' 613306.0', ' 3']
+2026-01-23 18:59:16,667 - [MainThread] INFO - 3: 002402.SZ; 和而泰; 56.31; 1.4%; 517215.5; 4
+2026-01-23 18:59:16,667 - [MainThread] INFO - 分割后的部分(6个): ['002402.SZ', ' 和而泰', ' 56.31', ' 1.4%', ' 517215.5', ' 4']
+2026-01-23 18:59:16,667 - [MainThread] INFO - 4: 002050.SZ; 三花智控; 51.22; -3.3%; 449386.5; 5
+2026-01-23 18:59:16,667 - [MainThread] INFO - 分割后的部分(6个): ['002050.SZ', ' 三花智控', ' 51.22', ' -3.3%', ' 449386.5', ' 5']
+2026-01-23 18:59:16,670 - [MainThread] INFO - 处理后的关注度榜数据: 1200行
+2026-01-23 18:59:19,233 - [MainThread] INFO - 成功读取非主关注度榜sheet，共有2251行，259
+2026-01-23 18:59:19,234 - [MainThread] INFO - 非主关注度榜中2025年10月30日列的前5条数据:
+2026-01-23 18:59:19,234 - [MainThread] INFO - 0: 300308.SZ; 中际旭创; 514.74; -1.1%; 1130843.5; 1
+2026-01-23 18:59:19,234 - [MainThread] INFO - 分割后的部分(6个): ['300308.SZ', ' 中际旭创', ' 514.74', ' -1.1%', ' 1130843.5', ' 1']
+2026-01-23 18:59:19,234 - [MainThread] INFO - 1: 300502.SZ; 新易盛; 374; -7.9%; 231119.0; 24
+2026-01-23 18:59:19,234 - [MainThread] INFO - 分割后的部分(6个): ['300502.SZ', ' 新易盛', ' 374', ' -7.9%', ' 231119.0', ' 24']
+2026-01-23 18:59:19,234 - [MainThread] INFO - 2: 300438.SZ; 鹏辉能源; 48.59; 20.0%; 227500.0; 25
+2026-01-23 18:59:19,235 - [MainThread] INFO - 分割后的部分(6个): ['300438.SZ', ' 鹏辉能源', ' 48.59', ' 20.0%', ' 227500.0', ' 25']
+2026-01-23 18:59:19,235 - [MainThread] INFO - 3: 300274.SZ; 阳光电源; 194.68; 1.7%; 187810.5; 33
+2026-01-23 18:59:19,235 - [MainThread] INFO - 分割后的部分(6个): ['300274.SZ', ' 阳光电源', ' 194.68', ' 1.7%', ' 187810.5', ' 33']
+2026-01-23 18:59:19,235 - [MainThread] INFO - 4: 688027.SH; 国盾量子; 599; 17.2%; 175639.5; 37
+2026-01-23 18:59:19,235 - [MainThread] INFO - 分割后的部分(6个): ['688027.SH', ' 国盾量子', ' 599', ' 17.2%', ' 175639.5', ' 37']
+2026-01-23 18:59:19,268 - [MainThread] INFO - 处理后的非主关注度榜数据: 1200行
+2026-01-23 18:59:19,269 - [MainThread] INFO - 成功加载关注度榜数据：主板 1200条，非主板 1200条
+2026-01-23 18:59:19,269 - [MainThread] INFO - 启用【默默上涨】数据，加载【默默上涨】数据...
+2026-01-23 18:59:19,301 - [MainThread] INFO - 成功读取【默默上涨】数据sheet，共有38行，93列
+2026-01-23 18:59:19,301 - [MainThread] INFO - 【默默上涨】数据过滤后的日期列: ['2025年10月27日', '2025年10月28日', '2025年10月29日', '2025年10月30日', '2025年10月31日', '2025年11月03日', '2025年11月04日', '2025年11月05日', '2025年11月06日', '2025年11月07日', '2025年11月10日', '2025年11月11日', '2025年11月12日', '2025年11月13日', '2025年11月14日', '2025年11月17日', '2025年11月18日', '2025年11月19日', '2025年11月20日', '2025年11月24日', '2025年11月25日', '2025年11月26日', '2025年11月27日', '2025年11月28日', '2025年12月01日', '2025年12月02日', '2025年12月03日', '2025年12月04日', '2025年12月05日', '2025年12月08日', '2025年12月09日', '2025年12月10日', '2025年12月11日', '2025年12月12日', '2025年12月15日', '2025年12月16日', '2025年12月17日', '2025年12月18日', '2025年12月19日', '2025年12月22日', '2025年12月23日', '2025年12月24日', '2025年12月25日', '2025年12月26日', '2025年12月29日', '2025年12月30日', '2025年12月31日', '2026年01月05日', '2026年01月06日', '2026年01月07日', '2026年01月08日', '2026年01月09日', '2026年01月12日', '2026年01月13日', '2026年01月14日', '2026年01月15日', '2026年01月16日', '2026年01月19日', '2026年01月20日', '2026年01月21日', '2026年01月22日', '2026年01月23日']
+2026-01-23 18:59:19,304 - [MainThread] INFO - 处理后的【默默上涨】数据: 667行，包含62个日期列
+2026-01-23 18:59:19,305 - [MainThread] INFO - 去重后的【默默上涨】数据: 131行
+2026-01-23 18:59:19,305 - [MainThread] INFO - 加载【默默上涨】数据完成，共有131只股票
+2026-01-23 18:59:19,305 - [MainThread] INFO - 检查连板数据：
+2026-01-23 18:59:19,310 - [MainThread] INFO - 股票: 深中华A (000017.SZ)
+2026-01-23 18:59:19,310 - [MainThread] INFO - 2025年11月20日: 2.0
+2026-01-23 18:59:19,310 - [MainThread] INFO - 2025年11月21日: 3.0
+2026-01-23 18:59:19,313 - [MainThread] INFO - 股票: 华联控股 (000036.SZ)
+2026-01-23 18:59:19,313 - [MainThread] INFO - 2025年12月23日: 2.0
+2026-01-23 18:59:19,313 - [MainThread] INFO - 2025年12月24日: 3.0
+2026-01-23 18:59:19,313 - [MainThread] INFO - 2025年12月26日: 4.0
+2026-01-23 18:59:19,314 - [MainThread] INFO - 2026年01月22日: 2.0
+2026-01-23 18:59:19,317 - [MainThread] INFO - 股票: 京基智农 (000048.SZ)
+2026-01-23 18:59:19,317 - [MainThread] INFO - 2026年01月21日: 2.0
+2026-01-23 18:59:19,320 - [MainThread] INFO - 股票: 农产品 (000061.SZ)
+2026-01-23 18:59:19,320 - [MainThread] INFO - 2025年11月12日: 2.0
+2026-01-23 18:59:19,323 - [MainThread] INFO - 股票: 华侨城A (000069.SZ)
+2026-01-23 18:59:19,323 - [MainThread] INFO - 2025年11月11日: 2.0
+2026-01-23 18:59:19,326 - [MainThread] INFO - 股票: 特发信息 (000070.SZ)
+2026-01-23 18:59:19,326 - [MainThread] INFO - 2025年11月24日: 2.0
+2026-01-23 18:59:19,326 - [MainThread] INFO - 2025年11月25日: 3.0
+2026-01-23 18:59:19,326 - [MainThread] INFO - 2025年11月26日: 4.0
+2026-01-23 18:59:19,329 - [MainThread] INFO - 股票: 海王生物 (000078.SZ)
+2026-01-23 18:59:19,329 - [MainThread] INFO - 2025年11月27日: 2.0
+2026-01-23 18:59:19,329 - [MainThread] INFO - 2025年11月28日: 3.0
+2026-01-23 18:59:19,330 - [MainThread] INFO - 2025年12月01日: 4.0
+2026-01-23 18:59:19,330 - [MainThread] INFO - 2025年12月02日: 5.0
+2026-01-23 18:59:19,330 - [MainThread] INFO - 2025年12月03日: 6.0
+2026-01-23 18:59:19,330 - [MainThread] INFO - 2025年12月05日: 7.0
+2026-01-23 18:59:19,330 - [MainThread] INFO - 2026年01月14日: 2.0
+2026-01-23 18:59:19,333 - [MainThread] INFO - 股票: 胜利股份 (000407.SZ)
+2026-01-23 18:59:19,333 - [MainThread] INFO - 2025年11月12日: 2.0
+2026-01-23 18:59:19,333 - [MainThread] INFO - 2025年11月13日: 3.0
+2026-01-23 18:59:19,333 - [MainThread] INFO - 2025年11月14日: 4.0
+2026-01-23 18:59:19,333 - [MainThread] INFO - 2025年11月17日: 5.0
+2026-01-23 18:59:19,333 - [MainThread] INFO - 2025年11月18日: 6.0
+2026-01-23 18:59:19,336 - [MainThread] INFO - 股票: 国新健康 (000503.SZ)
+2026-01-23 18:59:19,336 - [MainThread] INFO - 2026年01月12日: 2.0
+2026-01-23 18:59:19,339 - [MainThread] INFO - 股票: 招金黄金 (000506.SZ)
+2026-01-23 18:59:19,339 - [MainThread] INFO - 2026年01月21日: 2.0
+2026-01-23 18:59:26,912 - [MainThread] INFO - ✓ 加载关注度榜数据：最近3日前15名，共60只股票
+2026-01-23 18:59:26,912 - [MainThread] INFO - 处理连板数据，共有511只股票
+2026-01-23 18:59:28,492 - [MainThread] INFO - 处理首板数据，共有1685只股票
+2026-01-23 18:59:29,868 - [MainThread] INFO - 找到869只达到显著连板的股票
+2026-01-23 18:59:32,288 - [MainThread] INFO - 已更新默认模式工作表: 涨停梯队202510
+2026-01-23 18:59:33,364 - [MainThread] INFO - 开始批量加载601只股票的数据...
+2026-01-23 18:59:33,964 - [MainThread] INFO - 数据加载进度: 100/601
+2026-01-23 18:59:34,562 - [MainThread] INFO - 数据加载进度: 200/601
+2026-01-23 18:59:35,162 - [MainThread] INFO - 数据加载进度: 300/601
+2026-01-23 18:59:35,798 - [MainThread] INFO - 数据加载进度: 400/601
+2026-01-23 18:59:36,453 - [MainThread] INFO - 数据加载进度: 500/601
+2026-01-23 18:59:37,101 - [MainThread] INFO - 数据加载进度: 600/601
+2026-01-23 18:59:37,105 - [MainThread] INFO - 开始计算869只股票的新高标记...
+2026-01-23 18:59:37,106 - [MainThread] INFO - 新高标记计算进度: 0/869
+2026-01-23 18:59:38,262 - [MainThread] INFO - 新高标记计算进度: 100/869
+2026-01-23 18:59:39,416 - [MainThread] INFO - 新高标记计算进度: 200/869
+2026-01-23 18:59:40,570 - [MainThread] INFO - 新高标记计算进度: 300/869
+2026-01-23 18:59:41,732 - [MainThread] INFO - 新高标记计算进度: 400/869
+2026-01-23 18:59:42,906 - [MainThread] INFO - 新高标记计算进度: 500/869
+2026-01-23 18:59:44,056 - [MainThread] INFO - 新高标记计算进度: 600/869
+2026-01-23 18:59:45,448 - [MainThread] INFO - 新高标记计算进度: 700/869
+2026-01-23 18:59:46,602 - [MainThread] INFO - 新高标记计算进度: 800/869
+2026-01-23 18:59:47,445 - [MainThread] INFO - 新高标记计算完成，共找到510只股票有新高标记
+2026-01-23 18:59:47,478 - [MainThread] INFO - 成功加载main指数数据，共8570条记录
+2026-01-23 18:59:47,483 - [MainThread] INFO - 成功加载gem指数数据，共3802条记录
+2026-01-23 18:59:47,486 - [MainThread] INFO - 成功加载star指数数据，共1470条记录
+2026-01-23 18:59:47,488 - [MainThread] INFO - 成功加载bse指数数据，共907条记录
+2026-01-23 18:59:47,488 - [MainThread] INFO - 异动检测器初始化成功
+2026-01-23 19:01:23,570 - [MainThread] INFO - 已更新默认模式工作表: 涨停梯队202510_概念分组
+2026-01-23 19:01:23,591 - [MainThread] INFO - 【默默上涨】301181.SZ: 跌幅-37.73%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,612 - [MainThread] INFO - 【默默上涨】688622.SH: 跌幅-37.78%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,680 - [MainThread] INFO - 【默默上涨】301358.SZ: 跌幅-27.54%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,685 - [MainThread] INFO - 【默默上涨】301349.SZ: 跌幅-30.72%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,689 - [MainThread] INFO - 【默默上涨】301152.SZ: 跌幅-30.96%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,701 - [MainThread] INFO - 【默默上涨】688109.SH: 跌幅-37.76%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,744 - [MainThread] INFO - 【默默上涨】300736.SZ: 跌幅-31.02%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,749 - [MainThread] INFO - 【默默上涨】688313.SH: 跌幅-27.25%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:23,923 - [MainThread] INFO - 【默默上涨】300455.SZ: 跌幅-28.75%超过阈值-25.0%，停止跟踪
+2026-01-23 19:01:24,564 - [MainThread] INFO - 【默默上涨】最终入选股票数量: 113
+2026-01-23 19:01:24,565 - [MainThread] INFO - 按概念分组工作表合并【默默上涨】数据后总股票数量: 982
+2026-01-23 19:01:24,565 - [MainThread] INFO - 填充按概念分组的工作表内容
+2026-01-23 19:01:27,233 - [MainThread] INFO - 成功加载main指数数据，共8570条记录
+2026-01-23 19:01:27,240 - [MainThread] INFO - 成功加载gem指数数据，共3802条记录
+2026-01-23 19:01:27,244 - [MainThread] INFO - 成功加载star指数数据，共1470条记录
+2026-01-23 19:01:27,246 - [MainThread] INFO - 成功加载bse指数数据，共907条记录
+2026-01-23 19:01:27,246 - [MainThread] INFO - 按概念分组工作表：异动检测器初始化成功
+2026-01-23 19:02:31,662 - [MainThread] INFO - 已更新成交量涨跌幅分析工作表: 涨停梯队202510_概念分组_成交量
+2026-01-23 19:02:31,673 - [MainThread] INFO - 创建成交量版本的按概念分组工作表: 涨停梯队202510_概念分组_成交量
+2026-01-23 19:02:31,673 - [MainThread] INFO - 填充成交量版本的按概念分组工作表内容
+2026-01-23 19:02:32,385 - [MainThread] INFO - 按概念分组排序后的股票数量: 705
+2026-01-23 19:02:33,194 - [MainThread] INFO - 计算成交量变化动态阈值...
+2026-01-23 19:02:47,186 - [MainThread] INFO - 动态阈值计算完成，将对30%的数据上色
+2026-01-23 19:02:47,186 - [MainThread] INFO - 放量阈值: {'extreme_positive': 1.310896038731578, 'strong_positive': 0.7716626498641777, 'moderate_positive': 0.5296516847756381, 'mild_positive': 0.38435069071888406, 'extreme_negative': -0.4601133112741653, 'strong_negative': -0.40010097706423475, 'moderate_negative': -0.36206141968478767, 'mild_negative': -0.3325393166333692}
+2026-01-23 19:03:09,126 - [MainThread] INFO - 同步工作表 '涨停梯队202510_概念分组' 和 '涨停梯队202510_概念分组_成交量' 的单元格格式...
+2026-01-23 19:03:09,131 - [MainThread] INFO - 在现有工作簿中创建新的龙头股工作表: 龙头0123
+2026-01-23 19:03:09,131 - [MainThread] INFO - 开始创建龙头股工作表内容
+2026-01-23 19:03:09,131 - [MainThread] INFO - 开始从概念分组中筛选龙头股...
+2026-01-23 19:03:10,383 - [MainThread] INFO - 第一步：计算所有股票的最后连板日期...
+2026-01-23 19:03:10,405 - [MainThread] INFO - 第二步：统计各概念组活跃度...
+2026-01-23 19:03:10,408 - [MainThread] INFO - 概念组 AI应用: 总计64只股票, 活跃48只
+2026-01-23 19:03:10,408 - [MainThread] INFO - 概念组 专用设备: 总计3只股票, 活跃2只
+2026-01-23 19:03:10,408 - [MainThread] INFO - 概念组 中美对抗: 总计4只股票, 活跃0只
+2026-01-23 19:03:10,409 - [MainThread] INFO - 概念组 低空经济: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,409 - [MainThread] INFO - 概念组 光伏: 总计7只股票, 活跃3只
+2026-01-23 19:03:10,410 - [MainThread] INFO - 概念组 全球布局: 总计9只股票, 活跃5只
+2026-01-23 19:03:10,410 - [MainThread] INFO - 概念组 军工: 总计6只股票, 活跃3只
+2026-01-23 19:03:10,410 - [MainThread] INFO - 概念组 农业: 总计3只股票, 活跃2只
+2026-01-23 19:03:10,411 - [MainThread] INFO - 概念组 创新药: 总计23只股票, 活跃5只
+2026-01-23 19:03:10,412 - [MainThread] INFO - 概念组 化工: 总计7只股票, 活跃4只
+2026-01-23 19:03:10,412 - [MainThread] INFO - 概念组 华为概念: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,414 - [MainThread] INFO - 概念组 商业航天: 总计94只股票, 活跃56只
+2026-01-23 19:03:10,415 - [MainThread] INFO - 概念组 国企: 总计14只股票, 活跃6只
+2026-01-23 19:03:10,415 - [MainThread] INFO - 概念组 培育钻石: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,416 - [MainThread] INFO - 概念组 大基建: 总计29只股票, 活跃13只
+2026-01-23 19:03:10,417 - [MainThread] INFO - 概念组 大消费: 总计47只股票, 活跃17只
+2026-01-23 19:03:10,418 - [MainThread] INFO - 概念组 数字经济: 总计5只股票, 活跃1只
+2026-01-23 19:03:10,418 - [MainThread] INFO - 概念组 文化传媒: 总计6只股票, 活跃4只
+2026-01-23 19:03:10,418 - [MainThread] INFO - 概念组 新型材料: 总计8只股票, 活跃3只
+2026-01-23 19:03:10,418 - [MainThread] INFO - 概念组 旅游: 总计3只股票, 活跃1只
+2026-01-23 19:03:10,419 - [MainThread] INFO - 概念组 无人经济: 总计10只股票, 活跃2只
+2026-01-23 19:03:10,419 - [MainThread] INFO - 概念组 未分类_IC洁净室: 总计1只股票, 活跃1只
+2026-01-23 19:03:10,419 - [MainThread] INFO - 概念组 未分类_万科境内债大涨: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_住宅装饰: 总计1只股票, 活跃1只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_内衣龙头: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_日用餐厨具: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_智慧专网: 总计1只股票, 活跃1只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_服装: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,420 - [MainThread] INFO - 概念组 未分类_物业管理: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,421 - [MainThread] INFO - 概念组 未分类_物联网: 总计1只股票, 活跃1只
+2026-01-23 19:03:10,421 - [MainThread] INFO - 概念组 未分类_羽绒产品: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,421 - [MainThread] INFO - 概念组 未分类_退市整理期: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,421 - [MainThread] INFO - 概念组 未分类_铬盐龙头: 总计1只股票, 活跃1只
+2026-01-23 19:03:10,422 - [MainThread] INFO - 概念组 机器人: 总计36只股票, 活跃11只
+2026-01-23 19:03:10,423 - [MainThread] INFO - 概念组 核聚变: 总计16只股票, 活跃7只
+2026-01-23 19:03:10,423 - [MainThread] INFO - 概念组 汽车工业: 总计6只股票, 活跃3只
+2026-01-23 19:03:10,424 - [MainThread] INFO - 概念组 海峡两岸: 总计19只股票, 活跃1只
+2026-01-23 19:03:10,424 - [MainThread] INFO - 概念组 深地经济: 总计7只股票, 活跃3只
+2026-01-23 19:03:10,425 - [MainThread] INFO - 概念组 环保: 总计4只股票, 活跃1只
+2026-01-23 19:03:10,425 - [MainThread] INFO - 概念组 电力: 总计12只股票, 活跃11只
+2026-01-23 19:03:10,427 - [MainThread] INFO - 概念组 电池储能: 总计51只股票, 活跃14只
+2026-01-23 19:03:10,429 - [MainThread] INFO - 概念组 算力产业: 总计58只股票, 活跃28只
+2026-01-23 19:03:10,429 - [MainThread] INFO - 概念组 脑机接口: 总计10只股票, 活跃1只
+2026-01-23 19:03:10,430 - [MainThread] INFO - 概念组 自贸区: 总计11只股票, 活跃3只
+2026-01-23 19:03:10,430 - [MainThread] INFO - 概念组 贵金属: 总计7只股票, 活跃6只
+2026-01-23 19:03:10,430 - [MainThread] INFO - 概念组 量子科技: 总计1只股票, 活跃0只
+2026-01-23 19:03:10,431 - [MainThread] INFO - 概念组 预期改善: 总计6只股票, 活跃4只
+2026-01-23 19:03:10,431 - [MainThread] INFO - 跳过特殊概念组: 默默上涨
+2026-01-23 19:03:10,431 - [MainThread] INFO - 第三步：根据活跃度分配龙头名额...
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第1: 商业航天 (活跃56只) -> 分配5个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第2: AI应用 (活跃48只) -> 分配4个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第3: 算力产业 (活跃28只) -> 分配4个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第4: 大消费 (活跃17只) -> 分配3个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第5: 电池储能 (活跃14只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第6: 大基建 (活跃13只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第7: 机器人 (活跃11只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第8: 电力 (活跃11只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第9: 核聚变 (活跃7只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第10: 国企 (活跃6只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第11: 贵金属 (活跃6只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第12: 全球布局 (活跃5只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第13: 创新药 (活跃5只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第14: 化工 (活跃4只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第15: 文化传媒 (活跃4只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第16: 预期改善 (活跃4只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第17: 光伏 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第18: 军工 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第19: 新型材料 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第20: 汽车工业 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第21: 深地经济 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第22: 自贸区 (活跃3只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第23: 专用设备 (活跃2只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第24: 农业 (活跃2只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第25: 无人经济 (活跃2只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第26: 数字经济 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第27: 旅游 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第28: 未分类_IC洁净室 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,431 - [MainThread] INFO - 排名第29: 未分类_住宅装饰 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第30: 未分类_智慧专网 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第31: 未分类_物联网 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第32: 未分类_铬盐龙头 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第33: 海峡两岸 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第34: 环保 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第35: 脑机接口 (活跃1只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第36: 中美对抗 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第37: 低空经济 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第38: 华为概念 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第39: 培育钻石 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第40: 未分类_万科境内债大涨 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第41: 未分类_内衣龙头 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第42: 未分类_日用餐厨具 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第43: 未分类_服装 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第44: 未分类_物业管理 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第45: 未分类_羽绒产品 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第46: 未分类_退市整理期 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 排名第47: 量子科技 (活跃0只) -> 分配1个龙头名额
+2026-01-23 19:03:10,432 - [MainThread] INFO - 第四步：筛选龙头股 (候选范围: 仅活跃股)...
+2026-01-23 19:03:10,434 - [MainThread] INFO - 处理概念组: AI应用 (总计64只, 活跃48只, 名额4)
+2026-01-23 19:03:10,441 - [MainThread] INFO - 概念组 AI应用 有6只符合条件的股票
+2026-01-23 19:03:10,442 - [MainThread] INFO - 处理概念组: 专用设备 (总计3只, 活跃2只, 名额1)
+2026-01-23 19:03:10,445 - [MainThread] INFO - 概念组 专用设备 有2只符合条件的股票
+2026-01-23 19:03:10,446 - [MainThread] INFO - 处理概念组: 中美对抗 (总计4只, 活跃0只, 名额1)
+2026-01-23 19:03:10,447 - [MainThread] INFO - 概念组 中美对抗 无符合条件的股票
+2026-01-23 19:03:10,448 - [MainThread] INFO - 处理概念组: 低空经济 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,448 - [MainThread] INFO - 概念组 低空经济 无符合条件的股票
+2026-01-23 19:03:10,449 - [MainThread] INFO - 处理概念组: 光伏 (总计7只, 活跃3只, 名额1)
+2026-01-23 19:03:10,451 - [MainThread] INFO - 概念组 光伏 有2只符合条件的股票
+2026-01-23 19:03:10,452 - [MainThread] INFO - 处理概念组: 全球布局 (总计9只, 活跃5只, 名额1)
+2026-01-23 19:03:10,454 - [MainThread] INFO - 概念组 全球布局 有1只符合条件的股票
+2026-01-23 19:03:10,455 - [MainThread] INFO - 处理概念组: 军工 (总计6只, 活跃3只, 名额1)
+2026-01-23 19:03:10,457 - [MainThread] INFO - 概念组 军工 有1只符合条件的股票
+2026-01-23 19:03:10,458 - [MainThread] INFO - 处理概念组: 农业 (总计3只, 活跃2只, 名额1)
+2026-01-23 19:03:10,459 - [MainThread] INFO - 概念组 农业 无符合条件的股票
+2026-01-23 19:03:10,460 - [MainThread] INFO - 处理概念组: 创新药 (总计23只, 活跃5只, 名额1)
+2026-01-23 19:03:10,461 - [MainThread] INFO - 概念组 创新药 无符合条件的股票
+2026-01-23 19:03:10,462 - [MainThread] INFO - 处理概念组: 化工 (总计7只, 活跃4只, 名额1)
+2026-01-23 19:03:10,463 - [MainThread] INFO - 概念组 化工 有1只符合条件的股票
+2026-01-23 19:03:10,464 - [MainThread] INFO - 处理概念组: 华为概念 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,465 - [MainThread] INFO - 概念组 华为概念 无符合条件的股票
+2026-01-23 19:03:10,467 - [MainThread] INFO - 处理概念组: 商业航天 (总计94只, 活跃56只, 名额5)
+2026-01-23 19:03:10,471 - [MainThread] INFO - 概念组 商业航天 有12只符合条件的股票
+2026-01-23 19:03:10,472 - [MainThread] INFO - 处理概念组: 国企 (总计14只, 活跃6只, 名额1)
+2026-01-23 19:03:10,475 - [MainThread] INFO - 概念组 国企 有1只符合条件的股票
+2026-01-23 19:03:10,475 - [MainThread] INFO - 处理概念组: 培育钻石 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,476 - [MainThread] INFO - 概念组 培育钻石 无符合条件的股票
+2026-01-23 19:03:10,477 - [MainThread] INFO - 处理概念组: 大基建 (总计29只, 活跃13只, 名额1)
+2026-01-23 19:03:10,480 - [MainThread] INFO - 概念组 大基建 有3只符合条件的股票
+2026-01-23 19:03:10,482 - [MainThread] INFO - 处理概念组: 大消费 (总计47只, 活跃17只, 名额3)
+2026-01-23 19:03:10,485 - [MainThread] INFO - 概念组 大消费 有2只符合条件的股票
+2026-01-23 19:03:10,486 - [MainThread] INFO - 处理概念组: 数字经济 (总计5只, 活跃1只, 名额1)
+2026-01-23 19:03:10,487 - [MainThread] INFO - 概念组 数字经济 无符合条件的股票
+2026-01-23 19:03:10,487 - [MainThread] INFO - 处理概念组: 文化传媒 (总计6只, 活跃4只, 名额1)
+2026-01-23 19:03:10,488 - [MainThread] INFO - 概念组 文化传媒 无符合条件的股票
+2026-01-23 19:03:10,489 - [MainThread] INFO - 处理概念组: 新型材料 (总计8只, 活跃3只, 名额1)
+2026-01-23 19:03:10,491 - [MainThread] INFO - 概念组 新型材料 有1只符合条件的股票
+2026-01-23 19:03:10,492 - [MainThread] INFO - 处理概念组: 旅游 (总计3只, 活跃1只, 名额1)
+2026-01-23 19:03:10,493 - [MainThread] INFO - 概念组 旅游 无符合条件的股票
+2026-01-23 19:03:10,493 - [MainThread] INFO - 处理概念组: 无人经济 (总计10只, 活跃2只, 名额1)
+2026-01-23 19:03:10,495 - [MainThread] INFO - 概念组 无人经济 有1只符合条件的股票
+2026-01-23 19:03:10,496 - [MainThread] INFO - 处理概念组: 未分类_IC洁净室 (总计1只, 活跃1只, 名额1)
+2026-01-23 19:03:10,498 - [MainThread] INFO - 概念组 未分类_IC洁净室 有1只符合条件的股票
+2026-01-23 19:03:10,499 - [MainThread] INFO - 处理概念组: 未分类_万科境内债大涨 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,499 - [MainThread] INFO - 概念组 未分类_万科境内债大涨 无符合条件的股票
+2026-01-23 19:03:10,500 - [MainThread] INFO - 处理概念组: 未分类_住宅装饰 (总计1只, 活跃1只, 名额1)
+2026-01-23 19:03:10,501 - [MainThread] INFO - 概念组 未分类_住宅装饰 无符合条件的股票
+2026-01-23 19:03:10,501 - [MainThread] INFO - 处理概念组: 未分类_内衣龙头 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,502 - [MainThread] INFO - 概念组 未分类_内衣龙头 无符合条件的股票
+2026-01-23 19:03:10,503 - [MainThread] INFO - 处理概念组: 未分类_日用餐厨具 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,503 - [MainThread] INFO - 概念组 未分类_日用餐厨具 无符合条件的股票
+2026-01-23 19:03:10,504 - [MainThread] INFO - 处理概念组: 未分类_智慧专网 (总计1只, 活跃1只, 名额1)
+2026-01-23 19:03:10,505 - [MainThread] INFO - 概念组 未分类_智慧专网 无符合条件的股票
+2026-01-23 19:03:10,505 - [MainThread] INFO - 处理概念组: 未分类_服装 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,506 - [MainThread] INFO - 概念组 未分类_服装 无符合条件的股票
+2026-01-23 19:03:10,507 - [MainThread] INFO - 处理概念组: 未分类_物业管理 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,507 - [MainThread] INFO - 概念组 未分类_物业管理 无符合条件的股票
+2026-01-23 19:03:10,508 - [MainThread] INFO - 处理概念组: 未分类_物联网 (总计1只, 活跃1只, 名额1)
+2026-01-23 19:03:10,509 - [MainThread] INFO - 概念组 未分类_物联网 无符合条件的股票
+2026-01-23 19:03:10,509 - [MainThread] INFO - 处理概念组: 未分类_羽绒产品 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,510 - [MainThread] INFO - 概念组 未分类_羽绒产品 无符合条件的股票
+2026-01-23 19:03:10,511 - [MainThread] INFO - 处理概念组: 未分类_退市整理期 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,511 - [MainThread] INFO - 概念组 未分类_退市整理期 无符合条件的股票
+2026-01-23 19:03:10,512 - [MainThread] INFO - 处理概念组: 未分类_铬盐龙头 (总计1只, 活跃1只, 名额1)
+2026-01-23 19:03:10,512 - [MainThread] INFO - 概念组 未分类_铬盐龙头 无符合条件的股票
+2026-01-23 19:03:10,513 - [MainThread] INFO - 处理概念组: 机器人 (总计36只, 活跃11只, 名额1)
+2026-01-23 19:03:10,516 - [MainThread] INFO - 概念组 机器人 有3只符合条件的股票
+2026-01-23 19:03:10,517 - [MainThread] INFO - 处理概念组: 核聚变 (总计16只, 活跃7只, 名额1)
+2026-01-23 19:03:10,518 - [MainThread] INFO - 概念组 核聚变 无符合条件的股票
+2026-01-23 19:03:10,519 - [MainThread] INFO - 处理概念组: 汽车工业 (总计6只, 活跃3只, 名额1)
+2026-01-23 19:03:10,521 - [MainThread] INFO - 概念组 汽车工业 有1只符合条件的股票
+2026-01-23 19:03:10,522 - [MainThread] INFO - 处理概念组: 海峡两岸 (总计19只, 活跃1只, 名额1)
+2026-01-23 19:03:10,523 - [MainThread] INFO - 概念组 海峡两岸 无符合条件的股票
+2026-01-23 19:03:10,524 - [MainThread] INFO - 处理概念组: 深地经济 (总计7只, 活跃3只, 名额1)
+2026-01-23 19:03:10,525 - [MainThread] INFO - 概念组 深地经济 无符合条件的股票
+2026-01-23 19:03:10,526 - [MainThread] INFO - 处理概念组: 环保 (总计4只, 活跃1只, 名额1)
+2026-01-23 19:03:10,527 - [MainThread] INFO - 概念组 环保 无符合条件的股票
+2026-01-23 19:03:10,528 - [MainThread] INFO - 处理概念组: 电力 (总计12只, 活跃11只, 名额1)
+2026-01-23 19:03:10,535 - [MainThread] INFO - 概念组 电力 有5只符合条件的股票
+2026-01-23 19:03:10,536 - [MainThread] INFO - 处理概念组: 电池储能 (总计51只, 活跃14只, 名额1)
+2026-01-23 19:03:10,539 - [MainThread] INFO - 概念组 电池储能 有2只符合条件的股票
+2026-01-23 19:03:10,541 - [MainThread] INFO - 处理概念组: 算力产业 (总计58只, 活跃28只, 名额4)
+2026-01-23 19:03:10,550 - [MainThread] INFO - 概念组 算力产业 有8只符合条件的股票
+2026-01-23 19:03:10,551 - [MainThread] INFO - 处理概念组: 脑机接口 (总计10只, 活跃1只, 名额1)
+2026-01-23 19:03:10,552 - [MainThread] INFO - 概念组 脑机接口 无符合条件的股票
+2026-01-23 19:03:10,553 - [MainThread] INFO - 处理概念组: 自贸区 (总计11只, 活跃3只, 名额1)
+2026-01-23 19:03:10,554 - [MainThread] INFO - 概念组 自贸区 有1只符合条件的股票
+2026-01-23 19:03:10,555 - [MainThread] INFO - 处理概念组: 贵金属 (总计7只, 活跃6只, 名额1)
+2026-01-23 19:03:10,559 - [MainThread] INFO - 概念组 贵金属 有3只符合条件的股票
+2026-01-23 19:03:10,560 - [MainThread] INFO - 处理概念组: 量子科技 (总计1只, 活跃0只, 名额1)
+2026-01-23 19:03:10,561 - [MainThread] INFO - 概念组 量子科技 无符合条件的股票
+2026-01-23 19:03:10,561 - [MainThread] INFO - 处理概念组: 预期改善 (总计6只, 活跃4只, 名额1)
+2026-01-23 19:03:10,562 - [MainThread] INFO - 概念组 预期改善 有1只符合条件的股票
+2026-01-23 19:03:10,563 - [MainThread] INFO - 筛选完成: 处理了47个概念组，21个概念组有符合条件的股票
+2026-01-23 19:03:10,563 - [MainThread] INFO - 从概念组 AI应用 按名额选出4只龙头股
+2026-01-23 19:03:10,563 - [MainThread] INFO - 从概念组 专用设备 按名额选出1只龙头股
+2026-01-23 19:03:10,563 - [MainThread] INFO - 从概念组 光伏 按名额选出1只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 全球布局 按名额选出1只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 军工 按名额选出1只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 化工 按名额选出1只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 商业航天 按名额选出5只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 国企 按名额选出1只龙头股
+2026-01-23 19:03:10,564 - [MainThread] INFO - 从概念组 大基建 按名额选出1只龙头股
+2026-01-23 19:03:10,565 - [MainThread] INFO - 从概念组 大消费 按名额选出2只龙头股
+2026-01-23 19:03:10,565 - [MainThread] INFO - 从概念组 新型材料 按名额选出1只龙头股
+2026-01-23 19:03:10,565 - [MainThread] INFO - 从概念组 无人经济 按名额选出1只龙头股
+2026-01-23 19:03:10,565 - [MainThread] INFO - 从概念组 未分类_IC洁净室 按名额选出1只龙头股
+2026-01-23 19:03:10,565 - [MainThread] INFO - 从概念组 机器人 按名额选出1只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 汽车工业 按名额选出1只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 电力 按名额选出1只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 电池储能 按名额选出1只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 算力产业 按名额选出4只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 自贸区 按名额选出1只龙头股
+2026-01-23 19:03:10,566 - [MainThread] INFO - 从概念组 贵金属 按名额选出1只龙头股
+2026-01-23 19:03:10,567 - [MainThread] INFO - 从概念组 预期改善 按名额选出1只龙头股
+2026-01-23 19:03:10,567 - [MainThread] INFO - 第五步：分离大龙股（长周期涨幅>=120.0%，不占用名额）...
+2026-01-23 19:03:10,579 - [MainThread] INFO - 从所有符合条件的股票中发现16只大龙股（不占用名额）
+2026-01-23 19:03:10,580 - [MainThread] INFO - 发现16只大龙股，从名额中移除
+2026-01-23 19:03:10,580 - [MainThread] INFO - 第六步：补充名额（从已筛选的符合条件的股票中补充，跳过超过阈值的股票）...
+2026-01-23 19:03:10,580 - [MainThread] INFO - 概念组 AI应用 补充1只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,581 - [MainThread] INFO - 概念组 商业航天 补充5只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,582 - [MainThread] INFO - 概念组 大消费 无剩余符合条件的股票可补充（需补充1只）
+2026-01-23 19:03:10,582 - [MainThread] INFO - 概念组 无人经济 无剩余符合条件的股票可补充（需补充1只）
+2026-01-23 19:03:10,582 - [MainThread] INFO - 概念组 机器人 补充1只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,583 - [MainThread] INFO - 概念组 电池储能 补充1只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,583 - [MainThread] INFO - 概念组 算力产业 补充1只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,584 - [MainThread] INFO - 概念组 贵金属 补充1只龙头股（跳过超过阈值的股票）
+2026-01-23 19:03:10,585 - [MainThread] INFO - 概念组 预期改善 无剩余符合条件的股票可补充（需补充1只）
+2026-01-23 19:03:10,586 - [MainThread] INFO - 龙头股筛选完成: 普通龙头股29只，大龙股16只（不占用名额）
+2026-01-23 19:03:10,586 - [MainThread] INFO - 成功筛选出普通龙头股29只，大龙股16只，开始填充工作表内容
+2026-01-23 19:03:11,332 - [MainThread] INFO - 成功加载main指数数据，共8570条记录
+2026-01-23 19:03:11,336 - [MainThread] INFO - 成功加载gem指数数据，共3802条记录
+2026-01-23 19:03:11,339 - [MainThread] INFO - 成功加载star指数数据，共1470条记录
+2026-01-23 19:03:11,340 - [MainThread] INFO - 成功加载bse指数数据，共907条记录
+2026-01-23 19:03:11,340 - [MainThread] INFO - 异动检测器初始化成功
+2026-01-23 19:03:13,802 - [MainThread] INFO - 成功加载main指数数据，共8570条记录
+2026-01-23 19:03:13,806 - [MainThread] INFO - 成功加载gem指数数据，共3802条记录
+2026-01-23 19:03:13,808 - [MainThread] INFO - 成功加载star指数数据，共1470条记录
+2026-01-23 19:03:13,810 - [MainThread] INFO - 成功加载bse指数数据，共907条记录
+2026-01-23 19:03:13,810 - [MainThread] INFO - 异动检测器初始化成功
+2026-01-23 19:03:14,879 - [MainThread] INFO - 龙头股工作表内容创建完成
+2026-01-23 19:03:14,879 - [MainThread] INFO - 开始归档 1 个龙头工作表到: ./excel\ladder_analysis_龙头归档.xlsx
+2026-01-23 19:03:15,874 - [MainThread] INFO - 加载已有归档文件: ./excel\ladder_analysis_龙头归档.xlsx
+2026-01-23 19:03:16,123 - [MainThread] INFO - 已归档工作表: 龙头0120 (日期: 2026-01-20)
+2026-01-23 19:03:17,040 - [MainThread] INFO - 成功归档 1 个工作表到: ./excel\ladder_analysis_龙头归档.xlsx
+2026-01-23 19:03:17,040 - [MainThread] INFO - 已删除旧的龙头工作表: 龙头0120
+2026-01-23 19:03:17,040 - [MainThread] INFO - 检查历史龙头工作表: 龙头0122 (日期: 2026-01-22)
+2026-01-23 19:03:17,041 - [MainThread] INFO - 为 龙头0122 回填 1 天的数据...
+2026-01-23 19:03:17,268 - [MainThread] INFO - 检查历史龙头工作表: 龙头0121 (日期: 2026-01-21)
+2026-01-23 19:03:17,269 - [MainThread] INFO - 为 龙头0121 回填 1 天的数据...
+2026-01-23 19:03:17,312 - [MainThread] INFO - 开始创建指数数据工作表...
+2026-01-23 19:03:17,497 - [MainThread] INFO - 成功加载指数数据: 北证50
+2026-01-23 19:03:19,174 - [MainThread] INFO - 成功加载指数数据: 上证指数
+2026-01-23 19:03:19,460 - [MainThread] INFO - 成功加载指数数据: 科创50
+2026-01-23 19:03:20,450 - [MainThread] INFO - 成功加载指数数据: 中证500
+2026-01-23 19:03:22,077 - [MainThread] INFO - 成功加载指数数据: 深证成指
+2026-01-23 19:03:22,817 - [MainThread] INFO - 成功加载指数数据: 创业板指
+2026-01-23 19:03:23,398 - [MainThread] INFO - 成功加载指数数据: 大盘高贝
+2026-01-23 19:03:23,970 - [MainThread] INFO - 成功加载指数数据: 小盘高贝
+2026-01-23 19:03:23,970 - [MainThread] INFO - 总共加载了 8 个指数的数据
+2026-01-23 19:03:23,970 - [MainThread] INFO - 指数工作表 指数数据 已存在，将进行增量更新
+2026-01-23 19:03:24,071 - [MainThread] INFO - 成功创建指数工作表: 指数数据，包含 8 个指数
+2026-01-23 19:03:24,072 - [MainThread] INFO - 开始进行原因分析...
+2026-01-23 19:03:24,072 - [MainThread] INFO - 从原始连板数据中分析原因...
+2026-01-23 19:03:24,339 - [MainThread] INFO - 成功读取原始数据: 连板数据(63, 259), 首板数据(127, 259)
+2026-01-23 19:03:24,340 - [MainThread] INFO - 应用日期范围过滤 (20251030 到 20260123)，历史日期列: 60个
+2026-01-23 19:03:24,340 - [MainThread] INFO - 应用日期范围过滤，分析日期列: 60个
+2026-01-23 19:03:24,391 - [MainThread] INFO - 原因数据处理完成，共处理60个日期的数据
+2026-01-23 19:03:24,637 - [MainThread] INFO - === 题材概念分析结果 ===
+2026-01-23 19:03:24,638 - [MainThread] INFO - 热门概念 Top 30:
+2026-01-23 19:03:24,638 - [MainThread] INFO - 1. 商业航天: 522次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 2. 海峡两岸: 323次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 3. 央企: 289次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 4. 三季报增长: 268次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 5. 国企改革: 201次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 6. 人形机器人: 158次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 7. 机器人: 158次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 8. 固态电池: 155次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 9. 储能: 120次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 10. 可控核聚变: 113次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 11. 回购: 112次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 12. 国企: 102次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 13. 创新药: 87次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 14. AI智能体: 84次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 15. 存储芯片: 76次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 16. 脑机接口: 75次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 17. 控制权变更: 67次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 18. 军工: 62次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 19. 三季报扭亏: 58次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 20. 核电: 57次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 21. AI应用: 56次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 22. 一带一路: 56次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 23. 低空经济: 54次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 24. 海南自贸区: 54次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 25. 电网设备: 54次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 26. 房地产: 53次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 27. 扭亏: 50次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 28. 跨境电商: 49次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 29. 数据中心: 48次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 30. 光伏: 44次
+2026-01-23 19:03:24,638 - [MainThread] INFO - 新概念 (最近5天出现):
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 上海国资入主: 4次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 芯片材料: 4次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 金价新高: 3次 (首次: 2026年01月21日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 半导体分销: 3次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 数字人: 3次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - AI PCB: 2次 (首次: 2026年01月22日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 配售H股: 2次 (首次: 2026年01月22日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 芯片设计: 2次 (首次: 2026年01月21日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 丝杠送样: 2次 (首次: 2026年01月21日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 冷成形龙头: 2次 (首次: 2026年01月21日)
+2026-01-23 19:03:24,638 - [MainThread] INFO - - 比亚迪概念: 2次 (首次: 2026年01月21日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 长江发动机: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 饮料灌装: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 聚乳酸: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 储能布局: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 拟取得汇博机器人控制权: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 硬泡聚醚: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 平煤神马入主: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 河南国资重组: 2次 (首次: 2026年01月20日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 电力柜: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 离合器龙头: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 注销回购: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 氨纶扩产: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 生物质长丝龙头: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 聚碳酸酯（PC）: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:24,639 - [MainThread] INFO - - 柔性传感器: 2次 (首次: 2026年01月19日)
+2026-01-23 19:03:25,209 - [MainThread] INFO - 开始应用行折叠：【涨停梯队202510_概念分组】需要折叠 328 行
+2026-01-23 19:03:25,209 - [MainThread] INFO - 已折叠【涨停梯队202510_概念分组】的 328 行
+2026-01-23 19:03:25,210 - [MainThread] INFO - 已折叠【涨停梯队202510_概念分组_成交量】的 328 行（复用概念分组的折叠索引）
+2026-01-23 19:03:26,145 - [MainThread] INFO - 梯队形态涨停复盘图已生成: ./excel/ladder_analysis.xlsx
+2026-01-23 19:03:26,145 - [MainThread] INFO - 📊 均线斜率统计信息 (基于741个样本):
+2026-01-23 19:03:26,145 - [MainThread] INFO - 最小值: -5.2848%
+2026-01-23 19:03:26,145 - [MainThread] INFO - 最大值: 11.2512%
+2026-01-23 19:03:26,145 - [MainThread] INFO - 平均值: 0.7940%
+2026-01-23 19:03:26,145 - [MainThread] INFO - 当前阈值: ±2.00% (绝对值小于此值不显示标记)
+2026-01-23 19:03:26,145 - [MainThread] INFO - 预估显示标记比例: 75.8%
+2026-01-23 19:03:26,145 - [MainThread] INFO - 💡 建议：如果希望过滤更多噪音，可增大MA_SLOPE_THRESHOLD_PCT值
+2026-01-23 19:03:26,146 - [MainThread] INFO - Function build_ladder_chart took 250.22 seconds to run.
+2026-01-23 19:03:26,156 - [MainThread] INFO - ============================================================
+2026-01-23 19:03:26,156 - [MainThread] INFO - 开始从Excel文件提取股票代码: ./excel/ladder_analysis.xlsx
+2026-01-23 19:03:28,128 - [MainThread] INFO - 找到主sheet: 涨停梯队202510
+2026-01-23 19:03:28,132 - [MainThread] INFO - 找到概念分组sheet: 涨停梯队202510_概念分组
+2026-01-23 19:03:28,135 - [MainThread] INFO - 找到【默默上涨】分组，开始提取...
+2026-01-23 19:03:28,136 - [MainThread] INFO - ✓ 成功提取并写入 705 只股票代码到: bin/candidate_temp/candidate_stocks.txt
+2026-01-23 19:03:28,136 - [MainThread] INFO - - 从【涨停梯队】提取: 869 只
+2026-01-23 19:03:28,136 - [MainThread] INFO - - 从【默默上涨】提取: 104 只
+2026-01-23 19:03:28,136 - [MainThread] INFO - - 去重: 268 只重复股票（重复入选或同时出现在多个分组）
+2026-01-23 19:03:28,136 - [MainThread] INFO - → 最终不重复股票数量: 705 只
+2026-01-23 19:03:28,136 - [MainThread] INFO - ============================================================
+2026-01-23 19:03:28,136 - [MainThread] INFO - === 步骤4: 生成热门股天梯完成 (耗时: 252.21秒) ===
+2026-01-23 19:03:28,136 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:03:28,136 - [MainThread] INFO - === 步骤5: 开始绘制涨跌高度图 ===
+2026-01-23 19:03:28,137 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:03:28,137 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:03:30,281 - [MainThread] INFO - 图表已保存到: images/fupan_lb_from_20251201.png
+2026-01-23 19:03:30,283 - [MainThread] INFO - === 步骤5: 绘制涨跌高度图完成 (耗时: 2.15秒) ===
+2026-01-23 19:03:30,283 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:03:30,283 - [MainThread] INFO - === 步骤6: 开始生成涨跌高度html ===
+2026-01-23 19:03:30,283 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:03:30,283 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:03:40,989 - [MainThread] INFO - ✓ 加载关注度榜数据：分析周期内共76个交易日有关注度榜数据
+2026-01-23 19:03:57,717 - [MainThread] INFO - ✅ 已注入点击复制功能
+2026-01-23 19:03:57,718 - [MainThread] INFO - HTML图表已保存到: images/fupan_lb_from_20250930.html
+2026-01-23 19:03:57,720 - [MainThread] INFO - === 步骤6: 生成涨跌高度html完成 (耗时: 27.44秒) ===
+2026-01-23 19:03:57,721 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:03:57,721 - [MainThread] INFO - === 步骤7: 开始默默上涨生成html走势图 ===
+2026-01-23 19:03:57,721 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:03:57,721 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:03:57,762 - [MainThread] INFO - 加载【默默上涨】股票: 共 90 只（去重后，真实入选日在最近20个交易日内）
+2026-01-23 19:03:57,762 - [MainThread] INFO - 开始生成HTML图表，共 90 只股票，布局: 2列...
+2026-01-23 19:04:05,153 - [MainThread] INFO - HTML图表生成完成，共 90 个图表，保存在: ./images/html_charts\momo_shangzhang_charts_2cols.html
+2026-01-23 19:04:05,154 - [MainThread] INFO - === 步骤7: 默默上涨生成html走势图完成 (耗时: 7.43秒) ===
+2026-01-23 19:04:05,154 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:04:05,154 - [MainThread] INFO - === 步骤8: 开始生成统计数据 ===
+2026-01-23 19:04:05,154 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:04:05,154 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:04:05,389 - [MainThread] INFO - 需要分析的日期: ['20260123']
+2026-01-23 19:04:05,808 - [MainThread] INFO - 大盘统计数据:
+2026-01-23 19:04:05,813 - [MainThread] INFO - 日期  上涨家数  下跌家数  平盘家数  ...  涨幅超过7%家数  跌幅超过7%家数  涨幅超过9%家数  跌幅超过9%家数
+2026-01-23 19:04:05,813 - [MainThread] INFO - 0  20260123  3941  1390   136  ...       276         9       180         1
+2026-01-23 19:04:05,813 - [MainThread] INFO - [1 rows x 10 columns]
+2026-01-23 19:04:05,813 - [MainThread] INFO - API兜底已关闭，使用多线程处理本地数据
+2026-01-23 19:04:05,814 - [ThreadPoolExecutor-0_0] INFO - 尝试从本地Excel获取 20260122 的涨停数据...
+2026-01-23 19:04:06,106 - [ThreadPoolExecutor-0_0] INFO - 成功从本地Excel获取到 73 条涨停数据
+2026-01-23 19:04:06,677 - [ThreadPoolExecutor-0_0] INFO - 尝试从本地Excel获取 20260122 的连板数据...
+2026-01-23 19:04:06,677 - [MainThread] INFO - 尝试从本地Excel获取 20260122 的连板数据...
+2026-01-23 19:04:06,677 - [MainThread] INFO - 20260122 涨停股票次日表现:
+2026-01-23 19:04:06,677 - [MainThread] INFO - 样本数量: 73只
+2026-01-23 19:04:06,678 - [ThreadPoolExecutor-0_0] INFO - 样本数量: 73只
+2026-01-23 19:04:06,678 - [MainThread] INFO - 次日开入开盘涨比: 98.63%
+2026-01-23 19:04:06,678 - [ThreadPoolExecutor-0_0] INFO - 成功从本地Excel获取到 23 条连板数据
+2026-01-23 19:04:06,678 - [MainThread] INFO - 次日开入收盘涨比: 95.89%
+2026-01-23 19:04:06,678 - [MainThread] INFO - 次日收入收盘涨比: 57.53%
+2026-01-23 19:04:06,679 - [MainThread] INFO - 次日高入收盘涨比: 57.53%
+2026-01-23 19:04:06,867 - [ThreadPoolExecutor-0_0] INFO - 尝试从本地Excel获取 20260122 的跌停数据...
+2026-01-23 19:04:06,867 - [MainThread] INFO - 尝试从本地Excel获取 20260122 的跌停数据...
+2026-01-23 19:04:06,867 - [MainThread] INFO - 20260122 连板股票次日表现:
+2026-01-23 19:04:06,868 - [MainThread] INFO - 样本数量: 23只
+2026-01-23 19:04:06,868 - [MainThread] INFO - 次日开入开盘涨比: 95.65%
+2026-01-23 19:04:06,868 - [MainThread] INFO - 次日开入收盘涨比: 86.96%
+2026-01-23 19:04:06,868 - [MainThread] INFO - 次日收入收盘涨比: 56.52%
+2026-01-23 19:04:06,868 - [MainThread] INFO - 次日高入收盘涨比: 56.52%
+2026-01-23 19:04:07,116 - [ThreadPoolExecutor-0_0] INFO - 成功从本地Excel获取到 2 条跌停数据
+2026-01-23 19:04:07,134 - [ThreadPoolExecutor-0_0] INFO - 尝试从本地Excel获取 20260122 的炸板数据...
+2026-01-23 19:04:07,134 - [MainThread] INFO - 尝试从本地Excel获取 20260122 的炸板数据...
+2026-01-23 19:04:07,134 - [MainThread] INFO - 20260122 跌停股票次日表现:
+2026-01-23 19:04:07,134 - [MainThread] INFO - 样本数量: 2只
+2026-01-23 19:04:07,134 - [MainThread] INFO - 次日开入开盘涨比: 0.0%
+2026-01-23 19:04:07,134 - [MainThread] INFO - 次日开入收盘涨比: 0.0%
+2026-01-23 19:04:07,134 - [MainThread] INFO - 次日收入收盘涨比: 0.0%
+2026-01-23 19:04:07,134 - [MainThread] INFO - 次日高入收盘涨比: 0.0%
+2026-01-23 19:04:07,244 - [ThreadPoolExecutor-0_0] INFO - 成功从本地Excel获取到 27 条炸板数据
+2026-01-23 19:04:07,461 - [MainThread] INFO - 20260122 炸板股票次日表现:
+2026-01-23 19:04:07,461 - [MainThread] INFO - 样本数量: 27只
+2026-01-23 19:04:07,461 - [MainThread] INFO - 次日开入开盘涨比: 85.19%
+2026-01-23 19:04:07,461 - [MainThread] INFO - 次日开入收盘涨比: 85.19%
+2026-01-23 19:04:07,461 - [MainThread] INFO - 次日收入收盘涨比: 59.26%
+2026-01-23 19:04:07,461 - [MainThread] INFO - 次日高入收盘涨比: 25.93%
+2026-01-23 19:04:08,251 - [MainThread] INFO - 在sheet '跌停数据' 的 2026年01月23日 列中没有数据
+2026-01-23 19:04:08,622 - [MainThread] INFO - 数据已保存到 ./excel/market_analysis.xlsx
+2026-01-23 19:04:08,623 - [MainThread] INFO - Function fupan_all_statistics took 3.47 seconds to run.
+2026-01-23 19:04:08,623 - [MainThread] INFO - === 步骤8: 生成统计数据完成 (耗时: 3.47秒) ===
+2026-01-23 19:04:08,623 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:04:08,623 - [MainThread] INFO - === 步骤9: 开始生成统计图表 ===
+2026-01-23 19:04:08,623 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:04:08,623 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:04:10,471 - [MainThread] INFO - 警告：涨停板数据为空，跳过热力图绘制
+2026-01-23 19:04:10,917 - [MainThread] INFO - === 步骤9: 生成统计图表完成 (耗时: 2.29秒) ===
+2026-01-23 19:04:10,918 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:04:10,918 - [MainThread] INFO - === 步骤10: 开始生成热门概念词云 ===
+2026-01-23 19:04:10,918 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:04:10,918 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:04:10,918 - [MainThread] INFO - 正在处理日期: 20260123
+2026-01-23 19:04:20,371 - [MainThread] INFO - 概念词云图已保存: images/wordcloud/hot/20260123_concept.png
+2026-01-23 19:04:20,371 - [MainThread] INFO - 最新概念词云图已更新: images/hot_concept.png
+2026-01-23 19:04:20,371 - [MainThread] INFO - === 步骤10: 生成热门概念词云完成 (耗时: 9.45秒) ===
+2026-01-23 19:04:20,371 - [MainThread] INFO - 步骤完成后活跃线程数: 1
+2026-01-23 19:04:20,371 - [MainThread] INFO - === 步骤11: 开始爆量分歧转一致筛选 ===
+2026-01-23 19:04:20,371 - [MainThread] INFO - 当前主线程: MainThread
+2026-01-23 19:04:20,371 - [MainThread] INFO - 当前活跃线程数: 1
+2026-01-23 19:04:20,376 - [MainThread] INFO - end_date 未指定，自动设为最近交易日: 20260123
+2026-01-23 19:04:20,377 - [MainThread] INFO - 爆量分歧转一致分析器初始化完成，输出目录: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123
+2026-01-23 19:04:20,377 - [MainThread] INFO - ============================================================
+2026-01-23 19:04:20,377 - [MainThread] INFO - 开始爆量分歧转一致分析
+2026-01-23 19:04:20,377 - [MainThread] INFO - 日期范围: 20260110 - 20260123
+2026-01-23 19:04:20,377 - [MainThread] INFO - ============================================================
+2026-01-23 19:04:20,377 - [MainThread] INFO - 正在加载连板数据: ./excel/fupan_stocks.xlsx
+2026-01-23 19:04:21,269 - [MainThread] INFO - 连板数据加载成功，共 63 行
+2026-01-23 19:04:21,269 - [MainThread] INFO - 首板数据加载成功，共 127 行
+2026-01-23 19:04:21,269 - [MainThread] INFO - 筛选出 10 个日期列
+2026-01-23 19:04:21,269 - [MainThread] INFO - 开始筛选爆量分歧转一致形态...
+2026-01-23 19:04:21,281 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:21,283 - [MainThread] INFO - 候选池中共有 71 只连板股
+2026-01-23 19:04:21,755 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:21,757 - [MainThread] INFO - 候选池中共有 88 只连板股
+2026-01-23 19:04:22,021 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,024 - [MainThread] INFO - 候选池中共有 98 只连板股
+2026-01-23 19:04:22,311 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,313 - [MainThread] INFO - 候选池中共有 105 只连板股
+2026-01-23 19:04:22,457 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,460 - [MainThread] INFO - 候选池中共有 122 只连板股
+2026-01-23 19:04:22,579 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,581 - [MainThread] INFO - 候选池中共有 129 只连板股
+2026-01-23 19:04:22,801 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,804 - [MainThread] INFO - 候选池中共有 137 只连板股
+2026-01-23 19:04:22,951 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:22,953 - [MainThread] INFO - 候选池中共有 150 只连板股
+2026-01-23 19:04:23,095 - [MainThread] INFO - 构建连板股候选池...
+2026-01-23 19:04:23,097 - [MainThread] INFO - 候选池中共有 158 只连板股
+2026-01-23 19:04:23,331 - [MainThread] INFO - 筛选完成，符合条件的形态: 33 个
+2026-01-23 19:04:23,331 - [MainThread] INFO - 合并重叠信号: 33 -> 28 个图表
+2026-01-23 19:04:23,331 - [MainThread] INFO - 跳过图表生成（generate_charts=False），共 28 只股票
+2026-01-23 19:04:23,342 - [MainThread] INFO - 汇总报告已生成: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123\summary.csv
+2026-01-23 19:04:23,343 - [MainThread] INFO - 简要报告已生成: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123\summary_simple.txt
+2026-01-23 19:04:23,343 - [MainThread] INFO - ============================================================
+2026-01-23 19:04:23,343 - [MainThread] INFO - 爆量分歧转一致分析完成！
+2026-01-23 19:04:23,343 - [MainThread] INFO - 共分析 28 只股票
+2026-01-23 19:04:23,344 - [MainThread] INFO - 图表保存在: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123
+2026-01-23 19:04:23,344 - [MainThread] INFO - 汇总报告: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123\summary.csv
+2026-01-23 19:04:23,344 - [MainThread] INFO - 简要报告: ./analysis/pattern_charts\爆量分歧转一致\20260110_20260123\summary_simple.txt
+2026-01-23 19:04:23,344 - [MainThread] INFO - ============================================================
+2026-01-23 19:04:23,344 - [MainThread] INFO - 📊 开始生成HTML交互式图表...
+2026-01-23 19:04:23,345 - [MainThread] INFO - 开始生成HTML图表，共 28 只股票，布局: 2列...
+2026-01-23 19:04:24,572 - [MainThread] INFO - HTML图表生成完成，共 28 个图表，保存在: ./images/html_charts\volume_surge_charts_2cols.html
+2026-01-23 19:04:24,572 - [MainThread] INFO - ✅ HTML图表生成完成！
+2026-01-23 19:04:24,572 - [MainThread] INFO - 📁 HTML图表保存在: ./images/html_charts\volume_surge_charts_2cols.html
+2026-01-23 19:04:24,573 - [MainThread] INFO - === 步骤11: 爆量分歧转一致筛选完成 (耗时: 4.20秒) ===
+2026-01-23 19:04:24,573 - [MainThread] INFO - 步骤完成后活跃线程数: 2
+2026-01-23 19:04:24,573 - [MainThread] INFO - === daily_routine全部完成 (总耗时: 738.07秒) ===

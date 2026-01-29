@@ -349,10 +349,10 @@ def strategy_scan(candidate_model='a'):
         '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
-    start_date = '20251215'
+    start_date = '20251220'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20251230'  # 只看这个日期之后的
+    details_after_date = '20260110'  # 只看这个日期之后的
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
