@@ -31,6 +31,7 @@ from analysis.erban_longtou_analyzer import analyze_erban_longtou
 from fetch.astock_concept import fetch_and_save_stock_concept
 from fetch.astock_data import StockDataFetcher
 from fetch.astock_data_minutes import fetch_and_save_stock_data
+from fetch.etf_data import ETFDataFetcher
 from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
     find_top_yyb_trades
@@ -704,6 +705,115 @@ def get_stock_datas():
     else:
         # 使用历史数据接口获取数据（原有逻辑）
         data_fetcher.fetch_and_save_data()
+
+
+def get_etf_datas(etf_list, start_date=None, end_date=None):
+    """
+    获取A股ETF数据并保存到data/etfs/文件夹
+    
+    :param etf_list: ETF代码列表（必须传入）
+    :param start_date: 起始日期，格式为'YYYYMMDD'，不传则获取最近一个交易日
+    :param end_date: 结束日期，格式为'YYYYMMDD'，默认为None表示当前日期
+    """
+    if not etf_list:
+        logging.error("请提供有效的ETF代码列表")
+        return
+    
+    # 如果不指定起始日期，则只获取最近一个交易日（使用前一个交易日到今天）
+    if start_date is None:
+        from utils.date_util import get_latest_trade_date
+        start_date = get_latest_trade_date()
+    
+    # 创建ETF数据获取对象
+    etf_fetcher = ETFDataFetcher(
+        start_date=start_date,
+        end_date=end_date,
+        save_path='./data/etfs',
+        max_workers=8,
+        force_update=False,
+        max_sleep_time=2000
+    )
+    
+    # 获取并保存数据
+    etf_fetcher.fetch_and_save_data(etf_list)
+
+
+def permanent_portfolio_backtest():
+    """
+    永久投资组合回测
+
+    资产结构：3只ETF（各25%）+ 现金（25%），共4类等权配置。
+    现金按银行活期利率（cash_annual_rate）按自然日计息。
+
+    调整参数：
+        etf_codes        - ETF 代码列表（N 只），加上现金共 N+1 类资产等权
+        initial_capital  - 初始资金（元）
+        start_date       - 建仓日期
+        end_date         - 终止日期（None 表示至今）
+        rebalance_freq   - 再平衡频率：'monthly' / 'quarterly' / 'yearly'
+        cash_annual_rate - 现金年化利率，默认 0.0005（0.05% 活期利率）
+        risk_free_rate   - 无风险年化利率（用于夏普比率），默认 0
+        transaction_cost - ETF 单边交易成本比例，默认 0（忽略手续费）
+    """
+    from analysis.permanent_portfolio import PermanentPortfolio, save_report
+
+    etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
+    end_date = '20250201'  # None 表示使用本地数据的最新日期
+
+    portfolio = PermanentPortfolio(
+        etf_codes=etf_codes,
+        initial_capital=1_000_000,
+        start_date='20210201',
+        end_date=end_date or datetime.now().strftime('%Y%m%d'),
+        rebalance_freq='yearly',
+        cash_annual_rate=0.0005,    # 0.05% 银行活期利率
+        risk_free_rate=0.0,
+        transaction_cost=0.0,
+    )
+
+    result = portfolio.backtest()
+    report = portfolio.generate_backtest_report(result)
+
+    # 打印报告
+    print(report)
+
+    # 保存报告到文件
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = save_report(report, 'analysis/permanent_portfolio_reports', f'backtest_{ts}')
+    print(f'\n📄 报告已保存至: {path}')
+
+
+def permanent_portfolio_track():
+    """
+    永久投资组合跟踪模式
+
+    基于本地最新 ETF 数据，输出当前持仓状况与再平衡操作建议（含现金调整）。
+    """
+    from analysis.permanent_portfolio import PermanentPortfolio, save_report
+
+    etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
+
+    portfolio = PermanentPortfolio(
+        etf_codes=etf_codes,
+        initial_capital=1_000_000,
+        start_date='20200103',
+        end_date=datetime.now().strftime('%Y%m%d'),
+        rebalance_freq='yearly',
+        cash_annual_rate=0.0005,    # 0.05% 银行活期利率
+        risk_free_rate=0.0,
+        transaction_cost=0.0,
+    )
+
+    result = portfolio.track()
+    report = portfolio.generate_track_report(result)
+
+    # 打印报告
+    print(report)
+
+    # 保存报告到文件
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    path = save_report(report, 'analysis/permanent_portfolio_reports', f'track_{ts}')
+    print(f'\n📄 报告已保存至: {path}')
 
 
 def get_stock_minute_datas():
@@ -1462,8 +1572,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    strategy_scan('a')
-    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # strategy_scan('a')
+    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
@@ -1520,6 +1630,15 @@ if __name__ == '__main__':
     # generate_fupan_candidates()  # 从复盘数据提取热门股候选（可反复运行）
     # batch_backtest_from_stock_list()  # 从文件读取股票列表进行批量回测
     # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
+
+    # === ETF数据获取 ===
+    # etf_codes = ['510300', '511010', '518880']  # 沪深300ETF、国债ETF、黄金ETF
+    # get_etf_datas(etf_codes)  # 获取最近一个交易日数据
+    # get_etf_datas(etf_codes, start_date='20150101', end_date='20260215')  # 获取指定日期范围数据
+
+    # === 永久投资组合 ===
+    permanent_portfolio_backtest()  # 回测，输出 Markdown 报告
+    # permanent_portfolio_track()     # 跟踪，查看当前持仓与操作建议
 
     # === 参数优化功能 ===
     # 1. 生成配置模板
