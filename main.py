@@ -1451,7 +1451,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1462,8 +1462,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    # strategy_scan('a')
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    strategy_scan('a')
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
