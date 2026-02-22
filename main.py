@@ -738,6 +738,12 @@ def get_etf_datas(etf_list, start_date=None, end_date=None):
     etf_fetcher.fetch_and_save_data(etf_list)
 
 
+def get_pe_data():
+    """获取并本地化沪深300 PE历史数据（乐咕乐股，2005年至今）"""
+    from fetch.pe_data import fetch_and_save_csi300_pe
+    fetch_and_save_csi300_pe()
+
+
 def permanent_portfolio_backtest():
     """
     永久投资组合回测
@@ -746,29 +752,46 @@ def permanent_portfolio_backtest():
     现金按银行活期利率（cash_annual_rate）按自然日计息。
 
     调整参数：
-        etf_codes        - ETF 代码列表（N 只），加上现金共 N+1 类资产等权
-        initial_capital  - 初始资金（元）
-        start_date       - 建仓日期
-        end_date         - 终止日期（None 表示至今）
-        rebalance_freq   - 再平衡频率：'monthly' / 'quarterly' / 'yearly'
-        cash_annual_rate - 现金年化利率，默认 0.0005（0.05% 活期利率）
-        risk_free_rate   - 无风险年化利率（用于夏普比率），默认 0
-        transaction_cost - ETF 单边交易成本比例，默认 0（忽略手续费）
+        etf_codes            - ETF 代码列表，顺序：股票ETF / 黄金ETF / 国债ETF
+        initial_capital      - 初始资金（元）
+        start_date           - 建仓日期
+        end_date             - 终止日期（None 表示至今）
+        rebalance_freq       - 再平衡频率：'monthly' / 'quarterly' / 'yearly'
+        cash_annual_rate     - 现金年化利率，默认 0.0005（0.05% 活期利率）
+        risk_free_rate       - 无风险年化利率（用于夏普比率），默认 0
+        transaction_cost     - ETF 单边交易成本比例，默认 0（忽略手续费）
+        dynamic_cash_switch  - True=开启PE估值动态调仓，False=原等权策略
+        valuation_calc_mode  - PE分位模式：'full_history'=全历史 / 'rolling'=滚动10年
     """
-    from analysis.permanent_portfolio import PermanentPortfolio, save_report
+    from analysis.permanent_portfolio import DynamicCashPortfolio, PermanentPortfolio, save_report
 
     etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
-    end_date = '20210201'  # None 表示使用本地数据的最新日期
+    end_date = '20260201'  # None 表示使用本地数据的最新日期
 
-    portfolio = PermanentPortfolio(
+    # ── 选择策略类型 ──────────────────────────────────────
+    # 方案A：原等权策略（dynamic_cash_switch=False）
+    # portfolio = PermanentPortfolio(
+    #     etf_codes=etf_codes,
+    #     initial_capital=1_000_000,
+    #     start_date='20150201',
+    #     end_date=end_date or datetime.now().strftime('%Y%m%d'),
+    #     rebalance_freq='monthly',
+    #     cash_annual_rate=0.0005,
+    # )
+
+    # 方案B：动态现金策略（开启PE估值调仓，自动与等权策略对比）
+    # 首次运行前请确保已执行 get_pe_data() 下载 PE 历史数据
+    portfolio = DynamicCashPortfolio(
         etf_codes=etf_codes,
         initial_capital=1_000_000,
-        start_date='20150201',
+        start_date='20180601',
         end_date=end_date or datetime.now().strftime('%Y%m%d'),
         rebalance_freq='monthly',
         cash_annual_rate=0.0005,    # 0.05% 银行活期利率
         risk_free_rate=0.0,
         transaction_cost=0.0,
+        dynamic_cash_switch=True,           # 开启动态现金
+        valuation_calc_mode='rolling',      # 'full_history' 或 'rolling'（滚动10年）
     )
 
     result = portfolio.backtest()
@@ -1650,7 +1673,8 @@ if __name__ == '__main__':
     # get_etf_datas(etf_codes, start_date='20150101', end_date='20260215')  # 获取指定日期范围数据
 
     # === 永久投资组合 ===
-    permanent_portfolio_backtest()  # 回测，输出 Markdown 报告
+    # get_pe_data()   # 下载沪深300历史PE数据到 data/pe/000300_pe.csv
+    permanent_portfolio_backtest()  # 回测，输出 Markdown 报告（支持动态现金策略）
     # permanent_portfolio_track()     # 跟踪，查看当前持仓与操作建议
 
     # === 参数优化功能 ===

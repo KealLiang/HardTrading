@@ -720,6 +720,605 @@ class PermanentPortfolio:
 # 报告保存工具
 # ─────────────────────────────────────────────
 
+# ─────────────────────────────────────────────
+# 动态现金比例优化模块（PE估值驱动）
+# ─────────────────────────────────────────────
+
+def _get_period_first_dates(trading_dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """获取每月第一个交易日（用于触发估值分位检查）"""
+    s = pd.Series(trading_dates, index=trading_dates)
+    grouped = s.groupby(s.dt.to_period('M')).first()
+    return pd.DatetimeIndex(grouped.values)
+
+
+def compute_pe_quantile(
+    pe_series: pd.Series,
+    mode: str = 'full_history',
+    window_years: int = 10,
+) -> pd.Series:
+    """
+    计算 PE 历史分位数（无未来函数，以当日为基准向前看）。
+
+    :param pe_series: 以日期为索引的 PE 序列
+    :param mode: 'full_history'=全历史分位 / 'rolling'=滚动N年分位
+    :param window_years: 滚动模式下的窗口年数
+    :return: 与 pe_series 等长的分位数序列（0~1）
+    """
+    if mode == 'full_history':
+        # expanding rank：截至当日历史数据的排名（无未来偏差）
+        quantile = pe_series.expanding().rank(pct=True)
+    elif mode == 'rolling':
+        window = window_years * 252
+        quantile = pe_series.rolling(window, min_periods=252).rank(pct=True)
+    else:
+        raise ValueError(f"不支持的估值分位模式 '{mode}'，可选 full_history / rolling")
+    return quantile
+
+
+def _get_valuation_zone(quantile: float) -> str:
+    """
+    根据 PE 百分位判断估值区间。
+
+    :return: 'low'（低估）/ 'neutral'（中性）/ 'high'（高估）/ 'unknown'（无数据）
+    """
+    if pd.isna(quantile):
+        return 'unknown'
+    if quantile < 0.30:
+        return 'low'
+    if quantile <= 0.70:
+        return 'neutral'
+    return 'high'
+
+
+class DynamicCashPortfolio(PermanentPortfolio):
+    """
+    动态现金比例永久投资组合（PE估值驱动）。
+
+    在 PermanentPortfolio 基础上新增动态调仓逻辑：
+      - 每月第一个交易日检查沪深300 PE 分位
+      - 若分位区间变化（低估/中性/高估），立即调整股票与现金仓位
+      - 债券与黄金始终保持 25% 目标权重不变
+      - 周期末再平衡使用最新目标权重
+
+    仓位规则：
+      ┌─────────────────────┬──────┬──────┬──────┬──────┐
+      │ PE 分位              │ 股票 │ 黄金 │ 国债 │ 现金 │
+      ├─────────────────────┼──────┼──────┼──────┼──────┤
+      │ 0–30%（低估）        │  35% │  25% │  25% │  15% │
+      │ 30–70%（中性）       │  25% │  25% │  25% │  25% │
+      │ 70–100%（高估）      │  15% │  25% │  25% │  35% │
+      └─────────────────────┴──────┴──────┴──────┴──────┘
+
+    注意：
+      - 动态调整「局部再平衡」仅涉及股票和现金（债券/黄金当日市值不变）
+      - 周期末「完整再平衡」对所有资产按最新目标权重执行
+      - 若 PE 数据缺失（回测起点早于 PE 数据），自动使用中性权重（25%）
+    """
+
+    # 三种估值区间对应的股票/现金权重（债券/黄金固定 25%）
+    _ZONE_WEIGHTS = {
+        'low':     {'stock': 0.35, 'cash': 0.15},
+        'neutral': {'stock': 0.25, 'cash': 0.25},
+        'high':    {'stock': 0.15, 'cash': 0.35},
+        'unknown': {'stock': 0.25, 'cash': 0.25},  # 无PE数据时退回等权
+    }
+    _FIXED_WEIGHT = 0.25  # 债券和黄金固定权重
+
+    def __init__(
+        self,
+        etf_codes: List[str],
+        initial_capital: float,
+        start_date: str,
+        end_date: str,
+        rebalance_freq: str = 'yearly',
+        cash_annual_rate: float = 0.0005,
+        risk_free_rate: float = 0.0,
+        transaction_cost: float = 0.0,
+        data_dir: str = ETF_DATA_DIR,
+        # ── 动态现金新增参数 ──
+        dynamic_cash_switch: bool = True,
+        valuation_calc_mode: str = 'rolling',    # 'full_history' 或 'rolling'
+        pe_data_dir: str = './data/pe',
+        stock_etf_code: str = None,              # 股票ETF代码（自动识别，可手动指定）
+    ):
+        """
+        :param dynamic_cash_switch: True=开启动态现金，False=退化为等权策略
+        :param valuation_calc_mode: PE分位模式，'full_history'=全历史 / 'rolling'=滚动10年
+        :param pe_data_dir: PE数据目录
+        :param stock_etf_code: 股票ETF代码（默认从 _ETF_TYPE_LABELS 自动识别）
+        """
+        super().__init__(
+            etf_codes=etf_codes,
+            initial_capital=initial_capital,
+            start_date=start_date,
+            end_date=end_date,
+            rebalance_freq=rebalance_freq,
+            cash_annual_rate=cash_annual_rate,
+            risk_free_rate=risk_free_rate,
+            transaction_cost=transaction_cost,
+            data_dir=data_dir,
+        )
+
+        self.dynamic_cash_switch = dynamic_cash_switch
+        self.valuation_calc_mode = valuation_calc_mode
+        self.pe_data_dir = pe_data_dir
+
+        # ── 识别股票ETF ──
+        if stock_etf_code:
+            if stock_etf_code not in etf_codes:
+                raise ValueError(f"stock_etf_code '{stock_etf_code}' 不在 etf_codes 中")
+            self.stock_code = stock_etf_code
+        else:
+            # 从标签映射中自动查找股票类ETF
+            found = [c for c in etf_codes if _ETF_TYPE_LABELS.get(c) == '股票']
+            if not found:
+                raise ValueError(
+                    "无法自动识别股票ETF，请通过 stock_etf_code 参数手动指定\n"
+                    f"当前 etf_codes: {etf_codes}，已知标签: {_ETF_TYPE_LABELS}"
+                )
+            self.stock_code = found[0]
+
+        # ── 加载并预处理PE数据 ──
+        if dynamic_cash_switch:
+            self._pe_quantiles = self._load_pe_quantiles()
+        else:
+            self._pe_quantiles = None
+
+    def _load_pe_quantiles(self) -> pd.Series:
+        """
+        加载沪深300 PE 数据，计算历史分位数序列。
+        无未来函数：expanding/rolling rank 确保每个时间点只用到过去数据。
+        """
+        from fetch.pe_data import load_csi300_pe
+        pe_df = load_csi300_pe(os.path.join(self.pe_data_dir, '000300_pe.csv'))
+        pe_series = pe_df['PE'].dropna().sort_index()
+
+        quantiles = compute_pe_quantile(pe_series, mode=self.valuation_calc_mode)
+        logging.info(
+            f"PE分位计算完成（{self.valuation_calc_mode}），"
+            f"覆盖 {pe_series.index[0].date()} ~ {pe_series.index[-1].date()}"
+        )
+        return quantiles
+
+    def _get_current_target_weights(self, date: pd.Timestamp) -> dict:
+        """
+        查询指定日期对应的各资产目标权重。
+        非股票/现金资产固定 25%，股票/现金根据 PE 分位动态调整。
+
+        :return: {code: weight} 字典，'现金' 也包含在内
+        """
+        # 默认权重（等权或无PE数据时）
+        default_w = {c: self.target_weight for c in self.etf_codes}
+        default_w['现金'] = self.target_weight
+
+        if not self.dynamic_cash_switch or self._pe_quantiles is None:
+            return default_w
+
+        # 查找当日或最近一个有效PE分位
+        valid = self._pe_quantiles.loc[:date].dropna()
+        if valid.empty:
+            return default_w
+
+        quantile = valid.iloc[-1]
+        zone = _get_valuation_zone(quantile)
+        zone_w = self._ZONE_WEIGHTS[zone]
+
+        weights = {}
+        for code in self.etf_codes:
+            if code == self.stock_code:
+                weights[code] = zone_w['stock']
+            else:
+                weights[code] = self._FIXED_WEIGHT  # 债券/黄金固定25%
+        weights['现金'] = zone_w['cash']
+        return weights
+
+    def _simulate(self):
+        """
+        动态现金版本的核心模拟引擎。
+
+        在原版基础上新增两个触发点：
+          1. 月首检查：若 PE 区间变化 → 立即对股票和现金做局部再平衡
+          2. 周期末再平衡：使用最新目标权重对所有资产完整再平衡
+
+        返回: (daily_df, rebalance_logs, cash_interest_total)
+        """
+        if not self.dynamic_cash_switch:
+            # 关闭开关时，完全复用父类逻辑
+            return super()._simulate()
+
+        prices = self.prices
+        dates = self.trading_dates
+        rebalance_dates = self._get_rebalance_dates()
+        monthly_first_dates = set(_get_period_first_dates(dates))
+
+        # ── 建仓（使用初始目标权重，一般为等权 25%）──
+        first_p = prices.iloc[0]
+        init_weights = self._get_current_target_weights(dates[0])
+
+        # 建仓份额
+        shares = {
+            code: (self.initial_capital * init_weights[code]
+                   / (1 + self.transaction_cost)) / first_p[code]
+            for code in self.etf_codes
+        }
+        cash = self.initial_capital * init_weights['现金']
+        cash_interest_total = 0.0
+
+        # 记录当前估值区间（避免重复调整）
+        first_valid_pe = self._pe_quantiles.loc[:dates[0]].dropna()
+        current_zone = _get_valuation_zone(
+            first_valid_pe.iloc[-1] if not first_valid_pe.empty else float('nan')
+        )
+
+        # 建仓记录
+        init_etf_vals = {code: shares[code] * first_p[code] for code in self.etf_codes}
+        rebalance_logs = [{
+            '日期': dates[0],
+            '操作': '建仓',
+            '总资产': round(sum(init_etf_vals.values()) + cash, 2),
+            '估值区间': current_zone,
+            **{f'{c}_前市值': 0.0 for c in self.etf_codes},
+            '现金_前市值': 0.0,
+            **{f'{c}_后市值': round(init_etf_vals[c], 2) for c in self.etf_codes},
+            '现金_后市值': round(cash, 2),
+            **{f'{c}_调整金额': round(init_etf_vals[c], 2) for c in self.etf_codes},
+            '现金_调整金额': round(cash, 2),
+        }]
+
+        daily_rows = []
+        peak = self.initial_capital
+        prev_date = dates[0]
+
+        for date in dates:
+            p = prices.loc[date]
+
+            # ── 现金计息 ──
+            if date != dates[0]:
+                calendar_days = (date - prev_date).days
+                interest = cash * ((1 + self.cash_annual_rate / 365) ** calendar_days - 1)
+                cash += interest
+                cash_interest_total += interest
+
+            etf_vals = {code: shares[code] * p[code] for code in self.etf_codes}
+            total = sum(etf_vals.values()) + cash
+
+            # ── 月首估值检查：若区间变化则局部再平衡（股票+现金）──
+            if date in monthly_first_dates and date != dates[0]:
+                target_w = self._get_current_target_weights(date)
+                new_zone = _get_valuation_zone(
+                    self._pe_quantiles.loc[:date].dropna().iloc[-1]
+                    if not self._pe_quantiles.loc[:date].dropna().empty else float('nan')
+                )
+
+                if new_zone != current_zone:
+                    # 仅调整股票和现金，债券/黄金按原持仓不动
+                    target_stock_val = total * target_w[self.stock_code]
+                    target_cash_val = total * target_w['现金']
+
+                    stock_diff = target_stock_val - etf_vals[self.stock_code]
+                    cash_diff = target_cash_val - cash
+
+                    # 执行调整（交易费用）
+                    fee = abs(stock_diff) * self.transaction_cost
+                    net_stock_val = target_stock_val - (fee if stock_diff > 0 else -fee)
+                    shares[self.stock_code] = net_stock_val / p[self.stock_code]
+                    cash = target_cash_val
+
+                    # 重新计算总资产
+                    etf_vals = {code: shares[code] * p[code] for code in self.etf_codes}
+                    total = sum(etf_vals.values()) + cash
+
+                    rebalance_logs.append({
+                        '日期': date,
+                        '操作': f'估值调整({current_zone}→{new_zone})',
+                        '总资产': round(total, 2),
+                        '估值区间': new_zone,
+                        '现金_前市值': round(cash - cash_diff, 2),
+                        **{f'{c}_前市值': round(etf_vals[c] - (stock_diff if c == self.stock_code else 0), 2)
+                           for c in self.etf_codes},
+                        '现金_后市值': round(cash, 2),
+                        **{f'{c}_后市值': round(etf_vals[c], 2) for c in self.etf_codes},
+                        '现金_调整金额': round(cash_diff, 2),
+                        **{f'{c}_调整金额': round(stock_diff if c == self.stock_code else 0.0, 2)
+                           for c in self.etf_codes},
+                    })
+                    current_zone = new_zone
+
+            # ── 周期末完整再平衡 ──
+            elif date in rebalance_dates:
+                target_w = self._get_current_target_weights(date)
+                target_per = {code: total * target_w[code] for code in self.etf_codes}
+                target_per['现金'] = total * target_w['现金']
+
+                one_way = sum(max(0, target_per[c] - etf_vals[c]) for c in self.etf_codes)
+                fee = one_way * self.transaction_cost * 2
+                net_total = total - fee
+
+                # 重新用扣费后的总资产计算目标
+                net_target = {code: net_total * target_w[code] for code in self.etf_codes}
+                net_target['现金'] = net_total * target_w['现金']
+
+                rec = {
+                    '日期': date,
+                    '操作': '再平衡',
+                    '总资产': round(net_total, 2),
+                    '估值区间': current_zone,
+                    '现金_前市值': round(cash, 2),
+                    **{f'{c}_前市值': round(etf_vals[c], 2) for c in self.etf_codes},
+                }
+                for code in self.etf_codes:
+                    new_val = net_target[code]
+                    shares[code] = new_val / p[code]
+                    rec[f'{code}_后市值'] = round(new_val, 2)
+                    rec[f'{code}_调整金额'] = round(new_val - etf_vals[code], 2)
+
+                rec['现金_后市值'] = round(net_target['现金'], 2)
+                rec['现金_调整金额'] = round(net_target['现金'] - cash, 2)
+                cash = net_target['现金']
+
+                rebalance_logs.append(rec)
+
+                # 更新 etf_vals 和 total（再平衡后）
+                etf_vals = {code: shares[code] * p[code] for code in self.etf_codes}
+                total = sum(etf_vals.values()) + cash
+
+            # ── 更新最大回撤 ──
+            peak = max(peak, total)
+            dd = (peak - total) / peak if peak > 0 else 0.0
+
+            # ── 查询当日PE分位（用于记录）──
+            pe_valid = self._pe_quantiles.loc[:date].dropna()
+            cur_pe_q = float(pe_valid.iloc[-1]) if not pe_valid.empty else float('nan')
+
+            row = {
+                '日期': date,
+                '总资产': total,
+                '回撤': dd,
+                '估值区间': current_zone,
+                'PE分位': cur_pe_q,
+                '现金_市值': cash,
+                '现金_占比': cash / total,
+                **{f'{c}_市值': etf_vals[c] for c in self.etf_codes},
+                **{f'{c}_占比': etf_vals[c] / total for c in self.etf_codes},
+            }
+            daily_rows.append(row)
+            prev_date = date
+
+        daily_df = pd.DataFrame(daily_rows).set_index('日期')
+        return daily_df, rebalance_logs, cash_interest_total
+
+    def backtest(self) -> dict:
+        """
+        执行回测，并在开启动态现金时同步运行静态对照组。
+
+        :return: 结果字典，dynamic_cash_switch=True 时额外含 'baseline' 键
+        """
+        result = super().backtest()  # 先运行动态版本（_simulate 已被重写）
+
+        if self.dynamic_cash_switch:
+            # ── 运行静态对照组（关闭动态，等权策略）──
+            baseline_portfolio = PermanentPortfolio(
+                etf_codes=self.etf_codes,
+                initial_capital=self.initial_capital,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                rebalance_freq=self.rebalance_freq,
+                cash_annual_rate=self.cash_annual_rate,
+                risk_free_rate=self.risk_free_rate,
+                transaction_cost=self.transaction_cost,
+            )
+            result['baseline'] = baseline_portfolio.backtest()
+
+            # ── 统计各估值区间的组合表现 ──
+            daily_df = result['daily_df']
+            zone_stats = {}
+            for zone in ['low', 'neutral', 'high']:
+                mask = daily_df['估值区间'] == zone
+                zone_df = daily_df[mask]
+                if len(zone_df) < 2:
+                    zone_stats[zone] = {'days': 0, 'return': 0.0}
+                    continue
+                # 使用对数收益率累计
+                zone_rets = zone_df['总资产'].pct_change().dropna()
+                cumret = (1 + zone_rets).prod() - 1
+                zone_stats[zone] = {
+                    'days': len(zone_df),
+                    'return': cumret,
+                }
+            result['zone_stats'] = zone_stats
+
+        return result
+
+    def generate_backtest_report(self, result: dict, chart_filename: str = None) -> str:
+        """生成回测报告，动态开关开启时追加对比分析板块"""
+        # 调用父类生成基础报告
+        base_report = super().generate_backtest_report(result, chart_filename)
+
+        if not self.dynamic_cash_switch or 'baseline' not in result:
+            return base_report
+
+        # ── 追加动态现金优化分析板块 ──
+        baseline = result['baseline']
+        zone_stats = result.get('zone_stats', {})
+        mode_cn = '全历史' if self.valuation_calc_mode == 'full_history' else '滚动10年'
+        stock_label = self._get_asset_label(self.stock_code)
+
+        extra_lines = [
+            '',
+            '---',
+            '## 七、动态现金优化分析',
+            '',
+            f'> 股票标的：**{stock_label}** | PE分位模式：**{mode_cn}** | '
+            f'动态规则：低估→股票35%/现金15%，中性→各25%，高估→股票15%/现金35%',
+            '',
+            '### 7.1 策略对比（动态 vs 等权）',
+            '| 指标 | 动态现金策略 | 原等权策略 | 差值 |',
+            '|------|------------|----------|------|',
+        ]
+        for key, label in [
+            ('cumulative_return', '累计收益率'),
+            ('annualized_return', '年化收益率'),
+            ('max_drawdown', '最大回撤'),
+            ('sharpe', '夏普比率'),
+        ]:
+            dyn_v = result[key]
+            bas_v = baseline[key]
+            if key == 'max_drawdown':
+                diff_str = f'{dyn_v - bas_v:+.2%}'
+                extra_lines.append(
+                    f'| {label} | {dyn_v:.2%} | {bas_v:.2%} | {diff_str} |'
+                )
+            elif key == 'sharpe':
+                diff_str = f'{dyn_v - bas_v:+.2f}'
+                extra_lines.append(
+                    f'| {label} | {dyn_v:.2f} | {bas_v:.2f} | {diff_str} |'
+                )
+            else:
+                diff_str = f'{dyn_v - bas_v:+.2%}'
+                extra_lines.append(
+                    f'| {label} | {dyn_v:+.2%} | {bas_v:+.2%} | {diff_str} |'
+                )
+        extra_lines.append(
+            f'| 期末资产 | {result["final_value"]:,.2f} 元 | {baseline["final_value"]:,.2f} 元 | '
+            f'{result["final_value"] - baseline["final_value"]:+,.2f} 元 |'
+        )
+        extra_lines.append('')
+
+        # ── 各估值区间表现统计 ──
+        zone_cn = {'low': '低估(0–30%)', 'neutral': '中性(30–70%)', 'high': '高估(70–100%)'}
+        extra_lines += [
+            '### 7.2 各估值区间组合表现',
+            '| 估值区间 | 交易日数 | 区间累计收益 |',
+            '|---------|--------|------------|',
+        ]
+        for zone in ['low', 'neutral', 'high']:
+            stats = zone_stats.get(zone, {'days': 0, 'return': 0.0})
+            extra_lines.append(
+                f'| {zone_cn[zone]} | {stats["days"]} 天 | {stats["return"]:+.2%} |'
+            )
+        extra_lines.append('')
+
+        # ── 估值调整操作记录 ──
+        logs = result['rebalance_logs']
+        adjust_logs = [r for r in logs if r.get('操作', '').startswith('估值调整')]
+        extra_lines += ['### 7.3 估值调整操作记录', '']
+        if adjust_logs:
+            stock_label_short = self._get_asset_label(self.stock_code)
+            extra_lines += [
+                f'| 日期 | 操作 | 总资产 | {stock_label_short} 调整 | 现金调整 |',
+                '|------|------|--------|---------|---------|',
+            ]
+            for rec in adjust_logs:
+                date_s = pd.Timestamp(rec['日期']).strftime('%Y-%m-%d')
+                stock_adj = rec.get(f'{self.stock_code}_调整金额', 0)
+                cash_adj = rec.get('现金_调整金额', 0)
+                extra_lines.append(
+                    f'| {date_s} | {rec["操作"]} | {rec["总资产"]:,.2f} | '
+                    f'{stock_adj:+,.2f} | {cash_adj:+,.2f} |'
+                )
+        else:
+            extra_lines.append('> 回测期间内无估值区间变化，未触发估值调整。')
+        extra_lines.append('')
+
+        return base_report + '\n'.join(extra_lines)
+
+    def plot_backtest_results(self, result: dict, save_dir: str, filename: str) -> str:
+        """
+        绘制动态现金回测图表。
+        相比父类，额外绘制静态对照组的总资产曲线和各估值区间背景色。
+        """
+        plt.rcParams['font.sans-serif'] = ['SimHei']
+        plt.rcParams['axes.unicode_minus'] = False
+
+        daily_df = result['daily_df']
+        dates = daily_df.index
+
+        fig, ax1 = plt.subplots(figsize=(16, 8))
+
+        # ── 左Y轴：总资产对比 ──
+        ax1.fill_between(dates, daily_df['总资产'], alpha=0.08, color='#2980b9')
+        ax1.plot(dates, daily_df['总资产'], color='#2980b9', linewidth=2.5,
+                 label='动态现金策略（左轴）', zorder=3)
+
+        # 叠加静态对照组
+        if self.dynamic_cash_switch and 'baseline' in result:
+            bl_df = result['baseline']['daily_df']
+            ax1.plot(bl_df.index, bl_df['总资产'], color='#95a5a6', linewidth=1.5,
+                     linestyle='--', label='原等权策略（左轴）', zorder=2)
+
+        ax1.set_xlabel('日期', fontsize=12)
+        ax1.set_ylabel('总资产（元）', color='#2980b9', fontsize=12)
+        ax1.tick_params(axis='y', labelcolor='#2980b9')
+
+        # ── 右Y轴：各成员累计收益率 ──
+        ax2 = ax1.twinx()
+        etf_colors = ['#e74c3c', '#f39c12', '#27ae60', '#8e44ad', '#16a085']
+
+        for i, code in enumerate(self.etf_codes):
+            prices_series = self.prices[code]
+            cum_ret = (prices_series / prices_series.iloc[0] - 1) * 100
+            label = self._get_asset_label(code)
+            ax2.plot(dates, cum_ret, linestyle='--', linewidth=1.8,
+                     color=etf_colors[i % len(etf_colors)], label=label, alpha=0.85)
+
+        cash_cum_ret = (daily_df['现金_市值'] / daily_df['现金_市值'].iloc[0] - 1) * 100
+        ax2.plot(dates, cash_cum_ret, linestyle=':', linewidth=1.5, color='#7f8c8d',
+                 label='现金', alpha=0.85)
+
+        portfolio_cum_ret = (daily_df['总资产'] / daily_df['总资产'].iloc[0] - 1) * 100
+        ax2.plot(dates, portfolio_cum_ret, linestyle='-.', linewidth=2.0, color='#2980b9',
+                 label='组合收益率（右轴）', alpha=0.75)
+
+        ax2.axhline(y=0, color='#bdc3c7', linestyle='-', linewidth=0.8, alpha=0.6)
+        ax2.set_ylabel('累计收益率（%）', color='#27ae60', fontsize=12)
+        ax2.tick_params(axis='y', labelcolor='#27ae60')
+
+        # ── 估值区间背景色（低估=浅绿，高估=浅红）──
+        if self.dynamic_cash_switch and '估值区间' in daily_df.columns:
+            zone_colors = {'low': '#d5f5e3', 'high': '#fadbd8'}
+            for zone, color in zone_colors.items():
+                mask = daily_df['估值区间'] == zone
+                if mask.any():
+                    # 找连续区段并填充背景色
+                    starts = dates[mask & ~mask.shift(1, fill_value=False)]
+                    ends = dates[mask & ~mask.shift(-1, fill_value=False)]
+                    for s, e in zip(starts, ends):
+                        ax1.axvspan(s, e, alpha=0.25, color=color, zorder=0)
+
+        # ── 标记再平衡日（垂直虚线）──
+        logs = result['rebalance_logs']
+        rebal_dates = [pd.Timestamp(r['日期']) for r in logs if r['操作'] == '再平衡']
+        for rd in rebal_dates:
+            ax1.axvline(x=rd, color='#bdc3c7', linestyle=':', linewidth=0.9, alpha=0.7, zorder=1)
+        if rebal_dates:
+            ax1.axvline(x=rebal_dates[0], color='#bdc3c7', linestyle=':', linewidth=0.9,
+                        alpha=0.7, label='再平衡日', zorder=1)
+
+        # ── 标题与图例 ──
+        freq_cn = {'monthly': '月度', 'quarterly': '季度', 'yearly': '年度'}.get(
+            self.rebalance_freq, self.rebalance_freq
+        )
+        mode_cn = '全历史' if self.valuation_calc_mode == 'full_history' else '滚动10年'
+        start_d = daily_df.index[0].strftime('%Y-%m-%d')
+        end_d = daily_df.index[-1].strftime('%Y-%m-%d')
+        plt.title(
+            f'永久投资组合回测（动态现金/{mode_cn}PE分位，{freq_cn}再平衡，{start_d}~{end_d}）',
+            fontsize=13, pad=15
+        )
+
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', fontsize=9)
+        ax1.grid(True, alpha=0.2)
+        plt.tight_layout()
+
+        os.makedirs(save_dir, exist_ok=True)
+        img_path = os.path.join(save_dir, f'{filename}.png')
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        return img_path
+
+
 def save_report(report: str, output_dir: str, filename: str) -> str:
     """
     将报告内容保存为 Markdown 文件。
