@@ -758,28 +758,40 @@ def permanent_portfolio_backtest():
     from analysis.permanent_portfolio import PermanentPortfolio, save_report
 
     etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
-    end_date = '20250201'  # None 表示使用本地数据的最新日期
+    end_date = '20210201'  # None 表示使用本地数据的最新日期
 
     portfolio = PermanentPortfolio(
         etf_codes=etf_codes,
         initial_capital=1_000_000,
-        start_date='20210201',
+        start_date='20150201',
         end_date=end_date or datetime.now().strftime('%Y%m%d'),
-        rebalance_freq='yearly',
+        rebalance_freq='monthly',
         cash_annual_rate=0.0005,    # 0.05% 银行活期利率
         risk_free_rate=0.0,
         transaction_cost=0.0,
     )
 
     result = portfolio.backtest()
-    report = portfolio.generate_backtest_report(result)
+
+    # 用回测时间区间作为文件名，重复执行会覆盖旧文件
+    daily_df = result['daily_df']
+    date_range = f"{daily_df.index[0].strftime('%Y%m%d')}_{daily_df.index[-1].strftime('%Y%m%d')}"
+    file_stem = f'backtest_{date_range}'
+    report_dir = 'analysis/permanent_portfolio_reports'
+
+    # 生成并保存图表
+    chart_filename = f'{file_stem}.png'
+    img_path = portfolio.plot_backtest_results(result, report_dir, file_stem)
+    print(f'📊 图表已保存至: {img_path}')
+
+    # 生成报告（嵌入图片引用）
+    report = portfolio.generate_backtest_report(result, chart_filename=chart_filename)
 
     # 打印报告
     print(report)
 
     # 保存报告到文件
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    path = save_report(report, 'analysis/permanent_portfolio_reports', f'backtest_{ts}')
+    path = save_report(report, report_dir, file_stem)
     print(f'\n📄 报告已保存至: {path}')
 
 
@@ -810,9 +822,10 @@ def permanent_portfolio_track():
     # 打印报告
     print(report)
 
-    # 保存报告到文件
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    path = save_report(report, 'analysis/permanent_portfolio_reports', f'track_{ts}')
+    # 保存报告到文件，用「建仓日_当前日」命名，重复执行会覆盖旧文件
+    current_date = result['current_date'].strftime('%Y%m%d')
+    file_stem = f'track_{portfolio.start_date}_{current_date}'
+    path = save_report(report, 'analysis/permanent_portfolio_reports', file_stem)
     print(f'\n📄 报告已保存至: {path}')
 
 
