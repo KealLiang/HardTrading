@@ -212,6 +212,28 @@ def get_prev_trading_day(date: str) -> str:
         return None
 
 
+def get_latest_trade_date() -> str:
+    """
+    获取最近一个交易日（如果今天是交易日则返回今天，否则返回最近的交易日）
+    Returns:
+        str: 最近的交易日，格式为 'YYYYMMDD'
+    """
+    try:
+        # 获取今天的日期
+        today = datetime.now().strftime('%Y%m%d')
+        
+        # 检查今天是否为交易日
+        if is_trading_day(today):
+            return today
+        
+        # 如果今天不是交易日，获取前一个交易日
+        return get_prev_trading_day(today)
+    
+    except Exception as e:
+        logging.error(f"获取最近交易日时出错: {str(e)}")
+        return None
+
+
 def get_n_trading_days_before(date: str, n: int) -> str:
     """
     获取指定日期往前第n个交易日（含自身为第0个）。
