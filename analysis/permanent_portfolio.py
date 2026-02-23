@@ -1026,7 +1026,8 @@ class DynamicCashPortfolio(PermanentPortfolio):
                     current_zone = new_zone
 
             # ── 周期末完整再平衡 ──
-            elif date in rebalance_dates:
+            # 注意：用 if 而非 elif，确保月首估值调整与周期末再平衡在同一天时均能执行
+            if date in rebalance_dates:
                 target_w = self._get_current_target_weights(date)
                 target_per = {code: total * target_w[code] for code in self.etf_codes}
                 target_per['现金'] = total * target_w['现金']

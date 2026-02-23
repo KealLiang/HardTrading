@@ -767,7 +767,7 @@ def permanent_portfolio_backtest():
 
     etf_codes = ['512890', '518880', '511010']  # 红利低波ETF / 黄金ETF / 国债ETF
     # etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
-    end_date = '20260201'  # None 表示使用本地数据的最新日期
+    end_date = '20250201'  # None 表示使用本地数据的最新日期
 
     # ── 选择策略类型 ──────────────────────────────────────
     # 方案A：原等权策略（dynamic_cash_switch=False）
@@ -785,7 +785,7 @@ def permanent_portfolio_backtest():
     portfolio = DynamicCashPortfolio(
         etf_codes=etf_codes,
         initial_capital=1_000_000,
-        start_date='20190101',
+        start_date='20210201',
         end_date=end_date or datetime.now().strftime('%Y%m%d'),
         rebalance_freq='monthly',
         cash_annual_rate=0.0005,    # 0.05% 银行活期利率
