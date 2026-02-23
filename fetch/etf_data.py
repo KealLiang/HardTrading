@@ -121,7 +121,8 @@ class ETFDataFetcher:
             symbol=etf_code,
             period="daily",
             start_date=self.start_date,
-            end_date=self.end_date
+            end_date=self.end_date,
+            adjust="qfq"  # 前复权数据
         )
     
     def _need_update(self, etf_code):

@@ -765,7 +765,8 @@ def permanent_portfolio_backtest():
     """
     from analysis.permanent_portfolio import DynamicCashPortfolio, PermanentPortfolio, save_report
 
-    etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
+    etf_codes = ['512890', '518880', '511010']  # 红利低波ETF / 黄金ETF / 国债ETF
+    # etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
     end_date = '20260201'  # None 表示使用本地数据的最新日期
 
     # ── 选择策略类型 ──────────────────────────────────────
@@ -784,7 +785,7 @@ def permanent_portfolio_backtest():
     portfolio = DynamicCashPortfolio(
         etf_codes=etf_codes,
         initial_capital=1_000_000,
-        start_date='20180601',
+        start_date='20190101',
         end_date=end_date or datetime.now().strftime('%Y%m%d'),
         rebalance_freq='monthly',
         cash_annual_rate=0.0005,    # 0.05% 银行活期利率
@@ -1668,9 +1669,9 @@ if __name__ == '__main__':
     # batch_backtest_from_codes()  # 直接使用代码列表进行批量回测
 
     # === ETF数据获取 ===
-    # etf_codes = ['510300', '511010', '518880']  # 沪深300ETF、国债ETF、黄金ETF
+    # etf_codes = ['510300', '511010', '518880', '512890']  # 沪深300ETF、国债ETF、黄金ETF、红利低波ETF
+    # get_etf_datas(etf_codes, start_date='20120101', end_date='20260215')  # 获取指定日期范围数据
     # get_etf_datas(etf_codes)  # 获取最近一个交易日数据
-    # get_etf_datas(etf_codes, start_date='20150101', end_date='20260215')  # 获取指定日期范围数据
 
     # === 永久投资组合 ===
     # get_pe_data()   # 下载沪深300历史PE数据到 data/pe/000300_pe.csv
