@@ -49,7 +49,7 @@ def _init_trading_days_cache(start_date, end_date):
 
 
 def remove_holidays(prev_days):
-    custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC'), pd.Timestamp('2025-05-05', tz='UTC')]
+    custom_holidays = [pd.Timestamp('2025-02-04', tz='UTC'), pd.Timestamp('2025-05-05', tz='UTC'), pd.Timestamp('2026-02-23', tz='UTC')]
     prev_days = [day for day in prev_days if day not in custom_holidays]
     return prev_days
 

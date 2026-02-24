@@ -1609,8 +1609,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    # strategy_scan('a')
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    strategy_scan('a')
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
@@ -1675,7 +1675,7 @@ if __name__ == '__main__':
 
     # === 永久投资组合 ===
     # get_pe_data()   # 下载沪深300历史PE数据到 data/pe/000300_pe.csv
-    permanent_portfolio_backtest()  # 回测，输出 Markdown 报告（支持动态现金策略）
+    # permanent_portfolio_backtest()  # 回测，输出 Markdown 报告（支持动态现金策略）
     # permanent_portfolio_track()     # 跟踪，查看当前持仓与操作建议
 
     # === 参数优化功能 ===
