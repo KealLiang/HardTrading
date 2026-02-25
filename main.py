@@ -36,7 +36,7 @@ from fetch.indexes_data import fetch_indexes_data
 from fetch.lhb_data import fetch_and_merge_stock_lhb_detail, fetch_and_filter_yybph_lhb_data, fetch_yyb_lhb_data, \
     find_top_yyb_trades
 from fetch.tonghuashun.fupan import all_fupan
-from fetch.tonghuashun.fupan_cleaner import clean_all_fupan_files, clean_fupan_excel
+from fetch.tonghuashun.fupan_cleaner import clean_all_fupan_files
 from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.fupan_plot_html import draw_fupan_lb_html
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
@@ -740,6 +740,14 @@ def get_etf_datas(etf_list, start_date=None, end_date=None):
     etf_fetcher.fetch_and_save_data(etf_list)
 
 
+def fetch_stock_concept_map():
+    # 获取股票概念映射数据
+    # 首次运行或需要更新时取消注释执行（全量构建约 15~30 分钟）
+    from fetch.stock_concept_map import update_concept_map
+    update_concept_map()  # 幂等：当天已更新则自动跳过
+    # update_concept_map(force=True)  # 强制重建
+
+
 def get_pe_data():
     """获取并本地化沪深300 PE历史数据（乐咕乐股，2005年至今）"""
     from fetch.pe_data import fetch_and_save_csi300_pe
@@ -765,7 +773,7 @@ def permanent_portfolio_backtest():
         dynamic_cash_switch  - True=开启PE估值动态调仓，False=原等权策略
         valuation_calc_mode  - PE分位模式：'full_history'=全历史 / 'rolling'=滚动10年
     """
-    from analysis.permanent_portfolio import DynamicCashPortfolio, PermanentPortfolio, save_report
+    from analysis.permanent_portfolio import DynamicCashPortfolio, save_report
 
     etf_codes = ['512890', '518880', '511010']  # 红利低波ETF / 黄金ETF / 国债ETF
     # etf_codes = ['510300', '518880', '511010']  # 沪深300ETF / 黄金ETF / 国债ETF
@@ -1600,9 +1608,10 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
+    fetch_stock_concept_map()  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
     # clean_ths_fupan()  # 清理历史数据，控制文件大小
