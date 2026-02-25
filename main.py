@@ -1608,10 +1608,10 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
-    fetch_stock_concept_map()  # 概念板块映射表
+    # fetch_stock_concept_map()  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
     # clean_ths_fupan()  # 清理历史数据，控制文件大小

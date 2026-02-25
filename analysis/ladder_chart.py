@@ -1469,7 +1469,7 @@ def format_board_cell(ws, row, col, board_days, pure_stock_code, stock_detail_ke
     return cell, last_board_date
 
 
-def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
+def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj, stock_detail_key=None, stock_details=None):
     """
     格式化首板单元格
 
@@ -1479,6 +1479,8 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
         col: 列索引
         pure_stock_code: 纯股票代码
         current_date_obj: 当前日期对象
+        stock_detail_key: 股票详细信息键名（用于查找备注）
+        stock_details: 股票详细信息映射
 
     Returns:
         tuple: (单元格对象, 最后连板日期)
@@ -1502,6 +1504,13 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj):
     cell.font = Font(color="FFFFFF", bold=True)
     # 添加边框样式
     cell.border = BORDER_STYLE
+
+    # 添加备注信息（与连板单元格逻辑一致）
+    if stock_detail_key and stock_details and stock_detail_key in stock_details:
+        details = stock_details[stock_detail_key]
+        comment_text = build_comment_text(details)
+        if comment_text:
+            cell.comment = Comment(comment_text.strip(), "涨停信息")
 
     # 更新最后连板日期以便可以继续跟踪
     last_board_date = current_date_obj
@@ -1668,7 +1677,9 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         stock['last_board_date'] = last_board_date
     # 处理首板数据
     elif found_in_shouban:
-        _, last_board_date = format_shouban_cell(ws, row_idx, col_idx, pure_stock_code, current_date_obj)
+        stock_detail_key = f"{pure_stock_code}_{formatted_day}"
+        _, last_board_date = format_shouban_cell(ws, row_idx, col_idx, pure_stock_code, current_date_obj,
+                                                 stock_detail_key, stock_details)
         stock['last_board_date'] = last_board_date
     # 处理其他情况
     else:
@@ -2368,8 +2379,13 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         print("未获取到有效的连板数据")
         return
 
-    # 获取股票详细信息映射
+    # 获取股票详细信息映射（连板数据），并合并首板详细信息
     stock_details = lianban_df.attrs.get('stock_details', {})
+    shouban_details = shouban_df.attrs.get('stock_details', {})
+    # 首板详细信息不覆盖连板数据中已有的同键记录
+    for k, v in shouban_details.items():
+        if k not in stock_details:
+            stock_details[k] = v
 
     # 加载最近n日关注度前十股票
     get_top_attention_stocks_cached(end_date)
@@ -2382,6 +2398,15 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if result_df.empty:
         print(f"未找到在{start_date}至{end_date}期间有符合条件的显著连板股票")
         return
+
+    # 提前初始化一次异动检测器，所有工作表共享同一实例，避免重复加载股票数据
+    shared_abnormal_detector = None
+    try:
+        from analysis.abnormal_movement_detector import AbnormalMovementDetector
+        shared_abnormal_detector = AbnormalMovementDetector()
+        print("异动检测器初始化成功（全局共享）")
+    except Exception as e:
+        print(f"异动检测器初始化失败: {e}")
 
     # 准备工作簿和工作表
     wb, ws, sheet_name_used = prepare_workbook(output_file, sheet_name, start_date)
@@ -2411,7 +2436,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     fill_data_rows(ws, result_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                    stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                    period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df, show_warning_column, enable_collapse=False)
+                   max_tracking_days_before, zaban_df, show_warning_column, enable_collapse=False,
+                   abnormal_detector=shared_abnormal_detector)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
@@ -2481,7 +2507,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             stock_entry_count, formatted_trading_days, date_column_start,
             show_period_change, period_column, period_days, period_days_long,
             stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-            zaban_df, enable_collapse=True
+            zaban_df, enable_collapse=True, abnormal_detector=shared_abnormal_detector
         )
 
     # 创建成交量涨跌幅分析工作表（如果启用）
@@ -2604,7 +2630,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                                stock_entry_count, formatted_trading_days, date_column_start,
                                                show_period_change, period_column, period_days, period_days_long,
                                                stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                               zaban_df)
+                                               zaban_df, abnormal_detector=shared_abnormal_detector)
 
         # 管理龙头sheet并回填历史数据
         last_day_str = date_mapping[formatted_trading_days[-1]]
@@ -2800,7 +2826,8 @@ def count_stock_entries(result_df):
 def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors, stock_entry_count,
                    formatted_trading_days, date_column_start, show_period_change, period_column,
                    period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                   max_tracking_days_before, zaban_df, show_warning_column=True, enable_collapse=False, start_row=4):
+                   max_tracking_days_before, zaban_df, show_warning_column=True, enable_collapse=False, start_row=4,
+                   abnormal_detector=None):
     """
     填充数据行
 
@@ -2843,9 +2870,8 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
     # 获取结束日期用于均线斜率计算
     end_date_for_ma = date_mapping.get(formatted_trading_days[-1])
 
-    # 初始化异动检测器（如果需要显示预警列）
-    abnormal_detector = None
-    if show_warning_column:
+    # 初始化异动检测器（如果需要显示预警列，且外部未传入共享实例）
+    if show_warning_column and abnormal_detector is None:
         try:
             from analysis.abnormal_movement_detector import AbnormalMovementDetector
             abnormal_detector = AbnormalMovementDetector()
@@ -3199,7 +3225,8 @@ def _build_color_reason_group_for_concept_sheet(concept_grouped_df, stock_data, 
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                          formatted_trading_days, date_column_start, show_period_change, period_column,
                                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                         max_tracking_days_before, zaban_df, enable_collapse=False):
+                                         max_tracking_days_before, zaban_df, enable_collapse=False,
+                                         abnormal_detector=None):
     """
     创建按概念分组的工作表内容
 
@@ -3330,7 +3357,7 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
                                                           period_days_long, stock_details, date_mapping,
                                                           max_tracking_days,
                                                           max_tracking_days_before, zaban_df, show_warning_column,
-                                                          enable_collapse)
+                                                          enable_collapse, abnormal_detector)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column)
@@ -3374,7 +3401,8 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
                                        stock_entry_count, formatted_trading_days, date_column_start,
                                        show_period_change, period_column, period_days, period_days_long,
                                        stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-                                       zaban_df, show_warning_column=True, enable_collapse=False):
+                                       zaban_df, show_warning_column=True, enable_collapse=False,
+                                       abnormal_detector=None):
     """
     填充数据行，按概念分组并在组间添加分隔行
 
@@ -3400,9 +3428,8 @@ def fill_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_g
         if pure_stock_code not in latest_entry_dates or entry_date > latest_entry_dates[pure_stock_code]:
             latest_entry_dates[pure_stock_code] = entry_date
 
-    # 初始化异动检测器（如果需要显示预警列）
-    abnormal_detector = None
-    if show_warning_column:
+    # 初始化异动检测器（如果需要显示预警列，且外部未传入共享实例）
+    if show_warning_column and abnormal_detector is None:
         try:
             from analysis.abnormal_movement_detector import AbnormalMovementDetector
             abnormal_detector = AbnormalMovementDetector()
@@ -4030,7 +4057,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock_data, stock_entry_count,
                                        formatted_trading_days, date_column_start, show_period_change, period_column,
                                        period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                                       max_tracking_days_before, zaban_df):
+                                       max_tracking_days_before, zaban_df, abnormal_detector=None):
     """
     创建龙头股工作表内容
     
@@ -4067,7 +4094,8 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
         fill_data_rows(ws, normal_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                        stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                        period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row)
+                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row,
+                       abnormal_detector=abnormal_detector)
         current_row += len(normal_leaders_df)
 
     # 如果有大龙股，先空一行，再填充大龙股
@@ -4079,7 +4107,8 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
         fill_data_rows(ws, extra_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                        stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                        period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row)
+                       max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row,
+                       abnormal_detector=abnormal_detector)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,

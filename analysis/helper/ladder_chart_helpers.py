@@ -1090,18 +1090,20 @@ def check_stock_in_zaban(zaban_df, pure_stock_code, formatted_day):
     if zaban_df is None or zaban_df.empty:
         return False
 
-    # 将日期格式转换为YYYYMMDD格式
     try:
         if '年' in formatted_day:
-            # 中文格式: YYYY年MM月DD日
             date_obj = datetime.strptime(formatted_day, '%Y年%m月%d日')
         else:
-            # 标准格式: YYYY/MM/DD
             date_obj = datetime.strptime(formatted_day, '%Y/%m/%d')
 
         date_yyyymmdd = date_obj.strftime('%Y%m%d')
 
-        # 查找该股票在该日期是否有炸板记录
+        # 优先使用预构建的O(1)查找字典（在load_zaban_data中构建）
+        lookup = zaban_df.attrs.get('zaban_lookup')
+        if lookup is not None:
+            return pure_stock_code in lookup.get(date_yyyymmdd, frozenset())
+
+        # 兜底：O(n)全表扫描（未构建lookup时使用）
         zaban_records = zaban_df[
             (zaban_df['date'] == date_yyyymmdd) &
             (zaban_df['stock_code'].str.contains(pure_stock_code, na=False))
@@ -1129,11 +1131,15 @@ def check_stock_in_shouban(shouban_df, pure_stock_code, formatted_day):
     if shouban_df is None or shouban_df.empty:
         return False
 
-    # 查找在首板数据中是否有该股票在该日期的记录
+    # 优先使用预构建的O(1)查找集合（在load_shouban_data中构建）
+    lookup = shouban_df.attrs.get('shouban_lookup')
+    if lookup is not None:
+        return (pure_stock_code, formatted_day) in lookup
+
+    # 兜底：O(n)逐行扫描（未构建lookup时使用）
     shouban_row = shouban_df[(shouban_df['纯代码'] == pure_stock_code)]
     if not shouban_row.empty and formatted_day in shouban_row.columns and pd.notna(
             shouban_row[formatted_day].values[0]):
-        # 该股票在该日期有首板记录
         return True
 
     return False

@@ -169,12 +169,18 @@ def load_shouban_data(start_date, end_date):
                 board_info = "首板涨停"
                 concept = "其他"
 
+                # 按连板数据相同字段顺序提取详细信息
+                # 字段顺序: 股票代码, 股票简称, 涨停开板次数, 最终涨停时间, 几天几板, 最新价, 首次涨停时间, ...
+                open_count = parts[2].strip() if len(parts) > 2 else None
+                final_time = parts[3].strip() if len(parts) > 3 else None
+                first_time = parts[6].strip() if len(parts) > 6 else None
+
                 # 提取概念信息（通常是最后一个部分）
                 for i, part in enumerate(parts):
                     if i == len(parts) - 1:
                         concept = part.strip()
 
-                processed_data.append({
+                stock_row = {
                     '股票代码': f"{stock_code}_{stock_name}",
                     '纯代码': stock_code,
                     '股票名称': stock_name,
@@ -182,7 +188,14 @@ def load_shouban_data(start_date, end_date):
                     '连板天数': 1,  # 首板为1
                     '连板信息': board_info,
                     '概念': concept
-                })
+                }
+                if first_time:
+                    stock_row['首次涨停时间'] = first_time
+                if final_time:
+                    stock_row['最终涨停时间'] = final_time
+                if open_count:
+                    stock_row['涨停开板次数'] = open_count
+                processed_data.append(stock_row)
 
         # 转换为DataFrame
         result_df = pd.DataFrame(processed_data)
@@ -205,6 +218,31 @@ def load_shouban_data(start_date, end_date):
 
         # 添加标准格式的股票代码列
         pivot_df['股票代码'] = pivot_df['纯代码'] + '_' + pivot_df['股票名称']
+
+        # 创建首板详细信息映射，供后续添加单元格备注使用
+        # 使用向量化操作替代iterrows()，避免性能问题
+        detail_fields = [f for f in ['首次涨停时间', '最终涨停时间', '涨停开板次数', '连板信息'] if f in result_df.columns]
+        detail_df = result_df[['纯代码', '日期'] + detail_fields].copy()
+        shouban_details = {
+            f"{row['纯代码']}_{row['日期']}": {
+                f: row[f] for f in detail_fields if not pd.isna(row[f])
+            }
+            for row in detail_df.to_dict('records')
+        }
+        pivot_df.attrs['stock_details'] = shouban_details
+
+        # 构建O(1)首板查找集合，避免 fill_daily_data 中 N只股票×M天 的全行扫描
+        meta_cols = {'纯代码', '股票名称', '概念', '股票代码'}
+        date_cols = [c for c in pivot_df.columns if c not in meta_cols]
+        if date_cols:
+            lookup_pairs = (
+                pivot_df[['纯代码'] + date_cols]
+                .melt(id_vars='纯代码', var_name='日期', value_name='val')
+                .dropna(subset=['val'])[['纯代码', '日期']]
+            )
+            pivot_df.attrs['shouban_lookup'] = frozenset(
+                zip(lookup_pairs['纯代码'], lookup_pairs['日期'])
+            )
 
         return pivot_df
 
@@ -497,6 +535,16 @@ def load_zaban_data(start_date, end_date):
 
         if not result_df.empty:
             print(f"成功加载炸板数据，共有{len(result_df)}条记录")
+            # 构建O(1)炸板查找字典 {date_yyyymmdd: frozenset(pure_codes)}
+            result_df['_pure_code'] = result_df['stock_code'].str.extract(r'(\d{6})', expand=False)
+            zaban_lookup = (
+                result_df.dropna(subset=['_pure_code'])
+                .groupby('date')['_pure_code']
+                .apply(frozenset)
+                .to_dict()
+            )
+            result_df.drop(columns=['_pure_code'], inplace=True)
+            result_df.attrs['zaban_lookup'] = zaban_lookup
         else:
             print("未找到炸板数据记录")
 

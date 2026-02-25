@@ -47,6 +47,10 @@ class AbnormalMovementDetector:
             'normal': 4  # 异动
         }
 
+        # 计算结果缓存，避免同一只股票重复计算
+        self._deviation_cache = {}   # {(stock_code, end_date_str, days): float}
+        self._turnover_cache = {}    # {(stock_code, end_date_str, days): list}
+
         # 预加载指数数据
         self._load_index_data()
 
@@ -161,6 +165,11 @@ class AbnormalMovementDetector:
         Returns:
             float: 累计偏离值
         """
+        # 统一 end_date 格式用于缓存 key
+        _end_key = end_date if isinstance(end_date, str) else end_date.strftime('%Y%m%d')
+        _cache_key = (stock_code, _end_key, days)
+        if _cache_key in self._deviation_cache:
+            return self._deviation_cache[_cache_key]
         try:
             # 获取股票数据
             stock_df = self.get_stock_data_cached(stock_code)
@@ -213,14 +222,16 @@ class AbnormalMovementDetector:
 
             # 累计偏离值 = 股票复合涨跌幅 - 指数复合涨跌幅
             cumulative_deviation = stock_compound_change - index_compound_change
-
+            self._deviation_cache[_cache_key] = cumulative_deviation
             return cumulative_deviation
 
         except Exception as e:
             print(f"计算股票{stock_code}累计偏离值时出错: {e}")
             # 降级到原有方法
             deviation_values = self.calculate_deviation_values(stock_code, end_date, days)
-            return sum(deviation_values) if deviation_values else 0.0
+            result = sum(deviation_values) if deviation_values else 0.0
+            self._deviation_cache[_cache_key] = result
+            return result
 
     # def calculate_deviation_values_legacy(self, stock_code, end_date, days):
     #     """
@@ -273,15 +284,19 @@ class AbnormalMovementDetector:
     def calculate_turnover_ratios(self, stock_code, end_date, days):
         """
         计算指定天数内的换手率序列
-        
+
         Args:
             stock_code: 股票代码
             end_date: 结束日期
             days: 计算天数
-            
+
         Returns:
             list: 换手率列表
         """
+        _end_key = end_date if isinstance(end_date, str) else end_date.strftime('%Y%m%d')
+        _cache_key = (stock_code, _end_key, days)
+        if _cache_key in self._turnover_cache:
+            return self._turnover_cache[_cache_key]
         try:
             stock_df = self.get_stock_data_cached(stock_code)
             if stock_df is None or stock_df.empty:
@@ -301,11 +316,12 @@ class AbnormalMovementDetector:
 
             # 取最近的days天换手率数据
             turnover_ratios = stock_period.tail(days)['换手率'].tolist()
-
+            self._turnover_cache[_cache_key] = turnover_ratios
             return turnover_ratios
 
         except Exception as e:
             print(f"计算股票{stock_code}换手率时出错: {e}")
+            self._turnover_cache[_cache_key] = []
             return []
 
     def check_abnormal_movement(self, stock_code, end_date):
