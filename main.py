@@ -659,8 +659,10 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
-        (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
-         "爆量分歧转一致筛选"),
+        # (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
+        #  "爆量分歧转一致筛选"),  # 只有主线明确的情况才能使用，胜率和从天梯直接找差不多
+        (lambda: strategy_scan('a'), "执行策略扫描"),  # 打顺风局可以，逆风或者轮动行情必须买跌不买涨
+        (lambda: generate_strategy_scan_html_charts('a', recent_days=15, columns=2), "生成策略扫描的html对比图"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -1598,7 +1600,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    # daily_routine()
+    daily_routine()
     # full_scan_routine()
     # get_index_data()
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1609,8 +1611,8 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge('20260114')
-    strategy_scan('a')
-    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # strategy_scan('a')
+    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
