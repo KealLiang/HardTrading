@@ -1125,12 +1125,19 @@ def generate_ladder_chart():
         "预期改善"
     ]
 
+    # 分组聚合：把多个概念合并为同一分组（只影响【概念分组】sheet排序，不影响上色）
+    group_aggregations = [
+        # ('AI应用', '文化传媒'),
+        # ('贵金属', '国企'),
+    ]
+
     # 构建梯队图
     build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
                        non_main_board_level=non_main_board_level, show_period_change=show_period_change,
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=True, sheet_name=sheet_name,
-                       create_leader_sheet=True, create_volume_sheet=True)
+                       create_leader_sheet=True, create_volume_sheet=True,
+                       group_aggregations=group_aggregations or None)
 
     # 导出股票代码到候选股票txt文件
     from utils.export_stock_codes import extract_stock_codes_from_excel
@@ -1604,11 +1611,11 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # fetch_stock_concept_map()  # 概念板块映射表
