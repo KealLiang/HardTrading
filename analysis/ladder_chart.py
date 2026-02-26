@@ -19,6 +19,7 @@ from analysis.helper.ladder_chart_helpers import (
     NEW_HIGH_MARKER,
     MA_SLOPE_DAYS, HIGH_GAIN_TRACKING_THRESHOLD, COLLAPSE_DAYS_AFTER_BREAK,
     INTRADAY_GAIN_THRESHOLD, INTRADAY_DROP_THRESHOLD,
+    EARLY_LIMIT_UP_TIME_THRESHOLD,
     # 缓存管理
     clear_helper_caches, cache_zaban_format,  # 股票数据
     get_stock_data_df, get_stock_data, get_stock_daily_pct_change, get_intraday_pct_change,
@@ -1413,6 +1414,26 @@ def format_period_change_cell(ws, row, col, stock_code, stock_name, entry_date, 
     return period_cell
 
 
+def _is_early_limit_up(details):
+    """
+    判断是否为优先涨停（最终涨停时间早于全局阈值 EARLY_LIMIT_UP_TIME_THRESHOLD）。
+
+    Args:
+        details: stock_details 中某一天的详情字典
+
+    Returns:
+        bool: 是否为优先涨停
+    """
+    final_time = details.get('最终涨停时间', '')
+    if not final_time:
+        return False
+    try:
+        # HH:MM 格式可直接做字符串比较（字典序 == 时间序）
+        return str(final_time).strip() < EARLY_LIMIT_UP_TIME_THRESHOLD
+    except Exception:
+        return False
+
+
 def format_board_cell(ws, row, col, board_days, pure_stock_code, stock_detail_key, stock_details, current_date_obj):
     """
     格式化连板单元格
@@ -1445,6 +1466,10 @@ def format_board_cell(ws, row, col, board_days, pure_stock_code, stock_detail_ke
 
     # 添加成交量比信息
     board_text = add_volume_ratio_to_text(board_text, pure_stock_code, date_yyyymmdd)
+
+    # 优先涨停标记：最终涨停时间早于阈值则在文本前加 '^'
+    if stock_detail_key in stock_details and _is_early_limit_up(stock_details[stock_detail_key]):
+        board_text = f"^{board_text}"
 
     cell.value = board_text
     # 设置连板颜色
@@ -1497,6 +1522,11 @@ def format_shouban_cell(ws, row, col, pure_stock_code, current_date_obj, stock_d
 
     # 添加成交量比信息
     board_text = add_volume_ratio_to_text(board_text, pure_stock_code, date_yyyymmdd)
+
+    # 优先涨停标记：最终涨停时间早于阈值则在文本前加 '^'
+    if stock_detail_key and stock_details and stock_detail_key in stock_details \
+            and _is_early_limit_up(stock_details[stock_detail_key]):
+        board_text = f"^{board_text}"
 
     cell.value = board_text
     cell.fill = PatternFill(start_color=BOARD_COLORS[1], fill_type="solid")
@@ -2320,7 +2350,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        priority_reasons=None, low_priority_reasons=None, enable_attention_criteria=False,
                        sheet_name=None,
                        create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False,
-                       enable_reason_analysis=None):
+                       enable_reason_analysis=None, group_aggregations=None):
     """
     构建梯队形态的涨停复盘图
 
@@ -2344,6 +2374,10 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         enable_momo_shangzhang: 是否启用【默默上涨】数据，默认为False
         create_volume_sheet: 是否创建成交量涨跌幅分析工作表，默认为False
         enable_reason_analysis: 是否启用原因分析，None表示使用默认配置，True强制启用，False强制禁用
+        group_aggregations: 【概念分组】sheet 的分组聚合规则，list[tuple/list[str]]。
+            每个子列表中的概念名在排序分组时会被合并为同一组（以优先级最高的概念作为组名）。
+            只影响【概念分组】sheet 的排序/分组逻辑，不影响股票的上色逻辑。
+            例如：[('AI应用', '文化传媒'), ('贵金属', '国企')]
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -2507,7 +2541,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             stock_entry_count, formatted_trading_days, date_column_start,
             show_period_change, period_column, period_days, period_days_long,
             stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
-            zaban_df, enable_collapse=True, abnormal_detector=shared_abnormal_detector
+            zaban_df, enable_collapse=True, abnormal_detector=shared_abnormal_detector,
+            group_aggregations=group_aggregations
         )
 
     # 创建成交量涨跌幅分析工作表（如果启用）
@@ -3222,11 +3257,55 @@ def _build_color_reason_group_for_concept_sheet(concept_grouped_df, stock_data, 
     return color_reason_group
 
 
+def _apply_group_aggregations(df, group_aggregations):
+    """
+    将指定的概念分组聚合为更大的组，用于【概念分组】sheet的排序/分组显示逻辑。
+    只修改 concept_group / concept_priority 列，不影响用于上色的映射。
+
+    聚合规则：
+    - 取子列表中 concept_priority 最小（优先级最高）的已有概念作为代表组名
+    - 所有属于该子列表的股票均归入代表组，priority 统一设为代表组的 priority
+
+    Args:
+        df: 含 concept_group / concept_priority 列的 DataFrame（会被 in-place 修改）
+        group_aggregations: list[tuple/list[str]]
+            每个子列表表示要合并为一组的概念名，例如：
+            [('AI应用', '文化传媒'), ('贵金属', '国企')]
+
+    Returns:
+        修改后的 DataFrame
+    """
+    if not group_aggregations:
+        return df
+
+    for agg_group in group_aggregations:
+        if not agg_group or len(agg_group) < 2:
+            continue
+        agg_set = set(agg_group)
+        # 找出子列表中实际存在于数据里的概念
+        present = [g for g in agg_group if g in df['concept_group'].values]
+        if not present:
+            continue
+        # 以优先级最高（数值最小）的概念作为代表组名
+        canonical = min(
+            present,
+            key=lambda g: df.loc[df['concept_group'] == g, 'concept_priority'].min()
+        )
+        canonical_priority = int(df.loc[df['concept_group'] == canonical, 'concept_priority'].min())
+        # 将所有属于此聚合组的股票统一到代表组
+        mask = df['concept_group'].isin(agg_set)
+        df.loc[mask, 'concept_group'] = canonical
+        df.loc[mask, 'concept_priority'] = canonical_priority
+        print(f"[分组聚合] {agg_set} → 代表组: 【{canonical}】")
+
+    return df
+
+
 def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                          formatted_trading_days, date_column_start, show_period_change, period_column,
                                          period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
                                          max_tracking_days_before, zaban_df, enable_collapse=False,
-                                         abnormal_detector=None):
+                                         abnormal_detector=None, group_aggregations=None):
     """
     创建按概念分组的工作表内容
 
@@ -3248,6 +3327,9 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         enable_collapse: 是否启用行折叠功能（True=收集折叠行索引，False=不折叠）
+        group_aggregations: 分组聚合规则，list[tuple/list[str]]，每个子列表中的概念在排序
+            分组时会被合并为同一组（代表组为优先级最高的概念）。只影响分组/排序，
+            不影响股票的上色逻辑。例如：[('AI应用', '文化传媒'), ('贵金属', '国企')]
     
     Returns:
         list: 需要折叠的行索引列表（仅当enable_collapse=True时返回）
@@ -3256,6 +3338,10 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
 
     # 按概念分组重新排序数据，添加长周期涨跌幅计算
     concept_grouped_df = result_df.copy()
+
+    # 应用分组聚合（仅影响排序/分组，不影响上色）
+    if group_aggregations:
+        concept_grouped_df = _apply_group_aggregations(concept_grouped_df, group_aggregations)
 
     # 计算长周期涨跌幅用于排序
     def calculate_long_period_change(row):
