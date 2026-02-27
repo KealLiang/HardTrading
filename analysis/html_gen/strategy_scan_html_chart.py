@@ -145,7 +145,8 @@ def _calculate_period_changes(stock_code: str, signal_date: str, data_dir: str) 
     return period_changes
 
 
-def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict]) -> str:
+def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict],
+                  concepts: Optional[List[str]] = None) -> str:
     """
     格式化图表标题
     
@@ -153,11 +154,13 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
         stock_code: 股票代码
         stock_name: 股票名称
         signal_dates_info: 信号日期信息列表
+        concepts: 所属概念列表，不为空时以 [A+B+C] 形式追加到标题首行
         
     Returns:
         格式化的标题HTML字符串
     """
-    title_parts = [f"<b>{stock_code} {stock_name}</b>"]
+    concept_tag = f" [{'+'.join(concepts)}]" if concepts else ""
+    title_parts = [f"<b>{stock_code} {stock_name}{concept_tag}</b>"]
 
     # 显示所有信号日期
     signal_info_parts = []
@@ -200,7 +203,8 @@ def _create_single_chart_figure(
         signal_dates_info: List[Dict],
         before_days: int = DEFAULT_BEFORE_DAYS,
         after_days: int = DEFAULT_AFTER_DAYS,
-        data_dir: str = './data/astocks'
+        data_dir: str = './data/astocks',
+        concepts: Optional[List[str]] = None,
 ) -> Optional[go.Figure]:
     """
     创建单个图表的Figure对象，支持多个信号日期标记
@@ -340,7 +344,7 @@ def _create_single_chart_figure(
         fig.add_trace(volume_bar, row=2, col=1)
 
         # 4. 生成标题
-        title = _format_title(stock_code, stock_name, signal_dates_info)
+        title = _format_title(stock_code, stock_name, signal_dates_info, concepts=concepts)
 
         # 5. 更新布局
         fig.update_layout(
@@ -626,6 +630,18 @@ def generate_strategy_scan_html_charts(
         output_dir = os.path.join(base_dir, 'html_charts')
     os.makedirs(output_dir, exist_ok=True)
 
+    # 加载概念映射（可选，失败不影响主流程）
+    _concept_lookup = {}
+    try:
+        from fetch.stock_concept_map import get_stock_concepts, is_map_available
+        if is_map_available():
+            _concept_lookup = {code: get_stock_concepts(code) for code in filtered_stocks}
+            logging.info(f"概念映射已加载，覆盖 {sum(1 for v in _concept_lookup.values() if v)} 只股票")
+        else:
+            logging.info("概念映射文件不存在，跳过概念标签（可运行 fetch_stock_concept_map() 生成）")
+    except Exception as _e:
+        logging.warning(f"加载概念映射失败，跳过概念标签: {_e}")
+
     chart_figures = []
     chart_titles = []
 
@@ -676,6 +692,9 @@ def generate_strategy_scan_html_charts(
                 logging.warning(f"股票 {stock_code} {stock_name} 清理停牌数据后无有效数据")
                 continue
 
+            # 查询所属概念
+            concepts = _concept_lookup.get(stock_code) or []
+
             # 创建图表figure（包含所有信号日期）
             fig = _create_single_chart_figure(
                 stock_code=stock_code,
@@ -684,12 +703,13 @@ def generate_strategy_scan_html_charts(
                 signal_dates_info=signals_info,
                 before_days=before_days,
                 after_days=after_days,
-                data_dir=data_dir
+                data_dir=data_dir,
+                concepts=concepts,
             )
 
             if fig is not None:
                 chart_figures.append(fig)
-                # 生成标题
+                # 生成卡片标题（概念标签已在图表内标题中显示，此处不重复）
                 signal_count = len(signals_info)
                 title = f"{stock_code} {stock_name} ({signal_count}个信号)"
                 chart_titles.append(title)

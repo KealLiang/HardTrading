@@ -741,11 +741,18 @@ def get_etf_datas(etf_list, start_date=None, end_date=None):
 
 
 def fetch_stock_concept_map():
-    # 获取股票概念映射数据
-    # 首次运行或需要更新时取消注释执行（全量构建约 15~30 分钟）
+    """获取股票概念映射数据"""
     from fetch.stock_concept_map import update_concept_map
     update_concept_map()  # 幂等：当天已更新则自动跳过
     # update_concept_map(force=True)  # 强制重建
+
+
+def candidate_hot_concept_stocks():
+    """生成热门概念候选股数据"""
+    from fetch.stock_concept_map import get_candidate_stocks_by_concepts
+    concepts = ["%算力%", "%化工%", "AI%"]
+    output_file = 'bin/candidate_temp/candidate_stocks_hot_concept.txt'
+    get_candidate_stocks_by_concepts(concepts, output_file)
 
 
 def get_pe_data():
@@ -1608,10 +1615,22 @@ def analyze_gap_up_stocks(start_date='20250101', end_date='20250131',
     return analyzer.output_dir
 
 
+def breakout_strategy_backtest(file_name: str):
+    """
+    如果使用find_candidate_stocks_volume_surge的初筛股进行回测，注意这是滑动窗口筛选的；
+    更早窗口筛出来的无法真实应用于突破策略，因为突破策略只认这是'当下'的候选股。
+    """
+    from analysis.breakout_a_backtest import run_breakout_a_backtest
+    run_breakout_a_backtest(
+        signal_file=f'bin/candidate_stocks_breakout_a/{file_name}',
+        output_dir='bin/candidate_stocks_breakout_a/backtest',
+    )
+
+
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
 
     # === 复盘相关 ===
     # get_stock_datas()
@@ -1626,9 +1645,11 @@ if __name__ == '__main__':
     # === 策略形态扫描 ===
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
-    # find_candidate_stocks_volume_surge('20260114')
+    # find_candidate_stocks_volume_surge()
+    # candidate_hot_concept_stocks()
     # strategy_scan('a')
     # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    breakout_strategy_backtest('scan_simple_20251220-20260227.txt')  # 爆量突破策略回测
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
