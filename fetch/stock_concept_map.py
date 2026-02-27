@@ -2,20 +2,24 @@
 股票 ↔ 概念板块 双向映射表
 
 功能：
-  - 通过东方财富（EM）接口全量构建"股票→概念"和"概念→股票"双向映射
-  - 支持断点续传：遇到限流立即停止并保存进度，下次从中断处继续
-  - 概念板块名称列表缓存到文件，避免多次重复拉取
+  - 通过同花顺（THS）接口全量构建"股票→概念"和"概念→股票"双向映射
+  - 支持断点续传：遇到异常立即停止并保存进度，下次从中断处继续
+  - 概念板块名称及代码列表缓存到文件，避免多次重复拉取
   - 提供按股票代码查询所属概念，以及按概念查询成分股的接口
+
+数据源：
+  - 概念列表：同花顺 stock_board_concept_name_ths()，接口稳定
+  - 成分股列表：同花顺概念详情页翻页抓取（http://q.10jqka.com.cn/gn/detail/code/{code}/page/{n}/）
 
 缓存文件：
   data/concepts_data/stock_concept_map.json       （最终成果）
   data/concepts_data/stock_concept_map.tmp.json   （构建中途的进度，完成后删除）
-  data/concepts_data/concept_name_list.json       （概念名称列表缓存）
+  data/concepts_data/concept_name_list.json       （概念名称及代码缓存）
 
 典型用法：
   from fetch.stock_concept_map import update_concept_map, get_stock_concepts
 
-  update_concept_map()                     # 全量更新（首次约 15~30 分钟，支持多次断点续传）
+  update_concept_map()                     # 全量更新（首次约 5~15 分钟，支持断点续传）
   concepts = get_stock_concepts("000001")  # 查询平安银行所属概念
 """
 
@@ -24,9 +28,11 @@ import logging
 import os
 import time
 from datetime import datetime
+from io import StringIO
 from typing import Optional
 
-import requests as _requests
+import pandas as pd
+import requests
 import akshare as ak
 
 logger = logging.getLogger(__name__)
@@ -35,10 +41,13 @@ logger = logging.getLogger(__name__)
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concepts_data")
 _MAP_FILE  = os.path.join(_DATA_DIR, "stock_concept_map.json")
 _TMP_FILE  = os.path.join(_DATA_DIR, "stock_concept_map.tmp.json")
-_LIST_FILE = os.path.join(_DATA_DIR, "concept_name_list.json")   # 概念名称列表缓存
+_LIST_FILE = os.path.join(_DATA_DIR, "concept_name_list.json")   # 概念名称及代码缓存
 
 # ── 请求参数 ─────────────────────────────────────────────
-_SLEEP_BETWEEN = 1.2   # 每次成功请求后等待秒数，缓解 EM 限流
+_SLEEP_BETWEEN_PAGES    = 0.4   # 同一概念翻页间隔（秒）
+_SLEEP_BETWEEN_CONCEPTS = 1.0   # 每个概念拉取完后的等待（秒）
+_THS_DETAIL_BASE_URL    = "http://q.10jqka.com.cn/gn/detail/code/{code}/"
+_THS_PAGE_URL           = "http://q.10jqka.com.cn/gn/detail/code/{code}/page/{page}/"
 
 
 # ─────────────────────────────────────────────────────────
@@ -65,64 +74,164 @@ def _save_json(path: str, data: dict):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# VPN 开启时，Clash 等代理对 79.push2.eastmoney.com 等数字前缀子域名处理异常，
-# 会触发 ProxyError。此处 patch requests.get，让 EM 域名始终走直连，绕过代理。
-_orig_requests_get = _requests.get
+def _get_ths_v_code() -> str:
+    """获取同花顺接口所需的 v_code 认证 Cookie 值"""
+    import py_mini_racer
+    from akshare.datasets import get_ths_js
+    with open(get_ths_js("ths.js"), encoding="utf-8") as f:
+        js_content = f.read()
+    js_code = py_mini_racer.MiniRacer()
+    js_code.eval(js_content)
+    return js_code.call("v")
 
-def _em_direct_get(url, **kwargs):
-    if "eastmoney.com" in url:
-        kwargs["proxies"] = {"http": None, "https": None}
-    return _orig_requests_get(url, **kwargs)
 
-_requests.get = _em_direct_get
+def _make_ths_headers(v_code: str, referer: str = "") -> dict:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Cookie": f"v={v_code}",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    }
+    if referer:
+        headers["Referer"] = referer
+    return headers
+
+
+# ─────────────────────────────────────────────────────────
+# THS 成分股抓取
+# ─────────────────────────────────────────────────────────
+
+def _get_concept_stocks_ths(concept_code: str, v_code: str) -> list[str]:
+    """
+    抓取同花顺某概念板块的全部成分股代码。
+
+    通过翻页访问概念详情页（非 AJAX），每页约 10 条，直到末页或异常为止。
+
+    Args:
+        concept_code: THS 概念代码，如 "301270"
+        v_code: 同花顺认证 Cookie 值
+
+    Returns:
+        股票代码列表（6 位字符串）；失败时返回已抓取部分
+    """
+    detail_url = _THS_DETAIL_BASE_URL.format(code=concept_code)
+    headers = _make_ths_headers(v_code, referer="http://q.10jqka.com.cn/gn/")
+    all_codes: list[str] = []
+
+    # ── 第 1 页（同时获取总页数）─────────────────────────
+    try:
+        r = requests.get(detail_url, headers=headers, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        logger.warning(f"THS 概念 {concept_code} 第1页请求失败: {e}")
+        return all_codes
+
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(r.text, features="lxml")
+    page_info = soup.find("span", {"class": "page_info"})
+    total_pages = int(page_info.text.split("/")[1]) if page_info else 1
+
+    codes = _parse_stock_codes(r.text)
+    all_codes.extend(codes)
+
+    # ── 第 2 页及以后 ────────────────────────────────────
+    for page in range(2, total_pages + 1):
+        time.sleep(_SLEEP_BETWEEN_PAGES)
+        page_url = _THS_PAGE_URL.format(code=concept_code, page=page)
+        try:
+            rp = requests.get(page_url, headers=headers, timeout=15)
+            rp.raise_for_status()
+        except Exception as e:
+            logger.warning(f"THS 概念 {concept_code} 第{page}页请求失败: {e}")
+            break
+        page_codes = _parse_stock_codes(rp.text)
+        if not page_codes:
+            break
+        all_codes.extend(page_codes)
+
+    return all_codes
+
+
+def _parse_stock_codes(html: str) -> list[str]:
+    """从 THS 概念详情页 HTML 中解析股票代码列表（第2列）"""
+    try:
+        tables = pd.read_html(StringIO(html))
+        if not tables:
+            return []
+        df = tables[0]
+        # 第1列为序号，第2列为代码，检查首行是否为"暂无成份股数据"
+        first_val = str(df.iloc[0, 0])
+        if "暂无" in first_val or "无成份" in first_val:
+            return []
+        codes = df.iloc[:, 1].astype(str).str.zfill(6).tolist()
+        return [c for c in codes if c.isdigit()]
+    except Exception:
+        return []
+
+
+# ─────────────────────────────────────────────────────────
+# 核心：概念名称列表
+# ─────────────────────────────────────────────────────────
+
+def _get_all_concepts(force_refresh: bool = False) -> list[dict]:
+    """
+    获取全部概念板块名称及代码列表。
+    优先读取本地缓存（concept_name_list.json），缓存不存在时从 THS 拉取并保存。
+
+    Args:
+        force_refresh: True 时忽略缓存，强制从 THS 重新拉取
+
+    Returns:
+        包含 {"name": ..., "code": ...} 的字典列表
+    """
+    if not force_refresh:
+        cached = _load_json(_LIST_FILE)
+        if cached and cached.get("source") == "ths":
+            concepts = cached.get("concepts", [])
+            logger.info(f"从缓存读取 THS 概念列表：{len(concepts)} 个（{cached.get('fetched_at', '')}）")
+            return concepts
+
+    logger.info("正在从 THS 获取概念板块列表...")
+    concept_df = ak.stock_board_concept_name_ths()
+    concepts = [
+        {"name": row["name"], "code": str(row["code"])}
+        for _, row in concept_df.iterrows()
+    ]
+    _save_json(_LIST_FILE, {
+        "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "ths",
+        "concepts": concepts,
+    })
+    logger.info(f"THS 概念列表已缓存：{len(concepts)} 个")
+    return concepts
 
 
 # ─────────────────────────────────────────────────────────
 # 核心：构建/更新映射表
 # ─────────────────────────────────────────────────────────
 
-def _get_all_concepts(force_refresh: bool = False) -> list[str]:
-    """
-    获取全部概念板块名称列表。
-    优先读取本地缓存（concept_name_list.json），缓存不存在时才调用 EM 接口并保存。
-
-    Args:
-        force_refresh: True 时忽略缓存，强制重新从 EM 拉取
-    """
-    if not force_refresh:
-        cached = _load_json(_LIST_FILE)
-        if cached:
-            concepts = cached.get("concepts", [])
-            logger.info(f"从缓存读取概念列表：{len(concepts)} 个（{cached.get('fetched_at', '')}）")
-            return concepts
-
-    logger.info("正在从 EM 获取概念板块列表...")
-    concept_df = ak.stock_board_concept_name_em()
-    concepts = concept_df["板块名称"].tolist()
-    _save_json(_LIST_FILE, {
-        "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "concepts": concepts,
-    })
-    logger.info(f"概念列表已缓存：{len(concepts)} 个")
-    return concepts
-
-
 def update_concept_map(force: bool = False) -> dict:
     """
     全量构建（或续传）股票 ↔ 概念双向映射表，并保存到本地缓存。
 
     流程：
-      1. 读取概念板块名称列表（优先本地缓存，避免重复调用 EM）
+      1. 读取 THS 概念板块名称及代码列表（优先本地缓存）
       2. 恢复上次中断的临时进度（若有）
-      3. 逐一获取每个概念的成分股；一旦失败立即停止并保存当前进度
-      4. 全部完成后写入最终文件，删除临时进度文件
+      3. 生成 THS 认证 v_code
+      4. 逐一抓取每个概念的成分股（翻页 HTTP 请求，无需登录）；
+         遇到连续失败则暂停并保存进度
+      5. 全部完成后写入最终文件，删除临时进度文件
 
     Args:
-        force: True = 忽略所有缓存，强制从零重建（同时刷新概念名称列表）；
-               False = 若最终文件存在且是今天的则跳过（幂等），否则从上次断点继续
+        force: True = 忽略所有缓存，强制从零重建；
+               False = 若最终文件存在且是今天的则跳过，否则从上次断点继续
 
     Returns:
-        包含映射数据的 dict（完成时），或已积累的部分数据（被限流中断时）
+        包含映射数据的 dict（完成时），或已积累的部分数据（中断时）
     """
     _ensure_dir()
 
@@ -135,7 +244,7 @@ def update_concept_map(force: bool = False) -> dict:
                 logger.info(f"概念映射表今日已完成（{updated_at}），跳过。如需强制重建请传 force=True")
                 return existing
 
-    # ── Step 1：获取概念名称列表（本地缓存优先）────────────
+    # ── Step 1：获取概念名称及代码列表（本地缓存优先）──────
     all_concepts = _get_all_concepts(force_refresh=force)
     total = len(all_concepts)
 
@@ -151,56 +260,100 @@ def update_concept_map(force: bool = False) -> dict:
         concept_to_stocks = {}
         done_concepts = set()
 
-    logger.info(f"开始拉取成分股，剩余 {total - len(done_concepts)} 个概念...")
+    remaining = total - len(done_concepts)
+    logger.info(f"开始抓取成分股，剩余 {remaining} 个概念（数据源：THS）...")
 
-    # ── Step 3：逐概念拉成分股，失败立即停止 ─────────────
-    for idx, concept in enumerate(all_concepts, 1):
-        if concept in done_concepts:
-            continue
+    # ── Step 3：获取 THS 认证 v_code ─────────────────────
+    v_code = _get_ths_v_code()
+    v_code_refresh_interval = 50   # 每处理 N 个概念后刷新 v_code
+    _SAVE_INTERVAL = 20            # 每成功处理 N 个概念后自动保存一次进度
+    fail_streak = 0                # 连续失败计数
+    _MAX_FAIL_STREAK = 5           # 连续失败 N 次则终止并保存进度
+    processed_count = 0            # 本次运行已处理概念数
 
-        try:
-            cons_df = ak.stock_board_concept_cons_em(symbol=concept)
-            code_col = "代码" if "代码" in cons_df.columns else cons_df.columns[0]
-            codes = cons_df[code_col].astype(str).str.zfill(6).tolist()
+    def _save_tmp():
+        _save_json(_TMP_FILE, {
+            "stock_to_concepts": stock_to_concepts,
+            "concept_to_stocks": concept_to_stocks,
+            "done_concepts": list(done_concepts),
+        })
 
-            concept_to_stocks[concept] = codes
-            for code in codes:
-                stock_to_concepts.setdefault(code, [])
-                if concept not in stock_to_concepts[code]:
-                    stock_to_concepts[code].append(concept)
+    # ── Step 4：逐概念抓成分股 ────────────────────────────
+    try:
+        for idx, concept in enumerate(all_concepts, 1):
+            concept_name = concept["name"]
+            concept_code = concept["code"]
 
-            done_concepts.add(concept)
-            logger.info(f"[{idx}/{total}] {concept}: {len(codes)} 只")
+            if concept_name in done_concepts:
+                continue
 
-        except Exception as e:
-            # 失败 = 被限流，立即保存进度并终止，等下次继续
-            logger.warning(
-                f"[{idx}/{total}] {concept} 拉取失败（{type(e).__name__}），"
-                f"判断为限流，终止本次运行并保存进度"
-            )
-            _save_json(_TMP_FILE, {
-                "stock_to_concepts": stock_to_concepts,
-                "concept_to_stocks": concept_to_stocks,
-                "done_concepts": list(done_concepts),
-            })
-            logger.info(f"进度已保存，下次运行将从第 {idx} 个概念『{concept}』继续")
-            return {
-                "_meta": {
-                    "status": "incomplete",
-                    "stopped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "done": len(done_concepts),
-                    "total": total,
-                },
-                "stock_to_concepts": stock_to_concepts,
-                "concept_to_stocks": concept_to_stocks,
-            }
+            # 定期刷新 v_code，避免 Cookie 过期
+            if processed_count > 0 and processed_count % v_code_refresh_interval == 0:
+                logger.info("刷新 THS v_code...")
+                v_code = _get_ths_v_code()
 
-        time.sleep(_SLEEP_BETWEEN)
+            try:
+                codes = _get_concept_stocks_ths(concept_code, v_code)
 
-    # ── Step 4：全部完成，写入最终文件 ───────────────────
+                concept_to_stocks[concept_name] = codes
+                for code in codes:
+                    stock_to_concepts.setdefault(code, [])
+                    if concept_name not in stock_to_concepts[code]:
+                        stock_to_concepts[code].append(concept_name)
+
+                done_concepts.add(concept_name)
+                fail_streak = 0
+                processed_count += 1
+                logger.info(f"[{idx}/{total}] {concept_name} ({concept_code}): {len(codes)} 只")
+
+                # 周期性保存进度，防止意外中断丢失数据
+                if processed_count % _SAVE_INTERVAL == 0:
+                    _save_tmp()
+                    logger.info(f"进度自动保存（已完成 {len(done_concepts)}/{total}）")
+
+            except Exception as e:
+                fail_streak += 1
+                logger.warning(
+                    f"[{idx}/{total}] {concept_name} 抓取异常（{type(e).__name__}: {e}），"
+                    f"连续失败 {fail_streak}/{_MAX_FAIL_STREAK}"
+                )
+                if fail_streak >= _MAX_FAIL_STREAK:
+                    logger.warning("连续失败次数达到上限，终止本次运行并保存进度")
+                    _save_tmp()
+                    logger.info(f"进度已保存，下次运行将从 『{concept_name}』 附近继续")
+                    return {
+                        "_meta": {
+                            "status": "incomplete",
+                            "stopped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "done": len(done_concepts),
+                            "total": total,
+                        },
+                        "stock_to_concepts": stock_to_concepts,
+                        "concept_to_stocks": concept_to_stocks,
+                    }
+
+            time.sleep(_SLEEP_BETWEEN_CONCEPTS)
+
+    except KeyboardInterrupt:
+        logger.warning("用户手动中断，保存当前进度...")
+        _save_tmp()
+        logger.info(f"进度已保存（已完成 {len(done_concepts)}/{total}），下次运行将从断点继续")
+        return {
+            "_meta": {
+                "status": "interrupted",
+                "stopped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "done": len(done_concepts),
+                "total": total,
+            },
+            "stock_to_concepts": stock_to_concepts,
+            "concept_to_stocks": concept_to_stocks,
+        }
+
+    # ── Step 5：全部完成，写入最终文件 ───────────────────
     result = {
         "_meta": {
             "status": "complete",
+            "source": "ths",
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_concepts": len(concept_to_stocks),
             "total_stocks": len(stock_to_concepts),
@@ -261,10 +414,79 @@ def get_concept_stocks(concept_name: str) -> list[str]:
 
 
 def get_map_meta() -> dict:
-    """返回映射表的元信息（更新时间、统计数量等）"""
+    """返回映射表的元信息（更新时间、数据源、统计数量等）"""
     return _get_map().get("_meta", {})
 
 
 def is_map_available() -> bool:
     """判断本地缓存是否存在"""
     return os.path.exists(_MAP_FILE)
+
+
+def _match_concept_names(pattern: str, all_names: list[str]) -> list[str]:
+    """
+    按模式匹配概念名称列表。
+
+    支持 SQL LIKE 风格的 ``%`` 通配符：
+      - ``%化工%``  → 名称中包含"化工"
+      - ``化工%``   → 名称以"化工"开头
+      - ``%化工``   → 名称以"化工"结尾
+      - ``化工``    → 精确匹配（不含 ``%`` 时）
+    """
+    import fnmatch
+    if "%" in pattern:
+        # 将 SQL LIKE 的 % 转为 fnmatch 的 *
+        return [n for n in all_names if fnmatch.fnmatch(n, pattern.replace("%", "*"))]
+    # 无通配符：精确匹配
+    return [pattern] if pattern in all_names else []
+
+
+def get_candidate_stocks_by_concepts(
+    concepts: list[str],
+    output_file: str = None,
+) -> list[str]:
+    """
+    按概念名称（支持多个，支持模糊匹配）汇总候选股代码列表。
+
+    取所有匹配概念成分股的并集，去重并排序，可选写入文件（格式与
+    ``bin/candidate_temp/candidate_stocks_ready.txt`` 保持一致，每行一个代码）。
+
+    Args:
+        concepts: 概念名称列表，每项支持：
+
+            * 精确名称：``"光芯片"``
+            * SQL LIKE 风格通配符（``%``）：
+
+              - ``"%化工%"``  → 所有名称含"化工"的概念
+              - ``"化工%"``   → 所有名称以"化工"开头的概念
+              - ``"%化工"``   → 所有名称以"化工"结尾的概念
+
+        output_file: 输出文件路径；为 None 时仅返回列表，不写文件
+
+    Returns:
+        去重排序后的股票代码列表
+    """
+    data = _get_map()
+    concept_to_stocks = data.get("concept_to_stocks", {})
+    all_concept_names = list(concept_to_stocks.keys())
+
+    code_set: set[str] = set()
+    for pattern in concepts:
+        matched = _match_concept_names(pattern, all_concept_names)
+        if not matched:
+            logger.warning(f"模式 '{pattern}' 未匹配到任何概念")
+            continue
+        if "%" in pattern:
+            logger.info(f"模式 '{pattern}' 匹配到 {len(matched)} 个概念: {matched}")
+        for name in matched:
+            code_set.update(concept_to_stocks.get(name, []))
+
+    result = sorted(code_set)
+
+    if output_file:
+        os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(result) + "\n")
+        logger.info(f"候选股已写入: {output_file}（共 {len(result)} 只）")
+
+    return result
