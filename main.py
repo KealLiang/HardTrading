@@ -661,8 +661,8 @@ def daily_routine():
         # (auction_fengdan_analyze, "复盘分析封单数据"),
         # (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
         #  "爆量分歧转一致筛选"),  # 只有主线明确的情况才能使用，胜率和从天梯直接找差不多
-        (lambda: strategy_scan('a'), "执行策略扫描"),  # 打顺风局可以，逆风或者轮动行情必须买跌不买涨
-        (lambda: generate_strategy_scan_html_charts('a', recent_days=15, columns=2), "生成策略扫描的html对比图"),
+        # (lambda: strategy_scan('a'), "执行策略扫描"),  # 打顺风局可以，逆风或者轮动行情必须买跌不买涨
+        # (lambda: generate_strategy_scan_html_charts('a', recent_days=15, columns=2), "生成策略扫描的html对比图"),
     ]
 
     execute_routine(daily_steps, "daily_routine")
@@ -750,7 +750,7 @@ def fetch_stock_concept_map():
 def candidate_hot_concept_stocks():
     """生成热门概念候选股数据"""
     from fetch.stock_concept_map import get_candidate_stocks_by_concepts
-    concepts = ["%算力%", "%化工%", "AI%"]
+    concepts = ["%算力%", "%CPO%", "%核聚变%", "可燃冰", "页岩气"]
     output_file = 'bin/candidate_temp/candidate_stocks_hot_concept.txt'
     get_candidate_stocks_by_concepts(concepts, output_file)
 
@@ -1634,7 +1634,7 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     # get_stock_datas()
-    daily_routine()
+    # daily_routine()
     # full_scan_routine()
     # get_index_data()
     # fetch_stock_concept_map()  # 概念板块映射表
@@ -1646,9 +1646,9 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge()
-    # candidate_hot_concept_stocks()
-    # strategy_scan('a')
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    candidate_hot_concept_stocks()  # 热门板块候选股
+    strategy_scan('a')
+    generate_strategy_scan_html_charts('a', recent_days=20, columns=2)
     # breakout_strategy_backtest('scan_simple_20251220-20260227.txt')  # 爆量突破策略回测
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
