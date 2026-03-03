@@ -747,10 +747,9 @@ def fetch_stock_concept_map():
     # update_concept_map(force=True)  # 强制重建
 
 
-def candidate_hot_concept_stocks():
+def candidate_hot_concept_stocks(concepts: list):
     """生成热门概念候选股数据"""
     from fetch.stock_concept_map import get_candidate_stocks_by_concepts
-    concepts = ["%算力%", "%CPO%", "%核聚变%", "可燃冰", "页岩气"]
     output_file = 'bin/candidate_temp/candidate_stocks_hot_concept.txt'
     get_candidate_stocks_by_concepts(concepts, output_file)
 
@@ -1646,7 +1645,7 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge()
-    candidate_hot_concept_stocks()  # 热门板块候选股
+    candidate_hot_concept_stocks(["%CPO%", "%军工%", "可燃冰", "航运概念", "人工智能"])  # 热门板块候选股
     strategy_scan('a')
     generate_strategy_scan_html_charts('a', recent_days=20, columns=2)
     # breakout_strategy_backtest('scan_simple_20251220-20260227.txt')  # 爆量突破策略回测
