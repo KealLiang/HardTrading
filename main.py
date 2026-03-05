@@ -1645,10 +1645,10 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge()
-    candidate_hot_concept_stocks(["%CPO%", "%军工%", "可燃冰", "航运概念", "人工智能"])  # 热门板块候选股
+    candidate_hot_concept_stocks(["%CPO%", "可燃冰", "MiniLED", "智能电网", "特高压"])  # 热门板块候选股
     strategy_scan('a')
-    generate_strategy_scan_html_charts('a', recent_days=20, columns=2)
-    # breakout_strategy_backtest('scan_simple_20251220-20260227.txt')  # 爆量突破策略回测
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # breakout_strategy_backtest('scan_simple_20251220-20260305.txt')  # 爆量突破策略回测
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
