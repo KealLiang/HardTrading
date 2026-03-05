@@ -38,6 +38,11 @@ SIGNAL_TYPE_CONFIG = [
 DEFAULT_BEFORE_DAYS = 60  # 信号日前显示的交易日数
 DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 
+# 建仓价格区间（基于信号日MA5）的全局配置，单位为百分比
+# 例如：-0.01 表示 -1%，0.03 表示 +3%
+ENTRY_RANGE_LOW_PCT = -0.01
+ENTRY_RANGE_HIGH_PCT = 0.03
+
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
 
@@ -329,6 +334,48 @@ def _create_single_chart_figure(
                     fig.add_trace(signal_marker, row=1, col=1)
             except Exception as e:
                 logging.debug(f"添加信号标记失败 {signal_date}: {e}")
+
+        # 2.5 计算并显示建仓价格区间（基于最新信号日的MA5，区间为全局参数 ENTRY_RANGE_LOW_PCT ~ ENTRY_RANGE_HIGH_PCT）
+        try:
+            latest_signal = max(signal_dates_info, key=lambda x: x['signal_date'])
+            latest_signal_dt = datetime.strptime(latest_signal['signal_date'], '%Y-%m-%d')
+            latest_signal_idx = None
+            for i, date in enumerate(dates):
+                if date.date() == latest_signal_dt.date():
+                    latest_signal_idx = i
+                    break
+
+            if latest_signal_idx is not None:
+                ma5_at_signal = ma5.iloc[latest_signal_idx]
+                entry_low = round(ma5_at_signal * (1 + ENTRY_RANGE_LOW_PCT), 2)
+                entry_high = round(ma5_at_signal * (1 + ENTRY_RANGE_HIGH_PCT), 2)
+
+                low_pct_str = f"{ENTRY_RANGE_LOW_PCT * 100:+.0f}%"
+                high_pct_str = f"{ENTRY_RANGE_HIGH_PCT * 100:+.0f}%"
+
+                annotation_text = (
+                    f"<b>建仓区间</b><br>"
+                    f"MA5({latest_signal['signal_date']}): {ma5_at_signal:.2f}<br>"
+                    f"低: {entry_low:.2f}（{low_pct_str}）<br>"
+                    f"高: {entry_high:.2f}（{high_pct_str}）"
+                )
+                fig.add_annotation(
+                    text=annotation_text,
+                    xref='paper', yref='paper',
+                    # 左上角，避免遮挡右侧最新K线
+                    x=0.01, y=0.97,
+                    xanchor='left', yanchor='top',
+                    showarrow=False,
+                    bordercolor='#1a6fcd',
+                    borderwidth=2,
+                    borderpad=6,
+                    bgcolor='white',
+                    opacity=0.92,
+                    font=dict(size=11, color='#1a1a1a'),
+                    align='left',
+                )
+        except Exception as e:
+            logging.debug(f"计算建仓区间失败: {e}")
 
         # 3. 绘制成交量柱状图
         colors = ['#ff4444' if closes[i] >= opens[i] else '#00aa00'
