@@ -40,7 +40,7 @@ DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 
 # 建仓价格区间（基于信号日MA5）的全局配置，单位为百分比
 # 例如：-0.01 表示 -1%，0.03 表示 +3%
-ENTRY_RANGE_LOW_PCT = -0.01
+ENTRY_RANGE_LOW_PCT = -0.02
 ENTRY_RANGE_HIGH_PCT = 0.03
 
 # 涨跌幅计算周期（交易日）

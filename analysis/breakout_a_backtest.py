@@ -342,6 +342,19 @@ class BreakoutABacktester:
             if df is None:
                 continue
 
+            # ── 信号日 MA 信息（仅使用到 T 日收盘为止的数据，避免未来函数） ──
+            sig_close = 0.0
+            sig_ma5 = 0.0
+            signal_vs_ma5 = 0.0
+            sig_idx = self._find_idx(df, sig.signal_date)
+            if sig_idx is not None:
+                sig_row = df.iloc[sig_idx]
+                sig_close = sig_row['收盘']
+                _sig_ma5 = sig_row['MA5']
+                if pd.notna(_sig_ma5) and _sig_ma5 > 0:
+                    sig_ma5 = _sig_ma5
+                    signal_vs_ma5 = (sig_close - sig_ma5) / sig_ma5 * 100
+
             # ── 确定买入日和买入价 ──
             buy_idx    = None
             buy_price  = None
@@ -387,11 +400,15 @@ class BreakoutABacktester:
                     price_vs_ma5 = (buy_price - ma5_at_buy) / ma5_at_buy * 100
 
                 # ── MA5距离区间过滤：排除追高 / 限定入场窗口 ──
-                if ma5_at_buy > 0:
-                    if max_ma5_pct is not None and price_vs_ma5 > max_ma5_pct:
+                # 为避免未来视角，这里的过滤一律使用**信号日(T 日)的 MA5**，
+                # 例如「T+1_入场MA5+0~3%」表示：按 T 日 MA5 计算，T+1 开盘价
+                # 相对 T 日 MA5 在 0~3% 区间内才视为有效入场。
+                if (max_ma5_pct is not None or min_ma5_pct is not None) and sig_ma5 > 0:
+                    price_vs_entry_ma5 = (buy_price - sig_ma5) / sig_ma5 * 100
+                    if max_ma5_pct is not None and price_vs_entry_ma5 > max_ma5_pct:
                         stats.skipped += 1
                         continue
-                    if min_ma5_pct is not None and price_vs_ma5 <= min_ma5_pct:
+                    if min_ma5_pct is not None and price_vs_entry_ma5 <= min_ma5_pct:
                         stats.skipped += 1
                         continue
 
@@ -404,18 +421,6 @@ class BreakoutABacktester:
             buy_row = df.iloc[buy_idx]
             if abs(buy_row['最高'] - buy_row['最低']) < 0.005:
                 continue
-
-            # ── 信号日 MA 信息 ──
-            signal_vs_ma5 = 0.0
-            sig_idx = self._find_idx(df, sig.signal_date)
-            if sig_idx is not None:
-                sig_row  = df.iloc[sig_idx]
-                sig_close = sig_row['收盘']
-                sig_ma5   = sig_row['MA5']
-                if pd.notna(sig_ma5) and sig_ma5 > 0:
-                    signal_vs_ma5 = (sig_close - sig_ma5) / sig_ma5 * 100
-            else:
-                sig_close = 0.0
 
             # ── 模拟持仓 ──
             sell_date, sell_price, hold_days, sell_reason, max_p, max_l = self._simulate(
