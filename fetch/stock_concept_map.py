@@ -157,19 +157,61 @@ def _get_concept_stocks_ths(concept_code: str, v_code: str) -> list[str]:
 
 
 def _parse_stock_codes(html: str) -> list[str]:
-    """从 THS 概念详情页 HTML 中解析股票代码列表（第2列）"""
+    """从 THS 概念详情页 HTML 中解析股票代码列表。
+
+    不同概念页面的表格结构可能略有差异，有的 tables[0] 不是成分股表，
+    这里做一些兼容处理：
+      1. 从所有表中优先选择包含“代码”列的表；
+      2. 兼容 MultiIndex 表头（只取最后一级列名）；
+      3. 首行若包含“暂无成份股数据”等字样则认为无成分股。
+    """
     try:
         tables = pd.read_html(StringIO(html))
         if not tables:
             return []
-        df = tables[0]
-        # 第1列为序号，第2列为代码，检查首行是否为"暂无成份股数据"
-        first_val = str(df.iloc[0, 0])
-        if "暂无" in first_val or "无成份" in first_val:
+
+        target_df = None
+        for t in tables:
+            df = t.copy()
+            # 兼容 MultiIndex 列名
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [str(col[-1]) for col in df.columns]
+            cols = [str(c) for c in df.columns]
+            if any("代码" in c for c in cols):
+                target_df = df
+                break
+
+        if target_df is None:
             return []
-        codes = df.iloc[:, 1].astype(str).str.zfill(6).tolist()
+
+        df = target_df
+        if df.empty:
+            return []
+
+        # 首行若包含“暂无成份股数据”等字样则认为无数据
+        first_row_str = "".join(str(x) for x in df.iloc[0].tolist())
+        if "暂无" in first_row_str or "无成份" in first_row_str:
+            return []
+
+        # 找到“代码”所在列
+        code_col_idx = 1
+        for i, c in enumerate(df.columns):
+            if "代码" in str(c):
+                code_col_idx = i
+                break
+
+        series = df.iloc[:, code_col_idx].astype(str)
+        # 提取数字部分并补齐 6 位，过滤非纯数字
+        codes = (
+            series.str.extract(r"(\d+)")[0]
+            .dropna()
+            .astype(str)
+            .str.zfill(6)
+            .tolist()
+        )
         return [c for c in codes if c.isdigit()]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"_parse_stock_codes 解析失败: {e}")
         return []
 
 
@@ -214,56 +256,103 @@ def _get_all_concepts(force_refresh: bool = False) -> list[dict]:
 # 核心：构建/更新映射表
 # ─────────────────────────────────────────────────────────
 
-def update_concept_map(force: bool = False) -> dict:
+def update_concept_map(
+    force: bool = False,
+    retry_empty_concepts_only: bool = False,
+) -> dict:
     """
     全量构建（或续传）股票 ↔ 概念双向映射表，并保存到本地缓存。
 
     流程：
       1. 读取 THS 概念板块名称及代码列表（优先本地缓存）
-      2. 恢复上次中断的临时进度（若有）
+      2. 根据模式选择初始数据（全量 / 续传 / 只重试缺失概念）
       3. 生成 THS 认证 v_code
       4. 逐一抓取每个概念的成分股（翻页 HTTP 请求，无需登录）；
          遇到连续失败则暂停并保存进度
       5. 全部完成后写入最终文件，删除临时进度文件
 
     Args:
-        force: True = 忽略所有缓存，强制从零重建；
-               False = 若最终文件存在且是今天的则跳过，否则从上次断点继续
+        force:
+            True  = 忽略所有缓存，强制从零重建；
+            False = 若最终文件存在且是今天的则跳过，否则从上次断点继续。
+        retry_empty_concepts_only:
+            True  = 仅针对当前 stock_concept_map.json 中
+                    「成分股列表为空」或「完全缺失」的概念进行重试抓取，
+                    其余概念沿用历史结果，避免全量重拉。
+            False = 使用原有逻辑（全量/续传）。
 
     Returns:
         包含映射数据的 dict（完成时），或已积累的部分数据（中断时）
     """
     _ensure_dir()
 
-    # 幂等检查：今天已全量完成则直接返回
-    if not force:
+    # 当仅重试缺失概念时，不做“今日已完成”短路
+    if not force and not retry_empty_concepts_only:
         existing = _load_json(_MAP_FILE)
         if existing:
             updated_at = existing.get("_meta", {}).get("updated_at", "")
             if updated_at.startswith(datetime.now().strftime("%Y-%m-%d")):
-                logger.info(f"概念映射表今日已完成（{updated_at}），跳过。如需强制重建请传 force=True")
+                logger.info(
+                    f"概念映射表今日已完成（{updated_at}），跳过。如需强制重建请传 force=True"
+                )
                 return existing
 
-    # ── Step 1：获取概念名称及代码列表（本地缓存优先）──────
+    # Step 1：获取概念名称及代码列表（本地缓存优先）
     all_concepts = _get_all_concepts(force_refresh=force)
     total = len(all_concepts)
 
-    # ── Step 2：恢复中断进度 ──────────────────────────────
-    tmp = _load_json(_TMP_FILE)
-    if tmp and not force:
-        stock_to_concepts: dict = tmp.get("stock_to_concepts", {})
-        concept_to_stocks: dict = tmp.get("concept_to_stocks", {})
-        done_concepts: set = set(tmp.get("done_concepts", []))
-        logger.info(f"发现中断进度：已完成 {len(done_concepts)}/{total} 个概念，从断点继续...")
+    # Step 2：根据模式选择初始数据及目标概念集合
+    if retry_empty_concepts_only:
+        existing_full = _load_json(_MAP_FILE)
+        if not existing_full:
+            logger.warning(
+                "retry_empty_concepts_only=True 但未找到现有映射文件，将按全量模式重新构建"
+            )
+            stock_to_concepts: dict = {}
+            concept_to_stocks: dict = {}
+            done_concepts: set = set()
+        else:
+            existing_c2s: dict = existing_full.get("concept_to_stocks", {})
+            existing_s2c: dict = existing_full.get("stock_to_concepts", {})
+
+            all_concept_name_set = {c["name"] for c in all_concepts}
+            # 1) 文件中记录了但成分股列表为空的概念
+            empty_names = {name for name, codes in existing_c2s.items() if not codes}
+            # 2) 在概念列表中但映射文件中完全不存在的概念
+            missing_names = all_concept_name_set - set(existing_c2s.keys())
+
+            target_concept_names = empty_names | missing_names
+            if not target_concept_names:
+                logger.info("未发现成分股为空或缺失的概念，不需要重试，直接返回现有映射")
+                return existing_full
+
+            logger.info(
+                f"仅重试缺失概念，共 {len(target_concept_names)} 个：{sorted(target_concept_names)}"
+            )
+
+            # 以现有结果为基础增量更新：非目标概念视为已完成
+            stock_to_concepts = existing_s2c
+            concept_to_stocks = existing_c2s
+            done_concepts = all_concept_name_set - target_concept_names
     else:
-        stock_to_concepts = {}
-        concept_to_stocks = {}
-        done_concepts = set()
+        # 原有“全量/续传”逻辑
+        tmp = _load_json(_TMP_FILE)
+        if tmp and not force:
+            stock_to_concepts: dict = tmp.get("stock_to_concepts", {})
+            concept_to_stocks: dict = tmp.get("concept_to_stocks", {})
+            done_concepts: set = set(tmp.get("done_concepts", []))
+            logger.info(
+                f"发现中断进度：已完成 {len(done_concepts)}/{total} 个概念，从断点继续..."
+            )
+        else:
+            stock_to_concepts = {}
+            concept_to_stocks = {}
+            done_concepts = set()
 
     remaining = total - len(done_concepts)
     logger.info(f"开始抓取成分股，剩余 {remaining} 个概念（数据源：THS）...")
 
-    # ── Step 3：获取 THS 认证 v_code ─────────────────────
+    # Step 3：获取 THS 认证 v_code
     v_code = _get_ths_v_code()
     v_code_refresh_interval = 50   # 每处理 N 个概念后刷新 v_code
     _SAVE_INTERVAL = 20            # 每成功处理 N 个概念后自动保存一次进度
@@ -278,7 +367,7 @@ def update_concept_map(force: bool = False) -> dict:
             "done_concepts": list(done_concepts),
         })
 
-    # ── Step 4：逐概念抓成分股 ────────────────────────────
+    # Step 4：逐概念抓成分股
     try:
         for idx, concept in enumerate(all_concepts, 1):
             concept_name = concept["name"]
@@ -304,12 +393,16 @@ def update_concept_map(force: bool = False) -> dict:
                 done_concepts.add(concept_name)
                 fail_streak = 0
                 processed_count += 1
-                logger.info(f"[{idx}/{total}] {concept_name} ({concept_code}): {len(codes)} 只")
+                logger.info(
+                    f"[{idx}/{total}] {concept_name} ({concept_code}): {len(codes)} 只"
+                )
 
                 # 周期性保存进度，防止意外中断丢失数据
-                if processed_count % _SAVE_INTERVAL == 0:
+                if processed_count % _SAVE_INTERVAL == 0 and not retry_empty_concepts_only:
                     _save_tmp()
-                    logger.info(f"进度自动保存（已完成 {len(done_concepts)}/{total}）")
+                    logger.info(
+                        f"进度自动保存（已完成 {len(done_concepts)}/{total}）"
+                    )
 
             except Exception as e:
                 fail_streak += 1
@@ -317,14 +410,18 @@ def update_concept_map(force: bool = False) -> dict:
                     f"[{idx}/{total}] {concept_name} 抓取异常（{type(e).__name__}: {e}），"
                     f"连续失败 {fail_streak}/{_MAX_FAIL_STREAK}"
                 )
-                if fail_streak >= _MAX_FAIL_STREAK:
+                if fail_streak >= _MAX_FAIL_STREAK and not retry_empty_concepts_only:
                     logger.warning("连续失败次数达到上限，终止本次运行并保存进度")
                     _save_tmp()
-                    logger.info(f"进度已保存，下次运行将从 『{concept_name}』 附近继续")
+                    logger.info(
+                        f"进度已保存，下次运行将从 『{concept_name}』 附近继续"
+                    )
                     return {
                         "_meta": {
                             "status": "incomplete",
-                            "stopped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "stopped_at": datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
                             "done": len(done_concepts),
                             "total": total,
                         },
@@ -336,8 +433,11 @@ def update_concept_map(force: bool = False) -> dict:
 
     except KeyboardInterrupt:
         logger.warning("用户手动中断，保存当前进度...")
-        _save_tmp()
-        logger.info(f"进度已保存（已完成 {len(done_concepts)}/{total}），下次运行将从断点继续")
+        if not retry_empty_concepts_only:
+            _save_tmp()
+            logger.info(
+                f"进度已保存（已完成 {len(done_concepts)}/{total}），下次运行将从断点继续"
+            )
         return {
             "_meta": {
                 "status": "interrupted",
@@ -349,7 +449,7 @@ def update_concept_map(force: bool = False) -> dict:
             "concept_to_stocks": concept_to_stocks,
         }
 
-    # ── Step 5：全部完成，写入最终文件 ───────────────────
+    # Step 5：全部完成，写入最终文件
     result = {
         "_meta": {
             "status": "complete",
@@ -363,7 +463,7 @@ def update_concept_map(force: bool = False) -> dict:
     }
     _save_json(_MAP_FILE, result)
 
-    if os.path.exists(_TMP_FILE):
+    if os.path.exists(_TMP_FILE) and not retry_empty_concepts_only:
         os.remove(_TMP_FILE)
 
     logger.info(
