@@ -31,23 +31,27 @@ from datetime import datetime
 from io import StringIO
 from typing import Optional
 
+import akshare as ak
 import pandas as pd
 import requests
-import akshare as ak
 
 logger = logging.getLogger(__name__)
 
 # ── 路径常量 ─────────────────────────────────────────────
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concepts_data")
-_MAP_FILE  = os.path.join(_DATA_DIR, "stock_concept_map.json")
-_TMP_FILE  = os.path.join(_DATA_DIR, "stock_concept_map.tmp.json")
-_LIST_FILE = os.path.join(_DATA_DIR, "concept_name_list.json")   # 概念名称及代码缓存
+_MAP_FILE = os.path.join(_DATA_DIR, "stock_concept_map.json")
+_TMP_FILE = os.path.join(_DATA_DIR, "stock_concept_map.tmp.json")
+_LIST_FILE = os.path.join(_DATA_DIR, "concept_name_list.json")  # 概念名称及代码缓存
+_FAILED_CODES_FILE = os.path.join(_DATA_DIR, "concept_fetch_failed.json")  # 本次运行抓取失败的概念代码
+
+# 进程内失败概念代码集合（按概念 code 记）
+_FAILED_CONCEPT_CODES: set[str] = set()
 
 # ── 请求参数 ─────────────────────────────────────────────
-_SLEEP_BETWEEN_PAGES    = 0.4   # 同一概念翻页间隔（秒）
-_SLEEP_BETWEEN_CONCEPTS = 1.0   # 每个概念拉取完后的等待（秒）
-_THS_DETAIL_BASE_URL    = "http://q.10jqka.com.cn/gn/detail/code/{code}/"
-_THS_PAGE_URL           = "http://q.10jqka.com.cn/gn/detail/code/{code}/page/{page}/"
+_SLEEP_BETWEEN_PAGES = 0.4  # 同一概念翻页间隔（秒）
+_SLEEP_BETWEEN_CONCEPTS = 1.0  # 每个概念拉取完后的等待（秒）
+_THS_DETAIL_BASE_URL = "http://q.10jqka.com.cn/gn/detail/code/{code}/"
+_THS_PAGE_URL = "http://q.10jqka.com.cn/gn/detail/code/{code}/page/{page}/"
 
 
 # ─────────────────────────────────────────────────────────
@@ -116,7 +120,8 @@ def _get_concept_stocks_ths(concept_code: str, v_code: str) -> list[str]:
         v_code: 同花顺认证 Cookie 值
 
     Returns:
-        股票代码列表（6 位字符串）；失败时返回已抓取部分
+        股票代码列表（6 位字符串）；
+        若任意一页请求异常，则返回空列表并记录失败代码，交由后续重试逻辑处理。
     """
     detail_url = _THS_DETAIL_BASE_URL.format(code=concept_code)
     headers = _make_ths_headers(v_code, referer="http://q.10jqka.com.cn/gn/")
@@ -128,7 +133,8 @@ def _get_concept_stocks_ths(concept_code: str, v_code: str) -> list[str]:
         r.raise_for_status()
     except Exception as e:
         logger.warning(f"THS 概念 {concept_code} 第1页请求失败: {e}")
-        return all_codes
+        _FAILED_CONCEPT_CODES.add(concept_code)
+        return []
 
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(r.text, features="lxml")
@@ -147,7 +153,9 @@ def _get_concept_stocks_ths(concept_code: str, v_code: str) -> list[str]:
             rp.raise_for_status()
         except Exception as e:
             logger.warning(f"THS 概念 {concept_code} 第{page}页请求失败: {e}")
-            break
+            # 任意一页失败，认为本次该概念抓取失败，交由后续重试逻辑处理
+            _FAILED_CONCEPT_CODES.add(concept_code)
+            return []
         page_codes = _parse_stock_codes(rp.text)
         if not page_codes:
             break
@@ -215,6 +223,17 @@ def _parse_stock_codes(html: str) -> list[str]:
         return []
 
 
+def _save_failed_concepts():
+    """将本次运行中记录到的失败概念代码落地到本地文件，供后续重试使用。"""
+    if not _FAILED_CONCEPT_CODES:
+        return
+    _ensure_dir()
+    _save_json(_FAILED_CODES_FILE, {
+        "failed_codes": sorted(_FAILED_CONCEPT_CODES),
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
 # ─────────────────────────────────────────────────────────
 # 核心：概念名称列表
 # ─────────────────────────────────────────────────────────
@@ -257,8 +276,8 @@ def _get_all_concepts(force_refresh: bool = False) -> list[dict]:
 # ─────────────────────────────────────────────────────────
 
 def update_concept_map(
-    force: bool = False,
-    retry_empty_concepts_only: bool = False,
+        force: bool = False,
+        retry_empty_concepts_only: bool = False,
 ) -> dict:
     """
     全量构建（或续传）股票 ↔ 概念双向映射表，并保存到本地缓存。
@@ -285,6 +304,9 @@ def update_concept_map(
         包含映射数据的 dict（完成时），或已积累的部分数据（中断时）
     """
     _ensure_dir()
+
+    # 重置本次运行的失败概念集合
+    _FAILED_CONCEPT_CODES.clear()
 
     # 当仅重试缺失概念时，不做“今日已完成”短路
     if not force and not retry_empty_concepts_only:
@@ -354,11 +376,11 @@ def update_concept_map(
 
     # Step 3：获取 THS 认证 v_code
     v_code = _get_ths_v_code()
-    v_code_refresh_interval = 50   # 每处理 N 个概念后刷新 v_code
-    _SAVE_INTERVAL = 20            # 每成功处理 N 个概念后自动保存一次进度
-    fail_streak = 0                # 连续失败计数
-    _MAX_FAIL_STREAK = 5           # 连续失败 N 次则终止并保存进度
-    processed_count = 0            # 本次运行已处理概念数
+    v_code_refresh_interval = 50  # 每处理 N 个概念后刷新 v_code
+    _SAVE_INTERVAL = 20  # 每成功处理 N 个概念后自动保存一次进度
+    fail_streak = 0  # 连续失败计数
+    _MAX_FAIL_STREAK = 5  # 连续失败 N 次则终止并保存进度
+    processed_count = 0  # 本次运行已处理概念数
 
     def _save_tmp():
         _save_json(_TMP_FILE, {
@@ -466,8 +488,95 @@ def update_concept_map(
     if os.path.exists(_TMP_FILE) and not retry_empty_concepts_only:
         os.remove(_TMP_FILE)
 
+    # 记录本次运行抓取失败的概念代码，供后续重试使用
+    _save_failed_concepts()
+
     logger.info(
         f"概念映射表构建完成：{len(concept_to_stocks)} 个概念，{len(stock_to_concepts)} 只股票"
+    )
+    return result
+
+
+def retry_concepts_by_codes(concept_codes: list[str]) -> dict:
+    """
+    针对给定的一组 THS 概念代码，重新全量拉取成分股并更新现有映射表。
+
+    - 先读取当前 stock_concept_map.json 作为基础；
+    - 根据概念名称列表建立 code → name 映射；
+    - 对每个目标概念：
+        * 先从旧映射里删除该概念的旧成分股关系；
+        * 再用最新抓取结果重建该概念的成分股及对应的股票→概念关系。
+    """
+    if not concept_codes:
+        logger.info("retry_concepts_by_codes: 目标代码列表为空，跳过")
+        return _get_map()
+
+    _ensure_dir()
+
+    # 1) 读取现有完整映射（必须已构建过一次）
+    existing = _load_json(_MAP_FILE)
+    if not existing:
+        raise RuntimeError("映射表不存在，请先执行一次 update_concept_map() 全量构建")
+
+    stock_to_concepts: dict = existing.get("stock_to_concepts", {})
+    concept_to_stocks: dict = existing.get("concept_to_stocks", {})
+    meta: dict = existing.get("_meta", {})
+
+    # 2) 读取概念列表，建立 code → name 映射
+    all_concepts = _get_all_concepts(force_refresh=False)
+    code_to_name = {c["code"]: c["name"] for c in all_concepts}
+
+    target_codes = {str(c) for c in concept_codes}
+    missing_codes = [c for c in target_codes if c not in code_to_name]
+    if missing_codes:
+        logger.warning(
+            f"retry_concepts_by_codes: 以下代码在概念列表中未找到，将被忽略: {missing_codes}"
+        )
+    target_codes = {c for c in target_codes if c in code_to_name}
+    if not target_codes:
+        logger.info("retry_concepts_by_codes: 有效目标代码为空，跳过")
+        return existing
+
+    # 3) 获取 v_code，逐概念重新抓取
+    v_code = _get_ths_v_code()
+
+    for code in sorted(target_codes):
+        name = code_to_name[code]
+        logger.info(f"重新抓取概念 {name} ({code}) 的成分股...")
+
+        # 3.1 删除旧的映射关系
+        old_codes = concept_to_stocks.get(name, []) or []
+        for sc in old_codes:
+            concepts = stock_to_concepts.get(sc)
+            if not concepts:
+                continue
+            if name in concepts:
+                concepts.remove(name)
+
+        # 3.2 重新抓取
+        codes = _get_concept_stocks_ths(code, v_code)
+
+        concept_to_stocks[name] = codes
+        for sc in codes:
+            stock_to_concepts.setdefault(sc, [])
+            if name not in stock_to_concepts[sc]:
+                stock_to_concepts[sc].append(name)
+
+        logger.info(f"概念 {name} ({code}) 重试完成：{len(codes)} 只")
+
+    # 4) 更新 meta & 写回文件
+    meta["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    meta["total_concepts"] = len(concept_to_stocks)
+    meta["total_stocks"] = len(stock_to_concepts)
+
+    result = {
+        "_meta": meta,
+        "stock_to_concepts": stock_to_concepts,
+        "concept_to_stocks": concept_to_stocks,
+    }
+    _save_json(_MAP_FILE, result)
+    logger.info(
+        f"retry_concepts_by_codes 完成：共重试 {len(target_codes)} 个概念"
     )
     return result
 
@@ -542,8 +651,8 @@ def _match_concept_names(pattern: str, all_names: list[str]) -> list[str]:
 
 
 def get_candidate_stocks_by_concepts(
-    concepts: list[str],
-    output_file: str = None,
+        concepts: list[str],
+        output_file: str = None,
 ) -> list[str]:
     """
     按概念名称（支持多个，支持模糊匹配）汇总候选股代码列表。
