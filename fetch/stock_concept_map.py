@@ -497,7 +497,7 @@ def update_concept_map(
     return result
 
 
-def retry_concepts_by_codes(concept_codes: list[str]) -> dict:
+def retry_concepts_by_codes(concept_codes: Optional[list[str]] = None) -> dict:
     """
     针对给定的一组 THS 概念代码，重新全量拉取成分股并更新现有映射表。
 
@@ -506,9 +506,18 @@ def retry_concepts_by_codes(concept_codes: list[str]) -> dict:
     - 对每个目标概念：
         * 先从旧映射里删除该概念的旧成分股关系；
         * 再用最新抓取结果重建该概念的成分股及对应的股票→概念关系。
+
+    Args:
+        concept_codes:
+            - 为 None 或空时：自动从 `_FAILED_CODES_FILE` 中读取 `failed_codes` 作为目标列表；
+            - 非空时：仅重试传入的这些代码。
     """
     if not concept_codes:
-        logger.info("retry_concepts_by_codes: 目标代码列表为空，跳过")
+        logger.info("未传入failed_codes, 本地加载抓取失败的概念")
+        data = _load_json(_FAILED_CODES_FILE) or {}
+        concept_codes = data.get("failed_codes") or []
+    if not concept_codes:
+        logger.info("retry_concepts_by_codes: 未找到需要重试的概念代码，跳过")
         return _get_map()
 
     _ensure_dir()
