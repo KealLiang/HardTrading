@@ -41,7 +41,8 @@ DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 # 建仓价格区间（基于信号日MA5）的全局配置，单位为百分比
 # 例如：-0.01 表示 -1%，0.03 表示 +3%
 ENTRY_RANGE_LOW_PCT = -0.02
-ENTRY_RANGE_HIGH_PCT = 0.03
+ENTRY_RANGE_MID_PCT = 0.03
+ENTRY_RANGE_HIGH_PCT = 0.06
 
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
@@ -348,15 +349,18 @@ def _create_single_chart_figure(
             if latest_signal_idx is not None:
                 ma5_at_signal = ma5.iloc[latest_signal_idx]
                 entry_low = round(ma5_at_signal * (1 + ENTRY_RANGE_LOW_PCT), 2)
+                entry_mid = round(ma5_at_signal * (1 + ENTRY_RANGE_MID_PCT), 2)
                 entry_high = round(ma5_at_signal * (1 + ENTRY_RANGE_HIGH_PCT), 2)
 
                 low_pct_str = f"{ENTRY_RANGE_LOW_PCT * 100:+.0f}%"
+                mid_pct_str = f"{ENTRY_RANGE_MID_PCT * 100:+.0f}%"
                 high_pct_str = f"{ENTRY_RANGE_HIGH_PCT * 100:+.0f}%"
 
                 annotation_text = (
                     f"<b>建仓区间</b><br>"
                     f"MA5({latest_signal['signal_date']}): {ma5_at_signal:.2f}<br>"
                     f"低: {entry_low:.2f}（{low_pct_str}）<br>"
+                    f"中: {entry_mid:.2f}（{mid_pct_str}）<br>"
                     f"高: {entry_high:.2f}（{high_pct_str}）"
                 )
                 fig.add_annotation(
