@@ -497,28 +497,22 @@ def update_concept_map(
     return result
 
 
-def retry_concepts_by_codes(concept_codes: Optional[list[str]] = None) -> dict:
+def retry_concepts_by_codes(concept_names: Optional[list[str]] = None) -> dict:
     """
-    针对给定的一组 THS 概念代码，重新全量拉取成分股并更新现有映射表。
+    针对给定的一组概念名称，重新全量拉取成分股并更新现有映射表。
 
     - 先读取当前 stock_concept_map.json 作为基础；
-    - 根据概念名称列表建立 code → name 映射；
+    - 根据概念名称列表建立 name ↔ code 映射；
     - 对每个目标概念：
         * 先从旧映射里删除该概念的旧成分股关系；
         * 再用最新抓取结果重建该概念的成分股及对应的股票→概念关系。
 
     Args:
-        concept_codes:
-            - 为 None 或空时：自动从 `_FAILED_CODES_FILE` 中读取 `failed_codes` 作为目标列表；
-            - 非空时：仅重试传入的这些代码。
+        concept_names:
+            - 非空时：仅重试传入的这些「概念名称」；
+            - 为 None 或空时：自动从 `_FAILED_CODES_FILE` 中读取 `failed_codes`
+              （概念代码），再映射为名称进行重试。
     """
-    if not concept_codes:
-        logger.info("未传入failed_codes, 本地加载抓取失败的概念")
-        data = _load_json(_FAILED_CODES_FILE) or {}
-        concept_codes = data.get("failed_codes") or []
-    if not concept_codes:
-        logger.info("retry_concepts_by_codes: 未找到需要重试的概念代码，跳过")
-        return _get_map()
 
     _ensure_dir()
 
@@ -531,26 +525,57 @@ def retry_concepts_by_codes(concept_codes: Optional[list[str]] = None) -> dict:
     concept_to_stocks: dict = existing.get("concept_to_stocks", {})
     meta: dict = existing.get("_meta", {})
 
-    # 2) 读取概念列表，建立 code → name 映射
+    # 2) 读取概念列表，建立 name ↔ code 映射
     all_concepts = _get_all_concepts(force_refresh=False)
     code_to_name = {c["code"]: c["name"] for c in all_concepts}
+    name_to_code = {c["name"]: c["code"] for c in all_concepts}
 
-    target_codes = {str(c) for c in concept_codes}
-    missing_codes = [c for c in target_codes if c not in code_to_name]
-    if missing_codes:
+    # 2.1 计算目标概念名称集合
+    target_names: set[str]
+    if concept_names:
+        # 显式传入名称的场景
+        target_names = {str(n) for n in concept_names}
+    else:
+        # 未传名称：从失败代码文件中读取 failed_codes，并映射为名称
+        logger.info("未传入概念名称, 本地加载抓取失败的概念代码并映射为名称")
+        data = _load_json(_FAILED_CODES_FILE) or {}
+        failed_codes = [str(c) for c in data.get("failed_codes") or []]
+        if not failed_codes:
+            logger.info("retry_concepts_by_codes: 未找到需要重试的概念代码，跳过")
+            return existing
+
+        mapped_names: list[str] = []
+        for code in failed_codes:
+            name = code_to_name.get(code)
+            if not name:
+                logger.warning(
+                    f"retry_concepts_by_codes: 失败代码 {code} 未在概念列表中找到名称，已跳过"
+                )
+                continue
+            mapped_names.append(name)
+
+        target_names = set(mapped_names)
+
+    if not target_names:
+        logger.info("retry_concepts_by_codes: 有效目标概念名称为空，跳过")
+        return existing
+
+    # 过滤掉在当前概念列表中不存在的名称
+    missing_names = [n for n in target_names if n not in name_to_code]
+    if missing_names:
         logger.warning(
-            f"retry_concepts_by_codes: 以下代码在概念列表中未找到，将被忽略: {missing_codes}"
+            f"retry_concepts_by_codes: 以下概念名称未在概念列表中找到，将被忽略: {missing_names}"
         )
-    target_codes = {c for c in target_codes if c in code_to_name}
-    if not target_codes:
-        logger.info("retry_concepts_by_codes: 有效目标代码为空，跳过")
+    target_names = {n for n in target_names if n in name_to_code}
+    if not target_names:
+        logger.info("retry_concepts_by_codes: 过滤后无有效概念名称，跳过")
         return existing
 
     # 3) 获取 v_code，逐概念重新抓取
     v_code = _get_ths_v_code()
 
-    for code in sorted(target_codes):
-        name = code_to_name[code]
+    for name in sorted(target_names):
+        code = name_to_code[name]
         logger.info(f"重新抓取概念 {name} ({code}) 的成分股...")
 
         # 3.1 删除旧的映射关系
@@ -585,7 +610,7 @@ def retry_concepts_by_codes(concept_codes: Optional[list[str]] = None) -> dict:
     }
     _save_json(_MAP_FILE, result)
     logger.info(
-        f"retry_concepts_by_codes 完成：共重试 {len(target_codes)} 个概念"
+        f"retry_concepts_by_codes 完成：共重试 {len(target_names)} 个概念"
     )
     return result
 

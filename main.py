@@ -1,6 +1,7 @@
 import logging
 import os
 import warnings
+from typing import Optional
 
 from bin import simulator
 from bin.resilience_scanner import run_filter
@@ -740,15 +741,14 @@ def get_etf_datas(etf_list, start_date=None, end_date=None):
     etf_fetcher.fetch_and_save_data(etf_list)
 
 
-def fetch_stock_concept_map():
+def fetch_stock_concept_map(concept_names: Optional[list[str]] = None):
     """获取股票概念映射数据"""
     from fetch.stock_concept_map import update_concept_map, retry_concepts_by_codes
 
-    # 拉取概念股票映射
-    update_concept_map()  # 幂等：当天已更新则自动跳过
-    # 针对日志里失败的 codes 做全量重拉
-    # failed_codes = ["301623", "302035", "300900"]
-    # retry_concepts_by_codes(failed_codes)
+    # 全量拉取概念股票映射
+    # update_concept_map()  # 幂等：当天已更新则自动跳过
+    # 针对特定概念重新拉取
+    retry_concepts_by_codes(concept_names)
 
 
 def candidate_hot_concept_stocks(concepts: list):
@@ -1640,7 +1640,8 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()
     # get_index_data()
-    fetch_stock_concept_map()  # 概念板块映射表
+    hot_concepts = ["共封装光学(CPO)", "智能电网", "特高压"]  # 3-9 +microLED
+    fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
     # clean_ths_fupan()  # 清理历史数据，控制文件大小
@@ -1649,7 +1650,7 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge()
-    # candidate_hot_concept_stocks(["共封装光学(CPO)", "智能电网", "特高压"])  # 3-9 +microLED
+    # candidate_hot_concept_stocks(hot_concepts)
     # strategy_scan('a')
     # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # breakout_strategy_backtest('scan_simple_20251220-20260305.txt')  # 爆量突破策略回测
