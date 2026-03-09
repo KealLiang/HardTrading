@@ -40,9 +40,9 @@ DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 
 # 建仓价格区间（基于信号日MA5）的全局配置，单位为百分比
 # 例如：-0.01 表示 -1%，0.03 表示 +3%
-ENTRY_RANGE_LOW_PCT = -0.02
+ENTRY_RANGE_LOW_PCT = -0.01
 ENTRY_RANGE_MID_PCT = 0.03
-ENTRY_RANGE_HIGH_PCT = 0.06
+ENTRY_RANGE_HIGH_PCT = 0.07
 
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
@@ -378,6 +378,13 @@ def _create_single_chart_figure(
                     font=dict(size=11, color='#1a1a1a'),
                     align='left',
                 )
+
+                # 在主图Y轴上绘制建仓区间水平虚线（浅色，不干扰阅读）
+                for price_val in (entry_low, entry_mid, entry_high):
+                    fig.add_hline(
+                        y=price_val, row=1, col=1,
+                        line=dict(color='rgba(100,149,237,0.35)', width=1, dash='dash'),
+                    )
         except Exception as e:
             logging.debug(f"计算建仓区间失败: {e}")
 
