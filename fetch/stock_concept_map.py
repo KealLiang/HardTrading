@@ -51,12 +51,7 @@ _FAILED_CONCEPT_CODES: set[str] = set()
 _SLEEP_BETWEEN_PAGES = 0.4  # 同一概念翻页间隔（秒）
 _SLEEP_BETWEEN_CONCEPTS = 1.0  # 每个概念拉取完后的等待（秒）
 
-# 同花顺登录 Cookie（可选）
-# 未设置时仅能拉取每个概念前 5 页（约 50 条）；
-# 设置后可突破分页限制，拉取全部成分股。
-# 获取方式：浏览器登录 https://upass.10jqka.com.cn/login → F12 → Network →
-#   任意请求 Headers 中复制完整 Cookie 字符串粘贴到此处。
-THS_LOGIN_COOKIE: str = ""
+# 同花顺登录 Cookie：从 config/local.ini [THS] cookie 读取
 _THS_DETAIL_BASE_URL = "http://q.10jqka.com.cn/gn/detail/code/{code}/"
 _THS_PAGE_URL = "http://q.10jqka.com.cn/gn/detail/code/{code}/page/{page}/"
 
@@ -97,10 +92,12 @@ def _get_ths_v_code() -> str:
 
 
 def _make_ths_headers(v_code: str, referer: str = "") -> dict:
+    from config.holder import config
+    login_cookie = config.ths_cookie
     cookie = f"v={v_code}"
-    if THS_LOGIN_COOKIE:
+    if login_cookie:
         # 登录 Cookie 中可能已包含 v=...，用动态生成的 v_code 覆盖
-        cookie = f"{THS_LOGIN_COOKIE}; v={v_code}"
+        cookie = f"{login_cookie}; v={v_code}"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

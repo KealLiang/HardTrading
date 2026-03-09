@@ -20,7 +20,7 @@ class Config:
         # 加载默认配置
         default_config = base_path / 'config' / 'local.ini'
         if default_config.exists():
-            self.config.read(default_config)
+            self.config.read(default_config, encoding='utf-8')
 
     def get(self, section: str, key: str, fallback: Any = None) -> Any:
         """安全地获取配置值"""
@@ -33,8 +33,13 @@ class Config:
 
     @property
     def ths_cookie(self) -> str:
-        """获取 THS cookie 配置"""
-        return self.get('THS', 'cookie')
+        """获取 THS 登录 Cookie（可选，为空时概念成分股仅拉取前 5 页）"""
+        return self.get('THS', 'cookie', fallback='')
+
+    @property
+    def feishu_webhook_url(self) -> str:
+        """获取飞书机器人 Webhook URL"""
+        return self.get('Feishu', 'webhook_url', fallback='')
 
 
 # 创建全局配置实例
