@@ -86,6 +86,9 @@ class BreakoutStrategy(bt.Strategy):
         ('vcp_weight_macro', 0.35),  # 宏观环境分权重
         ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
         ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
+
+        # -- VCP过滤开关 --
+        ('enable_vcp_filter', False),  # True时过滤VCP-C/D信号，只保留A/B
     )
 
     def __init__(self):
@@ -338,6 +341,11 @@ class BreakoutStrategy(bt.Strategy):
                 current_price = self.data.close[0]
                 vcp_score, vcp_grade = self._calculate_vcp_score()
 
+                # VCP质量过滤
+                if self._is_vcp_filtered(vcp_grade):
+                    self.log(f'止损纠错信号被VCP过滤: {vcp_grade} (Score: {vcp_score:.2f})')
+                    return
+
                 # 检查价格是否在合理区间
                 if self.ma5[0] > 0:
                     ma5_lower_bound = self.ma5[0] * (1 + self.p.optimal_entry_zone_lower)
@@ -401,6 +409,14 @@ class BreakoutStrategy(bt.Strategy):
                 self.log(f'*** 回踩等待期内出现回调，发出买入信号 ({self.pullback_wait_signal}) ***')
                 # 执行买入逻辑（使用标准仓位计算）
                 vcp_score, vcp_grade = self._calculate_vcp_score()
+
+                # VCP质量过滤
+                if self._is_vcp_filtered(vcp_grade):
+                    self.log(f'回踩确认信号被VCP过滤: {vcp_grade} (Score: {vcp_score:.2f})')
+                    self.pullback_wait_mode = False
+                    self._stop_and_log_psq()
+                    return
+
                 stake = self.broker.getvalue() * self.p.initial_stake_pct
                 size = int(stake / self.data.close[0])
                 if size > 0:
@@ -638,13 +654,19 @@ class BreakoutStrategy(bt.Strategy):
 
                             # 立即发出买入信号
                             vcp_score, vcp_grade = self._calculate_vcp_score()
-                            stake = self.broker.getvalue() * self.p.initial_stake_pct
-                            size = int(stake / self.data.close[0])
-                            if size > 0:
-                                self.current_observation_scores = self.psq_scores.copy()
-                                self.order = self.buy(size=size)
-                                self.log(
-                                    f'买入信号: 快速通道{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
+
+                            # VCP质量过滤
+                            if self._is_vcp_filtered(vcp_grade):
+                                self.log(f'快速通道信号被VCP过滤: {vcp_grade} (Score: {vcp_score:.2f})')
+                                is_fast_track = False  # 降级为标准观察期
+                            else:
+                                stake = self.broker.getvalue() * self.p.initial_stake_pct
+                                size = int(stake / self.data.close[0])
+                                if size > 0:
+                                    self.current_observation_scores = self.psq_scores.copy()
+                                    self.order = self.buy(size=size)
+                                    self.log(
+                                        f'买入信号: 快速通道{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
 
                     # 如果不走快速通道，则进入标准观察期
                     if not is_fast_track:
@@ -720,6 +742,11 @@ class BreakoutStrategy(bt.Strategy):
 
         # 所有前置过滤器通过，计算VCP分数作为参考，不作为决策依据
         vcp_score, vcp_grade = self._calculate_vcp_score()
+
+        # VCP质量过滤
+        if self._is_vcp_filtered(vcp_grade):
+            self.log(f'二次确认信号被VCP过滤: {vcp_grade} (Score: {vcp_score:.2f})')
+            return
 
         # 步骤3: 所有过滤器通过，按优先级执行交易
         # active_signals中的顺序由self.confirmation_signals定义，默认coiled_spring优先
@@ -985,6 +1012,12 @@ class BreakoutStrategy(bt.Strategy):
                 return False
 
         return True
+
+    def _is_vcp_filtered(self, vcp_grade: str) -> bool:
+        """检查 VCP 等级是否应被过滤。enable_vcp_filter=True 时，VCP-C/D 将被拒绝。"""
+        if not self.p.enable_vcp_filter:
+            return False
+        return vcp_grade in ('VCP-C', 'VCP-D', 'VCP-F')
 
     def _calculate_vcp_score(self):
         """

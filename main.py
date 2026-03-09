@@ -340,7 +340,7 @@ def weekly_volume_momentum_simulate():
     )
 
 
-def strategy_scan(candidate_model='a'):
+def strategy_scan(candidate_model='a', enable_vcp_filter=False):
     # 使用更精确的信号模式列表
     signal_patterns = [
         # '*** 触发【突破观察哨】',
@@ -351,10 +351,13 @@ def strategy_scan(candidate_model='a'):
         '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
-    start_date = '20251220'
+    start_date = '20260101'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20260110'  # 只看这个日期之后的
+    details_after_date = '20260210'  # 只看这个日期之后的
+
+    # 策略参数：VCP过滤开关（True时过滤VCP-C/D信号）
+    strategy_params = {'enable_vcp_filter': enable_vcp_filter} if enable_vcp_filter else None
 
     # 扫描与可视化
     scan_and_visualize_analyzer(
@@ -362,6 +365,7 @@ def strategy_scan(candidate_model='a'):
         scan_start_date=start_date,
         scan_end_date=end_date,
         stock_pool=None,
+        strategy_params=strategy_params,
         signal_patterns=signal_patterns,
         details_after_date=details_after_date,  # 只有此日期后信号才输出详情
         candidate_model=candidate_model,
@@ -1630,6 +1634,16 @@ def breakout_strategy_backtest(file_name: str):
     )
 
 
+def vcp_score_analysis(scan_file: str, backtest_file: str):
+    """VCP分数有效性分析：关联候选股扫描结果与回测报告，分析VCP Score是否能预测盈亏"""
+    from analysis.vcp_score_analysis import run_vcp_analysis
+    base_dir = 'bin/candidate_stocks_breakout_a/'
+    scan_file = base_dir + scan_file
+    backtest_file = base_dir + 'backtest/' + backtest_file
+    output_dir = os.path.dirname(backtest_file)
+    run_vcp_analysis(scan_file, backtest_file, output_dir)
+
+
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
@@ -1640,7 +1654,7 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "智能电网", "特高压", "可燃冰", "MiniLED"]  # 3-9 +microLED
+    hot_concepts = ["共封装光学(CPO)", "智能电网", "算力租赁", "MiniLED", "AI智能体"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
@@ -1650,10 +1664,11 @@ if __name__ == '__main__':
     # find_candidate_stocks()
     # find_candidate_stocks_weekly_growth(offset_days=0)
     # find_candidate_stocks_volume_surge()
-    # candidate_hot_concept_stocks(hot_concepts)
-    # strategy_scan('a')
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
-    # breakout_strategy_backtest('scan_simple_20251220-20260309.txt')  # 爆量突破策略回测
+    # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
+    # strategy_scan('a', enable_vcp_filter=True)
+    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # breakout_strategy_backtest('scan_simple_20260101-20260310.txt')  # 爆量突破策略回测
+    # vcp_score_analysis(scan_file='scan_summary_20260101-20260309.txt', backtest_file='backtest_report_20260101-20260309.md')
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
