@@ -33,7 +33,7 @@ class Config:
 
     @property
     def ths_cookie(self) -> str:
-        """获取 THS 登录 Cookie（可选，为空时概念成分股仅拉取前 5 页）"""
+        """获取 THS 登录 Cookie"""
         return self.get('THS', 'cookie', fallback='')
 
     @property
