@@ -982,7 +982,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20251201"
+    start_date = "20260115"
     # end_date = '20251230'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -1008,7 +1008,7 @@ def clean_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20251201'  # 开始日期
+    start_date = '20260115'  # 开始日期
     # end_date = '20251230'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -1018,7 +1018,7 @@ def draw_ths_fupan_html():
     """
     生成HTML交互式复盘图
     """
-    start_date = '20251201'  # 开始日期
+    start_date = '20260115'  # 开始日期
     # end_date = '20260108'  # 结束日期
     end_date = None
     draw_fupan_lb_html(start_date, end_date, buy_days_before=1)
@@ -1034,7 +1034,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20251201'
+    start_date = '20260115'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -1640,8 +1640,8 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "智能电网", "特高压"]  # 3-9 +microLED
-    fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
+    hot_concepts = ["共封装光学(CPO)", "智能电网", "特高压", "可燃冰", "MiniLED"]  # 3-9 +microLED
+    # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
     # clean_ths_fupan()  # 清理历史数据，控制文件大小
@@ -1653,7 +1653,7 @@ if __name__ == '__main__':
     # candidate_hot_concept_stocks(hot_concepts)
     # strategy_scan('a')
     # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
-    # breakout_strategy_backtest('scan_simple_20251220-20260305.txt')  # 爆量突破策略回测
+    # breakout_strategy_backtest('scan_simple_20251220-20260309.txt')  # 爆量突破策略回测
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
