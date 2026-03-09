@@ -13,56 +13,57 @@ class BreakoutStrategy(bt.Strategy):
         # ========== 第一部分：选股逻辑参数 ==========
         # -- 调试开关 --
         ('debug', False),  # 是否开启信号评级的详细日志
-        
+
         # -- 核心指标 --
         ('bband_period', 20),  # 布林带周期
         ('bband_devfactor', 1.8),  # 布林带标准差
         ('volume_ma_period', 22),  # 成交量移动平均周期
+        ('volume_breakout_min_ratio', 1.2),  # 突破时的最低量比门槛
         ('ma_macro_period', 60),  # 定义宏观环境的长周期均线
-        
+
         # -- 前高突破维度 --
         ('enable_prior_high_score', True),  # 是否启用前高突破评分
         ('prior_high_lookback', 80),  # 前高回看期（交易日）
         ('prior_high_upper_threshold', 0.04),  # 突破压力位的阈值（+4%）
         ('prior_high_lower_threshold', 0.04),  # 压力位下方的阈值（-4%）
         ('prior_high_exclude_recent', 5),  # 计算前高时排除最近N天
-        
+
         # -- 高位盘整识别 --
         ('consolidation_lookback', 5),  # 短期均线盘整的回看期
         ('consolidation_ma_proximity_pct', 0.02),  # 短期均线接近度阈值 (2%)
         ('consolidation_ma_max_slope', 1.05),  # 盘整期间MA最大斜率 (5日涨5%)
-        
+
         # -- 波动性压缩与观察期 --
         ('squeeze_period', 60),  # 波动性压缩回顾期
         ('observation_period', 15),  # 触发观察模式后的持续天数
-        
+
         # -- 三速档位系统 --
         ('enable_fast_track', True),  # 是否启用快速通道
         ('fast_track_ma5_ma10_ratio', 1.03),  # 快速通道：MA5/MA10强势标准
-        ('optimal_entry_zone_lower', -0.03),  # 最优买入区间：MA5下限-3%
-        ('optimal_entry_zone_upper', 0.09),  # 最优买入区间：MA5上限+9%
+        ('optimal_entry_zone_lower', -0.02),  # 最优买入区间：MA5下限-3%
+        ('optimal_entry_zone_upper', 0.08),  # 最优买入区间：MA5上限+9%
         ('pullback_wait_period', 1),  # 回踩等待期限（天）
-        
+
         # -- 止损纠错系统 --
         ('enable_stop_loss_correction', True),  # 是否启用止损纠错机制
         ('stop_loss_correction_window', 7),  # 止损后的纠错观察窗口（自然日，含周末）
-        ('correction_trend_min_strength', 1.0),  # 纠错触发的最小趋势强度（MA5近N日涨幅%）
-        ('correction_max_gain_pct', 20.0),  # 纠错前的最大涨幅阈值（%），超过则视为正常获利回吐，不纠错
-        
+        ('correction_trend_min_strength', 1.1),  # 纠错触发的最小趋势强度（MA5近N日涨幅%）
+        ('correction_max_gain_pct', 18.0),  # 纠错前的最大涨幅阈值（%），超过则视为正常获利回吐，不纠错
+
         # -- 二次确认信号参数 --
         ('confirmation_lookback', 5),  # "蓄势待发"信号的回看周期
         ('pocket_pivot_lookback', 11),  # 口袋支点信号的回看期
         ('breakout_proximity_pct', 0.03),  # "准突破"价格接近上轨容忍度(3%)
         ('pullback_from_peak_pct', 0.09),  # 从观察期高点可接受的最大回撤(9%)
         ('confirmation_min_trend_strength', 5.0),  # 二次确认的最小趋势强度（MA5近15日涨幅%）
-        
+
         # ========== 第二部分：卖出与风险管理参数 ==========
         ('probation_period', 5),  # "蓄势待发"买入后的考察期天数
         ('initial_stake_pct', 0.90),  # 初始仓位（占总资金）
         ('atr_period', 14),  # ATR周期
         ('atr_multiplier', 2.2),  # ATR止损乘数
         ('atr_ceiling_multiplier', 3.6),  # 基于ATR的价格窗口乘数
-        
+
         # ========== 第三部分：评分系统参数（不影响买卖决策） ==========
         # -- PSQ评分参数 --
         ('context_period', 7),  # PSQ情景定位的回看周期
@@ -70,7 +71,7 @@ class BreakoutStrategy(bt.Strategy):
         ('psq_momentum_weight', 1.0),  # PSQ动能分权重
         ('overheat_threshold', 2.10),  # 过热分数阈值
         ('psq_summary_period', 3),  # 持仓期初期分析的天数
-        
+
         # -- VCP评分参数 --
         ('vcp_lookback', 60),  # VCP总回看期
         ('vcp_macro_ma_period', 90),  # VCP宏观环境MA周期
@@ -99,7 +100,7 @@ class BreakoutStrategy(bt.Strategy):
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
         # VCP 4.0: 布林带宽度历史值，用于计算分位
         self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
-        
+
         # V4.0: 前高指标（用于突破压力位评分）
         self.prior_high = bt.indicators.Highest(self.data.high, period=self.p.prior_high_lookback)
 
@@ -197,7 +198,7 @@ class BreakoutStrategy(bt.Strategy):
 
                 # 记录买入价（用于止损纠错判断）
                 self.buy_price = order.executed.price
-                
+
                 position_pct = order.executed.value / self.broker.getvalue() * 100
                 self.log(
                     f'买入成交: {order.executed.size}股 @ {order.executed.price:.2f}, '
@@ -315,12 +316,14 @@ class BreakoutStrategy(bt.Strategy):
                         self.recent_stop_loss_price = self.stop_price  # 记录止损位，而不是当前收盘价
                         # 计算并记录最大涨幅（用于判断是否高位）
                         if self.buy_price > 0:
-                            self.recent_stop_loss_gain_pct = ((self.highest_high_since_buy - self.buy_price) / self.buy_price) * 100
+                            self.recent_stop_loss_gain_pct = ((
+                                                                          self.highest_high_since_buy - self.buy_price) / self.buy_price) * 100
                         else:
                             self.recent_stop_loss_gain_pct = 0.0
                         self.correction_monitoring = True  # 启动纠错监控
                         self.correction_monitor_days = 0
-                        self.log(f'*** 启动【止损纠错监控】模式（买入后最大涨幅: {self.recent_stop_loss_gain_pct:.1f}%） ***')
+                        self.log(
+                            f'*** 启动【止损纠错监控】模式（买入后最大涨幅: {self.recent_stop_loss_gain_pct:.1f}%） ***')
                     self.order = self.close()
                 return  # 持仓时，完成止损检查后即可结束
 
@@ -328,18 +331,18 @@ class BreakoutStrategy(bt.Strategy):
         # 最高优先级：纠错监控模式
         if self.correction_monitoring:
             self.correction_monitor_days += 1
-            
+
             # 检查纠错条件
             if self._check_correction_opportunity_fast():
                 # 满足纠错条件，立即买入
                 current_price = self.data.close[0]
                 vcp_score, vcp_grade = self._calculate_vcp_score()
-                
+
                 # 检查价格是否在合理区间
                 if self.ma5[0] > 0:
                     ma5_lower_bound = self.ma5[0] * (1 + self.p.optimal_entry_zone_lower)
                     ma5_upper_bound = self.ma5[0] * (1 + self.p.optimal_entry_zone_upper)
-                    
+
                     if ma5_lower_bound <= current_price <= ma5_upper_bound:
                         # 价格合理，直接买入
                         stake = self.broker.getvalue() * self.p.initial_stake_pct
@@ -363,13 +366,13 @@ class BreakoutStrategy(bt.Strategy):
                         self.pullback_wait_signal = '止损纠错'
                         self.correction_monitoring = False
                         return
-            
+
             # 检查超时
             if self.correction_monitor_days > self.p.stop_loss_correction_window:
                 self.log('*** 止损纠错监控期结束，未发现纠错机会 ***')
                 self.correction_monitoring = False
             return
-        
+
         if self.pullback_wait_mode:
             # --- 回踩等待模式 ---
             # 检查1：MA5是否掉头向下
@@ -378,7 +381,7 @@ class BreakoutStrategy(bt.Strategy):
                 self.pullback_wait_mode = False
                 self._stop_and_log_psq()  # 结束观察期评分
                 return
-            
+
             # 检查2：是否出现回调
             if self.data.close[0] < self.data.close[-1]:
                 # 回踩确认也需要检查最优买入区间（四舍五入避免浮点数精度问题）
@@ -386,7 +389,7 @@ class BreakoutStrategy(bt.Strategy):
                 if self.ma5[0] > 0:
                     ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
                     ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
-                    
+
                     if current_price < ma5_lower_bound or current_price > ma5_upper_bound:
                         price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
                         self.log(
@@ -394,7 +397,7 @@ class BreakoutStrategy(bt.Strategy):
                             f'({price_to_ma5_ratio:+.1%})，继续等待'
                         )
                         return  # 不买入，继续等待
-                
+
                 self.log(f'*** 回踩等待期内出现回调，发出买入信号 ({self.pullback_wait_signal}) ***')
                 # 执行买入逻辑（使用标准仓位计算）
                 vcp_score, vcp_grade = self._calculate_vcp_score()
@@ -410,7 +413,7 @@ class BreakoutStrategy(bt.Strategy):
                     )
                 self.pullback_wait_mode = False
                 return
-            
+
             # 检查3：超时
             self.pullback_wait_counter -= 1
             if self.pullback_wait_counter <= 0:
@@ -418,7 +421,7 @@ class BreakoutStrategy(bt.Strategy):
                 self.pullback_wait_mode = False
                 self._stop_and_log_psq()  # 结束观察期评分
             return
-        
+
         elif self.observation_mode:
             # 更新观察期内的最高价
             self.sentry_highest_high = max(self.sentry_highest_high, self.data.high[0])
@@ -434,7 +437,7 @@ class BreakoutStrategy(bt.Strategy):
                     self.observation_mode = False
         else:
             # --- 寻找初始突破信号(重构) ---
-            is_volume_up = self.data.volume[0] > self.volume_ma[0]
+            is_volume_up = self.data.volume[0] > self.volume_ma[0] * self.p.volume_breakout_min_ratio
 
             # 1. 定义两种突破形态
             is_strict_breakout = self.data.close[0] > self.bband.lines.top[0]
@@ -513,27 +516,27 @@ class BreakoutStrategy(bt.Strategy):
                 prior_high_score = 0
                 prior_high_grade = 'N/A'
                 prior_high_info = ''
-                
+
                 if self.p.enable_prior_high_score:
                     # 使用"往前推N天"的前高，避免刚突破立即成为新前高
                     # 例如：排除最近5天，则使用6天前的"过去80天最高价"
                     offset = self.p.prior_high_exclude_recent + 1
-                    
+
                     # 边界检查：确保有足够的历史数据
                     if len(self.prior_high) > offset and len(self.data.high) > offset + self.p.prior_high_lookback:
                         prior_high_value = self.prior_high[-offset]
                         current_price = self.data.close[0]
-                        
+
                         # 查找前高实际发生的日期（在过去80天内找到最高价对应的日期）
                         prior_high_date = None
                         for i in range(offset, offset + self.p.prior_high_lookback):
                             if self.data.high[-i] == prior_high_value:
                                 prior_high_date = self.data.datetime.date(-i)
                                 break
-                        
+
                         if prior_high_value > 0:
                             price_to_high_ratio = current_price / prior_high_value
-                            
+
                             # 判断是否突破压力位
                             if price_to_high_ratio > (1 + self.p.prior_high_upper_threshold):
                                 prior_high_grade = '突破'
@@ -544,12 +547,12 @@ class BreakoutStrategy(bt.Strategy):
                             else:
                                 prior_high_grade = '临界'
                                 prior_high_score = 0
-                            
+
                             # 生成日志信息
                             if prior_high_date:
-                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
+                                prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%,基准:{prior_high_date.strftime('%m-%d')}"
                             else:
-                                prior_high_info = f"距前高:{(price_to_high_ratio-1)*100:+.1f}%"
+                                prior_high_info = f"距前高:{(price_to_high_ratio - 1) * 100:+.1f}%"
 
                 total_score = env_score + squeeze_score + volume_score + prior_high_score
 
@@ -570,7 +573,8 @@ class BreakoutStrategy(bt.Strategy):
                 trigger_observation = False
                 breakout_type = ""
 
-                if total_score >= 6:  # 至少是B级信号
+                has_critical_weakness = (env_score == 0 or squeeze_score == 0 or volume_score == 0)
+                if total_score >= 6 and not has_critical_weakness:  # 至少是B级信号，且无D级短板
                     if is_strict_breakout:
                         trigger_observation = True
                         breakout_type = "标准突破"
@@ -604,13 +608,13 @@ class BreakoutStrategy(bt.Strategy):
                     if self.p.enable_fast_track and self.ma10[0] > 0 and self.ma5[0] > 0:
                         ma5_ma10_ratio = self.ma5[0] / self.ma10[0]
                         is_strong_trend = ma5_ma10_ratio > self.p.fast_track_ma5_ma10_ratio
-                        
+
                         # 快速通道也需要检查最优买入区间（四舍五入避免浮点数精度问题）
                         current_price = round(self.data.close[0], 2)
                         ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
                         ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
                         is_price_in_zone = ma5_lower_bound <= current_price <= ma5_upper_bound
-                        
+
                         # 调试日志
                         if self.p.debug:
                             self.log(
@@ -618,7 +622,7 @@ class BreakoutStrategy(bt.Strategy):
                                 f'价格={current_price:.2f}, 区间=[{ma5_lower_bound:.2f}, {ma5_upper_bound:.2f}], '
                                 f'强势={is_strong_trend}, 价格合理={is_price_in_zone}'
                             )
-                        
+
                         if is_strong_trend and is_price_in_zone:
                             is_fast_track = True
                             price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
@@ -626,12 +630,12 @@ class BreakoutStrategy(bt.Strategy):
                                 f'*** 快速通道触发 (MA5/MA10={ma5_ma10_ratio:.3f}, '
                                 f'价格={current_price:.2f} 在MA5±区间内 ({price_to_ma5_ratio:+.1%})) ***'
                             )
-                            
+
                             # 记录信号日索引（用于VCP计算）
                             self.signal_day_index = len(self.data) - 1
                             # 开始PSQ评分
                             self._start_psq_tracking('观察期', self.datas[0])
-                            
+
                             # 立即发出买入信号
                             vcp_score, vcp_grade = self._calculate_vcp_score()
                             stake = self.broker.getvalue() * self.p.initial_stake_pct
@@ -639,8 +643,9 @@ class BreakoutStrategy(bt.Strategy):
                             if size > 0:
                                 self.current_observation_scores = self.psq_scores.copy()
                                 self.order = self.buy(size=size)
-                                self.log(f'买入信号: 快速通道{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
-                    
+                                self.log(
+                                    f'买入信号: 快速通道{overall_grade} (VCP: {vcp_grade}, Score: {vcp_score:.2f})')
+
                     # 如果不走快速通道，则进入标准观察期
                     if not is_fast_track:
                         self.log(f'*** 触发【突破观察哨】模式，观察期 {self.p.observation_period} 天 ***')
@@ -705,7 +710,7 @@ class BreakoutStrategy(bt.Strategy):
         # 过滤器3: 趋势强度 - 过滤横盘震荡的二次确认信号
         lookback = min(15, len(self.ma5))  # 检查MA5近15日涨幅
         if lookback > 1:
-            ma5_trend_pct = ((self.ma5[0] - self.ma5[-lookback+1]) / self.ma5[-lookback+1]) * 100
+            ma5_trend_pct = ((self.ma5[0] - self.ma5[-lookback + 1]) / self.ma5[-lookback + 1]) * 100
             if ma5_trend_pct < self.p.confirmation_min_trend_strength:
                 self.log(
                     f"信号拒绝({signal_names_str}): MA5趋势不足 {ma5_trend_pct:.1f}% "
@@ -730,7 +735,7 @@ class BreakoutStrategy(bt.Strategy):
 
         # --- 止损纠错判断：检查是否是纠错机会 ---
         self.is_correction_opportunity = self._check_stop_loss_correction_opportunity()
-        
+
         # --- 三速档位系统：检查价格位置，决定标准通道还是缓冲通道 ---
         if self.ma5[0] > 0:
             # 四舍五入避免浮点数精度问题
@@ -738,7 +743,7 @@ class BreakoutStrategy(bt.Strategy):
             price_to_ma5_ratio = (current_price - self.ma5[0]) / self.ma5[0]
             ma5_lower_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_lower), 2)
             ma5_upper_bound = round(self.ma5[0] * (1 + self.p.optimal_entry_zone_upper), 2)
-            
+
             # 价格过高，进入缓冲通道（纠错机会也适用）
             if current_price > ma5_upper_bound or self.is_correction_opportunity:
                 # 纠错机会标记
@@ -800,13 +805,13 @@ class BreakoutStrategy(bt.Strategy):
         """
         if not self.p.enable_stop_loss_correction:
             return False
-        
+
         current_price = self.data.close[0]
-        
+
         # 关键条件：收盘价重新站上止损价
         if current_price < self.recent_stop_loss_price:
             return False
-        
+
         # 新增：高位过滤 - 如果止损前涨幅过大，不应纠错
         if self.recent_stop_loss_gain_pct > self.p.correction_max_gain_pct:
             if self.p.debug:
@@ -815,34 +820,35 @@ class BreakoutStrategy(bt.Strategy):
                     f'超过阈值 {self.p.correction_max_gain_pct:.1f}%，属于高位回调不应纠错'
                 )
             return False
-        
+
         # 检查均线形态
         if self.ma5[0] <= self.ma10[0]:
             if self.p.debug:
                 self.log(f'[纠错检查] 均线死叉: MA5={self.ma5[0]:.2f} <= MA10={self.ma10[0]:.2f}')
             return False
-        
+
         if current_price <= self.ma10[0]:
             if self.p.debug:
                 self.log(f'[纠错检查] 收盘跌破MA10: {current_price:.2f} <= {self.ma10[0]:.2f}')
             return False
-        
+
         # 检查MA5上涨趋势
         lookback = min(3, len(self.ma5))  # 快速检查，只看3天
         if lookback > 1:
-            ma5_change_pct = ((self.ma5[0] - self.ma5[-lookback+1]) / self.ma5[-lookback+1]) * 100
+            ma5_change_pct = ((self.ma5[0] - self.ma5[-lookback + 1]) / self.ma5[-lookback + 1]) * 100
             if ma5_change_pct < self.p.correction_trend_min_strength:
                 if self.p.debug:
-                    self.log(f'[纠错检查] MA5涨幅不足: {ma5_change_pct:.1f}% < {self.p.correction_trend_min_strength:.1f}%')
+                    self.log(
+                        f'[纠错检查] MA5涨幅不足: {ma5_change_pct:.1f}% < {self.p.correction_trend_min_strength:.1f}%')
                 return False
-        
+
         # 所有条件满足
         self.log(
             f'*** 识别止损纠错机会（快速）：收盘{current_price:.2f}站上止损位{self.recent_stop_loss_price:.2f}，'
-            f'均线形态完好(MA5/MA10={self.ma5[0]/self.ma10[0]:.3f})，止损前涨幅{self.recent_stop_loss_gain_pct:.1f}% ***'
+            f'均线形态完好(MA5/MA10={self.ma5[0] / self.ma10[0]:.3f})，止损前涨幅{self.recent_stop_loss_gain_pct:.1f}% ***'
         )
         return True
-    
+
     def _check_stop_loss_correction_opportunity(self):
         """
         检查是否是止损纠错机会（用于二次确认信号时的判断）
@@ -857,39 +863,40 @@ class BreakoutStrategy(bt.Strategy):
         """
         if not self.p.enable_stop_loss_correction:
             return False
-        
+
         if self.recent_stop_loss_date is None:
             return False
-        
+
         # 检查止损日期是否在窗口内
         current_date = self.datas[0].datetime.date(0)
         days_since_stop = (current_date - self.recent_stop_loss_date).days
-        
+
         if days_since_stop > self.p.stop_loss_correction_window:
             if self.p.debug:
                 self.log(f'[纠错检查] 时间窗口超限: 止损后{days_since_stop}天 > {self.p.stop_loss_correction_window}天')
             return False
-        
+
         # 检查均线形态是否完好
         if self.ma5[0] <= self.ma10[0]:
             if self.p.debug:
                 self.log(f'[纠错检查] 均线死叉: MA5={self.ma5[0]:.2f} <= MA10={self.ma10[0]:.2f}')
             return False  # MA5死叉MA10，趋势破坏
-        
+
         if self.data.close[0] <= self.ma10[0]:
             if self.p.debug:
                 self.log(f'[纠错检查] 收盘跌破MA10: {self.data.close[0]:.2f} <= {self.ma10[0]:.2f}')
             return False  # 收盘价跌破MA10，中期支撑破坏
-        
+
         # 检查MA5上涨趋势强度（近N日涨幅）
         lookback = min(self.p.stop_loss_correction_window, len(self.ma5))
         if lookback > 1:
-            ma5_change_pct = ((self.ma5[0] - self.ma5[-lookback+1]) / self.ma5[-lookback+1]) * 100
+            ma5_change_pct = ((self.ma5[0] - self.ma5[-lookback + 1]) / self.ma5[-lookback + 1]) * 100
             if ma5_change_pct < self.p.correction_trend_min_strength:
                 if self.p.debug:
-                    self.log(f'[纠错检查] MA5涨幅不足: {ma5_change_pct:.1f}% < {self.p.correction_trend_min_strength:.1f}%')
+                    self.log(
+                        f'[纠错检查] MA5涨幅不足: {ma5_change_pct:.1f}% < {self.p.correction_trend_min_strength:.1f}%')
                 return False  # MA5上涨趋势不足
-        
+
         # 新增：高位过滤 - 如果止损前涨幅过大，不应纠错
         if self.recent_stop_loss_gain_pct > self.p.correction_max_gain_pct:
             self.log(
@@ -897,11 +904,11 @@ class BreakoutStrategy(bt.Strategy):
                 f'超过阈值 {self.p.correction_max_gain_pct:.1f}%，属于高位回调不应纠错'
             )
             return False
-        
+
         # 所有条件满足，识别为纠错机会
         self.log(
             f'*** 识别止损纠错机会：近期止损({self.recent_stop_loss_date.strftime("%m-%d")})，'
-            f'均线形态完好(MA5/MA10={self.ma5[0]/self.ma10[0]:.3f}，MA5上涨{ma5_change_pct:.1f}%)，'
+            f'均线形态完好(MA5/MA10={self.ma5[0] / self.ma10[0]:.3f}，MA5上涨{ma5_change_pct:.1f}%)，'
             f'止损前涨幅{self.recent_stop_loss_gain_pct:.1f}% ***'
         )
         return True
