@@ -73,7 +73,7 @@ class BreakoutStrategy(bt.Strategy):
         ('psq_summary_period', 3),  # 持仓期初期分析的天数
 
         # -- VCP评分参数 --
-        ('vcp_macro_ma_period', 90),  # VCP宏观环境MA周期
+        ('vcp_macro_ma_period', 80),  # VCP宏观环境MA周期
         # A股主线更偏向“主升+加速段”，适度提高最佳价格位置和容忍上限
         ('vcp_optimal_price_pos', 1.15),  # 价格与MA最优位置 (高15%)
         ('vcp_max_price_pos', 1.40),  # 价格与MA位置上限（高40%仍可接受，但略降分）
