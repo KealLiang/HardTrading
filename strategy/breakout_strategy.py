@@ -88,7 +88,12 @@ class BreakoutStrategy(bt.Strategy):
         ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
 
         # -- VCP过滤开关 --
-        ('enable_vcp_filter', False),  # True时过滤VCP-C/D信号，只保留A/B
+        # 打开后，仅过滤VCP-C/D/F评级的信号，具体影响：
+        # 1) 快速通道：本次不买入，但仍进入【突破观察哨】模式，后续可继续等待二次确认。
+        # 2) 止损纠错：本次不买入，但继续处于纠错监控窗口内，后续仍可再次尝试纠错买点。
+        # 3) 二次确认：本次不买入，但保持观察期不变，后续若再次出现二次确认会重新评估VCP。
+        # 4) 回踩确认：本次不买入，并结束当前【回踩等待】模式，本轮机会作废，不再等待下一次回踩。
+        ('enable_vcp_filter', False),  # True时启用上述过滤逻辑
     )
 
     def __init__(self):
