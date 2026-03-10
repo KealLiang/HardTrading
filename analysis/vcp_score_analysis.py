@@ -11,14 +11,14 @@ VCP分数与回测盈亏关联分析
 5. 过热分与收益率的关系
 """
 
-import re
 import os
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 
@@ -31,12 +31,12 @@ class SignalRecord:
     """候选股扫描记录"""
     stock_code: str
     stock_name: str
-    signal_date: str       # YYYY-MM-DD
+    signal_date: str  # YYYY-MM-DD
     price: float
-    rating: int            # 评分（0/6/9等）
-    signal_type: str       # 二次确认 / 快速通道 / 回踩确认 / 止损纠错
-    vcp_type: str          # VCP-A / VCP-B / VCP-C / VCP-D
-    vcp_score: float       # VCP Score
+    rating: int  # 评分（0/6/9等）
+    signal_type: str  # 二次确认 / 快速通道 / 回踩确认 / 止损纠错
+    vcp_type: str  # VCP-A / VCP-B / VCP-C / VCP-D
+    vcp_score: float  # VCP Score
     heat_score: Optional[float] = None  # 过热分（仅二次确认信号有）
 
 
@@ -45,16 +45,16 @@ class TradeRecord:
     """回测交易记录"""
     stock_code: str
     stock_name: str
-    signal_date: str       # YYYY-MM-DD
+    signal_date: str  # YYYY-MM-DD
     buy_date: str
     sell_date: str
     holding_days: int
     buy_price: float
     sell_price: float
-    return_rate: float     # 收益率百分比，如 15.00 表示 +15%
-    max_profit: float      # 最大浮盈百分比
-    max_loss: float        # 最大浮亏百分比
-    sell_reason: str        # 止盈 / 止损 / 持满 / 数据截止
+    return_rate: float  # 收益率百分比，如 15.00 表示 +15%
+    max_profit: float  # 最大浮盈百分比
+    max_loss: float  # 最大浮亏百分比
+    sell_reason: str  # 止盈 / 止损 / 持满 / 数据截止
 
 
 # ─────────────────────────────────────────────
@@ -178,17 +178,17 @@ def parse_backtest_report(file_path: str) -> list[TradeRecord]:
     # 匹配交易明细行
     # 股票名可能包含特殊字符如 x、ST、-U、-UW 等
     row_pattern = re.compile(
-        r'\|\s*(.+?)\((\d+)\)\s*\|'       # 股票名(代码)
-        r'\s*(\d{2}/\d{2})\s*\|'           # 信号日
-        r'\s*(\d{2}/\d{2})\s*\|'           # 买入日
-        r'\s*(\d{2}/\d{2})\s*\|'           # 卖出日
-        r'\s*(\d+)天\s*\|'                 # 持有天数
-        r'\s*([\d.]+)\s*\|'                # 买入价
-        r'\s*([\d.]+)\s*\|'                # 卖出价
-        r'\s*([+-][\d.]+)%\s*\|'           # 收益率
-        r'\s*([+-][\d.]+)%\s*\|'           # 最大浮盈
-        r'\s*([+-][\d.]+)%\s*\|'           # 最大浮亏
-        r'\s*(.+?)\s*\|'                   # 卖出原因
+        r'\|\s*(.+?)\((\d+)\)\s*\|'  # 股票名(代码)
+        r'\s*(\d{2}/\d{2})\s*\|'  # 信号日
+        r'\s*(\d{2}/\d{2})\s*\|'  # 买入日
+        r'\s*(\d{2}/\d{2})\s*\|'  # 卖出日
+        r'\s*(\d+)天\s*\|'  # 持有天数
+        r'\s*([\d.]+)\s*\|'  # 买入价
+        r'\s*([\d.]+)\s*\|'  # 卖出价
+        r'\s*([+-][\d.]+)%\s*\|'  # 收益率
+        r'\s*([+-][\d.]+)%\s*\|'  # 最大浮盈
+        r'\s*([+-][\d.]+)%\s*\|'  # 最大浮亏
+        r'\s*(.+?)\s*\|'  # 卖出原因
     )
 
     in_trade_detail = False
@@ -340,9 +340,9 @@ def analyze(df: pd.DataFrame, output_dir: Optional[str] = None):
     report_lines = []
 
     def section(title: str):
-        report_lines.append(f"\n{'='*60}")
+        report_lines.append(f"\n{'=' * 60}")
         report_lines.append(f"  {title}")
-        report_lines.append(f"{'='*60}")
+        report_lines.append(f"{'=' * 60}")
 
     def content(text: str):
         report_lines.append(text)
@@ -354,7 +354,7 @@ def analyze(df: pd.DataFrame, output_dir: Optional[str] = None):
     lose = (df['return_rate'] < 0).sum()
     even = (df['return_rate'] == 0).sum()
     content(f"  总交易数: {total}")
-    content(f"  盈利: {win} ({win/total*100:.1f}%)  |  亏损: {lose} ({lose/total*100:.1f}%)  |  持平: {even}")
+    content(f"  盈利: {win} ({win / total * 100:.1f}%)  |  亏损: {lose} ({lose / total * 100:.1f}%)  |  持平: {even}")
     content(f"  平均收益率: {df['return_rate'].mean():.2f}%")
     content(f"  收益率中位数: {df['return_rate'].median():.2f}%")
     content(f"  VCP Score 范围: {df['vcp_score'].min():.2f} ~ {df['vcp_score'].max():.2f}")
@@ -380,7 +380,8 @@ def analyze(df: pd.DataFrame, output_dir: Optional[str] = None):
     direction = "正" if pearson_r > 0 else "负"
     sig = "显著" if pearson_p < 0.05 else "不显著"
 
-    content(f"  → 结论: VCP Score 与收益率呈 {interp}（{direction}向），统计{sig}（p{'<' if pearson_p < 0.05 else '≥'}0.05）")
+    content(
+        f"  → 结论: VCP Score 与收益率呈 {interp}（{direction}向），统计{sig}（p{'<' if pearson_p < 0.05 else '≥'}0.05）")
 
     # ───── 2. 按 VCP Score 分档统计 ─────
     section("📊 维度二: 按 VCP Score 分档统计")
@@ -526,7 +527,51 @@ def analyze(df: pd.DataFrame, output_dir: Optional[str] = None):
         else:
             heat_conclusion = f"过热分与收益率无显著相关性（r={h_pearson_r:+.4f}, p={h_pearson_p:.4f}）"
 
-    # ───── 6. VCP Score × 过热分 交叉分析 ─────
+    # ───── 6. 细粒度 VCP Score 分段分析（用于反推最优区间） ─────
+    section("📊 维度六: 细粒度 VCP Score 分段分析")
+
+    # 使用更细的分段（等宽），覆盖常见区间 0~5
+    fine_bins = np.arange(0.0, 5.01, 0.25)  # [0,0.25),[0.25,0.5),...
+    fine_labels = [f"{fine_bins[i]:.2f}~{fine_bins[i + 1]:.2f}" for i in range(len(fine_bins) - 1)]
+    df['fine_score_bin'] = pd.cut(
+        df['vcp_score'],
+        bins=fine_bins,
+        labels=fine_labels,
+        right=False,
+        include_lowest=True
+    )
+
+    fine_stats = df.groupby('fine_score_bin', observed=True).agg(
+        count=('return_rate', 'count'),
+        avg_return=('return_rate', 'mean'),
+        med_return=('return_rate', 'median'),
+        win_rate=('return_rate', lambda x: (x > 0).mean() * 100),
+    )
+
+    # 只保留样本数足够的区间，避免噪声
+    min_fine_n = 10
+    fine_stats_filtered = fine_stats[fine_stats['count'] >= min_fine_n].copy()
+
+    headers = ['Score 区间', '数量', '平均收益', '中位数收益', '胜率']
+    rows = []
+    for idx, row in fine_stats_filtered.iterrows():
+        rows.append([
+            idx if isinstance(idx, str) else str(idx),
+            str(int(row['count'])),
+            f"{row['avg_return']:+.2f}%",
+            f"{row['med_return']:+.2f}%",
+            f"{row['win_rate']:.1f}%",
+        ])
+
+    if rows:
+        alignments = ['left', 'right', 'right', 'right', 'right']
+        # 仅输出细粒度分段的收益和胜率统计，不再给出自动映射或启发式建议，
+        # 避免过度拟合，让人工根据这张表和图表自行判断哪些 Score 区间更优。
+        content(_format_table(headers, rows, alignments))
+    else:
+        content("  样本数不足，无法进行细粒度 Score 分段分析（需要每段至少 10 个样本）。")
+
+    # ───── 7. VCP Score × 过热分 交叉分析 ─────
     section("📊 维度六: VCP Score × 过热分 交叉分析")
 
     if len(df_heat) < 10:
@@ -589,8 +634,8 @@ def analyze(df: pd.DataFrame, output_dir: Optional[str] = None):
     # 检查单调性：Score 越高，平均收益是否越高
     bin_means = df.groupby('score_bin', observed=True)['return_rate'].mean()
     monotonic_up = all(
-        bin_means.iloc[i] <= bin_means.iloc[i+1]
-        for i in range(len(bin_means)-1)
+        bin_means.iloc[i] <= bin_means.iloc[i + 1]
+        for i in range(len(bin_means) - 1)
     ) if len(bin_means) > 1 else False
 
     vcp_type_means = df.groupby('vcp_type')['return_rate'].mean()
@@ -869,4 +914,3 @@ if __name__ == '__main__':
         out_d = 'bin/candidate_stocks_breakout_a/backtest'
 
     run_vcp_analysis(scan_f, bt_f, out_d)
-

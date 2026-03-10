@@ -328,7 +328,7 @@ class BreakoutStrategy(bt.Strategy):
                         # 计算并记录最大涨幅（用于判断是否高位）
                         if self.buy_price > 0:
                             self.recent_stop_loss_gain_pct = ((
-                                                                          self.highest_high_since_buy - self.buy_price) / self.buy_price) * 100
+                                                                      self.highest_high_since_buy - self.buy_price) / self.buy_price) * 100
                         else:
                             self.recent_stop_loss_gain_pct = 0.0
                         self.correction_monitoring = True  # 启动纠错监控
