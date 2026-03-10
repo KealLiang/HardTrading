@@ -73,19 +73,22 @@ class BreakoutStrategy(bt.Strategy):
         ('psq_summary_period', 3),  # 持仓期初期分析的天数
 
         # -- VCP评分参数 --
-        ('vcp_lookback', 60),  # VCP总回看期
         ('vcp_macro_ma_period', 90),  # VCP宏观环境MA周期
+        # A股主线更偏向“主升+加速段”，适度提高最佳价格位置和容忍上限
+        ('vcp_optimal_price_pos', 1.15),  # 价格与MA最优位置 (高15%)
+        ('vcp_max_price_pos', 1.40),  # 价格与MA位置上限（高40%仍可接受，但略降分）
+        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
+        # 提高最佳斜率，允许更陡的主升趋势
+        ('vcp_optimal_ma_roc', 1.12),  # 宏观MA最优斜率 (20日涨12%)
+        ('vcp_max_ma_roc', 1.30),  # 宏观MA斜率上限 (20日涨30%)
+        ('vcp_bband_lookback', 60),  # VCP布林带回看期
+        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
         ('vcp_absorption_lookback', 20),  # VCP供给吸收回看期
         ('vcp_absorption_zone_pct', 0.07),  # 供给区价格范围(7%)
-        ('vcp_macro_roc_period', 20),  # 计算宏观MA斜率的回看期
-        ('vcp_optimal_ma_roc', 1.03),  # 宏观MA最优斜率 (20日涨3%)
-        ('vcp_max_ma_roc', 1.15),  # 宏观MA斜率上限
-        ('vcp_optimal_price_pos', 1.05),  # 价格与MA最优位置 (高5%)
-        ('vcp_max_price_pos', 1.30),  # 价格与MA位置上限
-        ('vcp_squeeze_exponent', 1.5),  # 波动压缩分的非线性指数
-        ('vcp_weight_macro', 0.35),  # 宏观环境分权重
+        # 权重调整：弱化宏观、强化压缩+吸筹
+        ('vcp_weight_macro', 0.25),  # 宏观环境分权重（从0.35下调）
         ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
-        ('vcp_weight_absorption', 0.25),  # 供给吸收分权重
+        ('vcp_weight_absorption', 0.35),  # 供给吸收分权重（从0.25上调）
 
         # -- VCP过滤开关 --
         # 打开后，仅过滤VCP-C/D/F评级的信号，具体影响：
@@ -107,7 +110,7 @@ class BreakoutStrategy(bt.Strategy):
         self.highest_bbw = bt.indicators.Highest(self.bb_width, period=self.p.squeeze_period)
         self.lowest_bbw = bt.indicators.Lowest(self.bb_width, period=self.p.squeeze_period)
         # VCP 4.0: 布林带宽度历史值，用于计算分位
-        self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_lookback)
+        self.bbw_rank = bt.indicators.PctRank(self.bb_width, period=self.p.vcp_bband_lookback)
 
         # V4.0: 前高指标（用于突破压力位评分）
         self.prior_high = bt.indicators.Highest(self.data.high, period=self.p.prior_high_lookback)
@@ -1033,26 +1036,79 @@ class BreakoutStrategy(bt.Strategy):
 
         def _get_balanced_score(current_val, optimal_val, lower_bound, upper_bound):
             """
-            计算一个0-100的平衡分数。
-            - 在 optimal_val 处得分为 100。
-            - 在 lower_bound 和 upper_bound 处得分为 0。
-            - 在区间之间线性递减。
+            通用的0-100平衡分数（默认“钟形偏好”）。
+            当前仅用于非趋势类维度；趋势相关维度单独使用更偏“单边偏好”的函数。
             """
-            if not (lower_bound <= optimal_val <= upper_bound): return 0
-            if current_val < lower_bound or current_val > upper_bound: return 0
+            if not (lower_bound <= optimal_val <= upper_bound):
+                return 0
+            if current_val < lower_bound or current_val > upper_bound:
+                return 0
 
             if current_val >= optimal_val:
-                # 在 optimal 和 upper_bound 之间
+                # 在 optimal 和 upper_bound 之间线性下降到 0
                 range_size = upper_bound - optimal_val
-                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
+                if range_size <= 1e-9:
+                    return 100 if current_val == optimal_val else 0
                 score = 100 * (1 - (current_val - optimal_val) / range_size)
             else:
-                # 在 lower_bound 和 optimal 之间
+                # 在 lower_bound 和 optimal 之间线性上升到 100
                 range_size = optimal_val - lower_bound
-                if range_size <= 1e-9: return 100 if current_val == optimal_val else 0
-                score = 100 * (1 - (optimal_val - current_val) / range_size)
+                if range_size <= 1e-9:
+                    return 100 if current_val == optimal_val else 0
+                score = 100 * (current_val - lower_bound) / range_size
 
-            return score
+            return max(0, min(100, score))
+
+        def _score_price_pos(price_pos_ratio: float) -> float:
+            """
+            A股主线风格下的价格位置打分（单边偏好+轻微高位惩罚）。
+            - < 1.0: 直接 0 分（价格还压在MA下方，不算启动）
+            - 1.0 ~ optimal: 线性从 40 -> 100 分（刚站上均线也给一定基础分）
+            - optimal ~ max: 从 100 缓慢衰减到 70 分（适度高位仍可接受）
+            - > max: 直接降到 50 分（明显偏高但不绝对否决）
+            """
+            lower = 1.0
+            opt = self.p.vcp_optimal_price_pos
+            upper = self.p.vcp_max_price_pos
+
+            if price_pos_ratio < lower:
+                return 0.0
+            if price_pos_ratio <= opt:
+                if opt <= lower + 1e-9:
+                    return 100.0
+                # 从 40 到 100，鼓励刚突破均线后的一段上涨
+                base, top = 40.0, 100.0
+                return base + (top - base) * (price_pos_ratio - lower) / (opt - lower)
+            if price_pos_ratio <= upper:
+                # 从 100 缓慢降到 70，仍认为是可接受的主升段
+                high, low = 100.0, 70.0
+                return low + (high - low) * (upper - price_pos_ratio) / (upper - opt)
+            # 明显偏高：固定给一个中等偏下分数
+            return 50.0
+
+        def _score_ma_roc(ma_roc: float) -> float:
+            """
+            A股主线风格下的趋势斜率打分（更容忍陡峭趋势）。
+            - < 1.0: 0 分（趋势不成立）
+            - 1.0 ~ optimal: 线性从 30 -> 100 分
+            - optimal ~ max: 从 100 缓慢降到 75 分
+            - > max: 固定 60 分（过陡但仍可接受，避免把强趋势一票否决）
+            """
+            lower = 1.0
+            opt = self.p.vcp_optimal_ma_roc
+            upper = self.p.vcp_max_ma_roc
+
+            if ma_roc < lower:
+                return 0.0
+            if ma_roc <= opt:
+                if opt <= lower + 1e-9:
+                    return 100.0
+                base, top = 30.0, 100.0
+                return base + (top - base) * (ma_roc - lower) / (opt - lower)
+            if ma_roc <= upper:
+                high, low = 100.0, 75.0
+                return low + (high - low) * (upper - ma_roc) / (upper - opt)
+            return 60.0
 
         if self.signal_day_index == -1: return 0, "N/A"
 
@@ -1060,24 +1116,14 @@ class BreakoutStrategy(bt.Strategy):
         macro_score = 0
         ma_value = self.vcp_macro_ma[0]
         if ma_value > 0 and len(self.vcp_macro_ma) > self.p.vcp_macro_roc_period:
-            # a. 价格位置 vs MA (过高则危险)
+            # a. 价格位置 vs MA
             price_pos_ratio = self.data.close[0] / ma_value
-            pos_score = _get_balanced_score(
-                price_pos_ratio,
-                self.p.vcp_optimal_price_pos,
-                1.0,  # lower bound: 价格至少要在MA之上
-                self.p.vcp_max_price_pos
-            )
+            pos_score = _score_price_pos(price_pos_ratio)
 
             # b. MA斜率 (Rate of Change) (过陡则危险)
             ma_prev = self.vcp_macro_ma[-self.p.vcp_macro_roc_period]
             ma_roc = ma_value / ma_prev if ma_prev > 0 else 1.0
-            trend_score = _get_balanced_score(
-                ma_roc,
-                self.p.vcp_optimal_ma_roc,
-                1.0,  # lower bound: 趋势至少要持平
-                self.p.vcp_max_ma_roc
-            )
+            trend_score = _score_ma_roc(ma_roc)
 
             # c. 结合位置和趋势
             macro_score = pos_score * 0.5 + trend_score * 0.5
