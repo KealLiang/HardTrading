@@ -95,6 +95,7 @@ class BreakoutABacktester:
     DATA_PATH = './data/astocks'
     MAX_HOLD_DAYS = 20   # 最长持仓（交易日）
     MIN_HOLD_DAYS = 1    # T+1规则：至少持有1天，第2天才可卖出
+    MIN_TRADES_FOR_BEST = 30  # 评选“最优策略”时的最小样本数门槛
 
     def __init__(self, signal_file: str, output_dir: str, data_path: str = None):
         self.signal_file = signal_file
@@ -773,15 +774,25 @@ class BreakoutABacktester:
         if not ranked:
             return ''
 
-        top_name, top_s = ranked[0]
+        # 仅在样本数达到门槛时，才将其视为“最优策略”
+        eligible = [(n, s) for n, s in ranked if s.valid_trades >= self.MIN_TRADES_FOR_BEST]
+        if eligible:
+            top_name, top_s = eligible[0]
+            is_small_sample = False
+        else:
+            # 若没有任何策略达到门槛，则退而选期望值最高的一条，但在文案中明确提示“样本过少”
+            top_name, top_s = ranked[0]
+            is_small_sample = True
+
         p = self._parse_strategy_name(top_name)
         adv = self._calc_advanced_stats(top_s.trades)
 
         # ── 进阶指标卡片 ──────────────────────────────────
+        title = '### 最优策略核心指标\n' if not is_small_sample else '### 当前样本下表现最佳的策略（样本偏少，谨慎参考）\n'
         L += [
             '## 🎯 执行摘要\n',
-            '### 最优策略核心指标\n',
-            f'> **最优策略**: `{top_name}`',
+            title,
+            f'> **策略名称**: `{top_name}`',
             f'> 基于 **{adv.get("n", 0)}** 笔有效交易 / 回测区间 **{adv.get("period_days", 0)}** 自然日\n',
             '| 指标 | 数值 | 说明 |',
             '|------|------|------|',
@@ -796,7 +807,7 @@ class BreakoutABacktester:
             f'| **最大回撤** | **{adv.get("max_drawdown", 0):.1f}%** | 顺序单仓模拟（多仓并发时实际回撤更小） |',
             f'| Calmar比率 | **{adv.get("calmar", 0):.2f}** | 年化收益÷最大回撤 |',
             f'| 最大连胜 / 连亏 | {adv.get("max_win_streak", 0)}连胜 / {adv.get("max_loss_streak", 0)}连亏 | |',
-            f'| 全笔简单总收益 | {adv.get("simple_total", 0):+.1f}% | 所有笔收益率直接相加（无复利），反映策略"总创造价值" |',
+            f'| 全笔简单总收益 | {adv.get("simple_total", 0):+.1f}% | 所有笔收益率直接相加（无复利），反映策略\"总创造价值\" |',
             '',
         ]
 
@@ -1321,7 +1332,8 @@ class BreakoutABacktester:
 
         # 1. 整体有效性
         if ranked:
-            top_name, top_s = ranked[0]
+            eligible = [(n, s) for n, s in ranked if s.valid_trades >= self.MIN_TRADES_FOR_BEST]
+            top_name, top_s = (eligible[0] if eligible else ranked[0])
             if top_s.expected_value > 1:
                 pts.append(f'1. **策略有效性** ✅: 最优参数下期望值 **{top_s.expected_value:+.2f}%** > 0，'
                            f'策略具有正期望，可以作为交易参考。')
