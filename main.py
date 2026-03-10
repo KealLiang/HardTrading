@@ -755,6 +755,7 @@ def fetch_stock_concept_map(concept_names: Optional[list[str]] = None):
     retry_concepts_by_codes(concept_names)
 
 
+
 def candidate_hot_concept_stocks(concepts: list):
     """生成热门概念候选股数据"""
     from fetch.stock_concept_map import get_candidate_stocks_by_concepts
@@ -1654,7 +1655,8 @@ if __name__ == '__main__':
     # daily_routine()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "智能电网", "算力租赁", "MiniLED", "AI智能体"]
+    hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "MiniLED", "AI智能体"]
+    # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "商业航天"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
@@ -1666,9 +1668,9 @@ if __name__ == '__main__':
     # find_candidate_stocks_volume_surge()
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
-    generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
+    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
     # breakout_strategy_backtest('scan_simple_20260101-20260310.txt')  # 爆量突破策略回测
-    # vcp_score_analysis(scan_file='scan_summary_20260101-20260309.txt', backtest_file='backtest_report_20260101-20260309.md')
+    vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
