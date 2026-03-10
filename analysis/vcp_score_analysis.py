@@ -689,7 +689,9 @@ def _try_generate_charts(df: pd.DataFrame, output_dir: Optional[str]):
     )
 
     x_pos = range(len(bin_stats))
-    bar_colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in bin_stats['avg_return']]
+    # 使用渐变色方案：从蓝到绿到橙
+    color_palette = ['#3498db', '#2ecc71', '#16a085', '#f39c12', '#e67e22', '#e74c3c']
+    bar_colors = [color_palette[i % len(color_palette)] for i in range(len(bin_stats))]
     bars = ax.bar(x_pos, bin_stats['avg_return'], color=bar_colors, alpha=0.8, edgecolor='white')
 
     # 在柱上标注数量和胜率
@@ -743,7 +745,9 @@ def _try_generate_charts(df: pd.DataFrame, output_dir: Optional[str]):
     signal_stats = signal_stats.sort_values('avg_return', ascending=False)
 
     x_pos = range(len(signal_stats))
-    bar_colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in signal_stats['avg_return']]
+    # 使用不同颜色区分信号类型
+    color_palette = ['#2ecc71', '#3498db', '#f39c12', '#e74c3c', '#9b59b6']
+    bar_colors = [color_palette[i % len(color_palette)] for i in range(len(signal_stats))]
     bars = ax.bar(x_pos, signal_stats['avg_return'], color=bar_colors, alpha=0.8, edgecolor='white')
 
     for i, (idx, row) in enumerate(signal_stats.iterrows()):
@@ -792,7 +796,9 @@ def _try_generate_charts(df: pd.DataFrame, output_dir: Optional[str]):
         )
 
         x_pos = range(len(heat_stats))
-        bar_colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in heat_stats['avg_return']]
+        # 使用渐变色方案：从浅到深
+        color_palette = ['#3498db', '#2ecc71', '#16a085', '#f39c12', '#e67e22']
+        bar_colors = [color_palette[i % len(color_palette)] for i in range(len(heat_stats))]
         ax.bar(x_pos, heat_stats['avg_return'], color=bar_colors, alpha=0.8, edgecolor='white')
 
         for i, (idx, row) in enumerate(heat_stats.iterrows()):
