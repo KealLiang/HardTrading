@@ -86,8 +86,8 @@ class BreakoutStrategy(bt.Strategy):
         ('vcp_absorption_lookback', 20),  # VCP供给吸收回看期
         ('vcp_absorption_zone_pct', 0.07),  # 供给区价格范围(7%)
         # 权重调整：弱化宏观、强化压缩+吸筹
-        ('vcp_weight_macro', 0.25),  # 宏观环境分权重（从0.35下调）
-        ('vcp_weight_squeeze', 0.40),  # 波动状态分权重
+        ('vcp_weight_macro', 0.20),  # 宏观环境分权重（从0.35下调）
+        ('vcp_weight_squeeze', 0.45),  # 波动状态分权重
         ('vcp_weight_absorption', 0.35),  # 供给吸收分权重（从0.25上调）
 
         # -- VCP过滤开关 --
