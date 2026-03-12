@@ -537,12 +537,24 @@ def retry_concepts_by_codes(concept_names: Optional[list[str]] = None) -> dict:
     all_concepts = _get_all_concepts(force_refresh=False)
     code_to_name = {c["code"]: c["name"] for c in all_concepts}
     name_to_code = {c["name"]: c["code"] for c in all_concepts}
+    all_names = list(name_to_code.keys())
 
     # 2.1 计算目标概念名称集合
     target_names: set[str]
     if concept_names:
-        # 显式传入名称的场景
-        target_names = {str(n) for n in concept_names}
+        # 显式传入名称/模式的场景（支持 SQL LIKE 风格 % 通配符，与 get_candidate_stocks_by_concepts 保持一致）
+        target_names = set()
+        for pattern in concept_names:
+            pattern = str(pattern)
+            matched = _match_concept_names(pattern, all_names)
+            if not matched:
+                logger.warning(f"retry_concepts_by_codes: 模式 '{pattern}' 未匹配到任何概念")
+                continue
+            if "%" in pattern:
+                logger.info(
+                    f"retry_concepts_by_codes: 模式 '{pattern}' 匹配到 {len(matched)} 个概念: {matched}"
+                )
+            target_names.update(matched)
     else:
         # 未传名称：从失败代码文件中读取 failed_codes，并映射为名称
         logger.info("未传入概念名称, 本地加载抓取失败的概念代码并映射为名称")
