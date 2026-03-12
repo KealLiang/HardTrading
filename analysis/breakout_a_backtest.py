@@ -19,10 +19,32 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from tqdm import tqdm
 
-from utils.date_util import get_next_trading_day
 from utils.file_util import read_stock_data
 
 logger = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────────────
+#  可调参数（集中管理）
+# ──────────────────────────────────────────────────────
+
+# 回测基础参数
+BACKTEST_DATA_PATH = './data/astocks'
+BACKTEST_MAX_HOLD_DAYS = 5  # 最长持仓（交易日）
+BACKTEST_MIN_HOLD_DAYS = 1  # T+1 规则：至少持有 1 天，第 2 天才可卖出
+BACKTEST_MIN_TRADES_FOR_BEST = 30  # 评选“最优策略”时的最小样本数门槛
+
+# 近 MA5 等待买入的距离阈值（宽/紧），单位：%
+NEAR_MA5_WIDE_PCT = 7.0  # 原 5%
+NEAR_MA5_TIGHT_PCT = 3.0  # 原 2%
+# 近 MA5 等待的最长天数（T+1~T+N 内观察）
+NEAR_MA5_WAIT_DAYS = 2  # 原 5
+
+# 止盈止损参数矩阵（统一使用笛卡尔积）
+PROFIT_TARGETS = [5, 10, 15]  # 止盈目标列表（%）
+STOP_LOSSES = [5, 8]  # 止损阈值列表（%）
+# 盘中触发止盈止损测试组合：从 PROFIT_TARGETS × STOP_LOSSES 生成
+# 如果需要特定组合，可以在这里过滤或自定义
+INTRADAY_EXIT_PAIRS = [(pt, sl) for pt in PROFIT_TARGETS for sl in STOP_LOSSES]
 
 
 # ──────────────────────────────────────────────────────
@@ -31,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Signal:
-    signal_date: str   # YYYYMMDD
+    signal_date: str  # YYYYMMDD
     code: str
     name: str
 
@@ -55,13 +77,13 @@ class Trade:
     is_win: bool = False
     is_valid: bool = False
 
-    max_profit_pct: float = 0.0   # 持有期间最高浮盈（基于最高价）
-    max_loss_pct: float = 0.0     # 持有期间最大浮亏（基于最低价）
+    max_profit_pct: float = 0.0  # 持有期间最高浮盈（基于最高价）
+    max_loss_pct: float = 0.0  # 持有期间最大浮亏（基于最低价）
 
     # 均线信息（买入当日）
     ma5_at_buy: float = 0.0
     ma20_at_buy: float = 0.0
-    price_vs_ma5_pct: float = 0.0   # (开盘 - MA5) / MA5 × 100
+    price_vs_ma5_pct: float = 0.0  # (开盘 - MA5) / MA5 × 100
 
     # 信号日信息
     signal_close: float = 0.0
@@ -73,12 +95,12 @@ class Stats:
     scenario_name: str
     total_signals: int = 0
     valid_trades: int = 0
-    skipped: int = 0        # 未触发买入条件（如等均线超时）
+    skipped: int = 0  # 未触发买入条件（如等均线超时）
     win_trades: int = 0
     loss_trades: int = 0
     win_rate: float = 0.0
-    avg_win: float = 0.0    # 平均盈利（盈利笔）
-    avg_loss: float = 0.0   # 平均亏损（亏损笔，正数表示亏损幅度）
+    avg_win: float = 0.0  # 平均盈利（盈利笔）
+    avg_loss: float = 0.0  # 平均亏损（亏损笔，正数表示亏损幅度）
     profit_loss_ratio: float = 0.0
     expected_value: float = 0.0
     avg_hold_days: float = 0.0
@@ -92,16 +114,16 @@ class Stats:
 # ──────────────────────────────────────────────────────
 
 class BreakoutABacktester:
-    DATA_PATH = './data/astocks'
-    MAX_HOLD_DAYS = 20   # 最长持仓（交易日）
-    MIN_HOLD_DAYS = 1    # T+1规则：至少持有1天，第2天才可卖出
-    MIN_TRADES_FOR_BEST = 30  # 评选“最优策略”时的最小样本数门槛
+    DATA_PATH = BACKTEST_DATA_PATH
+    MAX_HOLD_DAYS = BACKTEST_MAX_HOLD_DAYS  # 最长持仓（交易日）
+    MIN_HOLD_DAYS = BACKTEST_MIN_HOLD_DAYS  # T+1规则：至少持有1天，第2天才可卖出
+    MIN_TRADES_FOR_BEST = BACKTEST_MIN_TRADES_FOR_BEST  # 评选“最优策略”时的最小样本数门槛
 
     def __init__(self, signal_file: str, output_dir: str, data_path: str = None):
         self.signal_file = signal_file
         self.output_dir = output_dir
         self.data_path = data_path or self.DATA_PATH
-        self._data_cache: Dict[str, Optional[pd.DataFrame]] = {}   # 跨场景共享的数据缓存
+        self._data_cache: Dict[str, Optional[pd.DataFrame]] = {}  # 跨场景共享的数据缓存
         os.makedirs(output_dir, exist_ok=True)
 
     # ── 1. 解析信号文件 ─────────────────────────────────
@@ -142,7 +164,7 @@ class BreakoutABacktester:
             return None
         df = df.sort_values('日期').reset_index(drop=True)
         df['日期_str'] = df['日期'].dt.strftime('%Y%m%d')
-        df['MA5']  = df['收盘'].rolling(5).mean()
+        df['MA5'] = df['收盘'].rolling(5).mean()
         df['MA10'] = df['收盘'].rolling(10).mean()
         df['MA20'] = df['收盘'].rolling(20).mean()
         return df
@@ -200,63 +222,64 @@ class BreakoutABacktester:
           这保证了 A 股 T+1 交易规则：当天买入，最早次日卖出。
         """
         max_profit = 0.0
-        max_loss   = 0.0
-        max_idx    = len(df) - 1
+        max_loss = 0.0
+        max_idx = len(df) - 1
 
         for i in range(buy_idx, min(buy_idx + self.MAX_HOLD_DAYS, max_idx + 1)):
-            row   = df.iloc[i]
+            row = df.iloc[i]
             open_ = row['开盘']
             close = row['收盘']
-            high  = row['最高']
-            low   = row['最低']
-            ma5   = row.get('MA5',  float('nan'))
-            ma10  = row.get('MA10', float('nan'))
-            ma20  = row.get('MA20', float('nan'))
+            high = row['最高']
+            low = row['最低']
+            ma5 = row.get('MA5', float('nan'))
+            ma10 = row.get('MA10', float('nan'))
+            ma20 = row.get('MA20', float('nan'))
 
             hold_days = i - buy_idx + 1
 
-            intraday_max = (high  - buy_price) / buy_price * 100
-            intraday_min = (low   - buy_price) / buy_price * 100
-            close_pct    = (close - buy_price) / buy_price * 100
+            intraday_max = (high - buy_price) / buy_price * 100
+            intraday_min = (low - buy_price) / buy_price * 100
+            close_pct = (close - buy_price) / buy_price * 100
 
             max_profit = max(max_profit, intraday_max)
-            max_loss   = min(max_loss,   intraday_min)
+            max_loss = min(max_loss, intraday_min)
 
             # T+1 规则：至少持有 MIN_HOLD_DAYS 天后才可触发卖出
             if hold_days > self.MIN_HOLD_DAYS:
-                triggered  = False
-                reason     = ''
-                sell_price = close   # 默认以收盘价成交
+                triggered = False
+                reason = ''
+                sell_price = close  # 默认以收盘价成交
 
                 if exit_rule == 'sell_at_open':
                     # 高周转：满足持仓规则的第一日开盘直接卖出
-                    triggered  = True
+                    triggered = True
                     sell_price = open_
-                    reason     = '开盘卖出'
+                    reason = '开盘卖出'
 
                 elif exit_rule == 'fixed_pnl' and intraday_exit:
                     # 盘中价格触发：更贴近实战挂止损/止盈委托单
+                    # 注意：使用严格大于/小于，避免边界价格无法成交
                     target_price = buy_price * (1 + profit_target / 100)
-                    stop_price   = buy_price * (1 - stop_loss   / 100)
-                    if low <= stop_price:
+                    stop_price = buy_price * (1 - stop_loss / 100)
+                    if low < stop_price:
                         # 止损优先（保守：若同一天止损和止盈价都被触及，以止损成交）
-                        triggered  = True
+                        triggered = True
                         sell_price = stop_price
-                        reason     = f'止损{stop_loss:.0f}%(盘中)'
-                    elif high >= target_price:
-                        triggered  = True
+                        reason = f'止损{stop_loss:.0f}%(盘中)'
+                    elif high > target_price:
+                        triggered = True
                         sell_price = target_price
-                        reason     = f'止盈{profit_target:.0f}%(盘中)'
+                        reason = f'止盈{profit_target:.0f}%(盘中)'
 
                 elif exit_rule == 'fixed_pnl':
                     if close_pct >= profit_target:
-                        triggered  = True
-                        reason     = f'止盈{profit_target:.0f}%'
+                        triggered = True
+                        reason = f'止盈{profit_target:.0f}%'
                         # 以目标价成交（模拟收盘前挂好止盈限价单），避免收盘价远超目标虚增收益
                         sell_price = buy_price * (1 + profit_target / 100)
                     elif close_pct <= -stop_loss:
-                        triggered  = True
-                        reason     = f'止损{stop_loss:.0f}%'
+                        triggered = True
+                        reason = f'止损{stop_loss:.0f}%'
                         sell_price = buy_price * (1 - stop_loss / 100)
 
                 elif exit_rule == 'ma5_trail':
@@ -295,11 +318,11 @@ class BreakoutABacktester:
                     return row['日期_str'], sell_price, hold_days, reason, max_profit, max_loss
 
         # 达到最大持仓天数或数据截止
-        last_i    = min(buy_idx + self.MAX_HOLD_DAYS - 1, max_idx)
-        last_row  = df.iloc[last_i]
+        last_i = min(buy_idx + self.MAX_HOLD_DAYS - 1, max_idx)
+        last_row = df.iloc[last_i]
         hold_days = last_i - buy_idx + 1
-        is_maxed  = hold_days >= self.MAX_HOLD_DAYS
-        reason    = f'持满{self.MAX_HOLD_DAYS}天' if is_maxed else '数据截止'
+        is_maxed = hold_days >= self.MAX_HOLD_DAYS
+        reason = f'持满{self.MAX_HOLD_DAYS}天' if is_maxed else '数据截止'
         return last_row['日期_str'], last_row['收盘'], hold_days, reason, max_profit, max_loss
 
     # ── 4. 运行单个场景 ────────────────────────────────
@@ -328,13 +351,13 @@ class BreakoutABacktester:
                            （与 max_ma5_pct 组合可精确限定入场的MA5距离区间）。
                            传 None 表示无下限；传 0.0 表示必须在MA5之上。
         """
-        stats  = Stats(scenario_name=scenario_name, total_signals=len(signals))
+        stats = Stats(scenario_name=scenario_name, total_signals=len(signals))
         trades: List[Trade] = []
 
         # 去重：若同一只股票还在持仓中，不重复买入
-        holding: Dict[str, str] = {}   # code -> sell_date (YYYYMMDD)
+        holding: Dict[str, str] = {}  # code -> sell_date (YYYYMMDD)
 
-        _cache = self._data_cache   # 使用实例级共享缓存，避免重复加载
+        _cache = self._data_cache  # 使用实例级共享缓存，避免重复加载
 
         for sig in tqdm(signals, desc=f'  {scenario_name}', leave=False, ncols=100):
             # 懒加载
@@ -358,30 +381,47 @@ class BreakoutABacktester:
                     signal_vs_ma5 = (sig_close - sig_ma5) / sig_ma5 * 100
 
             # ── 确定买入日和买入价 ──
-            buy_idx    = None
-            buy_price  = None
-            buy_date   = None
+            buy_idx = None
+            buy_price = None
+            buy_date = None
             ma5_at_buy = 0.0
             ma20_at_buy = 0.0
             price_vs_ma5 = 0.0
 
             if near_ma5_pct is not None:
-                # 等待开盘在 MA5 上方 near_ma5_pct% 以内
+                # 等待开盘在“已知均线”上方 near_ma5_pct% 以内。
+                # 为避免未来函数，这里的均线锚点使用【前一交易日的 MA5】：
+                # - 对 T+1：使用信号日(T)的 MA5
+                # - 对 T+2：使用 T+1 的 MA5
+                # - 以此类推，在 D 日开盘决策时，只使用 D-1 日收盘后已经确定的 MA5。
+                if sig_idx is None:
+                    stats.skipped += 1
+                    continue
                 for delay in range(1, near_ma5_max_wait + 1):
                     result = self._nth_after(df, sig.signal_date, delay)
                     if result is None:
                         break
                     idx, d_str = result
                     row = df.iloc[idx]
-                    ma5  = row['MA5']
                     _open = row['开盘']
-                    if pd.notna(ma5) and ma5 > 0:
-                        pct_above = (_open - ma5) / ma5 * 100
+                    # 锚点均线：前一交易日的 MA5（对 T+1 即为信号日 MA5）
+                    anchor_idx = idx - 1
+                    anchor_ma5 = None
+                    if anchor_idx >= 0:
+                        anchor_ma5 = df.iloc[anchor_idx]['MA5']
+                    # 兜底：若前一日 MA5 缺失，但信号日 MA5 有值，则退回用信号日 MA5
+                    if (anchor_ma5 is None or not pd.notna(anchor_ma5) or anchor_ma5 <= 0) and sig_ma5 > 0:
+                        anchor_ma5 = sig_ma5
+
+                    if pd.notna(anchor_ma5) and anchor_ma5 > 0:
+                        pct_above = (_open - anchor_ma5) / anchor_ma5 * 100
                         if pct_above <= near_ma5_pct:
-                            buy_idx      = idx
-                            buy_price    = _open
-                            buy_date     = d_str
-                            ma5_at_buy   = ma5
+                            buy_idx = idx
+                            buy_price = _open
+                            buy_date = d_str
+                            # 记录实际买入日的 MA5（用于后续分析，不参与买入决策）
+                            ma5_val = row['MA5']
+                            ma5_at_buy = ma5_val if pd.notna(ma5_val) else 0.0
                             price_vs_ma5 = pct_above
                             break
                 if buy_idx is None:
@@ -392,11 +432,11 @@ class BreakoutABacktester:
                 if result is None:
                     continue
                 buy_idx, buy_date = result
-                row         = df.iloc[buy_idx]
-                buy_price   = row['开盘']
-                ma5_val     = row['MA5']
-                ma20_val    = row['MA20']
-                ma5_at_buy  = ma5_val  if pd.notna(ma5_val)  else 0.0
+                row = df.iloc[buy_idx]
+                buy_price = row['开盘']
+                ma5_val = row['MA5']
+                ma20_val = row['MA20']
+                ma5_at_buy = ma5_val if pd.notna(ma5_val) else 0.0
                 ma20_at_buy = ma20_val if pd.notna(ma20_val) else 0.0
                 if ma5_at_buy > 0:
                     price_vs_ma5 = (buy_price - ma5_at_buy) / ma5_at_buy * 100
@@ -473,27 +513,27 @@ class BreakoutABacktester:
 
         # ── 统计 ──
         stats.valid_trades = len(trades)
-        stats.trades       = trades
+        stats.trades = trades
 
         if trades:
-            wins   = [t for t in trades if t.is_win]
+            wins = [t for t in trades if t.is_win]
             losses = [t for t in trades if not t.is_win]
-            stats.win_trades   = len(wins)
-            stats.loss_trades  = len(losses)
-            stats.win_rate     = len(wins) / len(trades) * 100
+            stats.win_trades = len(wins)
+            stats.loss_trades = len(losses)
+            stats.win_rate = len(wins) / len(trades) * 100
 
-            avg_w = sum(t.profit_pct for t in wins)   / len(wins)   if wins   else 0.0
+            avg_w = sum(t.profit_pct for t in wins) / len(wins) if wins else 0.0
             avg_l = abs(sum(t.profit_pct for t in losses) / len(losses)) if losses else 0.0
-            stats.avg_win  = avg_w
+            stats.avg_win = avg_w
             stats.avg_loss = avg_l
             stats.profit_loss_ratio = avg_w / avg_l if avg_l > 0 else 0.0
 
             wr = stats.win_rate / 100
             stats.expected_value = wr * avg_w - (1 - wr) * avg_l
 
-            stats.avg_hold_days      = sum(t.hold_days  for t in trades) / len(trades)
-            stats.max_single_profit  = max(t.profit_pct for t in trades)
-            stats.max_single_loss    = min(t.profit_pct for t in trades)
+            stats.avg_hold_days = sum(t.hold_days for t in trades) / len(trades)
+            stats.max_single_profit = max(t.profit_pct for t in trades)
+            stats.max_single_loss = min(t.profit_pct for t in trades)
 
         return stats
 
@@ -519,18 +559,20 @@ class BreakoutABacktester:
                 signals, name, entry_delay=delay,
                 exit_rule='fixed_pnl', profit_target=5, stop_loss=5)
 
-        # 近 MA5 买入
-        for thr, lbl in [(5.0, '5%以内'), (2.0, '2%以内')]:
-            name = f'T+1~5_近MA5({lbl})_5%止盈5%止损'
+        # 近 MA5 买入（宽/紧两档），阈值集中由 NEAR_MA5_WIDE_PCT / NEAR_MA5_TIGHT_PCT 控制
+        near_ma5_configs = [
+            (NEAR_MA5_WIDE_PCT, f'{NEAR_MA5_WIDE_PCT:.0f}%以内'),
+            (NEAR_MA5_TIGHT_PCT, f'{NEAR_MA5_TIGHT_PCT:.0f}%以内'),
+        ]
+        for thr, lbl in near_ma5_configs:
+            name = f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({lbl})_5%止盈5%止损'
             results[name] = self.run_scenario(
                 signals, name, entry_delay=1,
                 exit_rule='fixed_pnl', profit_target=5, stop_loss=5,
-                near_ma5_pct=thr, near_ma5_max_wait=5)
+                near_ma5_pct=thr, near_ma5_max_wait=NEAR_MA5_WAIT_DAYS)
 
         # ── B. 止盈止损参数矩阵（T+1 买入）──────────────────
         print("[3/8] 止盈止损参数矩阵（T+1 买入）...")
-        PROFIT_TARGETS = [5, 10, 15]
-        STOP_LOSSES    = [5, 8]
         for pt in PROFIT_TARGETS:
             for sl in STOP_LOSSES:
                 name = f'T+1_止盈{pt}%_止损{sl}%'
@@ -538,13 +580,23 @@ class BreakoutABacktester:
                     signals, name, entry_delay=1,
                     exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl)
 
-        # ── C. 均线跟踪止损（T+1 买入，仅 MA5）─────────────
-        print("[4/8] 均线跟踪止损（仅MA5）...")
+        # ── C. 均线跟踪止损（T+1 买入，MA5/MA10/MA20）───────
+        print("[4/8] 均线跟踪止损对比（MA5/MA10/MA20）...")
+
+        # 纯均线跟踪：不叠加固定止盈止损
         name = 'T+1_MA5跟踪止损'
         results[name] = self.run_scenario(
             signals, name, entry_delay=1, exit_rule='ma5_trail')
 
-        # 均线跟踪 + 固定止损
+        name = 'T+1_MA10跟踪止损'
+        results[name] = self.run_scenario(
+            signals, name, entry_delay=1, exit_rule='ma10_trail')
+
+        name = 'T+1_MA20跟踪止损'
+        results[name] = self.run_scenario(
+            signals, name, entry_delay=1, exit_rule='ma20_trail')
+
+        # 均线跟踪 + 固定止损（目前仅对 MA5 提供组合）
         for sl in [5, 8]:
             name = f'T+1_MA5跟踪+止损{sl}%'
             results[name] = self.run_scenario(
@@ -569,20 +621,22 @@ class BreakoutABacktester:
         print("[5/8] 入场质量优化（MA5距离过滤）...")
 
         # D1. T+1 入场，限制买入时距MA5不超过5%
-        for pt, sl in [(5, 3), (8, 3), (8, 5), (10, 5)]:
-            name = f'T+1_MA5≤5%_止盈{pt}%止损{sl}%'
-            results[name] = self.run_scenario(
-                signals, name, entry_delay=1,
-                exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl,
-                max_ma5_pct=5.0)
+        for pt in PROFIT_TARGETS:
+            for sl in STOP_LOSSES:
+                name = f'T+1_MA5≤5%_止盈{pt}%止损{sl}%'
+                results[name] = self.run_scenario(
+                    signals, name, entry_delay=1,
+                    exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl,
+                    max_ma5_pct=5.0)
 
-        # D2. 近MA5(2%以内) 等待买入 + 不同止盈止损组合
-        for pt, sl in [(5, 3), (8, 3), (8, 5), (10, 5)]:
-            name = f'近MA5(2%)_止盈{pt}%止损{sl}%'
-            results[name] = self.run_scenario(
-                signals, name, entry_delay=1,
-                exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl,
-                near_ma5_pct=2.0, near_ma5_max_wait=5)
+        # D2. 近MA5(紧阈值) 等待买入 + 不同止盈止损组合
+        for pt in PROFIT_TARGETS:
+            for sl in STOP_LOSSES:
+                name = f'近MA5({NEAR_MA5_TIGHT_PCT:.0f}%)_止盈{pt}%止损{sl}%'
+                results[name] = self.run_scenario(
+                    signals, name, entry_delay=1,
+                    exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl,
+                    near_ma5_pct=NEAR_MA5_TIGHT_PCT, near_ma5_max_wait=NEAR_MA5_WAIT_DAYS)
 
         # ── E. 高周转专项对比（尽快出局，追求低持仓天数）──────
         print("[6/8] 高周转策略专项...")
@@ -599,12 +653,20 @@ class BreakoutABacktester:
             exit_rule='sell_at_open')
 
         # D2. 盘中价格触发止盈止损（最贴近实战挂委托单场景）
-        for pt, sl in [(3, 3), (5, 3), (8, 5)]:
+        # 同时回测对应的"收盘成交"模式，以便对比
+        for pt, sl in INTRADAY_EXIT_PAIRS:
+            # 盘中触发模式
             name = f'T+1买入_止盈{pt}%止损{sl}%(盘中触发)'
             results[name] = self.run_scenario(
                 signals, name, entry_delay=1,
                 exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl,
                 intraday_exit=True)
+            # 对应的收盘成交模式（如果尚未在参数矩阵中回测过）
+            close_name = f'T+1_止盈{pt}%_止损{sl}%'
+            if close_name not in results:
+                results[close_name] = self.run_scenario(
+                    signals, close_name, entry_delay=1,
+                    exit_rule='fixed_pnl', profit_target=pt, stop_loss=sl)
 
         # ── F. 入场位置分析（按相对MA5距离分桶）──────────────
         # 目的：量化"在MA5不同位置入场"的胜率/盈亏差异，回答"什么位置入场更优"
@@ -612,11 +674,11 @@ class BreakoutABacktester:
         print("[7/8] 入场位置分析（MA5距离分桶）...")
         # 5个分桶：≤0% / 0~3% / 3~8% / 8~15% / >15%
         ENTRY_BUCKETS = [
-            ('MA5以下',    None,  0.0),   # price ≤ MA5
-            ('MA5+0~3%',   0.0,   3.0),
-            ('MA5+3~8%',   3.0,   8.0),
-            ('MA5+8~15%',  8.0,  15.0),
-            ('MA5>15%',   15.0,  None),
+            ('MA5以下', None, 0.0),  # price ≤ MA5
+            ('MA5+0~3%', 0.0, 3.0),
+            ('MA5+3~8%', 3.0, 8.0),
+            ('MA5+8~15%', 8.0, 15.0),
+            ('MA5>15%', 15.0, None),
         ]
         for label, lo, hi in ENTRY_BUCKETS:
             name = f'T+1_入场{label}_止盈8%止损5%'
@@ -648,18 +710,18 @@ class BreakoutABacktester:
         if not trades:
             return {}
 
-        n      = len(trades)
-        wins   = [t for t in trades if t.is_win]
+        n = len(trades)
+        wins = [t for t in trades if t.is_win]
         losses = [t for t in trades if not t.is_win]
 
         # 每笔交易的日均收益率（%/天）
         daily_rets = [t.profit_pct / t.hold_days for t in trades if t.hold_days > 0]
         # 注意：mean(p_i/d_i) 会被"快速止盈"的交易拉高（如3天+10%=3.3%/天），
         # 改用 mean(p_i)/mean(d_i) 即"总收益/总持仓天数"，更保守也更准确。
-        mean_profit   = statistics.mean(t.profit_pct for t in trades)
-        mean_hold     = statistics.mean(t.hold_days  for t in trades if t.hold_days > 0)
-        mean_daily    = mean_profit / mean_hold if mean_hold > 0 else 0.0
-        std_daily     = statistics.stdev(daily_rets) if len(daily_rets) > 1 else 0.0
+        mean_profit = statistics.mean(t.profit_pct for t in trades)
+        mean_hold = statistics.mean(t.hold_days for t in trades if t.hold_days > 0)
+        mean_daily = mean_profit / mean_hold if mean_hold > 0 else 0.0
+        std_daily = statistics.stdev(daily_rets) if len(daily_rets) > 1 else 0.0
 
         annualized_return = mean_daily * 250
         # 夏普仍用 mean(p_i/d_i) 的标准差（反映单笔日收益的波动性）
@@ -667,14 +729,14 @@ class BreakoutABacktester:
         sharpe = (mean_daily * 250) / (std_daily * math.sqrt(250)) if std_daily > 0 else 0.0
 
         # 盈亏因子
-        total_gain = sum(t.profit_pct for t in wins)   if wins   else 0.0
+        total_gain = sum(t.profit_pct for t in wins) if wins else 0.0
         total_loss = abs(sum(t.profit_pct for t in losses)) if losses else 1e-9
         profit_factor = total_gain / total_loss
 
         # 顺序权益曲线 → 最大回撤（单仓假设）
         sorted_trades = sorted(trades, key=lambda t: t.buy_date or '')
         equity = 100.0
-        peak   = 100.0
+        peak = 100.0
         max_dd = 0.0
         for t in sorted_trades:
             equity *= (1 + t.profit_pct / 100)
@@ -694,18 +756,20 @@ class BreakoutABacktester:
         max_win_streak = max_loss_streak = cur_w = cur_l = 0
         for t in sorted_trades:
             if t.is_win:
-                cur_w += 1; cur_l = 0
+                cur_w += 1;
+                cur_l = 0
                 max_win_streak = max(max_win_streak, cur_w)
             else:
-                cur_l += 1; cur_w = 0
+                cur_l += 1;
+                cur_w = 0
                 max_loss_streak = max(max_loss_streak, cur_l)
 
         # 回测期间总自然日数
-        buy_dates  = [t.buy_date  for t in trades if t.buy_date]
+        buy_dates = [t.buy_date for t in trades if t.buy_date]
         sell_dates = [t.sell_date for t in trades if t.sell_date]
         period_days = 0
         if buy_dates and sell_dates:
-            d1 = datetime.strptime(min(buy_dates),  '%Y%m%d')
+            d1 = datetime.strptime(min(buy_dates), '%Y%m%d')
             d2 = datetime.strptime(max(sell_dates), '%Y%m%d')
             period_days = (d2 - d1).days
 
@@ -735,27 +799,27 @@ class BreakoutABacktester:
         # 入场方式
         if '近MA5' in name:
             m = re.search(r'近MA5\((\d+\.?\d*)%', name)
-            p['entry_type']    = 'near_ma5'
-            p['near_ma5_pct']  = float(m.group(1)) if m else 2.0
-            p['near_ma5_wait'] = 5
+            p['entry_type'] = 'near_ma5'
+            p['near_ma5_pct'] = float(m.group(1)) if m else NEAR_MA5_TIGHT_PCT
+            p['near_ma5_wait'] = NEAR_MA5_WAIT_DAYS
         elif name.startswith('T+2') or '_T+2_' in name:
-            p['entry_type']  = 'T+2'
+            p['entry_type'] = 'T+2'
             p['entry_delay'] = 2
         else:
-            p['entry_type']  = 'T+1'
+            p['entry_type'] = 'T+1'
             p['entry_delay'] = 1
 
         # MA5距离上限过滤
         m = re.search(r'MA5≤(\d+\.?\d*)%', name)
         p['max_ma5_pct'] = float(m.group(1)) if m else None
 
-        # 止盈
+        # 止盈（仅在名称中出现时才设置，否则保持为 None，方便区分“纯均线跟踪”策略）
         m = re.search(r'止盈(\d+)%', name)
-        p['profit_target'] = int(m.group(1)) if m else 5
+        p['profit_target'] = int(m.group(1)) if m else None
 
-        # 止损
+        # 止损（仅在名称中出现时才设置）
         m = re.search(r'止损(\d+)%', name)
-        p['stop_loss'] = int(m.group(1)) if m else 5
+        p['stop_loss'] = int(m.group(1)) if m else None
 
         # 盘中触发
         p['intraday'] = '盘中' in name
@@ -814,43 +878,47 @@ class BreakoutABacktester:
         # ── 各主要策略进阶指标对比 ────────────────────────
         key_names = [
             top_name,
-            'T+1~5_近MA5(2%以内)_5%止盈5%止损',
+            f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_TIGHT_PCT:.0f}%以内)_5%止盈5%止损',
             'T+1开盘_5%止盈5%止损',
             'T+1_止盈5%_止损5%',
             'T+1_止盈10%_止损5%',
         ]
         L += [
             '\n### 主要策略进阶指标对比\n',
-            '| 策略 | 年化收益 | 夏普 | 盈亏因子 | 最大回撤 | Calmar |',
-            '|------|----------|------|----------|----------|--------|',
+            '| 策略 | 年化收益 | 胜率 | 夏普 | 盈亏因子 | 最大回撤 | Calmar |',
+            '|------|----------|------|------|----------|----------|--------|',
         ]
         for kn in key_names:
             if kn in results and results[kn].valid_trades > 0:
-                s   = results[kn]
+                s = results[kn]
                 adv_k = self._calc_advanced_stats(s.trades)
                 mk = '🥇 ' if kn == top_name else ''
-                L.append(f'| {mk}{kn} | {adv_k["annualized_return"]:.1f}% | '
-                         f'{adv_k["sharpe"]:.2f} | {adv_k["profit_factor"]:.2f} | '
-                         f'{adv_k["max_drawdown"]:.1f}% | {adv_k["calmar"]:.2f} |')
+                L.append(
+                    f'| {mk}{kn} | {adv_k["annualized_return"]:.1f}% | '
+                    f'{adv_k["win_rate"]:.1f}% | '
+                    f'{adv_k["sharpe"]:.2f} | {adv_k["profit_factor"]:.2f} | '
+                    f'{adv_k["max_drawdown"]:.1f}% | {adv_k["calmar"]:.2f} |'
+                )
 
         # ── 完整交易方案 ──────────────────────────────────
         L += ['\n---\n', '### 📋 最优策略完整交易方案（可直接执行）\n']
 
         # 解析参数
-        entry_type   = p.get('entry_type', 'T+1')
-        max_ma5      = p.get('max_ma5_pct')
+        entry_type = p.get('entry_type', 'T+1')
+        max_ma5 = p.get('max_ma5_pct')
         near_ma5_pct = p.get('near_ma5_pct')
-        near_wait    = p.get('near_ma5_wait', 5)
-        pt           = p.get('profit_target') or 5
-        sl           = p.get('stop_loss') or 5
-        intraday     = p.get('intraday', False)
+        near_wait = p.get('near_ma5_wait', 5)
+        pt = p.get('profit_target') or 5
+        sl = p.get('stop_loss') or 5
+        intraday = p.get('intraday', False)
 
         # 开仓条件
         L.append('#### 🟢 开仓条件\n')
         L.append('1. **信号来源**：每个交易日收盘后，由爆量突破A策略筛选出候选股（信号日=T）。')
         if entry_type == 'near_ma5':
-            L.append(f'2. **入场时机**：T+1 开盘起，每日开盘时检查，等待开盘价回落到 MA5 **上方 {near_ma5_pct:.0f}% 以内**；'
-                     f'最多等待 {near_wait} 个交易日，超时则放弃该信号。')
+            L.append(
+                f'2. **入场时机**：T+1 开盘起，每日开盘时检查，等待开盘价回落到 MA5 **上方 {near_ma5_pct:.0f}% 以内**；'
+                f'最多等待 {near_wait} 个交易日，超时则放弃该信号。')
             L.append('3. **买入价**：满足条件当日的**开盘价**。')
         elif entry_type == 'T+2':
             L.append('2. **入场时机**：信号日后第 **2个交易日（T+2）** 开盘时买入。')
@@ -873,18 +941,45 @@ class BreakoutABacktester:
 
         # 清仓条件
         L.append('\n#### 🔴 清仓条件（买入次日收盘起触发）\n')
-        if intraday:
-            L.append(f'1. **止盈**：盘中最高价 ≥ 买入价 × {1 + pt/100:.2f}（即盈利 **{pt}%**）→ 以止盈价挂限价委托，当日成交。')
-            L.append(f'2. **止损**：盘中最低价 ≤ 买入价 × {1 - sl/100:.2f}（即亏损 **{sl}%**）→ 以止损价挂限价委托，当日成交。止损优先。')
+        # 特例：纯均线跟踪止损策略（如 "T+1_MA5跟踪止损" / "T+1_MA10跟踪止损"）
+        if p.get('profit_target') is None and p.get('stop_loss') is None and '跟踪止损' in top_name:
+            # 推断是哪条均线
+            if 'MA10' in top_name:
+                ma_label = 'MA10'
+            elif 'MA20' in top_name:
+                ma_label = 'MA20'
+            else:
+                ma_label = 'MA5'
+            L.append(f'1. **{ma_label} 跟踪止损**：当日**收盘价**跌破 {ma_label} 时，在收盘价卖出。')
+            L.append(
+                f'2. **超时清仓**：持满 {self.MAX_HOLD_DAYS} 个交易日仍未触发 {ma_label} 跌破信号时，'
+                f'在第 {self.MAX_HOLD_DAYS} 天的**收盘价**卖出。'
+            )
         else:
-            L.append(f'1. **止盈**：当日**收盘价** ≥ 买入价 × {1 + pt/100:.2f}（即收盘盈利 ≥ **{pt}%**）→ 以收盘价卖出。')
-            L.append(f'2. **止损**：当日**收盘价** ≤ 买入价 × {1 - sl/100:.2f}（即收盘亏损 ≥ **{sl}%**）→ 以收盘价卖出。')
-        L.append(f'3. **超时清仓**：持满 {self.MAX_HOLD_DAYS} 个交易日仍未触发，下一交易日开盘卖出。')
+            if intraday:
+                L.append(
+                    f'1. **止盈**：盘中最高价 ≥ 买入价 × {1 + pt / 100:.2f}（即盈利 **{pt}%**）→ 以止盈价挂限价委托，当日成交。'
+                )
+                L.append(
+                    f'2. **止损**：盘中最低价 ≤ 买入价 × {1 - sl / 100:.2f}（即亏损 **{sl}%**）→ 以止损价挂限价委托，当日成交。止损优先。'
+                )
+            else:
+                L.append(
+                    f'1. **止盈**：当日**收盘价** ≥ 买入价 × {1 + pt / 100:.2f}（即收盘盈利 ≥ **{pt}%**）→ 以收盘价卖出。'
+                )
+                L.append(
+                    f'2. **止损**：当日**收盘价** ≤ 买入价 × {1 - sl / 100:.2f}（即收盘亏损 ≥ **{sl}%**）→ 以收盘价卖出。'
+                )
+            L.append(
+                f'3. **超时清仓**：持满 {self.MAX_HOLD_DAYS} 个交易日仍未触发，'
+                f'在第 {self.MAX_HOLD_DAYS} 天的**收盘价**卖出。'
+            )
 
         # 风险提示
         L.append('\n#### ⚠️ 风险提示与注意事项\n')
         L.append(f'- **样本量**：当前回测仅 {adv.get("n", 0)} 笔，统计结论具有一定局限性，建议持续积累更多信号后复核参数。')
-        L.append(f'- **最大连亏**：历史最多 **{adv.get("max_loss_streak", 0)} 笔连续亏损**，需做好心态管理，不因连亏轻易放弃策略。')
+        L.append(
+            f'- **最大连亏**：历史最多 **{adv.get("max_loss_streak", 0)} 笔连续亏损**，需做好心态管理，不因连亏轻易放弃策略。')
         dd = adv.get("max_drawdown", 0)
         L.append(f'- **最大回撤**：单仓顺序执行的历史最大回撤约 **{dd:.1f}%**，实际多仓并发时回撤可能更小。')
         L.append(f'- **年化收益率 {adv.get("annualized_return", 0):.1f}%** 为理论估算'
@@ -898,15 +993,15 @@ class BreakoutABacktester:
     def _calc_group(self, group: List[Trade]) -> Dict:
         if not group:
             return {}
-        wins   = [t for t in group if t.is_win]
+        wins = [t for t in group if t.is_win]
         losses = [t for t in group if not t.is_win]
-        n      = len(group)
-        wr     = len(wins) / n * 100
-        aw     = sum(t.profit_pct for t in wins)   / len(wins)   if wins   else 0.0
-        al     = abs(sum(t.profit_pct for t in losses) / len(losses)) if losses else 0.0
-        plr    = aw / al if al > 0 else 0.0
-        ev     = (wr / 100) * aw - (1 - wr / 100) * al
-        avg_p  = sum(t.profit_pct for t in group) / n
+        n = len(group)
+        wr = len(wins) / n * 100
+        aw = sum(t.profit_pct for t in wins) / len(wins) if wins else 0.0
+        al = abs(sum(t.profit_pct for t in losses) / len(losses)) if losses else 0.0
+        plr = aw / al if al > 0 else 0.0
+        ev = (wr / 100) * aw - (1 - wr / 100) * al
+        avg_p = sum(t.profit_pct for t in group) / n
         return dict(n=n, wr=wr, aw=aw, al=al, plr=plr, ev=ev, avg_p=avg_p)
 
     def _stats_row(self, s: Stats) -> str:
@@ -957,7 +1052,7 @@ class BreakoutABacktester:
             '| **开盘卖出模式** | `sell_at_open`：满足T+1规则的第一日**开盘**即卖出 |',
             '| T+1 买入 | 次日**开盘价**买入（标准模式） |',
             '| T+2/T+3 | 延迟一/两日开盘买入 |',
-            '| 近MA5 买入 | T+1~T+5内，等开盘价在MA5上方X%以内时买入（等不到则跳过） |',
+            f'| 近MA5 买入 | T+1~T+{NEAR_MA5_WAIT_DAYS}内，等开盘价在MA5上方X%以内时买入（等不到则跳过） |',
             '| **T+1规则实现** | 买入日计为持仓第1天，`hold_days > 1` 才允许触发卖出，即最早在买入次日（T+2）卖出 ✅ |',
             '| 一字涨停 | 若买入日最高=最低，视为一字板，跳过不买 |',
             '| 去重 | 同一只股票在持仓期间若再次出现信号，跳过 |',
@@ -970,8 +1065,8 @@ class BreakoutABacktester:
             'T+1开盘_5%止盈5%止损',
             'T+2开盘_5%止盈5%止损',
             'T+3开盘_5%止盈5%止损',
-            'T+1~5_近MA5(5%以内)_5%止盈5%止损',
-            'T+1~5_近MA5(2%以内)_5%止盈5%止损',
+            f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_WIDE_PCT:.0f}%以内)_5%止盈5%止损',
+            f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_TIGHT_PCT:.0f}%以内)_5%止盈5%止损',
         ]
         L += [
             '| 策略 | 有效交易 | 跳过 | 胜率 | 均盈 | 均亏 | 盈亏比 | 期望值 | 均持天 |',
@@ -985,11 +1080,8 @@ class BreakoutABacktester:
         L += ['\n## 🎯 止盈止损参数矩阵（T+1 开盘买入）\n',
               '表中数值为 **期望值(%)** ，括号内为胜率。✅ 正期望 / ⚠️ 负期望。\n']
 
-        PROFIT_TARGETS = [5, 10, 15]
-        STOP_LOSSES    = [5, 8]
-
         header = '| 止盈↓ \\ 止损→ |' + ''.join(f' 止损{sl}% |' for sl in STOP_LOSSES)
-        sep    = '|----------------|' + ''.join('---------|' for _ in STOP_LOSSES)
+        sep = '|----------------|' + ''.join('---------|' for _ in STOP_LOSSES)
         L += [header, sep]
 
         best_ev, best_combo = -999.0, None
@@ -998,7 +1090,7 @@ class BreakoutABacktester:
             for sl in STOP_LOSSES:
                 name = f'T+1_止盈{pt}%_止损{sl}%'
                 if name in results and results[name].valid_trades > 0:
-                    s  = results[name]
+                    s = results[name]
                     mk = '✅' if s.expected_value > 0 else '⚠️'
                     row += f' {mk}{s.expected_value:+.2f}% ({s.win_rate:.0f}%) |'
                     if s.expected_value > best_ev:
@@ -1009,7 +1101,7 @@ class BreakoutABacktester:
 
         if best_combo:
             best_name = f'T+1_止盈{best_combo[0]}%_止损{best_combo[1]}%'
-            best_s    = results.get(best_name)
+            best_s = results.get(best_name)
             L.append(f'\n> **矩阵最优**: 止盈 **{best_combo[0]}%** + 止损 **{best_combo[1]}%**，'
                      f'期望值 **{best_ev:+.2f}%**，胜率 {best_s.win_rate:.1f}%，'
                      f'有效交易 {best_s.valid_trades} 笔\n')
@@ -1077,11 +1169,11 @@ class BreakoutABacktester:
             '|------|----------|------|------|------|------|--------|--------|--------|',
         ]
         near_ma5_names = [
-            'T+1~5_近MA5(2%以内)_5%止盈5%止损',   # 原基准
-            '近MA5(2%)_止盈5%止损3%',
-            '近MA5(2%)_止盈8%止损3%',
-            '近MA5(2%)_止盈8%止损5%',
-            '近MA5(2%)_止盈10%止损5%',
+            f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_TIGHT_PCT:.0f}%以内)_5%止盈5%止损',  # 原基准
+            f'近MA5({NEAR_MA5_TIGHT_PCT:.0f}%)_止盈5%止损3%',
+            f'近MA5({NEAR_MA5_TIGHT_PCT:.0f}%)_止盈8%止损3%',
+            f'近MA5({NEAR_MA5_TIGHT_PCT:.0f}%)_止盈8%止损5%',
+            f'近MA5({NEAR_MA5_TIGHT_PCT:.0f}%)_止盈10%止损5%',
         ]
         for n in near_ma5_names:
             if n in results:
@@ -1099,7 +1191,7 @@ class BreakoutABacktester:
         for base_name, filtered_name, label in compare_pairs:
             for name, cond_label in [(base_name, '无过滤'), (filtered_name, label.split('→')[1])]:
                 if name in results and results[name].valid_trades > 0:
-                    s    = results[name]
+                    s = results[name]
                     ev_m = '✅' if s.expected_value > 0 else '⚠️'
                     params = base_name.replace('T+1_', '')
                     L.append(f'| {params} | {cond_label} | {s.valid_trades} | '
@@ -1135,20 +1227,19 @@ class BreakoutABacktester:
             '| 策略 | 模式 | 有效交易 | 胜率 | 均盈 | 均亏 | 盈亏比 | 期望值 | 均持天 |',
             '|------|------|----------|------|------|------|--------|--------|--------|',
         ]
-        intraday_pairs = [(3, 3), (5, 3), (8, 5)]
-        for pt, sl in intraday_pairs:
+        for pt, sl in INTRADAY_EXIT_PAIRS:
             # 收盘模式
             close_name = f'T+1_止盈{pt}%_止损{sl}%'
             intra_name = f'T+1买入_止盈{pt}%止损{sl}%(盘中触发)'
             for name, mode_label in [(close_name, '收盘成交'), (intra_name, '盘中挂单')]:
                 if name in results and results[name].valid_trades > 0:
-                    s    = results[name]
+                    s = results[name]
                     ev_m = '✅' if s.expected_value > 0 else '⚠️'
                     L.append(f'| 止盈{pt}%/止损{sl}% | {mode_label} | {s.valid_trades} | '
                              f'{s.win_rate:.1f}% | +{s.avg_win:.2f}% | -{s.avg_loss:.2f}% | '
                              f'{s.profit_loss_ratio:.2f} | {ev_m}{s.expected_value:+.2f}% | '
                              f'{s.avg_hold_days:.1f}天 |')
-            L.append('| | | | | | | | | |')   # 分隔行
+            L.append('| | | | | | | | | |')  # 分隔行
 
         L += [
             '\n> **说明**：盘中触发模式的均持天数往往更短（止损/止盈在盘中更早触及），',
@@ -1162,11 +1253,11 @@ class BreakoutABacktester:
             '|------|--------|--------|-------------|------|',
         ]
         turnaround_names = open_sell_names + [
-            f'T+1买入_止盈{pt}%止损{sl}%(盘中触发)' for pt, sl in intraday_pairs
+            f'T+1买入_止盈{pt}%止损{sl}%(盘中触发)' for pt, sl in INTRADAY_EXIT_PAIRS
         ] + [
-            'T+1_止盈5%_止损5%',
-            'T+1_止盈5%_止损8%',
-        ]
+                               'T+1_止盈5%_止损5%',
+                               'T+1_止盈5%_止损8%',
+                           ]
         ta_rows = []
         for n in turnaround_names:
             if n in results and results[n].valid_trades > 0 and results[n].avg_hold_days > 0:
@@ -1184,11 +1275,11 @@ class BreakoutABacktester:
               '> 控制变量：T+1 开盘买入，固定止盈8% / 止损5%，比较"在MA5不同位置入场"的效果差异。\n']
 
         ENTRY_BUCKETS = [
-            ('MA5以下',   None,  0.0),
-            ('MA5+0~3%',  0.0,   3.0),
-            ('MA5+3~8%',  3.0,   8.0),
-            ('MA5+8~15%', 8.0,  15.0),
-            ('MA5>15%',  15.0,  None),
+            ('MA5以下', None, 0.0),
+            ('MA5+0~3%', 0.0, 3.0),
+            ('MA5+3~8%', 3.0, 8.0),
+            ('MA5+8~15%', 8.0, 15.0),
+            ('MA5>15%', 15.0, None),
         ]
         L += [
             '| 入场区间 | 有效交易 | 胜率 | 均盈 | 均亏 | 盈亏比 | 期望值 | 均持天 |',
@@ -1220,7 +1311,7 @@ class BreakoutABacktester:
                      f'{s.avg_hold_days:.1f}天 | {s.valid_trades} |')
 
         # ── E. 买入时MA5距离分析 ────────────────────────
-        ref_name   = 'T+1_止盈5%_止损5%' if 'T+1_止盈5%_止损5%' in results else (ranked[0][0] if ranked else None)
+        ref_name = 'T+1_止盈5%_止损5%' if 'T+1_止盈5%_止损5%' in results else (ranked[0][0] if ranked else None)
         ref_trades = results[ref_name].trades if ref_name and ref_name in results else []
 
         if ref_trades:
@@ -1228,13 +1319,13 @@ class BreakoutABacktester:
                   '分析买入当日开盘价相对 MA5 的距离与最终收益的关系：\n']
 
             ma5_ranges = [
-                (-float('inf'), -5,  '远低MA5 (<-5%)'),
-                (-5,            -2,  '低于MA5 (-5~-2%)'),
-                (-2,             0,  '略低MA5 (-2~0%)'),
-                ( 0,             3,  '略高MA5 (0~3%)'),
-                ( 3,             7,  '高于MA5 (3~7%)'),
-                ( 7,            12,  '明显偏高 (7~12%)'),
-                (12, float('inf'),   '远超MA5 (>12%)'),
+                (-float('inf'), -5, '远低MA5 (<-5%)'),
+                (-5, -2, '低于MA5 (-5~-2%)'),
+                (-2, 0, '略低MA5 (-2~0%)'),
+                (0, 3, '略高MA5 (0~3%)'),
+                (3, 7, '高于MA5 (3~7%)'),
+                (7, 12, '明显偏高 (7~12%)'),
+                (12, float('inf'), '远超MA5 (>12%)'),
             ]
             tw = [t for t in ref_trades if t.ma5_at_buy > 0]
             if tw:
@@ -1244,28 +1335,28 @@ class BreakoutABacktester:
                 ]
                 for lo, hi, label in ma5_ranges:
                     grp = [t for t in tw if lo <= t.price_vs_ma5_pct < hi]
-                    g   = self._calc_group(grp)
+                    g = self._calc_group(grp)
                     if g:
                         L.append(f'| {label} | {g["n"]} | {g["wr"]:.1f}% | '
                                  f'+{g["aw"]:.2f}% | -{g["al"]:.2f}% | '
                                  f'{g["ev"]:+.2f}% | '
-                                 f'{sum(t.hold_days for t in grp)/len(grp):.1f}天 |')
+                                 f'{sum(t.hold_days for t in grp) / len(grp):.1f}天 |')
 
             # 信号日距 MA5
             L += ['\n信号日收盘价相对 MA5 的距离：\n',
                   '| MA5距离(信号日) | 交易数 | 胜率 | 期望值 |',
                   '|----------------|--------|------|--------|']
             sig_ranges = [
-                (-float('inf'), 0,   '低于MA5'),
-                (0,             5,   '0~5%'),
-                (5,            10,   '5~10%'),
-                (10,           20,   '10~20%'),
-                (20, float('inf'),   '>20%'),
+                (-float('inf'), 0, '低于MA5'),
+                (0, 5, '0~5%'),
+                (5, 10, '5~10%'),
+                (10, 20, '10~20%'),
+                (20, float('inf'), '>20%'),
             ]
             ts = [t for t in ref_trades if t.ma5_at_buy > 0]
             for lo, hi, label in sig_ranges:
                 grp = [t for t in ts if lo <= t.signal_vs_ma5_pct < hi]
-                g   = self._calc_group(grp)
+                g = self._calc_group(grp)
                 if g:
                     L.append(f'| {label} | {g["n"]} | {g["wr"]:.1f}% | {g["ev"]:+.2f}% |')
 
@@ -1279,7 +1370,7 @@ class BreakoutABacktester:
                 by_days[t.hold_days].append(t)
             for d in sorted(by_days):
                 grp = by_days[d]
-                g   = self._calc_group(grp)
+                g = self._calc_group(grp)
                 L.append(f'| {d}天 | {g["n"]} | {g["wr"]:.1f}% | {g["avg_p"]:+.2f}% |')
 
         # ── G. 每日信号统计 ─────────────────────────────
@@ -1292,12 +1383,12 @@ class BreakoutABacktester:
                 by_date[t.signal_date].append(t)
             for dt in sorted(by_date):
                 grp = by_date[dt]
-                g   = self._calc_group(grp)
+                g = self._calc_group(grp)
                 fmt = f'{dt[:4]}-{dt[4:6]}-{dt[6:]}'
                 L.append(f'| {fmt} | {g["n"]} | {g["wr"]:.1f}% | {g["avg_p"]:+.2f}% |')
 
         # ── H. 最优策略交易明细 ─────────────────────────
-        top_name   = ranked[0][0] if ranked else None
+        top_name = ranked[0][0] if ranked else None
         top_trades = results[top_name].trades if top_name else []
 
         if top_trades:
@@ -1305,10 +1396,10 @@ class BreakoutABacktester:
                   '| 股票 | 信号日 | 买入日 | 卖出日 | 持有 | 买入价 | 卖出价 | 收益率 | 最大浮盈 | 最大浮亏 | 卖出原因 |',
                   '|------|--------|--------|--------|------|--------|--------|--------|----------|----------|----------|']
             for t in sorted(top_trades, key=lambda x: x.profit_pct, reverse=True):
-                sig_d  = f'{t.signal_date[4:6]}/{t.signal_date[6:]}'
-                buy_d  = f'{t.buy_date[4:6]}/{t.buy_date[6:]}'   if t.buy_date  else '-'
+                sig_d = f'{t.signal_date[4:6]}/{t.signal_date[6:]}'
+                buy_d = f'{t.buy_date[4:6]}/{t.buy_date[6:]}' if t.buy_date else '-'
                 sell_d = f'{t.sell_date[4:6]}/{t.sell_date[6:]}' if t.sell_date else '-'
-                pct    = f'+{t.profit_pct:.2f}%' if t.profit_pct >= 0 else f'{t.profit_pct:.2f}%'
+                pct = f'+{t.profit_pct:.2f}%' if t.profit_pct >= 0 else f'{t.profit_pct:.2f}%'
                 L.append(
                     f'| {t.name}({t.code}) | {sig_d} | {buy_d} | {sell_d} | '
                     f'{t.hold_days}天 | {t.buy_price:.2f} | {t.sell_price:.2f} | '
@@ -1338,7 +1429,8 @@ class BreakoutABacktester:
                 pts.append(f'1. **策略有效性** ✅: 最优参数下期望值 **{top_s.expected_value:+.2f}%** > 0，'
                            f'策略具有正期望，可以作为交易参考。')
             elif top_s.expected_value > 0:
-                pts.append(f'1. **策略有效性** ⚠️: 最优参数期望值仅 {top_s.expected_value:+.2f}%，正期望但优势不明显，需谨慎。')
+                pts.append(
+                    f'1. **策略有效性** ⚠️: 最优参数期望值仅 {top_s.expected_value:+.2f}%，正期望但优势不明显，需谨慎。')
             else:
                 pts.append(f'1. **策略有效性** ❌: 在当前样本下最优期望值 {top_s.expected_value:+.2f}% < 0，'
                            f'建议增加样本量后再做判断。')
@@ -1347,7 +1439,8 @@ class BreakoutABacktester:
         entry_names = ['T+1开盘_5%止盈5%止损',
                        'T+2开盘_5%止盈5%止损',
                        'T+3开盘_5%止盈5%止损']
-        entry_evs = [(n, results[n].expected_value) for n in entry_names if n in results and results[n].valid_trades > 0]
+        entry_evs = [(n, results[n].expected_value) for n in entry_names if
+                     n in results and results[n].valid_trades > 0]
         if entry_evs:
             best_entry = max(entry_evs, key=lambda x: x[1])
             worst_entry = min(entry_evs, key=lambda x: x[1])
@@ -1355,12 +1448,12 @@ class BreakoutABacktester:
                        f'`{worst_entry[0]}` 最低 ({worst_entry[1]:+.2f}%)。')
 
         # 3. MA5 等待买入
-        t1_name   = 'T+1开盘_5%止盈5%止损'
-        ma5_name  = 'T+1~5_近MA5(5%以内)_5%止盈5%止损'
-        ma5_name2 = 'T+1~5_近MA5(2%以内)_5%止盈5%止损'
+        t1_name = 'T+1开盘_5%止盈5%止损'
+        ma5_name = f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_WIDE_PCT:.0f}%以内)_5%止盈5%止损'
+        ma5_name2 = f'T+1~{NEAR_MA5_WAIT_DAYS}_近MA5({NEAR_MA5_TIGHT_PCT:.0f}%以内)_5%止盈5%止损'
         if t1_name in results and ma5_name in results and results[ma5_name].valid_trades > 0:
-            t1_ev  = results[t1_name].expected_value
-            ma_ev  = results[ma5_name].expected_value
+            t1_ev = results[t1_name].expected_value
+            ma_ev = results[ma5_name].expected_value
             ma_ev2 = results[ma5_name2].expected_value if ma5_name2 in results else None
             skipped_pct = results[ma5_name].skipped / len(signals) * 100
             if ma_ev > t1_ev:
@@ -1383,7 +1476,7 @@ class BreakoutABacktester:
         # 5. MA 跟踪 vs 固定
         ma_trail_name = 'T+1_MA5跟踪止损'
         if ma_trail_name in results and pnl_list:
-            ma_ev   = results[ma_trail_name].expected_value
+            ma_ev = results[ma_trail_name].expected_value
             best_ev = max(s.expected_value for _, s in pnl_list)
             if ma_ev > best_ev:
                 pts.append(f'5. **均线跟踪止损更优** ✅: MA5跟踪止损期望值 {ma_ev:+.2f}% > '
@@ -1445,10 +1538,9 @@ if __name__ == '__main__':
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
     _signal_file = 'bin/candidate_stocks_breakout_a/scan_simple_20251220-20260227.txt'
-    _output_dir  = 'bin/candidate_stocks_breakout_a/backtest'
+    _output_dir = 'bin/candidate_stocks_breakout_a/backtest'
 
     if os.path.exists(_signal_file):
         run_breakout_a_backtest(_signal_file, _output_dir, suffix='_20251220-20260227')
     else:
         print(f'信号文件不存在: {_signal_file}')
-
