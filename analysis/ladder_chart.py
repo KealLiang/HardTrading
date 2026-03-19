@@ -131,7 +131,7 @@ SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=
 LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
 
 # 【工作表管理】
-MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
+MAX_LEADER_SHEETS = 5  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
 
 # 关注度榜前N名股票缓存
 _top_attention_stocks_cache = None
@@ -2733,6 +2733,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                 ws_volume.row_dimensions[row_idx].hidden = True
             print(f"  已折叠【{volume_sheet_name}】的 {len(concept_grouped_rows_to_collapse)} 行（复用概念分组的折叠索引）")
 
+    # 统一重排sheet顺序（保存前最后一步）
+    reorder_workbook_sheets_by_groups(wb)
+
     # 保存Excel文件
     try:
         save_excel_file(wb, output_file)
@@ -3749,6 +3752,66 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
 
     # 如果未启用折叠，返回False
     return False
+
+
+def reorder_workbook_sheets_by_groups(wb):
+    """
+    按分组规则重排工作簿中sheet顺序（组内保持现有相对顺序）：
+    1) 涨停梯队xxx
+    2) 龙头xxx
+    3) 指数数据
+    4) 图例xxx（含“题材颜色图例”）
+    其余sheet按原顺序放到最后。
+    """
+    try:
+        sheets = list(getattr(wb, "worksheets", []))
+        if not sheets:
+            return
+
+        def _is_group1(name: str) -> bool:
+            return isinstance(name, str) and name.startswith("涨停梯队")
+
+        def _is_group2(name: str) -> bool:
+            return isinstance(name, str) and name.startswith("龙头")
+
+        def _is_group3(name: str) -> bool:
+            return name == "指数数据"
+
+        def _is_group4(name: str) -> bool:
+            return isinstance(name, str) and (name.startswith("图例") or name == "题材颜色图例")
+
+        group1, group2, group3, group4, rest = [], [], [], [], []
+        for ws in sheets:
+            title = getattr(ws, "title", "")
+            if _is_group1(title):
+                group1.append(ws)
+            elif _is_group2(title):
+                group2.append(ws)
+            elif _is_group3(title):
+                group3.append(ws)
+            elif _is_group4(title):
+                group4.append(ws)
+            else:
+                rest.append(ws)
+
+        desired = group1 + group2 + group3 + group4 + rest
+
+        # 优先使用内部列表一次性重排（稳定且高效）
+        if hasattr(wb, "_sheets"):
+            wb._sheets = desired
+            return
+
+        # 兜底：逐个移动到目标位置
+        for idx, ws in enumerate(desired):
+            try:
+                current_idx = wb.worksheets.index(ws)
+                offset = idx - current_idx
+                if offset != 0:
+                    wb.move_sheet(ws, offset)
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"重排工作表顺序时出错（已忽略，不影响保存）：{e}")
 
 
 def save_excel_file(wb, output_file):
