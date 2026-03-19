@@ -115,7 +115,7 @@ MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 90.0  # 非主板股最低长周期涨幅门槛（%）
 
-# 【名额分配规则】按板块活跃度排名动态分配龙头数量
+# 【名额分配规则】按板块活跃度（概念组的活跃股票数量）排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 5  # 最热板块（排名第1）
 LEADER_QUOTA_TOP2 = 4  # 次热板块（排名第2）
 LEADER_QUOTA_TOP3 = 4  # 第三热板块（排名第3）
