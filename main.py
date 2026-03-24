@@ -1124,7 +1124,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
-    start_date = '20251030'  # 调整为Excel中有数据的日期范围
+    start_date = '20251230'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
     min_board_level = 2
     non_main_board_level = 2
@@ -1648,15 +1648,15 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
 
     # === 复盘相关 ===
-    # get_stock_datas()
     # daily_routine()
+    # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "MiniLED", "AI智能体"]
-    # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "商业航天"]
+    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "存储芯片"]
+    # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "玉米", "商业航天", "无人驾驶", "免税店", "MiniLED"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
     # fetch_ths_fupan()
@@ -1668,9 +1668,9 @@ if __name__ == '__main__':
     # find_candidate_stocks_volume_surge()
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
-    # generate_strategy_scan_html_charts('a', recent_days=15, columns=2)
-    # breakout_strategy_backtest('scan_simple_20260101-20260310.txt')  # 爆量突破策略回测
-    vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
+    # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
+    # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
+    # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
