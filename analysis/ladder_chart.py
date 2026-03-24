@@ -3882,7 +3882,8 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         period_days_long: 长周期天数
         
     Returns:
-        tuple: (普通龙头股DataFrame, 大龙股DataFrame) 大龙股为长周期涨幅超过LEADER_EXTRA_LONG_PERIOD_THRESHOLD的股票，不占用名额
+        tuple: (普通龙头股DataFrame, 大龙股DataFrame, 名额汇总日志行列表)
+        大龙股为长周期涨幅超过LEADER_EXTRA_LONG_PERIOD_THRESHOLD的股票，不占用名额
     """
     print(f"开始从概念分组中筛选龙头股...")
 
@@ -4088,17 +4089,41 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     print(
         f"\n筛选完成: 处理了{total_concepts}个概念组，{qualified_concepts}个概念组有符合条件的股票")
 
+    def _leader_quota_log_names_from_df(df):
+        if df.empty or 'stock_name' not in df.columns:
+            return []
+        return [str(n) for n in df['stock_name'].tolist() if pd.notna(n) and str(n).strip()]
+
     # 第二步：按名额分配龙头股
     leader_stocks = []
+    selection_summary_lines = []  # 用于输出“各板块入选名 + 括号内因名额未入选”
     for concept_group, qualified_df in all_qualified_stocks.items():
         quota = concept_quota[concept_group]
         leaders = qualified_df.head(quota)
-        print(f"    从概念组 {concept_group} 按名额选出{len(leaders)}只龙头股")
+        dropped_by_quota_df = qualified_df.iloc[len(leaders):]  # 通过门槛但因名额限制未入选
+
+        # 仅打印有入选的概念组
+        if len(leaders) > 0:
+            selected_names = _leader_quota_log_names_from_df(leaders)
+            dropped_names = _leader_quota_log_names_from_df(dropped_by_quota_df)
+            selected_part = ', '.join(selected_names) if selected_names else ''
+            if dropped_names:
+                selection_summary_lines.append(
+                    f"{concept_group}: {len(leaders)}; {selected_part}, ({', '.join(dropped_names)})"
+                )
+            else:
+                selection_summary_lines.append(f"{concept_group}: {len(leaders)}; {selected_part}")
+
         for _, leader in leaders.iterrows():
             leader_stocks.append(leader.to_dict())
 
+    if selection_summary_lines:
+        print("\n各概念组名额结果（格式：概念组: 入选数; 入选股票, (因名额限制未入选)）")
+        for line in selection_summary_lines:
+            print(line)
+
     if not leader_stocks:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), selection_summary_lines
 
     # 转换为DataFrame
     leader_df = pd.DataFrame(leader_stocks)
@@ -4107,7 +4132,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     # 如果阈值为0，则关闭大龙股功能，直接返回所有龙头股
     if LEADER_EXTRA_LONG_PERIOD_THRESHOLD <= 0:
         print(f"\n大龙股功能已关闭（阈值={LEADER_EXTRA_LONG_PERIOD_THRESHOLD}），返回所有龙头股")
-        return sort_leader_stocks_for_output(leader_df), pd.DataFrame()
+        return sort_leader_stocks_for_output(leader_df), pd.DataFrame(), selection_summary_lines
 
     print(f"\n第五步：分离大龙股（长周期涨幅>={LEADER_EXTRA_LONG_PERIOD_THRESHOLD}%，不占用名额）...")
 
@@ -4200,7 +4225,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
     print(f"\n龙头股筛选完成: 普通龙头股{len(normal_leaders_df)}只，大龙股{len(extra_leaders_df)}只（不占用名额）")
 
-    return normal_leaders_df, extra_leaders_df
+    return normal_leaders_df, extra_leaders_df, selection_summary_lines
 
 
 def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock_data, stock_entry_count,
@@ -4218,7 +4243,7 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
     print(f"开始创建龙头股工作表内容")
 
     # 选出龙头股（返回普通龙头股和大龙股）
-    normal_leaders_df, extra_leaders_df = select_leader_stocks_from_concept_groups(
+    normal_leaders_df, extra_leaders_df, leader_quota_log_lines = select_leader_stocks_from_concept_groups(
         concept_grouped_df, date_mapping, formatted_trading_days, period_days, period_days_long
     )
 
@@ -4247,17 +4272,24 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
                        abnormal_detector=abnormal_detector)
         current_row += len(normal_leaders_df)
 
-    # 如果有大龙股，先空一行，再填充大龙股
-    if not extra_leaders_df.empty:
-        # 空一行（跳过当前行）
-        current_row += 1
+    # 名额汇总日志：放在龙头与大龙之间，B 列；紧接龙头末行后先空一行，再写日志，再空一行（共占用 3 行）
+    if leader_quota_log_lines:
+        summary_row = current_row + 1
+        log_cell = ws.cell(row=summary_row, column=2, value='\n'.join(leader_quota_log_lines))
+        log_cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+        current_row += 3
 
-        # 填充大龙股（从current_row开始）
+    # 如果有大龙股：无日志时龙头与大龙之间仍只空一行；有日志时 current_row 已指到大龙首行
+    if not extra_leaders_df.empty:
+        if not leader_quota_log_lines:
+            current_row += 1
+
         fill_data_rows(ws, extra_leaders_df, shouban_df, stock_data['stock_reason_group'], stock_data['reason_colors'],
                        stock_entry_count, formatted_trading_days, date_column_start, show_period_change,
                        period_column, period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
                        max_tracking_days_before, zaban_df, show_warning_column=True, start_row=current_row,
                        abnormal_detector=abnormal_detector)
+        current_row += len(extra_leaders_df)
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,
