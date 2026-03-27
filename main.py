@@ -1244,7 +1244,8 @@ def generate_strategy_scan_html_charts(candidate_model: str = 'a', recent_days: 
     )
 
 
-def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30):
+def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30,
+                                      virtual_bars=None):
     """
     生成复盘天梯Excel中全部【龙头xxxx】sheet对应股票的HTML交互式图表。
 
@@ -1252,6 +1253,7 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     - 读取全部龙头sheet（不是只读最新）
     - 自动去重（同股同日同事件只保留一次）
     - 标记入选日与移除日（支持同一股票多次进出）
+    - 可选叠加虚拟K线：virtual_bars=[(开盘涨跌幅%, 收盘涨跌幅%), ...]
     """
     from analysis.html_gen.leader_sheet_html_chart import generate_leader_sheet_html_charts as gen_html
     return gen_html(
@@ -1261,6 +1263,7 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
         after_days=after_days,
         output_dir='./excel/html_charts',
         data_dir='./data/astocks',
+        virtual_bars=virtual_bars,
     )
 
 
@@ -1716,7 +1719,7 @@ if __name__ == '__main__':
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
     # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
-    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)
+    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_virtual_kline_simulation_html()
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')

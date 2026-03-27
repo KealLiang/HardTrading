@@ -16,8 +16,9 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+import pandas as pd
 from openpyxl import load_workbook
 
 from analysis.html_gen.strategy_scan_html_chart import (
@@ -29,6 +30,73 @@ from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
+
+VirtualBarInput = Union[Dict[str, float], Tuple[float, float], List[float]]
+
+
+def _normalize_virtual_bars(virtual_bars: Optional[Sequence[VirtualBarInput]]) -> List[Dict[str, float]]:
+    """标准化虚拟K线参数。"""
+    if not virtual_bars:
+        return []
+    normalized: List[Dict[str, float]] = []
+    for idx, bar in enumerate(virtual_bars):
+        if isinstance(bar, dict):
+            if 'open_pct' not in bar or 'close_pct' not in bar:
+                raise ValueError(f"第{idx + 1}根虚拟K线缺少 open_pct/close_pct")
+            open_pct = float(bar['open_pct'])
+            close_pct = float(bar['close_pct'])
+        elif isinstance(bar, (tuple, list)) and len(bar) == 2:
+            open_pct = float(bar[0])
+            close_pct = float(bar[1])
+        else:
+            raise ValueError(f"第{idx + 1}根虚拟K线格式无效: {bar}")
+        normalized.append({'open_pct': open_pct, 'close_pct': close_pct})
+    return normalized
+
+
+def _append_virtual_bars_to_chart_df(chart_df: pd.DataFrame, virtual_bars: Sequence[Dict[str, float]]) -> pd.DataFrame:
+    """
+    对单只股票图表数据追加虚拟K线。
+
+    规则：
+    - 每根虚拟K线的开收盘相对前一日收盘价计算
+    - high/low 取 open/close 的 max/min
+    - 虚拟量柱固定为0
+    """
+    if chart_df.empty or not virtual_bars:
+        return chart_df
+
+    df = chart_df.copy()
+    last_close = float(df.iloc[-1]['Close'])
+    current_day = df.index.max().strftime('%Y%m%d')
+    virtual_rows = []
+
+    for i, bar in enumerate(virtual_bars):
+        next_day = get_next_trading_day(current_day)
+        if not next_day:
+            logging.warning(f"第{i + 1}根虚拟K线未找到下一个交易日，提前结束")
+            break
+
+        open_price = round(last_close * (1 + bar['open_pct'] / 100.0), 4)
+        close_price = round(last_close * (1 + bar['close_pct'] / 100.0), 4)
+        high_price = max(open_price, close_price)
+        low_price = min(open_price, close_price)
+
+        row_dt = datetime.strptime(next_day, '%Y%m%d')
+        virtual_rows.append((row_dt, open_price, high_price, low_price, close_price, 0.0))
+
+        last_close = close_price
+        current_day = next_day
+
+    if not virtual_rows:
+        return df
+
+    virtual_df = pd.DataFrame(
+        [(r[1], r[2], r[3], r[4], r[5]) for r in virtual_rows],
+        index=[r[0] for r in virtual_rows],
+        columns=['Open', 'High', 'Low', 'Close', 'Volume'],
+    )
+    return pd.concat([df, virtual_df], axis=0)
 
 
 def _extract_date_from_header(header_val: object) -> Optional[str]:
@@ -247,6 +315,7 @@ def generate_leader_sheet_html_charts(
         after_days: int = 30,
         output_dir: str = './excel/html_charts',
         data_dir: str = './data/astocks',
+        virtual_bars: Optional[Sequence[VirtualBarInput]] = None,
 ) -> Optional[str]:
     """
     从全部龙头sheet生成全量HTML图表（包含入选/移除标记）。
@@ -263,6 +332,8 @@ def generate_leader_sheet_html_charts(
     if not snapshots:
         logging.error("未找到可用的龙头sheet")
         return None
+
+    normalized_virtual_bars = _normalize_virtual_bars(virtual_bars)
 
     stock_signals_map = _build_stock_signals_from_snapshots(snapshots)
     if not stock_signals_map:
@@ -329,6 +400,14 @@ def generate_leader_sheet_html_charts(
             if chart_df.empty:
                 continue
 
+            overlay_segment_start = None
+            if normalized_virtual_bars:
+                real_len = len(chart_df)
+                chart_df = _append_virtual_bars_to_chart_df(chart_df, normalized_virtual_bars)
+                if len(chart_df) > real_len:
+                    # 叠加浅色起点 = 第一根成功追加的虚拟K线日期
+                    overlay_segment_start = chart_df.index[real_len].strftime('%Y-%m-%d')
+
             concepts = concept_lookup.get(stock_code) or []
             fig = _create_single_chart_figure(
                 stock_code=stock_code,
@@ -339,6 +418,9 @@ def generate_leader_sheet_html_charts(
                 after_days=after_days,
                 data_dir=data_dir,
                 concepts=concepts,
+                overlay_segment_start=overlay_segment_start,
+                overlay_up_color='#ff8a8a',
+                overlay_down_color='#66cc66',
             )
             if fig is None:
                 continue
