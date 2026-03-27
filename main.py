@@ -1244,6 +1244,26 @@ def generate_strategy_scan_html_charts(candidate_model: str = 'a', recent_days: 
     )
 
 
+def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30):
+    """
+    生成复盘天梯Excel中全部【龙头xxxx】sheet对应股票的HTML交互式图表。
+
+    特性：
+    - 读取全部龙头sheet（不是只读最新）
+    - 自动去重（同股同日同事件只保留一次）
+    - 标记入选日与移除日（支持同一股票多次进出）
+    """
+    from analysis.html_gen.leader_sheet_html_chart import generate_leader_sheet_html_charts as gen_html
+    return gen_html(
+        excel_path='./excel/ladder_analysis.xlsx',
+        columns=columns,
+        before_days=before_days,
+        after_days=after_days,
+        output_dir='./excel/html_charts',
+        data_dir='./data/astocks',
+    )
+
+
 def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
     """
     集合竞价封单数据复盘分析
@@ -1648,14 +1668,14 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
 
     # === 复盘相关 ===
     # daily_routine()
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "存储芯片"]
+    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力"]
     # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "玉米", "商业航天", "无人驾驶", "免税店", "MiniLED"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1669,6 +1689,7 @@ if __name__ == '__main__':
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
     # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
+    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_comparison_charts('a')

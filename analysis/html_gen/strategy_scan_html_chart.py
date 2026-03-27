@@ -47,6 +47,42 @@ ENTRY_RANGE_HIGH_PCT = 0.07
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
 
+# 龙头sheet信号：入选/移除统一使用上下三角，图例各只出现一次
+_LEADER_ENTRY_COLOR = '#1f77b4'
+_LEADER_REMOVAL_COLOR = '#9966FF'
+
+
+def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -> Dict:
+    """
+    龙头入选/龙头移除：固定蓝上三角 / 紫下三角；策略扫描等其他信号仍按序号轮换样式。
+    """
+    st = (signal_type or '').strip()
+    if st == '龙头移除':
+        return {
+            'color': _LEADER_REMOVAL_COLOR,
+            'symbol': 'triangle-down',
+            'name': '龙头移除',
+            'legendgroup': 'leader_removal',
+            'unified_legend': True,
+        }
+    if st == '龙头入选':
+        return {
+            'color': _LEADER_ENTRY_COLOR,
+            'symbol': 'triangle-up',
+            'name': '龙头入选',
+            'legendgroup': 'leader_entry',
+            'unified_legend': True,
+        }
+    signal_colors = ['blue', 'purple', 'orange', 'red', 'green', 'brown']
+    signal_symbols = ['triangle-up', 'triangle-down', 'diamond', 'square', 'star', 'circle']
+    return {
+        'color': signal_colors[idx % len(signal_colors)],
+        'symbol': signal_symbols[idx % len(signal_symbols)],
+        'name': f'{signal_date} ({st or "Signal"})',
+        'legendgroup': None,
+        'unified_legend': False,
+    }
+
 
 def _extract_signal_type(details: str) -> str:
     """
@@ -237,9 +273,11 @@ def _create_single_chart_figure(
             subplot_titles=('', '成交量')
         )
 
-        # 准备数据 - 使用连续索引避免x轴留空
+        # 准备数据：x 使用交易日日期（datetime），避免 unified 悬停标题显示成整数索引 0..N
         dates = chart_df.index
-        x_indices = list(range(len(chart_df)))
+        x_plot = pd.to_datetime(dates, errors='coerce')
+        if getattr(x_plot, 'tz', None) is not None:
+            x_plot = x_plot.tz_localize(None)
         date_labels = [d.strftime('%Y-%m-%d') for d in dates]
 
         # 转换为列表
@@ -253,9 +291,41 @@ def _create_single_chart_figure(
         if len(opens) == 0:
             return None
 
+        # 先解析信号：合并进当日 K 线 hover，避免 x unified 把单点 Scatter 误挂到相邻 K 线上
+        signals_by_idx = defaultdict(list)
+        for idx, sig_info in enumerate(signal_dates_info):
+            signal_date = sig_info['signal_date']
+            signal_type = sig_info.get('signal_type', 'Signal')
+            price = sig_info.get('price')
+            try:
+                signal_date_dt = datetime.strptime(signal_date, '%Y-%m-%d')
+                signal_idx = None
+                for i, date in enumerate(dates):
+                    if date.date() == signal_date_dt.date():
+                        signal_idx = i
+                        break
+                if signal_idx is None or not (0 <= signal_idx < len(chart_df)):
+                    continue
+                display_price = price if price is not None else chart_df.iloc[signal_idx]['Close']
+                signals_by_idx[signal_idx].append(
+                    f"信号日: {signal_date}<br>类型: {signal_type}<br>价格: {display_price:.2f}"
+                )
+            except Exception as e:
+                logging.debug(f"解析信号用于hover失败 {signal_date}: {e}")
+
+        kline_hover = []
+        for i in range(len(chart_df)):
+            base = (
+                f"{date_labels[i]}<br>open: {opens[i]}<br>high: {highs[i]}<br>"
+                f"low: {lows[i]}<br>close: {closes[i]}"
+            )
+            if i in signals_by_idx:
+                base += "<br>" + "<br>".join(signals_by_idx[i])
+            kline_hover.append(base)
+
         # 1. 绘制K线图
         candlestick = go.Candlestick(
-            x=x_indices,
+            x=x_plot,
             open=opens,
             high=highs,
             low=lows,
@@ -264,37 +334,41 @@ def _create_single_chart_figure(
             increasing_line_color='#ff4444',
             decreasing_line_color='#00aa00',
             increasing_fillcolor='#ff4444',
-            decreasing_fillcolor='#00aa00'
+            decreasing_fillcolor='#00aa00',
+            hovertext=kline_hover,
+            hoverinfo='text',
         )
         fig.add_trace(candlestick, row=1, col=1)
 
         # 1.1 计算并添加5日均线
         ma5 = pd.Series(closes).rolling(window=5, min_periods=1).mean()
         ma5_line = go.Scatter(
-            x=x_indices,
+            x=x_plot,
             y=ma5.tolist(),
             mode='lines',
             name='MA5',
             line=dict(color='#FFA500', width=1.5),
-            hovertemplate='MA5: %{y:.2f}<extra></extra>'
+            customdata=date_labels,
+            hovertemplate='%{customdata}<br>MA5: %{y:.2f}<extra></extra>',
         )
         fig.add_trace(ma5_line, row=1, col=1)
 
         # 1.2 计算并添加10日均线
         ma10 = pd.Series(closes).rolling(window=10, min_periods=1).mean()
         ma10_line = go.Scatter(
-            x=x_indices,
+            x=x_plot,
             y=ma10.tolist(),
             mode='lines',
             name='MA10',
             line=dict(color='#0000FF', width=1.5),
-            hovertemplate='MA10: %{y:.2f}<extra></extra>'
+            customdata=date_labels,
+            hovertemplate='%{customdata}<br>MA10: %{y:.2f}<extra></extra>',
         )
         fig.add_trace(ma10_line, row=1, col=1)
 
-        # 2. 添加所有信号日期标记（不同颜色区分）
-        signal_colors = ['blue', 'purple', 'orange', 'red', 'green', 'brown']
-        signal_symbols = ['triangle-up', 'triangle-down', 'diamond', 'square', 'star', 'circle']
+        # 2. 信号标记（仅图形；hover 已并入 K 线，此处关闭避免 unified 误匹配）
+        leader_entry_seen = False
+        leader_removal_seen = False
 
         for idx, sig_info in enumerate(signal_dates_info):
             signal_date = sig_info['signal_date']
@@ -303,7 +377,6 @@ def _create_single_chart_figure(
 
             try:
                 signal_date_dt = datetime.strptime(signal_date, '%Y-%m-%d')
-                # 查找信号日期在数据中的位置
                 signal_idx = None
                 for i, date in enumerate(dates):
                     if date.date() == signal_date_dt.date():
@@ -311,16 +384,29 @@ def _create_single_chart_figure(
                         break
 
                 if signal_idx is not None and 0 <= signal_idx < len(chart_df):
-                    # 信号标记放在K线下方，使用当日最低价的95%位置
                     signal_price = chart_df.iloc[signal_idx]['Low'] * 0.95
-                    # 如果价格信息存在，在悬停时显示
                     display_price = price if price is not None else chart_df.iloc[signal_idx]['Close']
 
-                    color = signal_colors[idx % len(signal_colors)]
-                    symbol = signal_symbols[idx % len(signal_symbols)]
+                    style = _resolve_signal_marker_style(signal_type, idx, signal_date)
+                    color = style['color']
+                    symbol = style['symbol']
+                    trace_name = style['name']
+                    if style.get('unified_legend'):
+                        if signal_type == '龙头入选':
+                            showlegend = not leader_entry_seen
+                            leader_entry_seen = True
+                        else:
+                            showlegend = not leader_removal_seen
+                            leader_removal_seen = True
+                        legendgroup = style.get('legendgroup')
+                    else:
+                        showlegend = True
+                        legendgroup = None
+
+                    x_at = x_plot[signal_idx]
 
                     signal_marker = go.Scatter(
-                        x=[signal_idx],
+                        x=[x_at],
                         y=[signal_price],
                         mode='markers',
                         marker=dict(
@@ -329,8 +415,10 @@ def _create_single_chart_figure(
                             color=color,
                             line=dict(width=1, color='darkblue')
                         ),
-                        name=f'{signal_date} ({signal_type})',
-                        hovertemplate=f'信号日: {signal_date}<br>类型: {signal_type}<br>价格: {display_price:.2f}<extra></extra>'
+                        name=trace_name,
+                        legendgroup=legendgroup,
+                        showlegend=showlegend,
+                        hoverinfo='skip',
                     )
                     fig.add_trace(signal_marker, row=1, col=1)
             except Exception as e:
@@ -393,11 +481,13 @@ def _create_single_chart_figure(
                   for i in range(len(chart_df))]
 
         volume_bar = go.Bar(
-            x=x_indices,
+            x=x_plot,
             y=volumes,
             name='成交量',
             marker_color=colors,
-            opacity=0.6
+            opacity=0.6,
+            hovertext=date_labels,
+            hovertemplate='%{hovertext}<br>成交量: %{y}<extra></extra>',
         )
         fig.add_trace(volume_bar, row=2, col=1)
 
@@ -433,29 +523,28 @@ def _create_single_chart_figure(
         fig.update_yaxes(title_text="价格", row=1, col=1, title_font=dict(size=10))
         fig.update_yaxes(title_text="成交量", row=2, col=1, title_font=dict(size=10))
 
-        # 7. 设置x轴刻度
+        # 7. x 轴为日期：unified 悬停标题显示日期；刻度约 10 个
         tick_step = max(1, len(chart_df) // 10)
         tick_indices = list(range(0, len(chart_df), tick_step))
         if len(chart_df) - 1 not in tick_indices:
             tick_indices.append(len(chart_df) - 1)
-
-        tick_texts = [date_labels[i] for i in tick_indices]
+        tick_vals = [x_plot[i] for i in tick_indices]
 
         fig.update_xaxes(
-            type='linear',
+            type='date',
             tickmode='array',
-            tickvals=tick_indices,
-            ticktext=tick_texts,
+            tickvals=tick_vals,
+            ticktext=[date_labels[i] for i in tick_indices],
             tickangle=-45,
-            row=2, col=1
+            row=2, col=1,
         )
         fig.update_xaxes(
-            type='linear',
+            type='date',
             tickmode='array',
-            tickvals=tick_indices,
-            ticktext=tick_texts,
+            tickvals=tick_vals,
+            ticktext=[date_labels[i] for i in tick_indices],
             tickangle=-45,
-            row=1, col=1
+            row=1, col=1,
         )
 
         return fig
