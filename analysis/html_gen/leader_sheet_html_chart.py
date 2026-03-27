@@ -421,6 +421,8 @@ def generate_leader_sheet_html_charts(
                 overlay_segment_start=overlay_segment_start,
                 overlay_up_color='#ff8a8a',
                 overlay_down_color='#66cc66',
+                # 龙头图：建仓区间只锚定最新“龙头入选”信号
+                entry_range_anchor_signal_types=['龙头入选'],
             )
             if fig is None:
                 continue
@@ -429,7 +431,7 @@ def generate_leader_sheet_html_charts(
             # 卡片标题：以最近一次龙头入选为基准的题材概念
             sheet_concept = _sheet_concept_for_latest_entry(dedup_signals)
             if sheet_concept:
-                title = f"{stock_code} {stock_name} | {sheet_concept}"
+                title = f"{stock_code} {stock_name} {sheet_concept}"
             else:
                 title = f"{stock_code} {stock_name}"
             chart_titles.append(title)

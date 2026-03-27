@@ -38,11 +38,11 @@ SIGNAL_TYPE_CONFIG = [
 DEFAULT_BEFORE_DAYS = 60  # 信号日前显示的交易日数
 DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 
-# 建仓价格区间（基于信号日MA5）的全局配置，单位为百分比
+# 建仓价格区间（基于最新信号日MA5，不区分信号类别）的全局配置，单位为百分比
 # 例如：-0.01 表示 -1%，0.03 表示 +3%
 ENTRY_RANGE_LOW_PCT = -0.01
-ENTRY_RANGE_MID_PCT = 0.03
-ENTRY_RANGE_HIGH_PCT = 0.07
+ENTRY_RANGE_MID_PCT = 0.05
+ENTRY_RANGE_HIGH_PCT = 0.11
 
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
@@ -252,6 +252,7 @@ def _create_single_chart_figure(
         overlay_segment_start: Optional[str] = None,
         overlay_up_color: str = '#ff8a8a',
         overlay_down_color: str = '#66cc66',
+        entry_range_anchor_signal_types: Optional[List[str]] = None,
 ) -> Optional[go.Figure]:
     """
     创建单个图表的Figure对象，支持多个信号日期标记
@@ -278,12 +279,10 @@ def _create_single_chart_figure(
             subplot_titles=('', '成交量')
         )
 
-        # 准备数据：x 使用交易日日期（datetime），避免 unified 悬停标题显示成整数索引 0..N
+        # 准备数据：x 使用交易日字符串分类轴（按已有交易日顺序），避免节假日空白
         dates = chart_df.index
-        x_plot = pd.to_datetime(dates, errors='coerce')
-        if getattr(x_plot, 'tz', None) is not None:
-            x_plot = x_plot.tz_localize(None)
         date_labels = [d.strftime('%Y-%m-%d') for d in dates]
+        x_plot = date_labels
 
         # 转换为列表
         opens = chart_df['Open'].values.tolist()
@@ -459,9 +458,16 @@ def _create_single_chart_figure(
             except Exception as e:
                 logging.debug(f"添加信号标记失败 {signal_date}: {e}")
 
-        # 2.5 计算并显示建仓价格区间（基于最新信号日的MA5，区间为全局参数 ENTRY_RANGE_LOW_PCT ~ ENTRY_RANGE_HIGH_PCT）
+        # 2.5 计算并显示建仓价格区间（默认基于最新信号日MA5；可按信号类型锚定）
         try:
-            latest_signal = max(signal_dates_info, key=lambda x: x['signal_date'])
+            anchor_signals = signal_dates_info
+            if entry_range_anchor_signal_types:
+                allowed = {s.strip() for s in entry_range_anchor_signal_types if s and str(s).strip()}
+                filtered = [s for s in signal_dates_info if str(s.get('signal_type', '')).strip() in allowed]
+                if filtered:
+                    anchor_signals = filtered
+
+            latest_signal = max(anchor_signals, key=lambda x: x['signal_date'])
             latest_signal_dt = datetime.strptime(latest_signal['signal_date'], '%Y-%m-%d')
             latest_signal_idx = None
             for i, date in enumerate(dates):
@@ -558,7 +564,7 @@ def _create_single_chart_figure(
         fig.update_yaxes(title_text="价格", row=1, col=1, title_font=dict(size=10))
         fig.update_yaxes(title_text="成交量", row=2, col=1, title_font=dict(size=10))
 
-        # 7. x 轴为日期：unified 悬停标题显示日期；刻度约 10 个
+        # 7. x 轴为分类轴：按交易日顺序显示，无节假日空白；刻度约 10 个
         tick_step = max(1, len(chart_df) // 10)
         tick_indices = list(range(0, len(chart_df), tick_step))
         if len(chart_df) - 1 not in tick_indices:
@@ -566,7 +572,7 @@ def _create_single_chart_figure(
         tick_vals = [x_plot[i] for i in tick_indices]
 
         fig.update_xaxes(
-            type='date',
+            type='category',
             tickmode='array',
             tickvals=tick_vals,
             ticktext=[date_labels[i] for i in tick_indices],
@@ -574,7 +580,7 @@ def _create_single_chart_figure(
             row=2, col=1,
         )
         fig.update_xaxes(
-            type='date',
+            type='category',
             tickmode='array',
             tickvals=tick_vals,
             ticktext=[date_labels[i] for i in tick_indices],
