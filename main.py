@@ -1720,9 +1720,9 @@ if __name__ == '__main__':
     # strategy_scan('a', enable_vcp_filter=True)
     # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
     generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
-    # generate_virtual_kline_simulation_html()
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
+    # generate_virtual_kline_simulation_html()
     # generate_comparison_charts('a')
     # batch_analyze_weekly_growth_win_rate()
     # pullback_rebound_scan('a')  # 止跌反弹策略扫描
