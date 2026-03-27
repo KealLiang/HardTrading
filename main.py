@@ -1280,7 +1280,6 @@ def generate_virtual_kline_simulation_html():
     return gen_html(
         stock_code='000533',
         stock_name='顺钠股份',
-        base_date='2026-03-26',
         # 每根: (开盘涨跌幅%, 收盘涨跌幅%)，可为负数
         virtual_bars=[
             (5.0, 10.0),
@@ -1705,7 +1704,7 @@ if __name__ == '__main__':
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力"]
+    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力", "商业航天", "%化工%"]
     # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "玉米", "商业航天", "无人驾驶", "免税店", "MiniLED"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
