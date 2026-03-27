@@ -1264,6 +1264,33 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     )
 
 
+def generate_virtual_kline_simulation_html():
+    """
+    虚拟K线仿真图（独立功能）：
+    - 按前一日收盘价为基准，定义次日开盘/收盘涨跌幅
+    - 支持多根虚拟K线
+    - 自动展示MA5/MA10变化
+    """
+    from analysis.html_gen.virtual_kline_simulator import generate_virtual_kline_simulation_html as gen_html
+
+    # 示例：按需要修改股票、基准日与虚拟K线参数
+    return gen_html(
+        stock_code='000533',
+        stock_name='顺钠股份',
+        base_date='2026-03-26',
+        # 每根: (开盘涨跌幅%, 收盘涨跌幅%)，可为负数
+        virtual_bars=[
+            (5.0, 10.0),
+            (-1.5, 1.0),
+            (0.5, -2.0),
+        ],
+        before_days=60,
+        columns=1,
+        data_dir='./data/astocks',
+        output_dir='./excel/html_charts',
+    )
+
+
 def auction_fengdan_analyze(date_str: str = None, show_plot: bool = False):
     """
     集合竞价封单数据复盘分析
@@ -1690,6 +1717,7 @@ if __name__ == '__main__':
     # strategy_scan('a', enable_vcp_filter=True)
     # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
     generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)
+    # generate_virtual_kline_simulation_html()
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_comparison_charts('a')

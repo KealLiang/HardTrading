@@ -247,6 +247,11 @@ def _create_single_chart_figure(
         after_days: int = DEFAULT_AFTER_DAYS,
         data_dir: str = './data/astocks',
         concepts: Optional[List[str]] = None,
+        kline_up_color: str = '#ff4444',
+        kline_down_color: str = '#00aa00',
+        overlay_segment_start: Optional[str] = None,
+        overlay_up_color: str = '#ff8a8a',
+        overlay_down_color: str = '#66cc66',
 ) -> Optional[go.Figure]:
     """
     创建单个图表的Figure对象，支持多个信号日期标记
@@ -331,14 +336,44 @@ def _create_single_chart_figure(
             low=lows,
             close=closes,
             name='K线',
-            increasing_line_color='#ff4444',
-            decreasing_line_color='#00aa00',
-            increasing_fillcolor='#ff4444',
-            decreasing_fillcolor='#00aa00',
+            increasing_line_color=kline_up_color,
+            decreasing_line_color=kline_down_color,
+            increasing_fillcolor=kline_up_color,
+            decreasing_fillcolor=kline_down_color,
             hovertext=kline_hover,
             hoverinfo='text',
         )
         fig.add_trace(candlestick, row=1, col=1)
+
+        # 可选：对某个日期起的区间叠加另一套K线配色（用于只淡化虚拟K线）
+        if overlay_segment_start:
+            try:
+                overlay_start_dt = datetime.strptime(overlay_segment_start, '%Y-%m-%d')
+                overlay_mask = [d.date() >= overlay_start_dt.date() for d in dates]
+                if any(overlay_mask):
+                    x_overlay = [x_plot[i] for i, m in enumerate(overlay_mask) if m]
+                    open_overlay = [opens[i] for i, m in enumerate(overlay_mask) if m]
+                    high_overlay = [highs[i] for i, m in enumerate(overlay_mask) if m]
+                    low_overlay = [lows[i] for i, m in enumerate(overlay_mask) if m]
+                    close_overlay = [closes[i] for i, m in enumerate(overlay_mask) if m]
+
+                    overlay_trace = go.Candlestick(
+                        x=x_overlay,
+                        open=open_overlay,
+                        high=high_overlay,
+                        low=low_overlay,
+                        close=close_overlay,
+                        name='K线',
+                        increasing_line_color=overlay_up_color,
+                        decreasing_line_color=overlay_down_color,
+                        increasing_fillcolor=overlay_up_color,
+                        decreasing_fillcolor=overlay_down_color,
+                        showlegend=False,
+                        hoverinfo='skip',
+                    )
+                    fig.add_trace(overlay_trace, row=1, col=1)
+            except Exception as e:
+                logging.debug(f"叠加区间配色失败: {e}")
 
         # 1.1 计算并添加5日均线
         ma5 = pd.Series(closes).rolling(window=5, min_periods=1).mean()
