@@ -119,11 +119,11 @@ MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 90.0  # 非主板股最低长周期
 # 【名额分配规则】按板块活跃度（概念组的活跃股票数量）排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 5  # 最热板块（排名第1）
 LEADER_QUOTA_TOP2 = 4  # 次热板块（排名第2）
-LEADER_QUOTA_TOP3 = 4  # 第三热板块（排名第3）
-LEADER_QUOTA_TOP4 = 3  # 第四热板块（排名第4）
+LEADER_QUOTA_TOP3 = 3  # 第三热板块（排名第3）
+LEADER_QUOTA_TOP4 = 2  # 第四热板块（排名第4）
 LEADER_QUOTA_DEFAULT = 2  # 默认板块（排名第5到默认阈值之间）
 LEADER_QUOTA_COLD = 1  # 非热门板块（排名在默认阈值之后）
-LEADER_QUOTA_DEFAULT_THRESHOLD = 0.1  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
+LEADER_QUOTA_DEFAULT_THRESHOLD = 0.35  # 默认/冷门分界线（例如0.5表示前50%为默认，后50%为冷门）
 # 【大龙股额外入选规则】
 LEADER_EXTRA_LONG_PERIOD_THRESHOLD = 120.0  # 大龙股长周期涨幅阈值（%），超过此阈值的股票作为额外入选，不占用名额（设为0表示不启用大龙筛选）
 
