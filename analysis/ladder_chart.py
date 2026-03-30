@@ -109,10 +109,10 @@ ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 25.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 85.0  # 主板股最低长周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 80.0  # 主板股最低长周期涨幅门槛（%）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
-MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 1  # 非主板股最低连板数门槛
+MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 90.0  # 非主板股最低长周期涨幅门槛（%）
 
