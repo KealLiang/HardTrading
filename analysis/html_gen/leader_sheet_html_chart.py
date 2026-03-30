@@ -3,6 +3,7 @@
 
 数据来源：
 - excel/ladder_analysis.xlsx 中所有“龙头xxxx”工作表
+- 可选：同目录下 ladder_analysis_龙头归档.xlsx（与主文件合并去重，主文件同名 sheet 优先）
 
 功能：
 - 读取全部龙头sheet，提取所有曾入选的股票
@@ -197,10 +198,16 @@ def _parse_leader_sheet_snapshot(sheet_name: str, ws) -> Tuple[Optional[str], Di
     return snapshot_date, stock_map
 
 
-def _load_all_leader_snapshots(excel_path: str) -> List[Dict]:
-    """加载全部龙头sheet快照并按日期排序。"""
-    wb = load_workbook(excel_path, data_only=True)
+def _leader_archive_path(excel_path: str) -> str:
+    """与 ladder_chart.archive_leader_sheets 一致：{主文件名}_龙头归档.xlsx，与主文件同目录。"""
+    p = os.path.abspath(excel_path)
+    d = os.path.dirname(p)
+    base = os.path.splitext(os.path.basename(p))[0]
+    return os.path.join(d, f"{base}_龙头归档.xlsx")
 
+
+def _leader_snapshots_from_workbook(wb) -> List[Dict]:
+    """从已打开的工作簿解析全部龙头 sheet 快照（未排序）。"""
     snapshots: List[Dict] = []
     for sheet_name in wb.sheetnames:
         if not str(sheet_name).startswith("龙头"):
@@ -217,9 +224,79 @@ def _load_all_leader_snapshots(excel_path: str) -> List[Dict]:
             'snapshot_date': snapshot_date,
             'stock_map': stock_map,
         })
-
-    snapshots.sort(key=lambda x: x['snapshot_date'])
     return snapshots
+
+
+def _load_leader_snapshots(excel_path: str, use_leader_archive: bool = True) -> List[Dict]:
+    """
+    加载全部龙头 sheet 快照并按日期排序。
+
+    use_leader_archive 为 True 时，若存在归档 xlsx 则全量读取并与主文件按 sheet 名合并（主文件覆盖同名）。
+    为 False 时行为与仅读主文件一致。
+    """
+    wb = load_workbook(excel_path, data_only=True)
+    main_snaps = _leader_snapshots_from_workbook(wb)
+
+    if not use_leader_archive:
+        main_snaps.sort(key=lambda x: x['snapshot_date'])
+        return main_snaps
+
+    archive_path = _leader_archive_path(excel_path)
+    if not os.path.exists(archive_path):
+        logging.info(f"龙头归档文件不存在，仅使用主文件: {archive_path}")
+        main_snaps.sort(key=lambda x: x['snapshot_date'])
+        return main_snaps
+
+    archive_wb = load_workbook(archive_path, data_only=True)
+    arch_snaps = _leader_snapshots_from_workbook(archive_wb)
+
+    by_name: Dict[str, Dict] = {s['sheet_name']: s for s in arch_snaps}
+    for s in main_snaps:
+        by_name[s['sheet_name']] = s
+
+    merged = list(by_name.values())
+    merged.sort(key=lambda x: x['snapshot_date'])
+    logging.info(
+        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {len(arch_snaps)} 张, 去重后 {len(merged)} 张"
+    )
+    return merged
+
+
+def _load_leader_snapshots_main_and_all(
+    excel_path: str,
+    use_leader_archive: bool = True,
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    返回 (main_snaps, all_snaps)：
+    - main_snaps：只解析主文件；用于决定“最终 HTML 渲染哪些股票”（保证数量不变）
+    - all_snaps：主文件 + 可选归档合并；用于计算更准确的入选/移除标记
+    """
+    wb = load_workbook(excel_path, data_only=True)
+    main_snaps = _leader_snapshots_from_workbook(wb)
+    main_snaps.sort(key=lambda x: x['snapshot_date'])
+
+    if not use_leader_archive:
+        return main_snaps, main_snaps
+
+    archive_path = _leader_archive_path(excel_path)
+    if not os.path.exists(archive_path):
+        logging.info(f"龙头归档文件不存在，仅使用主文件: {archive_path}")
+        return main_snaps, main_snaps
+
+    archive_wb = load_workbook(archive_path, data_only=True)
+    arch_snaps = _leader_snapshots_from_workbook(archive_wb)
+
+    # 主文件按 sheet_name 覆盖归档同名 sheet（与 archive_leader_sheets 行为保持一致）
+    by_name: Dict[str, Dict] = {s['sheet_name']: s for s in arch_snaps}
+    for s in main_snaps:
+        by_name[s['sheet_name']] = s
+
+    all_snaps = list(by_name.values())
+    all_snaps.sort(key=lambda x: x['snapshot_date'])
+    logging.info(
+        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {len(arch_snaps)} 张, 去重后 {len(all_snaps)} 张"
+    )
+    return main_snaps, all_snaps
 
 
 def _build_stock_signals_from_snapshots(snapshots: List[Dict]) -> Dict[str, List[Dict]]:
@@ -316,9 +393,12 @@ def generate_leader_sheet_html_charts(
         output_dir: str = './excel/html_charts',
         data_dir: str = './data/astocks',
         virtual_bars: Optional[Sequence[VirtualBarInput]] = None,
+        use_leader_archive: bool = True,
 ) -> Optional[str]:
     """
     从全部龙头sheet生成全量HTML图表（包含入选/移除标记）。
+
+    use_leader_archive: 是否合并同目录下「{主文件名}_龙头归档.xlsx」中的历史龙头 sheet（默认开启）。
     """
     if columns not in [1, 2, 3]:
         logging.warning(f"列数 {columns} 无效，使用默认值2")
@@ -328,17 +408,24 @@ def generate_leader_sheet_html_charts(
         logging.error(f"Excel文件不存在: {excel_path}")
         return None
 
-    snapshots = _load_all_leader_snapshots(excel_path)
-    if not snapshots:
+    main_snaps, all_snaps = _load_leader_snapshots_main_and_all(
+        excel_path,
+        use_leader_archive=use_leader_archive,
+    )
+    if not main_snaps:
         logging.error("未找到可用的龙头sheet")
         return None
 
     normalized_virtual_bars = _normalize_virtual_bars(virtual_bars)
 
-    stock_signals_map = _build_stock_signals_from_snapshots(snapshots)
-    if not stock_signals_map:
+    # stock_signals_map_main：决定最终渲染哪些股票（保证数量不变）
+    stock_signals_map_main = _build_stock_signals_from_snapshots(main_snaps)
+    if not stock_signals_map_main:
         logging.warning("未提取到有效的入选/移除信号")
         return None
+
+    # stock_signals_map_all：用于给上述股票计算更准确的入选/移除标记
+    stock_signals_map_all = _build_stock_signals_from_snapshots(all_snaps) if all_snaps else stock_signals_map_main
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -346,7 +433,8 @@ def generate_leader_sheet_html_charts(
     concept_lookup: Dict[str, List[str]] = {}
     try:
         if is_map_available():
-            concept_lookup = {code: get_stock_concepts(code) for code in stock_signals_map}
+            # 只为最终渲染范围取概念，避免归档新增股票把概念拉取放大
+            concept_lookup = {code: get_stock_concepts(code) for code in stock_signals_map_main}
     except Exception as e:
         logging.warning(f"加载概念映射失败，跳过标准概念标签: {e}")
 
@@ -355,13 +443,13 @@ def generate_leader_sheet_html_charts(
 
     # 排序：按最近一次「龙头入选」日期倒序；无入选则按最后一条信号日期
     sorted_codes = sorted(
-        stock_signals_map.keys(),
-        key=lambda c: _latest_leader_entry_date(stock_signals_map[c]),
+        list(stock_signals_map_main.keys()),
+        key=lambda c: _latest_leader_entry_date(stock_signals_map_all.get(c) or stock_signals_map_main[c]),
         reverse=True,
     )
 
     for stock_code in sorted_codes:
-        signals_info = stock_signals_map[stock_code]
+        signals_info = stock_signals_map_all.get(stock_code) or stock_signals_map_main[stock_code]
         try:
             stock_name = signals_info[0].get('name', '')
 

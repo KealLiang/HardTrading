@@ -1245,12 +1245,13 @@ def generate_strategy_scan_html_charts(candidate_model: str = 'a', recent_days: 
 
 
 def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30,
-                                      virtual_bars=None):
+                                      virtual_bars=None, use_leader_archive: bool = True):
     """
     生成复盘天梯Excel中全部【龙头xxxx】sheet对应股票的HTML交互式图表。
 
     特性：
     - 读取全部龙头sheet（不是只读最新）
+    - 默认合并同目录下 ladder_analysis_龙头归档.xlsx 中的历史龙头 sheet，以还原完整入选/移除序列
     - 自动去重（同股同日同事件只保留一次）
     - 标记入选日与移除日（支持同一股票多次进出）
     - 可选叠加虚拟K线：virtual_bars=[(开盘涨跌幅%, 收盘涨跌幅%), ...]
@@ -1264,6 +1265,7 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
         output_dir='./excel/html_charts',
         data_dir='./data/astocks',
         virtual_bars=virtual_bars,
+        use_leader_archive=use_leader_archive,
     )
 
 
@@ -1698,13 +1700,14 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
+    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
 
     # === 复盘相关 ===
     # daily_routine()
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
-    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力", "商业航天", "%化工%"]
+    hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力", "商业航天", "%化工%", "创新药"]
     # hot_concepts = ["共封装光学(CPO)", "智能电网", "%算力%", "AI%", "%化工%", "可燃冰", "页岩气", "玉米", "商业航天", "无人驾驶", "免税店", "MiniLED"]
     # fetch_stock_concept_map(hot_concepts)  # 概念板块映射表
     # review_history('2025-10-24', '2025-10-27')  # 可视化candidate_history
@@ -1718,7 +1721,6 @@ if __name__ == '__main__':
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
     # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
-    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_virtual_kline_simulation_html()
