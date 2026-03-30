@@ -270,6 +270,10 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
     # 获取每只股票的主要概念组
     stock_reason_group = get_stock_reason_group(all_stocks, top_reasons)
 
+    # 关键优化：原实现把 get_stock_reason_labels() 放在单元格循环里重复计算
+    # 这里移到循环外，仅计算一次，后续只做 labels[stock_key] 查找。
+    labels = get_stock_reason_labels(all_stocks, top_reasons, k=2)
+
     # 创建图例作为第一列
     ws.column_dimensions['A'].width = 15
     ws.cell(row=1, column=1, value="热门概念图例").font = Font(bold=True)
@@ -354,7 +358,6 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
 
     # 冻结首行和首列
     ws.freeze_panes = ws.cell(row=4, column=2)  # 冻结A1:A3和B1:X3
-
     # 对每日数据进行排序并写入工作表
     for date, col_idx in date_columns.items():
         if date in daily_stocks:
@@ -412,7 +415,6 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
 
                 # 追加主/次标签
                 try:
-                    labels = get_stock_reason_labels(all_stocks, top_reasons, k=2)
                     if stock_key in labels:
                         lab = labels[stock_key]
                         comment_text += f"主:{lab['primary']} 次:{'/'.join(lab['secondaries']) if lab['secondaries'] else '-'}\n"
