@@ -3,7 +3,7 @@
 
 数据来源：
 - excel/ladder_analysis.xlsx 中所有“龙头xxxx”工作表
-- 可选：同目录下 ladder_analysis_龙头归档.xlsx（与主文件合并去重，主文件同名 sheet 优先）
+ - 可选：同目录下 ladder_analysis_龙头归档.xlsx 及其拆分文件（如 ladder_analysis_龙头归档_part2.xlsx 等）（与主文件合并去重，主文件同名 sheet 优先）
 
 功能：
 - 读取全部龙头sheet，提取所有曾入选的股票
@@ -206,6 +206,16 @@ def _leader_archive_path(excel_path: str) -> str:
     return os.path.join(d, f"{base}_龙头归档.xlsx")
 
 
+def _leader_archive_paths(excel_path: str) -> List[str]:
+    """
+    仅返回主归档文件路径（不读取拆分 part）。
+
+    目的：控制 HTML 生成时需要读取的文件大小，保证稳定且便于维护。
+    """
+    main_path = _leader_archive_path(excel_path)
+    return [main_path] if os.path.exists(main_path) else []
+
+
 def _leader_snapshots_from_workbook(wb) -> List[Dict]:
     """从已打开的工作簿解析全部龙头 sheet 快照（未排序）。"""
     snapshots: List[Dict] = []
@@ -278,23 +288,28 @@ def _load_leader_snapshots_main_and_all(
     if not use_leader_archive:
         return main_snaps, main_snaps
 
-    archive_path = _leader_archive_path(excel_path)
-    if not os.path.exists(archive_path):
-        logging.info(f"龙头归档文件不存在，仅使用主文件: {archive_path}")
+    archive_paths = _leader_archive_paths(excel_path)
+    if not archive_paths:
+        logging.info(f"龙头归档文件不存在，仅使用主文件: {_leader_archive_path(excel_path)}")
         return main_snaps, main_snaps
 
-    archive_wb = load_workbook(archive_path, data_only=True)
-    arch_snaps = _leader_snapshots_from_workbook(archive_wb)
+    by_name: Dict[str, Dict] = {}
+    all_arch_count = 0
+    for archive_path in archive_paths:
+        archive_wb = load_workbook(archive_path, data_only=True)
+        arch_snaps = _leader_snapshots_from_workbook(archive_wb)
+        all_arch_count += len(arch_snaps)
+        for s in arch_snaps:
+            by_name[s['sheet_name']] = s
 
-    # 主文件按 sheet_name 覆盖归档同名 sheet（与 archive_leader_sheets 行为保持一致）
-    by_name: Dict[str, Dict] = {s['sheet_name']: s for s in arch_snaps}
+    # 主文件覆盖归档同名 sheet（与 archive_leader_sheets 行为保持一致）
     for s in main_snaps:
         by_name[s['sheet_name']] = s
 
     all_snaps = list(by_name.values())
     all_snaps.sort(key=lambda x: x['snapshot_date'])
     logging.info(
-        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {len(arch_snaps)} 张, 去重后 {len(all_snaps)} 张"
+        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {all_arch_count} 张, 去重后 {len(all_snaps)} 张（part: {len(archive_paths)} 个）"
     )
     return main_snaps, all_snaps
 
