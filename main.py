@@ -660,6 +660,7 @@ def daily_routine():
         (draw_ths_fupan, "绘制涨跌高度图"),
         (draw_ths_fupan_html, "生成涨跌高度html"),
         (lambda: generate_momo_html_charts(days=20, columns=2, after_days=20), "默默上涨生成html走势图"),
+        (lambda: generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30), "板块龙头生成html走势图"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
