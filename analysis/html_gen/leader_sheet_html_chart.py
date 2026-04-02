@@ -3,7 +3,7 @@
 
 数据来源：
 - excel/ladder_analysis.xlsx 中所有“龙头xxxx”工作表
- - 可选：同目录下 ladder_analysis_龙头归档.xlsx 及其拆分文件（如 ladder_analysis_龙头归档_part2.xlsx 等）（与主文件合并去重，主文件同名 sheet 优先）
+ - 可选：默认仅合并同目录 ladder_analysis_龙头归档.xlsx；若开启 merge_leader_archive_splits，再合并 excel/leader_archives 下拆分归档（与主天梯合并去重，主天梯同名 sheet 优先）
 
 功能：
 - 读取全部龙头sheet，提取所有曾入选的股票
@@ -206,14 +206,47 @@ def _leader_archive_path(excel_path: str) -> str:
     return os.path.join(d, f"{base}_龙头归档.xlsx")
 
 
-def _leader_archive_paths(excel_path: str) -> List[str]:
+def _leader_archive_paths(excel_path: str, merge_splits: bool = False) -> List[str]:
     """
-    仅返回主归档文件路径（不读取拆分 part）。
+    返回需要合并读取的归档路径列表（只读）。
 
-    目的：控制 HTML 生成时需要读取的文件大小，保证稳定且便于维护。
+    merge_splits=False（默认）：仅 {base}_龙头归档.xlsx（控制读取量，适合 HTML 场景）。
+    merge_splits=True：再包含 leader_archives 下拆分文件（按拆分日期升序），最后追加主归档
+    （与拆分中同名 sheet 冲突时以主归档为准）。
     """
-    main_path = _leader_archive_path(excel_path)
-    return [main_path] if os.path.exists(main_path) else []
+    p = os.path.abspath(excel_path)
+    d = os.path.dirname(p)
+    base = os.path.splitext(os.path.basename(p))[0]
+    archive_prefix = f"{base}_龙头归档"
+    main_path = os.path.join(d, f"{archive_prefix}.xlsx")
+
+    if not merge_splits:
+        return [main_path] if os.path.exists(main_path) else []
+
+    split_dir = os.path.join(d, "leader_archives")
+
+    pattern = re.compile(rf"^{re.escape(archive_prefix)}_(\d{{8}})(?:_dup\d+)?\.xlsx$")
+    items: List[Tuple[str, float, str]] = []
+    if os.path.exists(split_dir):
+        for fn in os.listdir(split_dir):
+            if not fn.endswith(".xlsx"):
+                continue
+            m = pattern.match(fn)
+            if not m:
+                continue
+            date_str = m.group(1)
+            path = os.path.join(split_dir, fn)
+            try:
+                mtime = os.path.getmtime(path)
+            except Exception:
+                mtime = 0.0
+            items.append((date_str, mtime, path))
+    items.sort(key=lambda x: (x[0], x[1]))
+
+    paths = [t[2] for t in items]
+    if os.path.exists(main_path):
+        paths.append(main_path)
+    return paths
 
 
 def _leader_snapshots_from_workbook(wb) -> List[Dict]:
@@ -275,11 +308,14 @@ def _load_leader_snapshots(excel_path: str, use_leader_archive: bool = True) -> 
 def _load_leader_snapshots_main_and_all(
     excel_path: str,
     use_leader_archive: bool = True,
+    merge_leader_archive_splits: bool = False,
 ) -> Tuple[List[Dict], List[Dict]]:
     """
     返回 (main_snaps, all_snaps)：
     - main_snaps：只解析主文件；用于决定“最终 HTML 渲染哪些股票”（保证数量不变）
     - all_snaps：主文件 + 可选归档合并；用于计算更准确的入选/移除标记
+
+    merge_leader_archive_splits：是否在合并归档时包含 leader_archives 下拆分文件（默认否，仅主归档）。
     """
     wb = load_workbook(excel_path, data_only=True)
     main_snaps = _leader_snapshots_from_workbook(wb)
@@ -288,7 +324,7 @@ def _load_leader_snapshots_main_and_all(
     if not use_leader_archive:
         return main_snaps, main_snaps
 
-    archive_paths = _leader_archive_paths(excel_path)
+    archive_paths = _leader_archive_paths(excel_path, merge_splits=merge_leader_archive_splits)
     if not archive_paths:
         logging.info(f"龙头归档文件不存在，仅使用主文件: {_leader_archive_path(excel_path)}")
         return main_snaps, main_snaps
@@ -308,8 +344,9 @@ def _load_leader_snapshots_main_and_all(
 
     all_snaps = list(by_name.values())
     all_snaps.sort(key=lambda x: x['snapshot_date'])
+    split_note = "含拆分" if merge_leader_archive_splits else "仅主归档"
     logging.info(
-        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {all_arch_count} 张, 去重后 {len(all_snaps)} 张（part: {len(archive_paths)} 个）"
+        f"龙头快照已合并归档（{split_note}）: 主 {len(main_snaps)} 张, 归档读入 {all_arch_count} 张, 去重后 {len(all_snaps)} 张（归档文件 {len(archive_paths)} 个）"
     )
     return main_snaps, all_snaps
 
@@ -409,11 +446,13 @@ def generate_leader_sheet_html_charts(
         data_dir: str = './data/astocks',
         virtual_bars: Optional[Sequence[VirtualBarInput]] = None,
         use_leader_archive: bool = True,
+        merge_leader_archive_splits: bool = False,
 ) -> Optional[str]:
     """
     从全部龙头sheet生成全量HTML图表（包含入选/移除标记）。
 
-    use_leader_archive: 是否合并同目录下「{主文件名}_龙头归档.xlsx」中的历史龙头 sheet（默认开启）。
+    use_leader_archive: 是否合并「{主文件名}_龙头归档.xlsx」中的历史龙头 sheet（默认开启）。
+    merge_leader_archive_splits: 是否在上述基础上再合并 leader_archives 下拆分归档（默认关闭，避免读入过久远/过大）。
     """
     if columns not in [1, 2, 3]:
         logging.warning(f"列数 {columns} 无效，使用默认值2")
@@ -426,6 +465,7 @@ def generate_leader_sheet_html_charts(
     main_snaps, all_snaps = _load_leader_snapshots_main_and_all(
         excel_path,
         use_leader_archive=use_leader_archive,
+        merge_leader_archive_splits=merge_leader_archive_splits,
     )
     if not main_snaps:
         logging.error("未找到可用的龙头sheet")

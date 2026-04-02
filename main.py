@@ -1246,13 +1246,14 @@ def generate_strategy_scan_html_charts(candidate_model: str = 'a', recent_days: 
 
 
 def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30,
-                                      virtual_bars=None, use_leader_archive: bool = True):
+                                      virtual_bars=None, use_leader_archive: bool = True,
+                                      merge_leader_archive_splits: bool = False):
     """
     生成复盘天梯Excel中全部【龙头xxxx】sheet对应股票的HTML交互式图表。
 
     特性：
     - 读取全部龙头sheet（不是只读最新）
-    - 默认合并同目录下 ladder_analysis_龙头归档.xlsx 中的历史龙头 sheet，以还原完整入选/移除序列
+    - 默认仅合并 ladder_analysis_龙头归档.xlsx 中的历史龙头 sheet；merge_leader_archive_splits=True 时再合并 leader_archives 下拆分文件
     - 自动去重（同股同日同事件只保留一次）
     - 标记入选日与移除日（支持同一股票多次进出）
     - 可选叠加虚拟K线：virtual_bars=[(开盘涨跌幅%, 收盘涨跌幅%), ...]
@@ -1267,6 +1268,7 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
         data_dir='./data/astocks',
         virtual_bars=virtual_bars,
         use_leader_archive=use_leader_archive,
+        merge_leader_archive_splits=merge_leader_archive_splits,
     )
 
 
@@ -1700,8 +1702,8 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
-    # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    # generate_ladder_chart()
+    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
 
     # === 复盘相关 ===
     # daily_routine()
