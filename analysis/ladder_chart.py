@@ -2244,25 +2244,11 @@ def archive_leader_sheets(wb, sheets_to_archive, output_file):
         """
         选择当前“写入目标”。
 
-        规则：
-        - 优先考虑新拆分文件（leader_archives）
-        - 以文件修改时间最新的为准，保证 active 一般是上次程序写入的目标
-        - 都不存在则落到 main_archive_file
+        规则（修复后）：
+        - 仅主归档文件可写：{base}_龙头归档.xlsx
+        - leader_archives 下的拆分文件仅作历史冻结归档，不参与后续写入
         """
-        candidates: List[Tuple[float, str]] = []
-        if os.path.exists(main_archive_file):
-            try:
-                candidates.append((os.path.getmtime(main_archive_file), main_archive_file))
-            except Exception:
-                candidates.append((0.0, main_archive_file))
-
-        for path, _, mtime in _list_split_files():
-            candidates.append((mtime, path))
-
-        if not candidates:
-            return main_archive_file
-        candidates.sort(key=lambda x: x[0])
-        return candidates[-1][1]
+        return main_archive_file
 
     def _leader_sheet_names_in_wb(wb_obj) -> List[str]:
         return [s for s in wb_obj.sheetnames if str(s).startswith("龙头")]
@@ -2286,7 +2272,10 @@ def archive_leader_sheets(wb, sheets_to_archive, output_file):
         - 左半：覆盖到 active_path_obj
         - 右半：保存到新拆分文件（放入 excel/leader_archives/）
         """
-        leader_names = sorted(_leader_sheet_names_in_wb(active_wb_obj))
+        # 关键：必须保留工作簿当前顺序，不可按名称排序。
+        # sheet 名仅有 MMDD（如 龙头0324），字符串排序会在跨年场景下把 03xx 排到 10xx/12xx 前，
+        # 导致拆分后顺序错乱（例如 0324 出现在 1017 前）。
+        leader_names = _leader_sheet_names_in_wb(active_wb_obj)
         if len(leader_names) < 2:
             return active_wb_obj, active_path_obj
 
