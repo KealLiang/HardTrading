@@ -3251,7 +3251,8 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
                                    latest_entry_dates)
 
 
-def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change, show_warning_column=True):
+def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,
+                         show_warning_column=True, concept_col_width=24):
     """
     调整列宽
 
@@ -3264,7 +3265,7 @@ def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_per
     """
     # 调整列宽
     ws.column_dimensions['A'].width = 8  # 股票代码列宽度设置窄一些
-    ws.column_dimensions['B'].width = 24
+    ws.column_dimensions['B'].width = concept_col_width
     ws.column_dimensions['C'].width = 15
 
     if show_period_change:
@@ -4401,7 +4402,7 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
 
     # 调整列宽
     adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,
-                         show_warning_column=True)  # 龙头股工作表显示预警列
+                         show_warning_column=True, concept_col_width=55)  # 龙头股工作表题材概念列加宽
 
     # 冻结前三列和前三行
     ws.freeze_panes = ws.cell(row=4, column=date_column_start)
