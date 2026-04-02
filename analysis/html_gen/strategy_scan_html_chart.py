@@ -47,6 +47,11 @@ ENTRY_RANGE_HIGH_PCT = 0.11
 # 涨跌幅计算周期（交易日）
 PERIOD_DAYS = [30, 60, 120]  # 计算30日、60日、120日涨跌幅
 
+# 右侧百分比轴配置（基于“最早一次信号日”的开盘价）
+PCT_AXIS_TICK_COUNT = 6  # 右轴刻度数
+PCT_AXIS_DECIMALS = 1  # 百分比小数位
+PCT_AXIS_TICK_FONT_SIZE = 8  # 仅右侧涨跌幅数字字号
+
 # 龙头sheet信号：入选/移除统一使用上下三角，图例各只出现一次
 _LEADER_ENTRY_COLOR = '#1f77b4'
 _LEADER_REMOVAL_COLOR = '#9966FF'
@@ -276,6 +281,7 @@ def _create_single_chart_figure(
             shared_xaxes=True,
             vertical_spacing=0.03,
             row_heights=[0.7, 0.3],
+            specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
             subplot_titles=('', '成交量')
         )
 
@@ -290,6 +296,30 @@ def _create_single_chart_figure(
         lows = chart_df['Low'].values.tolist()
         closes = chart_df['Close'].values.tolist()
         volumes = chart_df['Volume'].values.tolist()
+
+        def _resolve_pct_axis_base_price() -> float:
+            """右侧百分比轴基准价：最早信号日开盘价。"""
+            if not opens:
+                return 1.0
+
+            earliest_signal_dt = None
+            for sig in signal_dates_info:
+                try:
+                    dt = datetime.strptime(sig['signal_date'], '%Y-%m-%d')
+                    if earliest_signal_dt is None or dt < earliest_signal_dt:
+                        earliest_signal_dt = dt
+                except Exception:
+                    continue
+
+            if earliest_signal_dt is not None:
+                for i, dt in enumerate(dates):
+                    if dt.date() == earliest_signal_dt.date():
+                        base_open = opens[i]
+                        if base_open is not None and base_open > 0:
+                            return float(base_open)
+
+            first_open = opens[0]
+            return float(first_open) if first_open and first_open > 0 else 1.0
 
         # 验证数据有效性
         if len(opens) == 0:
@@ -556,13 +586,77 @@ def _create_single_chart_figure(
             hovermode='x unified',
             template='plotly_white',
             xaxis_rangeslider_visible=False,
-            margin=dict(l=50, r=50, t=120, b=50)
+            margin=dict(l=50, r=30, t=120, b=50)
         )
 
         # 6. 更新坐标轴
         fig.update_xaxes(title_text="", row=2, col=1)
-        fig.update_yaxes(title_text="价格", row=1, col=1, title_font=dict(size=10))
+        fig.update_yaxes(title_text="价格", row=1, col=1, secondary_y=False, title_font=dict(size=10))
         fig.update_yaxes(title_text="成交量", row=2, col=1, title_font=dict(size=10))
+
+        # 6.1 主图右侧增加百分比轴（与左侧价格轴同刻度位置）
+        try:
+            base_price = _resolve_pct_axis_base_price()
+            # 主图里信号标记会画在 low*0.95 位置，为避免左/右轴映射不一致，
+            # 这里统一按同一价格范围设置左右轴。
+            y_min = float(min(lows)) * 0.95
+            y_max = float(max(highs))
+            tick_count = max(2, int(PCT_AXIS_TICK_COUNT))
+
+            if y_max <= y_min:
+                span = max(1e-6, abs(y_min) * 0.001)
+                y_min -= span
+                y_max += span
+
+            step = (y_max - y_min) / (tick_count - 1)
+            tick_vals = [y_min + i * step for i in range(tick_count)]
+            tick_text = [f"{(v / base_price - 1.0) * 100.0:+.{PCT_AXIS_DECIMALS}f}%" for v in tick_vals]
+
+            # 先固定左轴范围，确保与右侧百分比轴一一对应
+            fig.update_yaxes(
+                row=1,
+                col=1,
+                secondary_y=False,
+                range=[y_min, y_max],
+                autorange=False,
+            )
+
+            # 使用 secondary_y 官方机制：右侧百分比轴（与左轴价格同刻度位置）
+            fig.update_yaxes(
+                row=1,
+                col=1,
+                secondary_y=True,
+                title_text='涨跌幅(%)',
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=tick_text,
+                range=[y_min, y_max],
+                showticklabels=True,
+                showline=True,
+                ticks='',
+                tickfont=dict(size=PCT_AXIS_TICK_FONT_SIZE),
+                showgrid=False,
+                zeroline=False,
+                title_font=dict(size=10),
+            )
+
+            # 绑定一个不可见trace到 secondary_y，确保右轴始终被Plotly渲染
+            fig.add_trace(
+                go.Scatter(
+                    x=[x_plot[0], x_plot[-1]],
+                    y=[tick_vals[0], tick_vals[-1]],
+                    mode='lines',
+                    line=dict(width=0),
+                    opacity=0,
+                    showlegend=False,
+                    hoverinfo='skip',
+                ),
+                row=1,
+                col=1,
+                secondary_y=True,
+            )
+        except Exception as e:
+            logging.debug(f"右侧百分比轴绘制失败: {e}")
 
         # 7. x 轴为分类轴：按交易日顺序显示，无节假日空白；刻度约 10 个
         tick_step = max(1, len(chart_df) // 10)
@@ -577,6 +671,12 @@ def _create_single_chart_figure(
             tickvals=tick_vals,
             ticktext=[date_labels[i] for i in tick_indices],
             tickangle=-45,
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            spikethickness=1,
+            spikedash='dot',
+            spikecolor='rgba(80,80,80,0.6)',
             row=2, col=1,
         )
         fig.update_xaxes(
@@ -585,7 +685,33 @@ def _create_single_chart_figure(
             tickvals=tick_vals,
             ticktext=[date_labels[i] for i in tick_indices],
             tickangle=-45,
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            spikethickness=1,
+            spikedash='dot',
+            spikecolor='rgba(80,80,80,0.6)',
             row=1, col=1,
+        )
+
+        # 开启 Y 轴 spike，可在 hover 时显示横向定位虚线
+        fig.update_yaxes(
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            spikethickness=1,
+            spikedash='dot',
+            spikecolor='rgba(80,80,80,0.6)',
+            row=1, col=1, secondary_y=False
+        )
+        fig.update_yaxes(
+            showspikes=True,
+            spikemode='across',
+            spikesnap='cursor',
+            spikethickness=1,
+            spikedash='dot',
+            spikecolor='rgba(80,80,80,0.6)',
+            row=1, col=1, secondary_y=True
         )
 
         return fig
