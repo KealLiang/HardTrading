@@ -22,6 +22,7 @@ from plotly.subplots import make_subplots
 
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day, get_current_or_prev_trading_day
+from utils.number_format_cn import format_turnover_amount_cn
 from utils.stock_util import calculate_period_change_from_date
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -193,7 +194,9 @@ def _calculate_period_changes(stock_code: str, signal_date: str, data_dir: str) 
 
 
 def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict],
-                  concepts: Optional[List[str]] = None) -> str:
+                  concepts: Optional[List[str]] = None,
+                  chart_df: Optional[pd.DataFrame] = None,
+                  data_dir: str = './data/astocks') -> str:
     """
     格式化图表标题
     
@@ -202,6 +205,8 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
         stock_name: 股票名称
         signal_dates_info: 信号日期信息列表
         concepts: 所属概念列表，不为空时以 [A+B+C] 形式追加到标题首行
+        chart_df: 当前图窗 K 线数据，用于取最新一日成交额（列名 amount）
+        data_dir: 计算周期涨跌幅所用数据目录
         
     Returns:
         格式化的标题HTML字符串
@@ -223,11 +228,17 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
     if signal_info_parts:
         title_parts.append("信号: " + " | ".join(signal_info_parts))
 
+    latest_amount_str: Optional[str] = None
+    if chart_df is not None and not chart_df.empty and 'amount' in chart_df.columns:
+        amt_series = chart_df['amount'].dropna()
+        if not amt_series.empty:
+            latest_amount_str = format_turnover_amount_cn(amt_series.iloc[-1])
+
     # 计算最新信号的周期涨跌幅
     if signal_dates_info:
         latest_signal = max(signal_dates_info, key=lambda x: x['signal_date'])
         signal_date_yyyymmdd = latest_signal['signal_date'].replace("-", "")
-        period_changes = _calculate_period_changes(stock_code, signal_date_yyyymmdd, './data/astocks')
+        period_changes = _calculate_period_changes(stock_code, signal_date_yyyymmdd, data_dir)
 
         if period_changes:
             change_items = []
@@ -238,7 +249,14 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
                 change_items.append(f"<span style='color:{color}'>{period}日: {change:+.2f}%</span>")
 
             if change_items:
-                title_parts.append(" | ".join(change_items))
+                line = " | ".join(change_items)
+                if latest_amount_str:
+                    line += f" | <span style='color:#666'>最新成交额: {latest_amount_str}</span>"
+                title_parts.append(line)
+        elif latest_amount_str:
+            title_parts.append(f"<span style='color:#666'>最新成交额: {latest_amount_str}</span>")
+    elif latest_amount_str:
+        title_parts.append(f"<span style='color:#666'>最新成交额: {latest_amount_str}</span>")
 
     return "<br>".join(title_parts)
 
@@ -563,7 +581,10 @@ def _create_single_chart_figure(
         fig.add_trace(volume_bar, row=2, col=1)
 
         # 4. 生成标题
-        title = _format_title(stock_code, stock_name, signal_dates_info, concepts=concepts)
+        title = _format_title(
+            stock_code, stock_name, signal_dates_info, concepts=concepts,
+            chart_df=chart_df, data_dir=data_dir,
+        )
 
         # 5. 更新布局
         fig.update_layout(
