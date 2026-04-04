@@ -3149,8 +3149,15 @@ def extract_pure_stock_code(stock_code):
         str: 纯股票代码
     """
     pure_stock_code = stock_code.split('_')[0] if '_' in stock_code else stock_code
-    if pure_stock_code.startswith(('sh', 'sz', 'bj')):
+    lower = pure_stock_code.lower()
+    if lower.startswith(('sh', 'sz', 'bj')) and len(pure_stock_code) > 2:
         pure_stock_code = pure_stock_code[2:]
+
+    # 同花顺等导出：605162.SH / 000001.SZ（与炸板表 str.extract(\d{6}) 对齐）
+    if '.' in pure_stock_code:
+        base, _, _ = pure_stock_code.partition('.')
+        if base.isdigit() and len(base) == 6:
+            pure_stock_code = base
 
     return pure_stock_code
 
