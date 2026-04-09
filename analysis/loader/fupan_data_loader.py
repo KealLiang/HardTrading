@@ -574,7 +574,7 @@ def load_attention_data(start_date, end_date, is_main_board=True):
         sheet_name = '关注度榜' if is_main_board else '非主关注度榜'
         try:
             df = pd.read_excel(FUPAN_FILE, sheet_name=sheet_name)
-            print(f"成功读取{sheet_name}sheet，共有{len(df)}行，{len(df.columns)}")
+            print(f"成功读取{sheet_name}sheet，共有{len(df)}行，{len(df.columns)}列")
         except Exception as e:
             print(f"读取{sheet_name}sheet失败: {e}")
             return pd.DataFrame()
@@ -618,17 +618,17 @@ def load_attention_data(start_date, end_date, is_main_board=True):
             return pd.DataFrame()
 
         # 打印第一个日期列的前几条数据，帮助了解数据格式
-        if filtered_date_columns:
-            first_date_col = filtered_date_columns[0]
-            print(f"\n{sheet_name}中{first_date_col}列的前5条数据:")
-            for i, (idx, value) in enumerate(df[first_date_col].items()):
-                if i >= 5:
-                    break
-                if pd.notna(value):
-                    print(f"  {idx}: {value}")
-                    # 打印分割后的每个部分
-                    parts = str(value).split(';')
-                    print(f"    分割后的部分({len(parts)}个): {parts}")
+        # if filtered_date_columns:
+        #     first_date_col = filtered_date_columns[0]
+        #     print(f"\n{sheet_name}中{first_date_col}列的前5条数据:")
+        #     for i, (idx, value) in enumerate(df[first_date_col].items()):
+        #         if i >= 5:
+        #             break
+        #         if pd.notna(value):
+        #             print(f"  {idx}: {value}")
+        #             # 打印分割后的每个部分
+        #             parts = str(value).split(';')
+        #             print(f"    分割后的部分({len(parts)}个): {parts}")
 
         # 创建一个新的DataFrame来存储处理后的数据
         processed_data = []

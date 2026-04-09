@@ -26,7 +26,7 @@ from analysis.html_gen.strategy_scan_html_chart import (
     _create_combined_html,
     _create_single_chart_figure,
 )
-from analysis.loader.fupan_data_loader import load_zaban_data
+from analysis.loader.fupan_data_loader import load_attention_data, load_zaban_data
 from fetch.stock_concept_map import get_stock_concepts, is_map_available
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day
@@ -403,22 +403,21 @@ def _sheet_concept_for_latest_entry(signals: List[Dict]) -> str:
     return str(latest.get('sheet_concept', '') or '')
 
 
-def _prepare_zaban_lookup(
+def _calc_snapshot_window(
     snapshots: List[Dict],
     before_days: int,
     after_days: int,
-) -> Dict[str, set]:
-    """
-    基于快照日期范围加载炸板数据，返回 {YYYYMMDD: {code,...}} 结构。
-    """
+) -> Tuple[Optional[str], Optional[str]]:
+    """按快照范围推导数据加载窗口（YYYYMMDD）。"""
     if not snapshots:
-        return {}
+        return None, None
     snap_dates = [s.get('snapshot_date') for s in snapshots if s.get('snapshot_date')]
     if not snap_dates:
-        return {}
+        return None, None
 
     start_ymd = min(snap_dates).replace('-', '')
     end_ymd = max(snap_dates).replace('-', '')
+
     try:
         start_ymd = get_n_trading_days_before(start_ymd, max(0, before_days))
         if '-' in start_ymd:
@@ -434,7 +433,62 @@ def _prepare_zaban_lookup(
             end_ymd = next_day
     except Exception:
         pass
+    return start_ymd, end_ymd
 
+
+def _normalize_date_code_lookup(raw_lookup: Dict) -> Dict[str, set]:
+    """统一规范 lookup：{YYYYMMDD: set(6位代码)}。"""
+    out: Dict[str, set] = {}
+    if not isinstance(raw_lookup, dict):
+        return out
+    for d, codes in raw_lookup.items():
+        ds = str(d).strip().replace('-', '')
+        if len(ds) != 8 or not ds.isdigit():
+            continue
+        norm_codes = set()
+        try:
+            iterable = list(codes) if codes is not None else []
+        except Exception:
+            iterable = []
+        for c in iterable:
+            m = re.search(r'(\d{6})', str(c))
+            if m:
+                norm_codes.add(m.group(1))
+        if norm_codes:
+            out[ds] = norm_codes
+    return out
+
+
+def _build_signals_from_lookup_for_chart(
+    stock_code: str,
+    chart_df: pd.DataFrame,
+    lookup: Dict[str, set],
+    signal_type: str,
+    details: str,
+) -> List[Dict]:
+    """通用：根据 {date->codes} lookup 为单股图窗构建事件。"""
+    if chart_df is None or chart_df.empty or not lookup:
+        return []
+    code = str(stock_code).zfill(6)
+    out: List[Dict] = []
+    for dt in chart_df.index:
+        try:
+            ymd = dt.strftime('%Y%m%d')
+            if code in lookup.get(ymd, set()):
+                out.append({
+                    'code': code,
+                    'signal_date': dt.strftime('%Y-%m-%d'),
+                    'signal_type': signal_type,
+                    'price': None,
+                    'details': details,
+                })
+        except Exception:
+            continue
+    return out
+
+
+def _prepare_zaban_lookup(start_ymd: str, end_ymd: str) -> Dict[str, set]:
+    """加载炸板数据并构建日期-代码查找表。"""
     zaban_df = load_zaban_data(start_ymd, end_ymd)
     if zaban_df is None or zaban_df.empty:
         logging.info("炸板数据为空，龙头HTML将不添加炸板标记")
@@ -442,10 +496,11 @@ def _prepare_zaban_lookup(
 
     lookup = zaban_df.attrs.get('zaban_lookup')
     if isinstance(lookup, dict):
-        logging.info(f"炸板查找表已加载：{len(lookup)} 个交易日")
-        return {k: set(v) for k, v in lookup.items()}
+        norm = _normalize_date_code_lookup(lookup)
+        logging.info(f"炸板查找表已加载：{len(norm)} 个交易日")
+        return norm
 
-    fallback: Dict[str, set] = {}
+    fallback_raw: Dict[str, set] = {}
     try:
         for _, row in zaban_df.iterrows():
             d = str(row.get('date', '')).strip()
@@ -455,37 +510,44 @@ def _prepare_zaban_lookup(
             m = re.search(r'(\d{6})', code)
             if not m:
                 continue
-            fallback.setdefault(d, set()).add(m.group(1))
+            fallback_raw.setdefault(d, set()).add(m.group(1))
     except Exception:
         pass
-    logging.info(f"炸板查找表已回退构建：{len(fallback)} 个交易日")
-    return fallback
+    norm = _normalize_date_code_lookup(fallback_raw)
+    logging.info(f"炸板查找表已回退构建：{len(norm)} 个交易日")
+    return norm
 
 
-def _build_zaban_signals_for_chart(
-    stock_code: str,
-    chart_df: pd.DataFrame,
-    zaban_lookup: Dict[str, set],
-) -> List[Dict]:
-    """为单只股票在当前图窗内构建炸板信号。"""
-    if chart_df is None or chart_df.empty or not zaban_lookup:
-        return []
-    code = str(stock_code).zfill(6)
-    out: List[Dict] = []
-    for dt in chart_df.index:
+def _prepare_attention_lookup(start_ymd: str, end_ymd: str) -> Dict[str, set]:
+    """加载主/非主关注度榜并合并为日期-代码查找表。"""
+    lookup: Dict[str, set] = {}
+    for is_main_board in (True, False):
+        df = load_attention_data(start_ymd, end_ymd, is_main_board=is_main_board)
+        if df is None or df.empty:
+            continue
         try:
-            ymd = dt.strftime('%Y%m%d')
-            if code in zaban_lookup.get(ymd, set()):
-                out.append({
-                    'code': code,
-                    'signal_date': dt.strftime('%Y-%m-%d'),
-                    'signal_type': '炸板',
-                    'price': None,
-                    'details': '炸板日',
-                })
+            for _, row in df.iterrows():
+                raw_date = str(row.get('日期', '')).strip()
+                raw_code = str(row.get('股票代码', '')).strip()
+                if not raw_date or not raw_code:
+                    continue
+                # 日期支持 YYYY/MM/DD 与 YYYY年MM月DD日
+                if '年' in raw_date:
+                    d_obj = datetime.strptime(raw_date, '%Y年%m月%d日')
+                else:
+                    d_obj = pd.to_datetime(raw_date)
+                d = d_obj.strftime('%Y%m%d')
+                m = re.search(r'(\d{6})', raw_code)
+                if not m:
+                    continue
+                lookup.setdefault(d, set()).add(m.group(1))
         except Exception:
             continue
-    return out
+    if lookup:
+        logging.info(f"关注度查找表已加载：{len(lookup)} 个交易日")
+    else:
+        logging.info("关注度数据为空，龙头HTML将不添加关注度标记")
+    return lookup
 
 
 def generate_leader_sheet_html_charts(
@@ -539,8 +601,15 @@ def generate_leader_sheet_html_charts(
     else:
         stock_signals_map_all = _build_stock_signals_from_snapshots(all_snaps) if all_snaps else stock_signals_map_main
 
-    # 炸板查找表（用于追加“炸板”标记）
-    zaban_lookup = _prepare_zaban_lookup(all_snaps or main_snaps, before_days=before_days, after_days=after_days)
+    # 附加事件查找表（炸板、关注度入榜）
+    window_start_ymd, window_end_ymd = _calc_snapshot_window(
+        all_snaps or main_snaps, before_days=before_days, after_days=after_days
+    )
+    zaban_lookup: Dict[str, set] = {}
+    attention_lookup: Dict[str, set] = {}
+    if window_start_ymd and window_end_ymd:
+        zaban_lookup = _prepare_zaban_lookup(window_start_ymd, window_end_ymd)
+        attention_lookup = _prepare_attention_lookup(window_start_ymd, window_end_ymd)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -611,9 +680,14 @@ def generate_leader_sheet_html_charts(
                     # 叠加浅色起点 = 第一根成功追加的虚拟K线日期
                     overlay_segment_start = chart_df.index[real_len].strftime('%Y-%m-%d')
 
-            # 追加炸板信号（独立标记，不与龙头入选/移除合并）
-            zaban_signals = _build_zaban_signals_for_chart(stock_code, chart_df, zaban_lookup)
-            merged_signals = dedup_signals + zaban_signals
+            # 追加附加信号（独立标记，不与龙头入选/移除合并）
+            zaban_signals = _build_signals_from_lookup_for_chart(
+                stock_code, chart_df, zaban_lookup, signal_type='炸板', details='炸板日'
+            )
+            attention_signals = _build_signals_from_lookup_for_chart(
+                stock_code, chart_df, attention_lookup, signal_type='关注度入榜', details='关注度入榜'
+            )
+            merged_signals = dedup_signals + zaban_signals + attention_signals
             uniq2 = {}
             for sig in merged_signals:
                 k = (sig['signal_date'], sig['signal_type'])

@@ -71,6 +71,8 @@ _LADDER_ENTRY_COLOR = '#2ca02c'
 _LADDER_SIGNAL_TYPE = '天梯入选'
 _ZABAN_COLOR = '#ff8c00'
 _ZABAN_SIGNAL_TYPE = '炸板'
+_ATTENTION_COLOR = '#00bcd4'
+_ATTENTION_SIGNAL_TYPE = '关注度入榜'
 
 DEFAULT_LADDER_ENTRY_JSON = 'bin/candidate_temp/candidate_ladder_entry.json'
 
@@ -112,6 +114,14 @@ def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -
             'symbol': 'x',
             'name': _ZABAN_SIGNAL_TYPE,
             'legendgroup': 'zaban',
+            'unified_legend': True,
+        }
+    if st == _ATTENTION_SIGNAL_TYPE:
+        return {
+            'color': _ATTENTION_COLOR,
+            'symbol': 'star-open',
+            'name': _ATTENTION_SIGNAL_TYPE,
+            'legendgroup': 'attention_rank',
             'unified_legend': True,
         }
     fixed = _SCAN_MARKER_STYLE_BY_TYPE.get(st)
@@ -535,6 +545,7 @@ def _create_single_chart_figure(
         leader_removal_seen = False
         ladder_entry_seen = False
         zaban_seen = False
+        attention_seen = False
 
         def _signal_idx_for_date(signal_date: str):
             try:
@@ -559,9 +570,11 @@ def _create_single_chart_figure(
 
         for signal_idx in sorted(by_signal_idx.keys()):
             items = by_signal_idx[signal_idx]
-            # 同日：先策略类（更靠上），后天梯入选/炸板（更靠下）；同类按原顺序
+            # 同日：先策略类（更靠上），后附加标记（更靠下）；同类按原顺序
             items.sort(key=lambda t: (
-                1 if t[1].get('signal_type') in (_LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE) else 0,
+                1 if t[1].get('signal_type') in (
+                    _LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE, _ATTENTION_SIGNAL_TYPE
+                ) else 0,
                 t[2],
             ))
             low_v = float(chart_df.iloc[signal_idx]['Low'])
@@ -591,6 +604,9 @@ def _create_single_chart_figure(
                         elif signal_type == _ZABAN_SIGNAL_TYPE:
                             showlegend = not zaban_seen
                             zaban_seen = True
+                        elif signal_type == _ATTENTION_SIGNAL_TYPE:
+                            showlegend = not attention_seen
+                            attention_seen = True
                         else:
                             showlegend = True
                         legendgroup = style.get('legendgroup')
@@ -623,7 +639,9 @@ def _create_single_chart_figure(
         try:
             non_ladder = [
                 s for s in signal_dates_info
-                if s.get('signal_type') not in (_LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE)
+                if s.get('signal_type') not in (
+                    _LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE, _ATTENTION_SIGNAL_TYPE
+                )
             ]
             anchor_signals = non_ladder if non_ladder else signal_dates_info
             if entry_range_anchor_signal_types:
@@ -921,6 +939,27 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             margin: 10px 0 0 0;
             color: #666;
         }}
+        .header-controls {{
+            position: fixed;
+            right: 18px;
+            top: 12px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #444;
+            user-select: none;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 6px 10px;
+        }}
+        .header-controls input[type="checkbox"] {{
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+        }}
         .chart-container {{
             background-color: white;
             margin-bottom: 20px;
@@ -941,6 +980,12 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
 </head>
 <body>
     <div class="header">
+        <div class="header-controls">
+            <label for="toggle-attention-marker">
+                <input type="checkbox" id="toggle-attention-marker" checked />
+                关注度入榜
+            </label>
+        </div>
         <h1>策略扫描结果</h1>
         <p>共 {len(figures)} 只股票</p>
     </div>
@@ -961,6 +1006,33 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
     </div>
     
     <script>
+        const ATTENTION_LEGEND_GROUP = 'attention_rank';
+
+        function setAttentionMarkerVisible(visible) {
+            const chartData = window.__chartDataCache || [];
+            chartData.forEach((_, index) => {
+                const chartEl = document.getElementById(`chart_${index}`);
+                if (!chartEl || !chartEl.data) return;
+                const indices = [];
+                chartEl.data.forEach((trace, i) => {
+                    if (trace && trace.legendgroup === ATTENTION_LEGEND_GROUP) {
+                        indices.push(i);
+                    }
+                });
+                if (indices.length > 0) {
+                    Plotly.restyle(chartEl, { visible: visible ? true : false }, indices);
+                }
+            });
+        }
+
+        function bindHeaderControls() {
+            const checkbox = document.getElementById('toggle-attention-marker');
+            if (!checkbox) return;
+            checkbox.addEventListener('change', (e) => {
+                setAttentionMarkerVisible(!!e.target.checked);
+            });
+        }
+
         // 等待Plotly加载完成
         function initCharts() {
             if (typeof Plotly === 'undefined') {
@@ -969,6 +1041,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             }
             
             const chartData = """ + json.dumps(chart_data_list, ensure_ascii=False) + """;
+            window.__chartDataCache = chartData;
             
             chartData.forEach((data, index) => {
                 Plotly.newPlot(`chart_${index}`, data.data, data.layout, {
@@ -976,6 +1049,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
                     displayModeBar: true
                 });
             });
+            bindHeaderControls();
         }
         
         // 页面加载完成后初始化图表
