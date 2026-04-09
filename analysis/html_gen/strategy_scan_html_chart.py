@@ -766,7 +766,17 @@ def _create_single_chart_figure(
 
             step = (y_max - y_min) / (tick_count - 1)
             tick_vals = [y_min + i * step for i in range(tick_count)]
-            tick_text = [f"{(v / base_price - 1.0) * 100.0:+.{PCT_AXIS_DECIMALS}f}%" for v in tick_vals]
+            tick_pct_vals = [(v / base_price - 1.0) * 100.0 for v in tick_vals]
+            tick_text = []
+            for pct in tick_pct_vals:
+                pct_abs_text = f"{abs(pct):.{PCT_AXIS_DECIMALS}f}%"
+                # 去掉正负号，改为颜色区分：红涨绿跌
+                if pct > 0:
+                    tick_text.append(f"<span style='color:#d62728'>{pct_abs_text}</span>")
+                elif pct < 0:
+                    tick_text.append(f"<span style='color:#2ca02c'>{pct_abs_text}</span>")
+                else:
+                    tick_text.append(pct_abs_text)
 
             # 先固定左轴范围，确保与右侧百分比轴一一对应
             fig.update_yaxes(
