@@ -36,6 +36,15 @@ SIGNAL_TYPE_CONFIG = [
     ('买入信号: 止损纠错', '止损纠错'),  # 止损纠错：价格合适买入
 ]
 
+# 策略扫描信号：按「类型」固定颜色/形状，避免合并天梯入选等条目后列表下标变化导致样式漂移
+# （与原先 idx=0..3 时的轮换顺序一致）
+_SCAN_MARKER_STYLE_BY_TYPE = {
+    '二次确认': {'color': 'blue', 'symbol': 'triangle-up'},
+    '快速通道': {'color': 'purple', 'symbol': 'triangle-up'},
+    '回踩确认': {'color': 'orange', 'symbol': 'diamond-tall'},
+    '止损纠错': {'color': 'red', 'symbol': 'hourglass'},
+}
+
 DEFAULT_BEFORE_DAYS = 60  # 信号日前显示的交易日数
 DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
 
@@ -57,10 +66,18 @@ PCT_AXIS_TICK_FONT_SIZE = 8  # 仅右侧涨跌幅数字字号
 _LEADER_ENTRY_COLOR = '#1f77b4'
 _LEADER_REMOVAL_COLOR = '#9966FF'
 
+# 天梯入选（侧车 JSON）：与策略扫描信号区分，同日复数时纵向错开绘制
+_LADDER_ENTRY_COLOR = '#2ca02c'
+_LADDER_SIGNAL_TYPE = '天梯入选'
+
+DEFAULT_LADDER_ENTRY_JSON = 'bin/candidate_temp/candidate_ladder_entry.json'
+
 
 def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -> Dict:
     """
-    龙头入选/龙头移除：固定蓝上三角 / 紫下三角；策略扫描等其他信号仍按序号轮换样式。
+    龙头入选/龙头移除/天梯入选：固定样式。
+    已知策略类型（二次确认、快速通道等）：固定样式，不依赖在 signal_dates_info 中的下标。
+    其余：仍按 idx 轮换（兼容未归类信号）。
     """
     st = (signal_type or '').strip()
     if st == '龙头移除':
@@ -78,6 +95,23 @@ def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -
             'name': '龙头入选',
             'legendgroup': 'leader_entry',
             'unified_legend': True,
+        }
+    if st == _LADDER_SIGNAL_TYPE:
+        return {
+            'color': _LADDER_ENTRY_COLOR,
+            'symbol': 'triangle-up',
+            'name': _LADDER_SIGNAL_TYPE,
+            'legendgroup': 'ladder_entry',
+            'unified_legend': True,
+        }
+    fixed = _SCAN_MARKER_STYLE_BY_TYPE.get(st)
+    if fixed:
+        return {
+            'color': fixed['color'],
+            'symbol': fixed['symbol'],
+            'name': f'{signal_date} ({st})',
+            'legendgroup': None,
+            'unified_legend': False,
         }
     signal_colors = ['blue', 'purple', 'orange', 'red', 'green', 'brown']
     signal_symbols = ['triangle-up', 'triangle-down', 'diamond', 'square', 'star', 'circle']
@@ -108,6 +142,44 @@ def _extract_signal_type(details: str) -> str:
             return signal_type
 
     return "Signal"
+
+
+def _merge_ladder_entry_into_signals(
+        stock_code: str,
+        signals_info: List[Dict],
+        ladder_map: Dict[str, List[str]],
+) -> List[Dict]:
+    """
+    将侧车中的天梯入选日并入信号列表。JSON 中日期为从新到旧，作图仅使用第一个（最晚一次入选）。
+    同日多标记时：先画策略信号（更靠近 K 线），天梯入选画在更下方（y 更低）。
+    """
+    code = str(stock_code).zfill(6)
+    dates = ladder_map.get(code)
+    if not dates:
+        return list(signals_info)
+
+    ymd = dates[0]
+    if not isinstance(ymd, str) or len(ymd) != 8 or not ymd.isdigit():
+        return list(signals_info)
+
+    dt_str = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}"
+    merged: List[Dict] = []
+    for i, s in enumerate(signals_info):
+        d = dict(s)
+        d['_merge_order'] = i
+        merged.append(d)
+    merged.append({
+        'signal_date': dt_str,
+        'signal_type': _LADDER_SIGNAL_TYPE,
+        'price': None,
+        '_merge_order': len(signals_info) + 999,
+    })
+    merged.sort(key=lambda s: (
+        s['signal_date'],
+        1 if s.get('signal_type') == _LADDER_SIGNAL_TYPE else 0,
+        s.get('_merge_order', 0),
+    ))
+    return merged
 
 
 def parse_scan_summary(summary_file_path: str) -> Dict[str, List[Dict]]:
@@ -451,25 +523,47 @@ def _create_single_chart_figure(
         # 2. 信号标记（仅图形；hover 已并入 K 线，此处关闭避免 unified 误匹配）
         leader_entry_seen = False
         leader_removal_seen = False
+        ladder_entry_seen = False
 
-        for idx, sig_info in enumerate(signal_dates_info):
-            signal_date = sig_info['signal_date']
-            signal_type = sig_info.get('signal_type', 'Signal')
-            price = sig_info.get('price')
-
+        def _signal_idx_for_date(signal_date: str):
             try:
                 signal_date_dt = datetime.strptime(signal_date, '%Y-%m-%d')
-                signal_idx = None
                 for i, date in enumerate(dates):
                     if date.date() == signal_date_dt.date():
-                        signal_idx = i
-                        break
+                        return i
+            except Exception:
+                pass
+            return None
 
-                if signal_idx is not None and 0 <= signal_idx < len(chart_df):
-                    signal_price = chart_df.iloc[signal_idx]['Low'] * 0.95
-                    display_price = price if price is not None else chart_df.iloc[signal_idx]['Close']
+        marker_plan = []
+        for idx, sig_info in enumerate(signal_dates_info):
+            signal_date = sig_info['signal_date']
+            si = _signal_idx_for_date(signal_date)
+            if si is not None and 0 <= si < len(chart_df):
+                marker_plan.append((si, sig_info, idx))
 
-                    style = _resolve_signal_marker_style(signal_type, idx, signal_date)
+        by_signal_idx = defaultdict(list)
+        for item in marker_plan:
+            by_signal_idx[item[0]].append(item)
+
+        for signal_idx in sorted(by_signal_idx.keys()):
+            items = by_signal_idx[signal_idx]
+            # 同日：先策略类（更靠上），后天梯入选（更靠下）；同类按原顺序
+            items.sort(key=lambda t: (
+                1 if t[1].get('signal_type') == _LADDER_SIGNAL_TYPE else 0,
+                t[2],
+            ))
+            low_v = float(chart_df.iloc[signal_idx]['Low'])
+
+            for k, (_si, sig_info, orig_idx) in enumerate(items):
+                signal_date = sig_info['signal_date']
+                signal_type = sig_info.get('signal_type', 'Signal')
+                price = sig_info.get('price')
+                try:
+                    offset = 0.95 - k * 0.05
+                    signal_price = low_v * max(offset, 0.55)
+
+                    style = _resolve_signal_marker_style(signal_type, orig_idx, signal_date)
                     color = style['color']
                     symbol = style['symbol']
                     trace_name = style['name']
@@ -477,9 +571,14 @@ def _create_single_chart_figure(
                         if signal_type == '龙头入选':
                             showlegend = not leader_entry_seen
                             leader_entry_seen = True
-                        else:
+                        elif signal_type == '龙头移除':
                             showlegend = not leader_removal_seen
                             leader_removal_seen = True
+                        elif signal_type == _LADDER_SIGNAL_TYPE:
+                            showlegend = not ladder_entry_seen
+                            ladder_entry_seen = True
+                        else:
+                            showlegend = True
                         legendgroup = style.get('legendgroup')
                     else:
                         showlegend = True
@@ -503,15 +602,16 @@ def _create_single_chart_figure(
                         hoverinfo='skip',
                     )
                     fig.add_trace(signal_marker, row=1, col=1)
-            except Exception as e:
-                logging.debug(f"添加信号标记失败 {signal_date}: {e}")
+                except Exception as e:
+                    logging.debug(f"添加信号标记失败 {signal_date}: {e}")
 
         # 2.5 计算并显示建仓价格区间（默认基于最新信号日MA5；可按信号类型锚定）
         try:
-            anchor_signals = signal_dates_info
+            non_ladder = [s for s in signal_dates_info if s.get('signal_type') != _LADDER_SIGNAL_TYPE]
+            anchor_signals = non_ladder if non_ladder else signal_dates_info
             if entry_range_anchor_signal_types:
                 allowed = {s.strip() for s in entry_range_anchor_signal_types if s and str(s).strip()}
-                filtered = [s for s in signal_dates_info if str(s.get('signal_type', '')).strip() in allowed]
+                filtered = [s for s in anchor_signals if str(s.get('signal_type', '')).strip() in allowed]
                 if filtered:
                     anchor_signals = filtered
 
@@ -960,6 +1060,12 @@ def generate_strategy_scan_html_charts(
 
     logging.info(f"处理 {len(filtered_stocks)} 只股票")
 
+    from utils.export_ladder_entry import load_ladder_entry_dates
+
+    ladder_map = load_ladder_entry_dates(DEFAULT_LADDER_ENTRY_JSON)
+    if ladder_map:
+        logging.info(f"已加载天梯入选侧车: {len(ladder_map)} 只股票（作图使用每只股票列表中的首个日期）")
+
     # 设置输出目录
     if output_dir is None:
         output_dir = os.path.join(base_dir, 'html_charts')
@@ -984,9 +1090,10 @@ def generate_strategy_scan_html_charts(
     for stock_code, signals_info in filtered_stocks.items():
         try:
             stock_name = signals_info[0]['name']  # 使用第一个信号的名称
+            signals_for_chart = _merge_ladder_entry_into_signals(stock_code, signals_info, ladder_map)
 
-            # 找到所有信号日期的最早和最晚日期
-            signal_dates = [sig['signal_date'] for sig in signals_info]
+            # 找到所有信号日期的最早和最晚日期（含天梯入选）
+            signal_dates = [sig['signal_date'] for sig in signals_for_chart]
             earliest_date = min(signal_dates)
             latest_date = max(signal_dates)
 
@@ -1035,7 +1142,7 @@ def generate_strategy_scan_html_charts(
                 stock_code=stock_code,
                 stock_name=stock_name,
                 chart_df=chart_df,
-                signal_dates_info=signals_info,
+                signal_dates_info=signals_for_chart,
                 before_days=before_days,
                 after_days=after_days,
                 data_dir=data_dir,
@@ -1045,7 +1152,7 @@ def generate_strategy_scan_html_charts(
             if fig is not None:
                 chart_figures.append(fig)
                 # 生成卡片标题（概念标签已在图表内标题中显示，此处不重复）
-                signal_count = len(signals_info)
+                signal_count = len(signals_for_chart)
                 title = f"{stock_code} {stock_name} ({signal_count}个信号)"
                 chart_titles.append(title)
 

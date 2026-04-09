@@ -2835,6 +2835,17 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
     # 保存Excel文件
     try:
+        # 侧车：导出天梯入选日（与 candidate_stocks.txt 配套，供策略扫描 HTML 等使用）
+        try:
+            from utils.export_ladder_entry import collect_ladder_entry_dates_map, write_ladder_entry_json
+
+            _entry_map = collect_ladder_entry_dates_map(
+                result_df, momo_df, start_date, end_date, enable_momo_shangzhang, extract_pure_stock_code
+            )
+            write_ladder_entry_json(_entry_map)
+        except Exception as _e:
+            print(f"导出天梯入选日侧车失败（不影响 Excel）: {_e}")
+
         save_excel_file(wb, output_file)
 
         # 显示均线斜率统计信息
