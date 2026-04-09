@@ -1040,7 +1040,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20260115'
+    start_date = '20260201'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -1703,10 +1703,10 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
-    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
 
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
@@ -1723,7 +1723,7 @@ if __name__ == '__main__':
     # find_candidate_stocks_volume_surge()
     # candidate_hot_concept_stocks(hot_concepts)  # 更新概念候选股
     # strategy_scan('a', enable_vcp_filter=True)
-    # generate_strategy_scan_html_charts('a', recent_days=10, columns=2)
+    # generate_strategy_scan_html_charts('a', recent_days=20, columns=2)
     # breakout_strategy_backtest('scan_simple_20260101-20260312.txt')  # 爆量突破策略回测
     # vcp_score_analysis(scan_file='scan_summary_20260101-20260310.txt', backtest_file='backtest_report_20260101-20260310.md')
     # generate_virtual_kline_simulation_html()
