@@ -26,6 +26,7 @@ from analysis.html_gen.strategy_scan_html_chart import (
     _create_combined_html,
     _create_single_chart_figure,
 )
+from analysis.loader.fupan_data_loader import load_zaban_data
 from fetch.stock_concept_map import get_stock_concepts, is_map_available
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day
@@ -270,41 +271,6 @@ def _leader_snapshots_from_workbook(wb) -> List[Dict]:
     return snapshots
 
 
-def _load_leader_snapshots(excel_path: str, use_leader_archive: bool = True) -> List[Dict]:
-    """
-    加载全部龙头 sheet 快照并按日期排序。
-
-    use_leader_archive 为 True 时，若存在归档 xlsx 则全量读取并与主文件按 sheet 名合并（主文件覆盖同名）。
-    为 False 时行为与仅读主文件一致。
-    """
-    wb = load_workbook(excel_path, data_only=True)
-    main_snaps = _leader_snapshots_from_workbook(wb)
-
-    if not use_leader_archive:
-        main_snaps.sort(key=lambda x: x['snapshot_date'])
-        return main_snaps
-
-    archive_path = _leader_archive_path(excel_path)
-    if not os.path.exists(archive_path):
-        logging.info(f"龙头归档文件不存在，仅使用主文件: {archive_path}")
-        main_snaps.sort(key=lambda x: x['snapshot_date'])
-        return main_snaps
-
-    archive_wb = load_workbook(archive_path, data_only=True)
-    arch_snaps = _leader_snapshots_from_workbook(archive_wb)
-
-    by_name: Dict[str, Dict] = {s['sheet_name']: s for s in arch_snaps}
-    for s in main_snaps:
-        by_name[s['sheet_name']] = s
-
-    merged = list(by_name.values())
-    merged.sort(key=lambda x: x['snapshot_date'])
-    logging.info(
-        f"龙头快照已合并归档: 主 {len(main_snaps)} 张, 归档 {len(arch_snaps)} 张, 去重后 {len(merged)} 张"
-    )
-    return merged
-
-
 def _load_leader_snapshots_main_and_all(
     excel_path: str,
     use_leader_archive: bool = True,
@@ -437,6 +403,91 @@ def _sheet_concept_for_latest_entry(signals: List[Dict]) -> str:
     return str(latest.get('sheet_concept', '') or '')
 
 
+def _prepare_zaban_lookup(
+    snapshots: List[Dict],
+    before_days: int,
+    after_days: int,
+) -> Dict[str, set]:
+    """
+    基于快照日期范围加载炸板数据，返回 {YYYYMMDD: {code,...}} 结构。
+    """
+    if not snapshots:
+        return {}
+    snap_dates = [s.get('snapshot_date') for s in snapshots if s.get('snapshot_date')]
+    if not snap_dates:
+        return {}
+
+    start_ymd = min(snap_dates).replace('-', '')
+    end_ymd = max(snap_dates).replace('-', '')
+    try:
+        start_ymd = get_n_trading_days_before(start_ymd, max(0, before_days))
+        if '-' in start_ymd:
+            start_ymd = start_ymd.replace('-', '')
+    except Exception:
+        pass
+
+    try:
+        for _ in range(max(0, after_days)):
+            next_day = get_next_trading_day(end_ymd)
+            if not next_day:
+                break
+            end_ymd = next_day
+    except Exception:
+        pass
+
+    zaban_df = load_zaban_data(start_ymd, end_ymd)
+    if zaban_df is None or zaban_df.empty:
+        logging.info("炸板数据为空，龙头HTML将不添加炸板标记")
+        return {}
+
+    lookup = zaban_df.attrs.get('zaban_lookup')
+    if isinstance(lookup, dict):
+        logging.info(f"炸板查找表已加载：{len(lookup)} 个交易日")
+        return {k: set(v) for k, v in lookup.items()}
+
+    fallback: Dict[str, set] = {}
+    try:
+        for _, row in zaban_df.iterrows():
+            d = str(row.get('date', '')).strip()
+            code = str(row.get('stock_code', '')).strip()
+            if len(d) != 8:
+                continue
+            m = re.search(r'(\d{6})', code)
+            if not m:
+                continue
+            fallback.setdefault(d, set()).add(m.group(1))
+    except Exception:
+        pass
+    logging.info(f"炸板查找表已回退构建：{len(fallback)} 个交易日")
+    return fallback
+
+
+def _build_zaban_signals_for_chart(
+    stock_code: str,
+    chart_df: pd.DataFrame,
+    zaban_lookup: Dict[str, set],
+) -> List[Dict]:
+    """为单只股票在当前图窗内构建炸板信号。"""
+    if chart_df is None or chart_df.empty or not zaban_lookup:
+        return []
+    code = str(stock_code).zfill(6)
+    out: List[Dict] = []
+    for dt in chart_df.index:
+        try:
+            ymd = dt.strftime('%Y%m%d')
+            if code in zaban_lookup.get(ymd, set()):
+                out.append({
+                    'code': code,
+                    'signal_date': dt.strftime('%Y-%m-%d'),
+                    'signal_type': '炸板',
+                    'price': None,
+                    'details': '炸板日',
+                })
+        except Exception:
+            continue
+    return out
+
+
 def generate_leader_sheet_html_charts(
         excel_path: str = './excel/ladder_analysis.xlsx',
         columns: int = 2,
@@ -480,7 +531,16 @@ def generate_leader_sheet_html_charts(
         return None
 
     # stock_signals_map_all：用于给上述股票计算更准确的入选/移除标记
-    stock_signals_map_all = _build_stock_signals_from_snapshots(all_snaps) if all_snaps else stock_signals_map_main
+    # 说明：
+    # - 当开启归档合并时，all_snaps 可能包含比 main_snaps 更完整的历史，信号应基于 all_snaps 计算；
+    # - 当未合并归档（或无可用归档）时，all_snaps 与 main_snaps 同源，此时直接复用，避免重复计算。
+    if all_snaps is main_snaps:
+        stock_signals_map_all = stock_signals_map_main
+    else:
+        stock_signals_map_all = _build_stock_signals_from_snapshots(all_snaps) if all_snaps else stock_signals_map_main
+
+    # 炸板查找表（用于追加“炸板”标记）
+    zaban_lookup = _prepare_zaban_lookup(all_snaps or main_snaps, before_days=before_days, after_days=after_days)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -551,12 +611,22 @@ def generate_leader_sheet_html_charts(
                     # 叠加浅色起点 = 第一根成功追加的虚拟K线日期
                     overlay_segment_start = chart_df.index[real_len].strftime('%Y-%m-%d')
 
+            # 追加炸板信号（独立标记，不与龙头入选/移除合并）
+            zaban_signals = _build_zaban_signals_for_chart(stock_code, chart_df, zaban_lookup)
+            merged_signals = dedup_signals + zaban_signals
+            uniq2 = {}
+            for sig in merged_signals:
+                k = (sig['signal_date'], sig['signal_type'])
+                if k not in uniq2:
+                    uniq2[k] = sig
+            merged_signals = sorted(uniq2.values(), key=lambda x: x['signal_date'])
+
             concepts = concept_lookup.get(stock_code) or []
             fig = _create_single_chart_figure(
                 stock_code=stock_code,
                 stock_name=stock_name,
                 chart_df=chart_df,
-                signal_dates_info=dedup_signals,
+                signal_dates_info=merged_signals,
                 before_days=before_days,
                 after_days=after_days,
                 data_dir=data_dir,
@@ -572,7 +642,7 @@ def generate_leader_sheet_html_charts(
 
             chart_figures.append(fig)
             # 卡片标题：以最近一次龙头入选为基准的题材概念
-            sheet_concept = _sheet_concept_for_latest_entry(dedup_signals)
+            sheet_concept = _sheet_concept_for_latest_entry(merged_signals)
             if sheet_concept:
                 title = f"{stock_code} {stock_name} {sheet_concept}"
             else:

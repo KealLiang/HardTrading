@@ -69,6 +69,8 @@ _LEADER_REMOVAL_COLOR = '#9966FF'
 # 天梯入选（侧车 JSON）：与策略扫描信号区分，同日复数时纵向错开绘制
 _LADDER_ENTRY_COLOR = '#2ca02c'
 _LADDER_SIGNAL_TYPE = '天梯入选'
+_ZABAN_COLOR = '#ff8c00'
+_ZABAN_SIGNAL_TYPE = '炸板'
 
 DEFAULT_LADDER_ENTRY_JSON = 'bin/candidate_temp/candidate_ladder_entry.json'
 
@@ -102,6 +104,14 @@ def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -
             'symbol': 'triangle-up',
             'name': _LADDER_SIGNAL_TYPE,
             'legendgroup': 'ladder_entry',
+            'unified_legend': True,
+        }
+    if st == _ZABAN_SIGNAL_TYPE:
+        return {
+            'color': _ZABAN_COLOR,
+            'symbol': 'x',
+            'name': _ZABAN_SIGNAL_TYPE,
+            'legendgroup': 'zaban',
             'unified_legend': True,
         }
     fixed = _SCAN_MARKER_STYLE_BY_TYPE.get(st)
@@ -524,6 +534,7 @@ def _create_single_chart_figure(
         leader_entry_seen = False
         leader_removal_seen = False
         ladder_entry_seen = False
+        zaban_seen = False
 
         def _signal_idx_for_date(signal_date: str):
             try:
@@ -548,9 +559,9 @@ def _create_single_chart_figure(
 
         for signal_idx in sorted(by_signal_idx.keys()):
             items = by_signal_idx[signal_idx]
-            # 同日：先策略类（更靠上），后天梯入选（更靠下）；同类按原顺序
+            # 同日：先策略类（更靠上），后天梯入选/炸板（更靠下）；同类按原顺序
             items.sort(key=lambda t: (
-                1 if t[1].get('signal_type') == _LADDER_SIGNAL_TYPE else 0,
+                1 if t[1].get('signal_type') in (_LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE) else 0,
                 t[2],
             ))
             low_v = float(chart_df.iloc[signal_idx]['Low'])
@@ -577,6 +588,9 @@ def _create_single_chart_figure(
                         elif signal_type == _LADDER_SIGNAL_TYPE:
                             showlegend = not ladder_entry_seen
                             ladder_entry_seen = True
+                        elif signal_type == _ZABAN_SIGNAL_TYPE:
+                            showlegend = not zaban_seen
+                            zaban_seen = True
                         else:
                             showlegend = True
                         legendgroup = style.get('legendgroup')
@@ -607,7 +621,10 @@ def _create_single_chart_figure(
 
         # 2.5 计算并显示建仓价格区间（默认基于最新信号日MA5；可按信号类型锚定）
         try:
-            non_ladder = [s for s in signal_dates_info if s.get('signal_type') != _LADDER_SIGNAL_TYPE]
+            non_ladder = [
+                s for s in signal_dates_info
+                if s.get('signal_type') not in (_LADDER_SIGNAL_TYPE, _ZABAN_SIGNAL_TYPE)
+            ]
             anchor_signals = non_ladder if non_ladder else signal_dates_info
             if entry_range_anchor_signal_types:
                 allowed = {s.strip() for s in entry_range_anchor_signal_types if s and str(s).strip()}
