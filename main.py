@@ -351,10 +351,10 @@ def strategy_scan(candidate_model='a', enable_vcp_filter=False):
         '买入信号: 止损纠错',  # 止损纠错：价格合适买入
     ]
 
-    start_date = '20260101'
+    start_date = '20260201'
     end_date = None
     stock_pool = ['300581', '600475']
-    details_after_date = '20260210'  # 只看这个日期之后的
+    details_after_date = '20260310'  # 只看这个日期之后的
 
     # 策略参数：VCP过滤开关（True时过滤VCP-C/D信号）
     strategy_params = {'enable_vcp_filter': enable_vcp_filter} if enable_vcp_filter else None
