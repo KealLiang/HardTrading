@@ -108,13 +108,18 @@ ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 25.0  # 主板股最低短周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 75.0  # 主板股最低长周期涨幅门槛（%）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 25.0  # 非主板股最低短周期涨幅门槛（%）
 MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 80.0  # 非主板股最低长周期涨幅门槛（%）
+
+# 【超短周期上限】近 N 个交易日涨幅须严格小于下列阈值（过滤预期兑现）
+LEADER_ULTRA_SHORT_PERIOD_DAYS = 3  # 极短周期
+MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER = 15.0  # 主板（%）
+MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 20.0  # 非主板（%）
 
 # 【名额分配规则】按板块活跃度（概念组的活跃股票数量）排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 5  # 最热板块（排名第1）
@@ -3989,6 +3994,9 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
       * 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN (默认70%)
     - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
     - 排除概念组：LEADER_EXCLUDE_CONCEPTS
+    - 超短周期（LEADER_ULTRA_SHORT_PERIOD_DAYS 个交易日）涨幅上限：主板 <
+      MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER，非主板 <
+      MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN（严格小于）
     
     Args:
         concept_grouped_df: 按概念分组且已计算长周期涨跌幅的DataFrame
@@ -4014,17 +4022,27 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
 
             # 计算短周期涨跌幅
             end_date = date_mapping.get(formatted_trading_days[-1])
+            ultra_short_change = 0.0
             if end_date:
                 start_date = get_n_trading_days_before(end_date, period_days)
                 if '-' in start_date:
                     start_date = start_date.replace('-', '')
                 short_change = calculate_stock_period_change(stock_code, start_date, end_date)
+                us_start = get_n_trading_days_before(end_date, LEADER_ULTRA_SHORT_PERIOD_DAYS)
+                if '-' in us_start:
+                    us_start = us_start.replace('-', '')
+                uc = calculate_stock_period_change(stock_code, us_start, end_date)
+                ultra_short_change = uc if uc is not None else 0.0
             else:
                 short_change = 0.0
 
-            return max_board_level, short_change if short_change is not None else 0.0
+            return (
+                max_board_level,
+                short_change if short_change is not None else 0.0,
+                ultra_short_change,
+            )
         except:
-            return 0, 0.0
+            return 0, 0.0, 0.0
 
     # 为DataFrame添加必要的指标
     temp_df = concept_grouped_df.copy()
@@ -4047,6 +4065,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     metrics = temp_df.apply(calculate_additional_metrics, axis=1, result_type='expand')
     temp_df['max_board_level'] = metrics[0]
     temp_df['short_period_change'] = metrics[1]
+    temp_df['ultra_short_period_change'] = metrics[2]
 
     # 第一步：为所有股票计算last_board_date（用于判断是否应该折叠）
     print("\n第一步：计算所有股票的最后连板日期...")
@@ -4153,6 +4172,15 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         # 满足条件1或条件2即可入选
         return condition1 | condition2
 
+    def check_ultra_short_cap(row):
+        """超短周期涨幅须低于上限（主板/非主板阈值不同，见全局常量）"""
+        cap = (
+            MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER
+            if row['market_type'] == 'main'
+            else MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+        )
+        return row['ultra_short_period_change'] < cap
+
     # 第一步：筛选所有符合条件的股票（不管名额）
     all_qualified_stocks = {}  # concept_group -> DataFrame
     total_concepts = 0
@@ -4180,7 +4208,8 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         candidate_df['market_type'] = candidate_df['stock_code'].apply(get_stock_market_type)
         board_mask = candidate_df.apply(check_board_level, axis=1)
         change_mask = candidate_df.apply(check_change_threshold, axis=1)
-        qualified_df = candidate_df[board_mask & change_mask].copy()
+        ultra_mask = candidate_df.apply(check_ultra_short_cap, axis=1)
+        qualified_df = candidate_df[board_mask & change_mask & ultra_mask].copy()
 
         # 删除临时添加的market_type列
         if 'market_type' in qualified_df.columns:
