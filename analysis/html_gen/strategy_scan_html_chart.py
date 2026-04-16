@@ -69,6 +69,7 @@ _LEADER_REMOVAL_COLOR = '#9966FF'
 # 天梯入选（侧车 JSON）：与策略扫描信号区分，同日复数时纵向错开绘制
 _LADDER_ENTRY_COLOR = '#2ca02c'
 _LADDER_SIGNAL_TYPE = '天梯入选'
+_MOMO_SIGNAL_TYPE = '默默上涨入选'
 _ZABAN_COLOR = '#ff8c00'
 _ZABAN_SIGNAL_TYPE = '炸板'
 _ATTENTION_COLOR = '#00bcd4'
@@ -106,6 +107,14 @@ def _resolve_signal_marker_style(signal_type: str, idx: int, signal_date: str) -
             'symbol': 'triangle-up',
             'name': _LADDER_SIGNAL_TYPE,
             'legendgroup': 'ladder_entry',
+            'unified_legend': True,
+        }
+    if st == _MOMO_SIGNAL_TYPE:
+        return {
+            'color': '#1e88e5',
+            'symbol': 'triangle-up',
+            'name': _MOMO_SIGNAL_TYPE,
+            'legendgroup': 'momo_entry',
             'unified_legend': True,
         }
     if st == _ZABAN_SIGNAL_TYPE:
@@ -546,6 +555,7 @@ def _create_single_chart_figure(
         ladder_entry_seen = False
         zaban_seen = False
         attention_seen = False
+        momo_seen = False
 
         def _signal_idx_for_date(signal_date: str):
             try:
@@ -601,6 +611,9 @@ def _create_single_chart_figure(
                         elif signal_type == _LADDER_SIGNAL_TYPE:
                             showlegend = not ladder_entry_seen
                             ladder_entry_seen = True
+                        elif signal_type == _MOMO_SIGNAL_TYPE:
+                            showlegend = not momo_seen
+                            momo_seen = True
                         elif signal_type == _ZABAN_SIGNAL_TYPE:
                             showlegend = not zaban_seen
                             zaban_seen = True

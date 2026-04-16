@@ -28,7 +28,7 @@ MOMO_ENTRY_MONTHS = 3
 FUPAN_FILE = "./excel/fupan_stocks.xlsx"
 
 
-def load_momo_shangzhang_data(start_date, end_date):
+def load_momo_shangzhang_data(start_date, end_date, keep_latest_per_stock=True):
     """
     从Excel中加载【默默上涨】数据
     
@@ -153,9 +153,14 @@ def load_momo_shangzhang_data(start_date, end_date):
 
         print(f"处理后的【默默上涨】数据: {len(result_df)}行，包含{len(filtered_date_columns)}个日期列")
 
-        # 去重：同一只股票在多个日期出现时，只保留最新的记录
-        result_df = result_df.sort_values('日期').drop_duplicates(subset=['纯代码'], keep='last')
-        print(f"去重后的【默默上涨】数据: {len(result_df)}行")
+        if keep_latest_per_stock:
+            # 去重：同一只股票在多个日期出现时，只保留最新的记录（保持历史行为）
+            result_df = result_df.sort_values('日期').drop_duplicates(subset=['纯代码'], keep='last')
+            print(f"去重后的【默默上涨】数据: {len(result_df)}行")
+        else:
+            # 保留近3个月内全部入选记录，用于事件流场景（如HTML多信号标记）
+            result_df = result_df.sort_values(['纯代码', '日期']).reset_index(drop=True)
+            print(f"保留全部入选记录后的【默默上涨】数据: {len(result_df)}行")
 
         return result_df
 

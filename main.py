@@ -1272,6 +1272,25 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     )
 
 
+def generate_momo_concept_group_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30):
+    """
+    生成【默默上涨】（概念分组口径）HTML交互式图表。
+
+    特性：
+    - 事件源复用 momo_shangzhang_processor（近3个月窗口）
+    - 保留全部入选日期（不做每股 keep='last'）
+    - 叠加炸板与关注度入榜标记
+    """
+    from analysis.html_gen.momo_concept_group_html_chart import generate_momo_concept_group_html_charts as gen_html
+    return gen_html(
+        columns=columns,
+        before_days=before_days,
+        after_days=after_days,
+        output_dir='./excel/html_charts',
+        data_dir='./data/astocks',
+    )
+
+
 def generate_virtual_kline_simulation_html():
     """
     虚拟K线仿真图（独立功能）：
@@ -1704,9 +1723,10 @@ if __name__ == '__main__':
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
     # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
 
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
