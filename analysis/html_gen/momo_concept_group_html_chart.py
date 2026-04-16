@@ -312,6 +312,7 @@ def generate_momo_concept_group_html_charts(
     data_dir: str = './data/astocks',
     ladder_excel_path: str = './excel/ladder_analysis.xlsx',
     top_n: int = MOMO_HTML_DRAW_TOP_N,
+    use_latest_stock_end_fallback: bool = True,
 ) -> Optional[str]:
     """
     生成【默默上涨】（概念分组口径）HTML图表。
@@ -424,6 +425,22 @@ def generate_momo_concept_group_html_charts(
         if stock_data is None or stock_data.empty:
             logging.warning(f"未找到股票数据: {stock_code} {stock_name}")
             continue
+
+        # 兜底：当（最晚信号日 + after_days）推不够时，覆盖到该股CSV自身的最新可用日期
+        if use_latest_stock_end_fallback:
+            try:
+                stock_last_ymd = stock_data.index.max().strftime('%Y%m%d')
+                if (
+                    chart_end
+                    and isinstance(chart_end, str)
+                    and chart_end.isdigit()
+                    and stock_last_ymd
+                    and stock_last_ymd.isdigit()
+                    and chart_end < stock_last_ymd
+                ):
+                    chart_end = stock_last_ymd
+            except Exception:
+                pass
 
         start_dt = datetime.strptime(chart_start, '%Y%m%d')
         end_dt = datetime.strptime(chart_end, '%Y%m%d')

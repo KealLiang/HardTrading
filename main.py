@@ -1272,7 +1272,12 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     )
 
 
-def generate_momo_concept_group_html_charts(columns: int = 2, before_days: int = 60, after_days: int = 30):
+def generate_momo_concept_group_html_charts(
+        columns: int = 2,
+        before_days: int = 60,
+        after_days: int = 30,
+        use_latest_stock_end_fallback: bool = True,
+):
     """
     生成【默默上涨】（概念分组口径）HTML交互式图表。
 
@@ -1288,6 +1293,7 @@ def generate_momo_concept_group_html_charts(columns: int = 2, before_days: int =
         after_days=after_days,
         output_dir='./excel/html_charts',
         data_dir='./data/astocks',
+        use_latest_stock_end_fallback=use_latest_stock_end_fallback,
     )
 
 
