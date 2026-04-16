@@ -710,7 +710,9 @@ def get_stock_datas():
     # 根据参数选择不同的数据获取方式
     if use_realtime:
         # 使用实时数据接口更新当天数据
-        data_fetcher.fetch_and_save_data_from_realtime()
+        ok = data_fetcher.fetch_and_save_data_from_realtime()
+        if not ok:
+            raise RuntimeError("get_stock_datas失败：拉取实时数据接口返回空或发生异常")
     else:
         # 使用历史数据接口获取数据（原有逻辑）
         data_fetcher.fetch_and_save_data()
