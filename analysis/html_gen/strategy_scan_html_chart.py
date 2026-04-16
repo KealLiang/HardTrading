@@ -312,22 +312,21 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
     Returns:
         格式化的标题HTML字符串
     """
-    concept_tag = f" [{'+'.join(concepts)}]" if concepts else ""
-    title_parts = [f"<b>{stock_code} {stock_name}{concept_tag}</b>"]
-
-    # 显示所有信号日期
-    signal_info_parts = []
-    for sig_info in signal_dates_info:
-        signal_date = sig_info['signal_date']
-        signal_type = sig_info.get('signal_type', 'Signal')
-        price = sig_info.get('price')
-        if price:
-            signal_info_parts.append(f"{signal_date} ({signal_type}) @ {price:.2f}")
+    # 概念行：允许拆成最多两行，避免一行过长
+    title_parts: List[str] = []
+    if concepts:
+        n = len(concepts)
+        if n <= 4:
+            concept_str = " + ".join(concepts)
+            concept_tag = f"[{concept_str}]"
         else:
-            signal_info_parts.append(f"{signal_date} ({signal_type})")
-
-    if signal_info_parts:
-        title_parts.append("信号: " + " | ".join(signal_info_parts))
+            split_idx = (n + 1) // 2  # 前一半略多
+            first_line = " + ".join(concepts[:split_idx])
+            second_line = " + ".join(concepts[split_idx:])
+            concept_tag = f"[{first_line}<br>{second_line}]"
+        title_parts.append(f"<b>{stock_code} {stock_name} {concept_tag}</b>")
+    else:
+        title_parts.append(f"<b>{stock_code} {stock_name}</b>")
 
     latest_amount_str: Optional[str] = None
     if chart_df is not None and not chart_df.empty and 'amount' in chart_df.columns:
@@ -903,7 +902,7 @@ def _create_single_chart_figure(
 
 
 def _create_combined_html(figures: List[go.Figure], titles: List[str],
-                          columns: int, rows: int) -> str:
+                          columns: int, rows: int, page_title: str = "策略扫描结果") -> str:
     """创建包含所有图表的单个HTML文件，使用多个Plotly CDN备用源"""
     import json
 
@@ -924,7 +923,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>策略扫描结果</title>
+    <title>{page_title}</title>
     <!-- 多个Plotly CDN备用源 -->
     <script src="https://cdn.plot.ly/plotly-2.26.0.min.js" 
             onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js';"></script>
@@ -1009,7 +1008,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
                 关注度入榜
             </label>
         </div>
-        <h1>策略扫描结果</h1>
+        <h1>{page_title}</h1>
         <p>共 {len(figures)} 只股票</p>
     </div>
     

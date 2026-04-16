@@ -732,7 +732,9 @@ def generate_leader_sheet_html_charts(
         return None
 
     rows = (len(chart_figures) + columns - 1) // columns
-    html_content = _create_combined_html(chart_figures, chart_titles, columns, rows)
+    html_content = _create_combined_html(
+        chart_figures, chart_titles, columns, rows, page_title="龙头入选"
+    )
 
     html_filename = f"leader_sheet_all_{columns}cols.html"
     html_path = os.path.join(output_dir, html_filename)

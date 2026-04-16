@@ -467,7 +467,9 @@ def generate_momo_concept_group_html_charts(
         return None
 
     rows = (len(chart_figures) + columns - 1) // columns
-    html_content = _create_combined_html(chart_figures, chart_titles, columns, rows)
+    html_content = _create_combined_html(
+        chart_figures, chart_titles, columns, rows, page_title="默默上涨"
+    )
 
     html_filename = f"momo_concept_group_all_{columns}cols.html"
     html_path = os.path.join(output_dir, html_filename)
