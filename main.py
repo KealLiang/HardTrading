@@ -1127,14 +1127,24 @@ def whimsical_fupan_analyze():
     # consolidate_unclassified_reasons()
 
 
-def generate_ladder_chart():
-    # 生成某段历史ladder_chart时设为True：不写龙头归档/不拆分归档、不写候选股txt；日常设为False
-    historical_range_only = False
+def generate_ladder_chart(historical_range_only=False, board_levels_experiment=False,
+                          board_experiment_output_file="./excel/ladder_analysis_board实验.xlsx"):
+    """
+    更新同义词分组，基于已有的涨停原因数据文件
+    可用于自动更新theme_color_util.py中的synonym_groups
+    Args:
+        historical_range_only: 生成某段历史ladder_chart时设为True：不写龙头归档/不拆分归档、不写候选股txt；日常设为False
+        board_levels_experiment: 试min/non_main board_level时设为True：只写「涨停梯队+概念分组」到board_experiment_output_file，不动日常 ladder_analysis.xlsx
+        board_experiment_output_file: 上述输出文件
+    """
+    from utils.export_stock_codes import extract_stock_codes_from_excel
+    from analysis.loader.fupan_data_loader import OUTPUT_FILE
+
     start_date = '20260101'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
 
-    min_board_level = 2
-    non_main_board_level = 2
+    min_board_level = 1
+    non_main_board_level = 1
     show_period_change = True  # 是否计算周期涨跌幅
     sheet_name = None
 
@@ -1153,22 +1163,23 @@ def generate_ladder_chart():
         # ('贵金属', '国企'),
     ]
 
+    output_file = board_experiment_output_file if board_levels_experiment else OUTPUT_FILE
+
     # 构建梯队图
-    build_ladder_chart(start_date, end_date, min_board_level=min_board_level,
-                       non_main_board_level=non_main_board_level, show_period_change=show_period_change,
+    build_ladder_chart(start_date=start_date, end_date=end_date, output_file=output_file,
+                       min_board_level=min_board_level, non_main_board_level=non_main_board_level,
+                       show_period_change=show_period_change,
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=True, sheet_name=sheet_name,
                        create_leader_sheet=True, create_volume_sheet=True,
                        group_aggregations=group_aggregations or None,
-                       update_leader_archive=not historical_range_only)
+                       update_leader_archive=not historical_range_only,
+                       ladder_only_workbook=board_levels_experiment)
 
-    if historical_range_only:
+    if historical_range_only or board_levels_experiment:
         return
 
     # 导出股票代码到候选股票txt文件
-    from utils.export_stock_codes import extract_stock_codes_from_excel
-    from analysis.loader.fupan_data_loader import OUTPUT_FILE
-
     excel_file = OUTPUT_FILE
     output_txt = "bin/candidate_temp/candidate_stocks.txt"
     print("\n" + "=" * 60)

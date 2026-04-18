@@ -2452,7 +2452,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        priority_reasons=None, low_priority_reasons=None, enable_attention_criteria=False,
                        sheet_name=None,
                        create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False,
-                       enable_reason_analysis=None, group_aggregations=None, update_leader_archive=True):
+                       enable_reason_analysis=None, group_aggregations=None, update_leader_archive=True,
+                       ladder_only_workbook=False):
     """
     构建梯队形态的涨停复盘图
 
@@ -2483,7 +2484,26 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
         update_leader_archive: 为 True 时，在 create_leader_sheet 为 True 的情况下会执行龙头 sheet
             数量裁剪、写入 ladder_analysis_龙头归档.xlsx（含拆分逻辑）以及对历史龙头 sheet 的回填。
             批量补历史区间时可设为 False，仅生成主复盘文件、不碰归档。
+        ladder_only_workbook: 为 True 时仅输出「涨停梯队 + 涨停梯队_概念分组」两张 sheet：不写龙头/成交量、
+            不写指数与图例、不写入选日侧车 JSON；且 output_file 必须与 OUTPUT_FILE 不同（否则会删主簿中的其它 sheet）。
+            用于试 min_board_level / non_main_board_level 等参数。为 True 时会强制关闭 create_leader_sheet、
+            create_volume_sheet、update_leader_archive。
     """
+    if ladder_only_workbook:
+        try:
+            _same_out = os.path.samefile(output_file, OUTPUT_FILE)
+        except (OSError, FileNotFoundError):
+            _same_out = os.path.normpath(os.path.abspath(output_file)) == os.path.normpath(
+                os.path.abspath(OUTPUT_FILE))
+        if _same_out:
+            raise ValueError(
+                "ladder_only_workbook=True 时 output_file 不得与日常 OUTPUT_FILE 为同一路径，"
+                "请改用例如 ./excel/ladder_analysis_board实验.xlsx"
+            )
+        create_leader_sheet = False
+        create_volume_sheet = False
+        update_leader_archive = False
+
     # 清除缓存
     get_stock_data.cache_clear()
     # 清理高涨幅计算缓存
@@ -2554,6 +2574,14 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     if ws is None:
         print(f"工作表 {sheet_name_used} 已存在且为用户自定义工作表，保留现有内容且不更新图例")
         return True
+
+    if ladder_only_workbook:
+        _keep_main = sheet_name_used
+        _keep_concept = f"{sheet_name_used}_概念分组"
+        for _title in list(wb.sheetnames):
+            if _title not in (_keep_main, _keep_concept):
+                print(f"精简工作簿：移除无关 sheet «{_title}»")
+                wb.remove(wb[_title])
 
     # 准备股票数据（仅在需要更新工作表时）
     stock_data = prepare_stock_data(result_df, priority_reasons, low_priority_reasons)
@@ -2779,46 +2807,50 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             manage_leader_sheets(wb, last_trading_day_obj, output_file)
             backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
 
-    # 创建指数数据工作表
-    print("开始创建指数数据工作表...")
-    create_index_sheet(wb, date_columns, sheet_name="指数数据")
-
-    # 进行原因分析（根据开关控制）
-    from analysis.concept_analyzer import ENABLE_REASON_ANALYSIS
-
-    # 确定是否启用原因分析
-    should_enable_reason_analysis = enable_reason_analysis
-    if should_enable_reason_analysis is None:
-        should_enable_reason_analysis = ENABLE_REASON_ANALYSIS
-
     concept_analysis_data = None
-    if should_enable_reason_analysis:
-        print("开始进行原因分析...")
-        try:
-            # 从原始连板数据中分析原因
-            print("从原始连板数据中分析原因...")
-            concept_analysis_data = analyze_concepts_from_ladder_data(lianban_df, date_columns, start_date, end_date)
+    if not ladder_only_workbook:
+        # 创建指数数据工作表
+        print("开始创建指数数据工作表...")
+        create_index_sheet(wb, date_columns, sheet_name="指数数据")
 
-            if concept_analysis_data:
-                reason_stats, new_reasons = concept_analysis_data
-                # 打印原因分析摘要
-                summary = format_concept_analysis_summary(reason_stats, new_reasons)
-                print(summary)
-            else:
-                print("原因分析未返回数据")
+        # 进行原因分析（根据开关控制）
+        from analysis.concept_analyzer import ENABLE_REASON_ANALYSIS
 
-        except Exception as e:
-            print(f"原因分析过程中出现错误: {e}")
-            import traceback
-            traceback.print_exc()
-            concept_analysis_data = None
+        # 确定是否启用原因分析
+        should_enable_reason_analysis = enable_reason_analysis
+        if should_enable_reason_analysis is None:
+            should_enable_reason_analysis = ENABLE_REASON_ANALYSIS
+
+        if should_enable_reason_analysis:
+            print("开始进行原因分析...")
+            try:
+                # 从原始连板数据中分析原因
+                print("从原始连板数据中分析原因...")
+                concept_analysis_data = analyze_concepts_from_ladder_data(lianban_df, date_columns, start_date,
+                                                                          end_date)
+
+                if concept_analysis_data:
+                    reason_stats, new_reasons = concept_analysis_data
+                    # 打印原因分析摘要
+                    summary = format_concept_analysis_summary(reason_stats, new_reasons)
+                    print(summary)
+                else:
+                    print("原因分析未返回数据")
+
+            except Exception as e:
+                print(f"原因分析过程中出现错误: {e}")
+                import traceback
+                traceback.print_exc()
+                concept_analysis_data = None
+        else:
+            print("原因分析已禁用，跳过分析步骤")
+
+        # 创建图例工作表，传入对应的sheet名和概念分析数据
+        create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
+                            stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
+                            source_sheet_name=sheet_name_used, concept_analysis_data=concept_analysis_data)
     else:
-        print("原因分析已禁用，跳过分析步骤")
-
-    # 创建图例工作表，传入对应的sheet名和概念分析数据
-    create_legend_sheet(wb, stock_data['reason_counter'], stock_data['reason_colors'],
-                        stock_data['top_reasons'], HIGH_BOARD_COLORS, REENTRY_COLORS,
-                        source_sheet_name=sheet_name_used, concept_analysis_data=concept_analysis_data)
+        print("精简工作簿：跳过指数数据、原因分析摘要与图例 sheet")
 
     # 在所有计算完成后，统一应用行折叠（最后一步）
     if concept_grouped_rows_to_collapse:
@@ -2845,15 +2877,16 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     # 保存Excel文件
     try:
         # 侧车：导出天梯入选日（与 candidate_stocks.txt 配套，供策略扫描 HTML 等使用）
-        try:
-            from utils.export_ladder_entry import collect_ladder_entry_dates_map, write_ladder_entry_json
+        if not ladder_only_workbook:
+            try:
+                from utils.export_ladder_entry import collect_ladder_entry_dates_map, write_ladder_entry_json
 
-            _entry_map = collect_ladder_entry_dates_map(
-                result_df, momo_df, start_date, end_date, enable_momo_shangzhang, extract_pure_stock_code
-            )
-            write_ladder_entry_json(_entry_map)
-        except Exception as _e:
-            print(f"导出天梯入选日侧车失败（不影响 Excel）: {_e}")
+                _entry_map = collect_ladder_entry_dates_map(
+                    result_df, momo_df, start_date, end_date, enable_momo_shangzhang, extract_pure_stock_code
+                )
+                write_ladder_entry_json(_entry_map)
+            except Exception as _e:
+                print(f"导出天梯入选日侧车失败（不影响 Excel）: {_e}")
 
         save_excel_file(wb, output_file)
 
@@ -4497,6 +4530,8 @@ if __name__ == "__main__":
                         help='是否创建龙头股工作表，从每个概念分组中筛选出最强的股票 (默认: 不创建)')
     parser.add_argument('--no_leader_archive', action='store_true',
                         help='与 --create_leader_sheet 联用：不更新龙头归档、不回填历史龙头 sheet')
+    parser.add_argument('--ladder_only', action='store_true',
+                        help='仅生成「涨停梯队+概念分组」到独立文件；要求与默认 OUTPUT 不同的 --output')
     parser.add_argument('--ma_slope_days', type=int, default=MA_SLOPE_DAYS,
                         help=f'计算均线斜率的天数，用于在股票简称后显示趋势标记 (默认: {MA_SLOPE_DAYS})')
 
@@ -4526,6 +4561,15 @@ if __name__ == "__main__":
     # 更新全局均线斜率天数
     ladder_chart_module.MA_SLOPE_DAYS = args.ma_slope_days
 
+    if args.ladder_only:
+        try:
+            _same_cli = os.path.samefile(args.output, OUTPUT_FILE)
+        except (OSError, FileNotFoundError):
+            _same_cli = os.path.normpath(os.path.abspath(args.output)) == os.path.normpath(
+                os.path.abspath(OUTPUT_FILE))
+        if _same_cli:
+            parser.error('--ladder_only 必须与 --output 指向独立文件（不可与默认复盘 OUTPUT 相同）')
+
     # 构建梯队图
     build_ladder_chart(args.start_date, args.end_date, args.output, args.min_board,
                        max_tracking, args.reentry_days, args.non_main_board,
@@ -4533,4 +4577,5 @@ if __name__ == "__main__":
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=args.enable_attention_criteria,
                        sheet_name=args.sheet_name, create_leader_sheet=args.create_leader_sheet,
-                       update_leader_archive=not args.no_leader_archive)
+                       update_leader_archive=not args.no_leader_archive,
+                       ladder_only_workbook=args.ladder_only)
