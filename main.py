@@ -1143,8 +1143,8 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
     start_date = '20260101'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
 
-    min_board_level = 1
-    non_main_board_level = 1
+    min_board_level = 2
+    non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
     sheet_name = None
 
