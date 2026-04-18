@@ -2452,7 +2452,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                        priority_reasons=None, low_priority_reasons=None, enable_attention_criteria=False,
                        sheet_name=None,
                        create_leader_sheet=False, enable_momo_shangzhang=True, create_volume_sheet=False,
-                       enable_reason_analysis=None, group_aggregations=None):
+                       enable_reason_analysis=None, group_aggregations=None, update_leader_archive=True):
     """
     构建梯队形态的涨停复盘图
 
@@ -2480,6 +2480,9 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
             每个子列表中的概念名在排序分组时会被合并为同一组（以优先级最高的概念作为组名）。
             只影响【概念分组】sheet 的排序/分组逻辑，不影响股票的上色逻辑。
             例如：[('AI应用', '文化传媒'), ('贵金属', '国企')]
+        update_leader_archive: 为 True 时，在 create_leader_sheet 为 True 的情况下会执行龙头 sheet
+            数量裁剪、写入 ladder_analysis_龙头归档.xlsx（含拆分逻辑）以及对历史龙头 sheet 的回填。
+            批量补历史区间时可设为 False，仅生成主复盘文件、不碰归档。
     """
     # 清除缓存
     get_stock_data.cache_clear()
@@ -2769,11 +2772,12 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
                                                stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
                                                zaban_df, abnormal_detector=shared_abnormal_detector)
 
-        # 管理龙头sheet并回填历史数据
+        # 管理龙头sheet并回填历史数据（可与主文件生成解耦，供批量补历史区间时关闭）
         last_day_str = date_mapping[formatted_trading_days[-1]]
         last_trading_day_obj = datetime.strptime(last_day_str, '%Y%m%d')
-        manage_leader_sheets(wb, last_trading_day_obj, output_file)
-        backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
+        if update_leader_archive:
+            manage_leader_sheets(wb, last_trading_day_obj, output_file)
+            backfill_historical_leader_sheets(wb, last_trading_day_obj, formatted_trading_days, date_mapping)
 
     # 创建指数数据工作表
     print("开始创建指数数据工作表...")
@@ -4491,6 +4495,8 @@ if __name__ == "__main__":
                         help=f'持续跟踪的涨幅阈值，如果股票在period_days天内涨幅超过此值，即便没有涨停也会继续跟踪 (默认: {HIGH_GAIN_TRACKING_THRESHOLD}%)')
     parser.add_argument('--create_leader_sheet', action='store_true',
                         help='是否创建龙头股工作表，从每个概念分组中筛选出最强的股票 (默认: 不创建)')
+    parser.add_argument('--no_leader_archive', action='store_true',
+                        help='与 --create_leader_sheet 联用：不更新龙头归档、不回填历史龙头 sheet')
     parser.add_argument('--ma_slope_days', type=int, default=MA_SLOPE_DAYS,
                         help=f'计算均线斜率的天数，用于在股票简称后显示趋势标记 (默认: {MA_SLOPE_DAYS})')
 
@@ -4526,4 +4532,5 @@ if __name__ == "__main__":
                        args.max_tracking_before, args.period_days, args.period_days_long, args.show_period_change,
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=args.enable_attention_criteria,
-                       sheet_name=args.sheet_name, create_leader_sheet=args.create_leader_sheet)
+                       sheet_name=args.sheet_name, create_leader_sheet=args.create_leader_sheet,
+                       update_leader_archive=not args.no_leader_archive)

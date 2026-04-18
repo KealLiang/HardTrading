@@ -1128,8 +1128,11 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart():
+    # 生成某段历史ladder_chart时设为True：不写龙头归档/不拆分归档、不写候选股txt；日常设为False
+    historical_range_only = False
     start_date = '20260101'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
+
     min_board_level = 2
     non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
@@ -1156,7 +1159,11 @@ def generate_ladder_chart():
                        priority_reasons=priority_reasons, low_priority_reasons=low_priority_reasons,
                        enable_attention_criteria=True, sheet_name=sheet_name,
                        create_leader_sheet=True, create_volume_sheet=True,
-                       group_aggregations=group_aggregations or None)
+                       group_aggregations=group_aggregations or None,
+                       update_leader_archive=not historical_range_only)
+
+    if historical_range_only:
+        return
 
     # 导出股票代码到候选股票txt文件
     from utils.export_stock_codes import extract_stock_codes_from_excel
@@ -1730,12 +1737,12 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
+    generate_ladder_chart()
     # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
 
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # get_stock_datas()
     # full_scan_routine()
     # get_index_data()
