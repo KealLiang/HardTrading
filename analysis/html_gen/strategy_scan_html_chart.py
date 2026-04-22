@@ -903,7 +903,7 @@ def _create_single_chart_figure(
                 name=daily_relative_strength_label,
                 line=dict(color='#8e44ad', width=1.8),
                 customdata=date_labels,
-                hovertemplate='%{customdata}<br>每日相对强弱: %{y:+.2f}%<extra></extra>',
+                hovertemplate='%{customdata}<br>每日相对强弱: %{y:.2f}%<extra></extra>',
             )
             fig.add_trace(rs_line, row=rs_row, col=1)
             fig.add_hline(
@@ -1101,7 +1101,12 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
         chart_data_list.append(fig_dict)
 
         chart_height = int(getattr(fig.layout, 'height', 600) or 600)
-        chart_div = f'<div id="chart_{i}" style="width:100%;height:{chart_height}px;"></div>'
+        chart_div = (
+            f'<div class="chart-plot-wrap">'
+            f'<div id="chart_{i}" style="width:100%;height:{chart_height}px;"></div>'
+            f'<div id="chart_{i}_hover_line" class="chart-hover-line"></div>'
+            f'</div>'
+        )
         chart_divs.append(chart_div)
 
     # 构建完整的HTML，使用多个Plotly CDN备用源
@@ -1184,6 +1189,20 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             background-color: #f9f9f9;
             border-radius: 4px;
         }}
+        .chart-plot-wrap {{
+            position: relative;
+        }}
+        .chart-hover-line {{
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            display: none;
+            pointer-events: none;
+            background: transparent;
+            border-left: 1px dashed rgba(120, 120, 120, 0.5);
+            z-index: 15;
+        }}
     </style>
 </head>
 <body>
@@ -1215,6 +1234,30 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
     
     <script>
         const ATTENTION_LEGEND_GROUP = 'attention_rank';
+
+        function bindVerticalHoverGuide(chartEl, guideEl) {
+            if (!chartEl || !guideEl || chartEl.__verticalGuideBound) return;
+            chartEl.__verticalGuideBound = true;
+
+            const showGuide = (eventData) => {
+                if (!eventData || !eventData.event) return;
+                const rect = chartEl.getBoundingClientRect();
+                const clientX = eventData.event.clientX;
+                if (clientX == null) return;
+
+                const left = Math.max(0, Math.min(clientX - rect.left, rect.width));
+                guideEl.style.left = `${left}px`;
+                guideEl.style.display = 'block';
+            };
+
+            const hideGuide = () => {
+                guideEl.style.display = 'none';
+            };
+
+            chartEl.on('plotly_hover', showGuide);
+            chartEl.on('plotly_unhover', hideGuide);
+            chartEl.addEventListener('mouseleave', hideGuide);
+        }
 
         function setAttentionMarkerVisible(visible) {
             const chartData = window.__chartDataCache || [];
@@ -1256,6 +1299,9 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
                     responsive: true,
                     displayModeBar: true
                 });
+                const chartEl = document.getElementById(`chart_${index}`);
+                const guideEl = document.getElementById(`chart_${index}_hover_line`);
+                bindVerticalHoverGuide(chartEl, guideEl);
             });
             bindHeaderControls();
         }
