@@ -55,7 +55,9 @@ def fetch_indexes_data(save_dir):
         "bj899050": os.path.join(save_dir, "bj899050_北证50.csv"),
         "sh000905": os.path.join(save_dir, "sh000905_中证500.csv"),
         "sz399405": os.path.join(save_dir, "sz399405_大盘高贝.csv"),
-        "sz399409": os.path.join(save_dir, "sz399409_小盘高贝.csv")
+        "sz399409": os.path.join(save_dir, "sz399409_小盘高贝.csv"),
+        "sh000065": os.path.join(save_dir, "sh000065_上证龙头.csv"),
+        "sz399653": os.path.join(save_dir, "sz399653_深证龙头.csv"),
     }
 
     # 获取并保存每个指数的数据

@@ -24,7 +24,7 @@ from plotly.subplots import make_subplots
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day, get_current_or_prev_trading_day
 from utils.number_format_cn import format_turnover_amount_cn
-from utils.stock_util import calculate_period_change_from_date, stock_limit_ratio
+from utils.stock_util import calculate_period_change_from_date, stock_limit_ratio, get_stock_market
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
@@ -48,6 +48,13 @@ _SCAN_MARKER_STYLE_BY_TYPE = {
 
 DEFAULT_BEFORE_DAYS = 60  # 信号日前显示的交易日数
 DEFAULT_AFTER_DAYS = 30  # 信号日后显示的交易日数
+
+INDEXES_DIR = './data/indexes'
+SH_LEADER_INDEX_FILE = os.path.join(INDEXES_DIR, 'sh000065_上证龙头.csv')
+SZ_LEADER_INDEX_FILE = os.path.join(INDEXES_DIR, 'sz399653_深证龙头.csv')
+GEM_INDEX_FILE = os.path.join(INDEXES_DIR, 'sz399006_创业板指.csv')
+STAR_INDEX_FILE = os.path.join(INDEXES_DIR, 'sh000688_科创50.csv')
+BSE_INDEX_FILE = os.path.join(INDEXES_DIR, 'bj899050_北证50.csv')
 
 # 建仓价格区间（基于最新信号日MA5，不区分信号类别）的全局配置，单位为百分比
 # 例如：-0.01 表示 -1%，0.03 表示 +3%
@@ -410,12 +417,59 @@ def _build_daily_pct_change_series(chart_df: pd.DataFrame) -> pd.Series:
     return close_series.pct_change() * 100.0
 
 
-def _build_daily_relative_strength_series(stock_code: str, chart_df: pd.DataFrame, index_file: str) -> Optional[pd.Series]:
+def _resolve_benchmark_index_file(stock_code: str, benchmark_index_file: Optional[str] = None) -> Optional[str]:
+    """
+    根据股票自动选择对比指数。
+
+    优先级：
+    1. 显式传入 benchmark_index_file 时直接使用
+    2. 自动按市场选择：
+       - 沪市主板 -> 上证龙头
+       - 深市主板 -> 深证龙头
+       - 创业板 -> 创业板指
+       - 科创板 -> 科创50
+       - 北交所 -> 北证50
+       - 新三板 -> 无指数，不绘制
+    """
+    if benchmark_index_file:
+        return benchmark_index_file
+
+    code = str(stock_code).strip()
+    try:
+        market = get_stock_market(code)
+    except Exception:
+        return None
+
+    if market == 'main':
+        if code.startswith('60'):
+            return SH_LEADER_INDEX_FILE
+        if code.startswith('00'):
+            return SZ_LEADER_INDEX_FILE
+        return None
+    if market == 'gem':
+        return GEM_INDEX_FILE
+    if market == 'star':
+        return STAR_INDEX_FILE
+    if market == 'bse':
+        return BSE_INDEX_FILE
+    if market == 'neeq':
+        return None
+    return None
+
+
+def _build_daily_relative_strength_series(
+        stock_code: str,
+        chart_df: pd.DataFrame,
+        index_file: Optional[str],
+) -> Optional[pd.Series]:
     """
     计算每日相对强弱：
     个股当日涨跌幅 - 指数当日涨跌幅
     """
     if chart_df is None or chart_df.empty:
+        return None
+
+    if not index_file:
         return None
 
     index_df = _load_index_dataframe(index_file)
@@ -468,7 +522,7 @@ def _create_single_chart_figure(
         overlay_down_color: str = '#66cc66',
         entry_range_anchor_signal_types: Optional[List[str]] = None,
         show_daily_relative_strength: bool = False,
-        benchmark_index_file: str = './data/indexes/sh000001_上证指数.csv',
+        benchmark_index_file: Optional[str] = None,
         daily_relative_strength_label: str = '每日相对强弱',
 ) -> Optional[go.Figure]:
     """
@@ -489,6 +543,7 @@ def _create_single_chart_figure(
     try:
         daily_relative_strength_series = None
         if show_daily_relative_strength:
+            benchmark_index_file = _resolve_benchmark_index_file(stock_code, benchmark_index_file)
             daily_relative_strength_series = _build_daily_relative_strength_series(
                 stock_code, chart_df, benchmark_index_file
             )
@@ -513,11 +568,7 @@ def _create_single_chart_figure(
                 if has_daily_relative_strength else
                 [[{"secondary_y": True}], [{"secondary_y": False}]]
             ),
-            subplot_titles=(
-                ('', '成交量', daily_relative_strength_label)
-                if has_daily_relative_strength else
-                ('', '成交量')
-            )
+            subplot_titles=tuple([''] * total_rows)
         )
 
         # 准备数据：x 使用交易日字符串分类轴（按已有交易日顺序），避免节假日空白

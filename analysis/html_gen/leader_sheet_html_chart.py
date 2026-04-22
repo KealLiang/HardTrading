@@ -711,7 +711,6 @@ def generate_leader_sheet_html_charts(
                 # 龙头图：建仓区间只锚定最新“龙头入选”信号
                 entry_range_anchor_signal_types=['龙头入选'],
                 show_daily_relative_strength=True,
-                benchmark_index_file='./data/indexes/sh000001_上证指数.csv',
                 daily_relative_strength_label='每日相对强弱',
             )
             if fig is None:
