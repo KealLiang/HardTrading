@@ -14,6 +14,7 @@ import os
 import re
 from collections import defaultdict
 from datetime import datetime
+from functools import lru_cache
 from typing import List, Dict, Optional
 
 import pandas as pd
@@ -23,7 +24,7 @@ from plotly.subplots import make_subplots
 from utils.backtrade.visualizer import read_stock_data
 from utils.date_util import get_n_trading_days_before, get_next_trading_day, get_current_or_prev_trading_day
 from utils.number_format_cn import format_turnover_amount_cn
-from utils.stock_util import calculate_period_change_from_date
+from utils.stock_util import calculate_period_change_from_date, stock_limit_ratio
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
 
@@ -361,6 +362,96 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
     return "<br>".join(title_parts)
 
 
+@lru_cache(maxsize=16)
+def _load_index_dataframe(index_file: str) -> pd.DataFrame:
+    """读取任意指数日线数据（无表头 CSV）。"""
+    if not index_file or not os.path.exists(index_file):
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(
+            index_file,
+            header=None,
+            names=['date', 'open', 'high', 'low', 'close', 'volume'],
+        )
+        if df.empty:
+            return pd.DataFrame()
+
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df = df.dropna(subset=['date']).sort_values('date')
+        if df.empty:
+            return pd.DataFrame()
+
+        df['date'] = df['date'].dt.tz_localize(None)
+        df = df.set_index('date')
+        df = df[~df.index.duplicated(keep='last')]
+        return df
+    except Exception as e:
+        logging.warning(f"读取指数数据失败 {index_file}: {e}")
+        return pd.DataFrame()
+
+
+def _build_daily_pct_change_series(chart_df: pd.DataFrame) -> pd.Series:
+    """优先复用原始 pct_chg，否则基于 Close 计算日涨跌幅。"""
+    if chart_df is None or chart_df.empty:
+        return pd.Series(dtype='float64')
+
+    if 'pct_chg' in chart_df.columns:
+        pct_series = pd.to_numeric(chart_df['pct_chg'], errors='coerce')
+        if not pct_series.dropna().empty:
+            return pct_series
+
+    if 'Close' not in chart_df.columns:
+        return pd.Series(dtype='float64')
+
+    close_series = pd.to_numeric(chart_df['Close'], errors='coerce')
+    return close_series.pct_change() * 100.0
+
+
+def _build_daily_relative_strength_series(stock_code: str, chart_df: pd.DataFrame, index_file: str) -> Optional[pd.Series]:
+    """
+    计算每日相对强弱：
+    个股当日涨跌幅 - 指数当日涨跌幅
+    """
+    if chart_df is None or chart_df.empty:
+        return None
+
+    index_df = _load_index_dataframe(index_file)
+    if index_df.empty or 'close' not in index_df.columns:
+        return None
+
+    stock_pct = _build_daily_pct_change_series(chart_df)
+    index_close = pd.to_numeric(index_df['close'], errors='coerce')
+    index_pct = index_close.pct_change() * 100.0
+
+    aligned = pd.DataFrame({'stock_pct': stock_pct}).join(index_pct.rename('index_pct'), how='left')
+    aligned = aligned.dropna(subset=['stock_pct', 'index_pct'])
+    if aligned.empty:
+        return None
+
+    # 过滤明显异常的日涨跌幅（如新股上市首日、数据异常），避免单点把整条曲线压扁。
+    try:
+        stock_limit_pct = abs(float(stock_limit_ratio(str(stock_code)))) * 100.0
+    except Exception:
+        stock_limit_pct = 10.0
+    stock_abs_ceiling = max(stock_limit_pct + 5.0, 35.0)
+
+    daily_rs = aligned['stock_pct'] - aligned['index_pct']
+    daily_rs_abs_ceiling = max(stock_abs_ceiling * 1.5, 50.0)
+    valid_mask = (
+        aligned['stock_pct'].abs() <= stock_abs_ceiling
+    ) & (
+        daily_rs.abs() <= daily_rs_abs_ceiling
+    )
+    daily_rs = daily_rs.where(valid_mask).round(2)
+
+    out = pd.Series(index=chart_df.index, dtype='float64')
+    out.loc[aligned.index] = daily_rs
+    return out
+
+
 def _create_single_chart_figure(
         stock_code: str,
         stock_name: str,
@@ -376,6 +467,9 @@ def _create_single_chart_figure(
         overlay_up_color: str = '#ff8a8a',
         overlay_down_color: str = '#66cc66',
         entry_range_anchor_signal_types: Optional[List[str]] = None,
+        show_daily_relative_strength: bool = False,
+        benchmark_index_file: str = './data/indexes/sh000001_上证指数.csv',
+        daily_relative_strength_label: str = '每日相对强弱',
 ) -> Optional[go.Figure]:
     """
     创建单个图表的Figure对象，支持多个信号日期标记
@@ -393,14 +487,37 @@ def _create_single_chart_figure(
         go.Figure: Plotly图表对象
     """
     try:
-        # 创建子图：主图（K线）+ 成交量图
+        daily_relative_strength_series = None
+        if show_daily_relative_strength:
+            daily_relative_strength_series = _build_daily_relative_strength_series(
+                stock_code, chart_df, benchmark_index_file
+            )
+
+        has_daily_relative_strength = (
+            daily_relative_strength_series is not None and
+            not daily_relative_strength_series.dropna().empty
+        )
+
+        total_rows = 3 if has_daily_relative_strength else 2
+        volume_row = 2
+        rs_row = 3 if has_daily_relative_strength else None
+
+        # 创建子图：主图（K线）+ 成交量图 + 每日相对强弱图（可选）
         fig = make_subplots(
-            rows=2, cols=1,
+            rows=total_rows, cols=1,
             shared_xaxes=True,
             vertical_spacing=0.03,
-            row_heights=[0.7, 0.3],
-            specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
-            subplot_titles=('', '成交量')
+            row_heights=[0.60, 0.24, 0.16] if has_daily_relative_strength else [0.7, 0.3],
+            specs=(
+                [[{"secondary_y": True}], [{"secondary_y": False}], [{"secondary_y": False}]]
+                if has_daily_relative_strength else
+                [[{"secondary_y": True}], [{"secondary_y": False}]]
+            ),
+            subplot_titles=(
+                ('', '成交量', daily_relative_strength_label)
+                if has_daily_relative_strength else
+                ('', '成交量')
+            )
         )
 
         # 准备数据：x 使用交易日字符串分类轴（按已有交易日顺序），避免节假日空白
@@ -727,6 +844,24 @@ def _create_single_chart_figure(
         )
         fig.add_trace(volume_bar, row=2, col=1)
 
+        if has_daily_relative_strength and rs_row is not None:
+            rs_line = go.Scatter(
+                x=x_plot,
+                y=daily_relative_strength_series.tolist(),
+                mode='lines',
+                name=daily_relative_strength_label,
+                line=dict(color='#8e44ad', width=1.8),
+                customdata=date_labels,
+                hovertemplate='%{customdata}<br>每日相对强弱: %{y:+.2f}%<extra></extra>',
+            )
+            fig.add_trace(rs_line, row=rs_row, col=1)
+            fig.add_hline(
+                y=0,
+                row=rs_row,
+                col=1,
+                line=dict(color='rgba(142,68,173,0.35)', width=1, dash='dash'),
+            )
+
         # 4. 生成标题
         title = _format_title(
             stock_code, stock_name, signal_dates_info, concepts=concepts,
@@ -741,7 +876,7 @@ def _create_single_chart_figure(
                 xanchor='left',
                 font=dict(size=11, color='black')
             ),
-            height=600,
+            height=660 if has_daily_relative_strength else 600,
             showlegend=True,
             legend=dict(
                 orientation="h",
@@ -758,9 +893,11 @@ def _create_single_chart_figure(
         )
 
         # 6. 更新坐标轴
-        fig.update_xaxes(title_text="", row=2, col=1)
+        fig.update_xaxes(title_text="", row=volume_row, col=1)
         fig.update_yaxes(title_text="价格", row=1, col=1, secondary_y=False, title_font=dict(size=10))
-        fig.update_yaxes(title_text="成交量", row=2, col=1, title_font=dict(size=10))
+        fig.update_yaxes(title_text="成交量", row=volume_row, col=1, title_font=dict(size=10))
+        if has_daily_relative_strength and rs_row is not None:
+            fig.update_yaxes(title_text=daily_relative_strength_label, row=rs_row, col=1, title_font=dict(size=10))
 
         # 6.1 主图右侧增加百分比轴（与左侧价格轴同刻度位置）
         try:
@@ -843,34 +980,21 @@ def _create_single_chart_figure(
             tick_indices.append(len(chart_df) - 1)
         tick_vals = [x_plot[i] for i in tick_indices]
 
-        fig.update_xaxes(
-            type='category',
-            tickmode='array',
-            tickvals=tick_vals,
-            ticktext=[date_labels[i] for i in tick_indices],
-            tickangle=-45,
-            showspikes=True,
-            spikemode='across',
-            spikesnap='cursor',
-            spikethickness=1,
-            spikedash='dot',
-            spikecolor='rgba(80,80,80,0.6)',
-            row=2, col=1,
-        )
-        fig.update_xaxes(
-            type='category',
-            tickmode='array',
-            tickvals=tick_vals,
-            ticktext=[date_labels[i] for i in tick_indices],
-            tickangle=-45,
-            showspikes=True,
-            spikemode='across',
-            spikesnap='cursor',
-            spikethickness=1,
-            spikedash='dot',
-            spikecolor='rgba(80,80,80,0.6)',
-            row=1, col=1,
-        )
+        for row_idx in range(1, total_rows + 1):
+            fig.update_xaxes(
+                type='category',
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=[date_labels[i] for i in tick_indices],
+                tickangle=-45,
+                showspikes=True,
+                spikemode='across',
+                spikesnap='cursor',
+                spikethickness=1,
+                spikedash='dot',
+                spikecolor='rgba(80,80,80,0.6)',
+                row=row_idx, col=1,
+            )
 
         # 开启 Y 轴 spike，可在 hover 时显示横向定位虚线
         fig.update_yaxes(
@@ -891,6 +1015,16 @@ def _create_single_chart_figure(
             spikecolor='rgba(80,80,80,0.6)',
             row=1, col=1, secondary_y=True
         )
+        if has_daily_relative_strength and rs_row is not None:
+            fig.update_yaxes(
+                showspikes=True,
+                spikemode='across',
+                spikesnap='cursor',
+                spikethickness=1,
+                spikedash='dot',
+                spikecolor='rgba(80,80,80,0.6)',
+                row=rs_row, col=1
+            )
 
         return fig
 
@@ -915,7 +1049,8 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
         fig_dict = json.loads(fig_json_str)
         chart_data_list.append(fig_dict)
 
-        chart_div = f'<div id="chart_{i}" style="width:100%;height:600px;"></div>'
+        chart_height = int(getattr(fig.layout, 'height', 600) or 600)
+        chart_div = f'<div id="chart_{i}" style="width:100%;height:{chart_height}px;"></div>'
         chart_divs.append(chart_div)
 
     # 构建完整的HTML，使用多个Plotly CDN备用源
