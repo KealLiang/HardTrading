@@ -1087,9 +1087,50 @@ def _create_single_chart_figure(
 
 
 def _create_combined_html(figures: List[go.Figure], titles: List[str],
-                          columns: int, rows: int, page_title: str = "策略扫描结果") -> str:
+                          columns: int, rows: int, page_title: str = "策略扫描结果",
+                          chart_keys: Optional[List[str]] = None,
+                          enable_favorites: bool = False,
+                          favorite_storage_key: str = "trading.chart.favorites.v1") -> str:
     """创建包含所有图表的单个HTML文件，使用多个Plotly CDN备用源"""
     import json
+
+    chart_keys = chart_keys or ["" for _ in figures]
+    favorite_enabled = enable_favorites and len(chart_keys) == len(figures)
+    favorite_storage_key_json = json.dumps(favorite_storage_key, ensure_ascii=False)
+    favorites_css = """
+        .chart-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .chart-title-text {
+            flex: 1;
+            min-width: 0;
+        }
+        .favorite-btn {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            color: #999;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+            padding: 3px 7px;
+        }
+        .favorite-btn:hover {
+            border-color: #f0b400;
+            color: #f0b400;
+        }
+        .favorite-btn.is-favorite {
+            border-color: #f0b400;
+            color: #f0b400;
+            background: #fff8d8;
+        }
+        .chart-container.is-favorite {
+            box-shadow: 0 2px 8px rgba(240, 180, 0, 0.35);
+        }
+""" if favorite_enabled else ""
 
     # 生成每个图表的JSON数据和div
     chart_data_list = []
@@ -1189,6 +1230,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             background-color: #f9f9f9;
             border-radius: 4px;
         }}
+{favorites_css}
         .chart-plot-wrap {{
             position: relative;
         }}
@@ -1217,14 +1259,24 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
         <p>共 {len(figures)} 只股票</p>
     </div>
     
-    <div style="display: grid; grid-template-columns: repeat({columns}, 1fr); gap: 20px;">
+    <div id="chart-grid" style="display: grid; grid-template-columns: repeat({columns}, 1fr); gap: 20px;">
 """
 
     # 添加每个图表
     for i, title in enumerate(titles):
+        chart_key = chart_keys[i] if i < len(chart_keys) else ""
+        favorite_button = (
+            f'<button type="button" class="favorite-btn" data-favorite-key="{chart_key}" '
+            f'title="收藏并置顶">☆</button>'
+        ) if favorite_enabled and chart_key else ""
+        title_html = (
+            f'<div class="chart-title"><span class="chart-title-text">{title}</span>{favorite_button}</div>'
+            if favorite_enabled else
+            f'<div class="chart-title">{title}</div>'
+        )
         html_template += f"""
-        <div class="chart-container">
-            <div class="chart-title">{title}</div>
+        <div class="chart-container" data-chart-key="{chart_key}">
+            {title_html}
             {chart_divs[i]}
         </div>
 """
@@ -1234,6 +1286,8 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
     
     <script>
         const ATTENTION_LEGEND_GROUP = 'attention_rank';
+        const FAVORITES_ENABLED = """ + json.dumps(favorite_enabled) + """;
+        const FAVORITE_STORAGE_KEY = """ + favorite_storage_key_json + """;
 
         function bindVerticalHoverGuide(chartEl, guideEl) {
             if (!chartEl || !guideEl || chartEl.__verticalGuideBound) return;
@@ -1276,6 +1330,77 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             });
         }
 
+        function loadFavoriteKeys() {
+            if (!FAVORITES_ENABLED) return [];
+            try {
+                const raw = localStorage.getItem(FAVORITE_STORAGE_KEY);
+                const parsed = raw ? JSON.parse(raw) : [];
+                return Array.isArray(parsed) ? parsed.map(String) : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveFavoriteKeys(keys) {
+            if (!FAVORITES_ENABLED) return;
+            localStorage.setItem(FAVORITE_STORAGE_KEY, JSON.stringify(keys));
+        }
+
+        function applyFavoriteState() {
+            if (!FAVORITES_ENABLED) return;
+            const favoriteKeys = loadFavoriteKeys();
+            const favoriteSet = new Set(favoriteKeys);
+            document.querySelectorAll('.chart-container[data-chart-key]').forEach((container) => {
+                const key = container.dataset.chartKey;
+                const isFavorite = favoriteSet.has(key);
+                container.classList.toggle('is-favorite', isFavorite);
+                const btn = container.querySelector('.favorite-btn');
+                if (btn) {
+                    btn.classList.toggle('is-favorite', isFavorite);
+                    btn.textContent = isFavorite ? '★' : '☆';
+                    btn.setAttribute('aria-pressed', isFavorite ? 'true' : 'false');
+                }
+            });
+        }
+
+        function reorderFavoriteCharts() {
+            if (!FAVORITES_ENABLED) return;
+            const grid = document.getElementById('chart-grid');
+            if (!grid) return;
+            const favoriteKeys = loadFavoriteKeys();
+            const order = new Map(favoriteKeys.map((key, index) => [key, index]));
+            const containers = Array.from(grid.querySelectorAll('.chart-container[data-chart-key]'));
+            const favorites = containers
+                .filter((container) => order.has(container.dataset.chartKey))
+                .sort((a, b) => order.get(a.dataset.chartKey) - order.get(b.dataset.chartKey));
+            favorites.forEach((container) => grid.appendChild(container));
+            favorites.reverse().forEach((container) => grid.insertBefore(container, grid.firstChild));
+        }
+
+        function bindFavoriteControls() {
+            if (!FAVORITES_ENABLED) return;
+            document.querySelectorAll('.favorite-btn[data-favorite-key]').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const key = String(button.dataset.favoriteKey || '');
+                    if (!key) return;
+                    const keys = loadFavoriteKeys();
+                    const existingIndex = keys.indexOf(key);
+                    if (existingIndex >= 0) {
+                        keys.splice(existingIndex, 1);
+                    } else {
+                        keys.unshift(key);
+                    }
+                    saveFavoriteKeys(keys);
+                    reorderFavoriteCharts();
+                    applyFavoriteState();
+                });
+            });
+            reorderFavoriteCharts();
+            applyFavoriteState();
+        }
+
         function bindHeaderControls() {
             const checkbox = document.getElementById('toggle-attention-marker');
             if (!checkbox) return;
@@ -1304,6 +1429,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
                 bindVerticalHoverGuide(chartEl, guideEl);
             });
             bindHeaderControls();
+            bindFavoriteControls();
         }
         
         // 页面加载完成后初始化图表

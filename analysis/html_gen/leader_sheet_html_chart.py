@@ -624,6 +624,7 @@ def generate_leader_sheet_html_charts(
 
     chart_figures = []
     chart_titles = []
+    chart_codes = []
 
     # 排序：按最近一次「龙头入选」日期倒序；无入选则按最后一条信号日期
     sorted_codes = sorted(
@@ -717,6 +718,7 @@ def generate_leader_sheet_html_charts(
                 continue
 
             chart_figures.append(fig)
+            chart_codes.append(stock_code)
             # 卡片标题：以最近一次龙头入选为基准的题材概念
             sheet_concept = _sheet_concept_for_latest_entry(merged_signals)
             if sheet_concept:
@@ -735,7 +737,14 @@ def generate_leader_sheet_html_charts(
 
     rows = (len(chart_figures) + columns - 1) // columns
     html_content = _create_combined_html(
-        chart_figures, chart_titles, columns, rows, page_title="龙头入选"
+        chart_figures,
+        chart_titles,
+        columns,
+        rows,
+        page_title="龙头入选",
+        chart_keys=chart_codes,
+        enable_favorites=True,
+        favorite_storage_key="trading.leader_sheet.favorites.v1",
     )
 
     html_filename = f"leader_sheet_all_{columns}cols.html"
