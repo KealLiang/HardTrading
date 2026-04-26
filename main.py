@@ -1043,7 +1043,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20260201'
+    start_date = '20260301'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
