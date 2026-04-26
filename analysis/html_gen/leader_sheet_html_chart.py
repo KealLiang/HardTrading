@@ -23,7 +23,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from analysis.html_gen.strategy_scan_html_chart import (
-    _create_combined_html,
+    _create_stock_favorite_combined_html,
     _create_single_chart_figure,
 )
 from analysis.loader.fupan_data_loader import load_attention_data, load_zaban_data
@@ -736,15 +736,14 @@ def generate_leader_sheet_html_charts(
         return None
 
     rows = (len(chart_figures) + columns - 1) // columns
-    html_content = _create_combined_html(
+    html_content = _create_stock_favorite_combined_html(
         chart_figures,
         chart_titles,
+        chart_codes,
         columns,
         rows,
         page_title="龙头入选",
-        chart_keys=chart_codes,
-        enable_favorites=True,
-        favorite_storage_key="trading.leader_sheet.favorites.v1",
+        favorite_scope="leader_sheet",
     )
 
     html_filename = f"leader_sheet_all_{columns}cols.html"

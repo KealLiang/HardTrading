@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from analysis.html_gen.strategy_scan_html_chart import (
-    _create_combined_html,
+    _create_stock_favorite_combined_html,
     _create_single_chart_figure,
 )
 from analysis.loader.fupan_data_loader import load_attention_data, load_zaban_data
@@ -401,6 +401,7 @@ def generate_momo_concept_group_html_charts(
 
     chart_figures = []
     chart_titles = []
+    chart_codes = []
     # 按ladder_analysis.xlsx提取的顺序绘图（与“市值排序/成交额排序”口径一致）
     for stock_code in momo_codes:
         if stock_code not in signals_map:
@@ -478,14 +479,21 @@ def generate_momo_concept_group_html_charts(
 
         chart_figures.append(fig)
         chart_titles.append(f"{stock_code} {stock_name}".strip())
+        chart_codes.append(stock_code)
 
     if not chart_figures:
         logging.warning("没有可用图表，未生成HTML")
         return None
 
     rows = (len(chart_figures) + columns - 1) // columns
-    html_content = _create_combined_html(
-        chart_figures, chart_titles, columns, rows, page_title="默默上涨"
+    html_content = _create_stock_favorite_combined_html(
+        chart_figures,
+        chart_titles,
+        chart_codes,
+        columns,
+        rows,
+        page_title="默默上涨",
+        favorite_scope="momo_concept_group",
     )
 
     html_filename = f"momo_concept_group_all_{columns}cols.html"

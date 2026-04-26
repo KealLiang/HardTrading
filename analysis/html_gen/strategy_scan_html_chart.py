@@ -1445,6 +1445,28 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
     return html_template
 
 
+def _create_stock_favorite_combined_html(
+        figures: List[go.Figure],
+        titles: List[str],
+        stock_codes: List[str],
+        columns: int,
+        rows: int,
+        page_title: str,
+        favorite_scope: str,
+) -> str:
+    """创建支持按股票代码收藏置顶的组合HTML。"""
+    return _create_combined_html(
+        figures,
+        titles,
+        columns,
+        rows,
+        page_title=page_title,
+        chart_keys=stock_codes,
+        enable_favorites=True,
+        favorite_storage_key=f"trading.{favorite_scope}.favorites.v1",
+    )
+
+
 def generate_strategy_scan_html_charts(
         base_dir: str,
         recent_days: int = 10,
