@@ -103,6 +103,8 @@ class TMonitorConfig:
                                        # 调大(如-0.15)：轻微缩量即判定背离，信号增多
                                        # 调小(如-0.35)：要求明显缩量，信号更可靠
 
+    OPENING_GAP_THRESHOLD = 0.03  # 开盘前几分钟相对昨收涨跌超过3%，视为重要情绪信息
+
     # ==================== 冷却机制（防止重复信号）====================
     SIGNAL_COOLDOWN_SECONDS = 60   # 同类信号最小间隔（秒）
                                    # 调大(如180)：强制3分钟冷却，避免高频信号
@@ -365,6 +367,72 @@ class TMonitorV3:
 
         return True, "允许触发"
 
+    @staticmethod
+    def _date_of(ts):
+        return ts.date() if hasattr(ts, 'date') else ts
+
+    def _get_previous_close(self, df_1m, i, current_date):
+        """获取当前交易日前一根可见K线的收盘价，通常近似上一交易日收盘价。"""
+        try:
+            prev_df = df_1m.iloc[:i].copy()
+            prev_df = prev_df[prev_df['datetime'].apply(lambda x: self._date_of(x) < current_date)]
+            if prev_df.empty:
+                return None
+            return prev_df['close'].iloc[-1]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _format_gap_msg(gap_change):
+        if gap_change is None:
+            return "较昨收:未知"
+        return f"较昨收:{gap_change * 100:+.1f}%"
+
+    def _check_opening_buy_confirm(self, df_1m, i, recent_today, current_date):
+        """当日K线不足3根时的买入弱确认。"""
+        latest = recent_today.iloc[-1]
+        body = latest['close'] - latest['open']
+        lower_shadow = min(latest['open'], latest['close']) - latest['low']
+        body_pct = abs(body) / latest['close']
+        is_stabilized = (
+            body > 0 or
+            lower_shadow > abs(body) * 2 or
+            body_pct < 0.005
+        )
+
+        prev_close = self._get_previous_close(df_1m, i, current_date)
+        gap_change = None
+        if prev_close is not None and prev_close > 0:
+            gap_change = (latest['close'] - prev_close) / prev_close
+
+        gap_msg = self._format_gap_msg(gap_change)
+        if is_stabilized:
+            return True, f"开盘企稳✓({gap_msg})"
+        return False, f"开盘K线未企稳({gap_msg})"
+
+    def _check_opening_sell_confirm(self, df_1m, i, recent_today, current_date):
+        """当日K线不足3根时的卖出弱确认。"""
+        latest = recent_today.iloc[-1]
+        body = latest['close'] - latest['open']
+        upper_shadow = latest['high'] - max(latest['open'], latest['close'])
+        body_pct = abs(body) / latest['close']
+        is_weakening = (
+            body < 0 or
+            upper_shadow > abs(body) * 2 or
+            body_pct < 0.005
+        )
+
+        prev_close = self._get_previous_close(df_1m, i, current_date)
+        gap_change = None
+        if prev_close is not None and prev_close > 0:
+            gap_change = (latest['close'] - prev_close) / prev_close
+
+        is_gap_up = gap_change is not None and gap_change >= TMonitorConfig.OPENING_GAP_THRESHOLD
+        gap_msg = self._format_gap_msg(gap_change)
+        if is_weakening or is_gap_up:
+            return True, f"开盘转弱/高开确认✓({gap_msg})"
+        return False, f"开盘K线未转弱({gap_msg})"
+
     def _check_volume_divergence(self, df_1m, i):
         """检查量价背离"""
         if i < 5:
@@ -413,7 +481,7 @@ class TMonitorV3:
                 # 跨日了，只使用当日数据
                 recent_5 = recent_5[recent_5['datetime'].apply(lambda x: (x.date() if hasattr(x, 'date') else x) == current_date)]
                 if len(recent_5) < 3:  # 当日数据不足3根
-                    return False, "当日数据不足"
+                    return self._check_opening_buy_confirm(df_1m, i, recent_5, current_date)
             
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
@@ -470,7 +538,7 @@ class TMonitorV3:
                 # 跨日了，只使用当日数据
                 recent_5 = recent_5[recent_5['datetime'].apply(lambda x: (x.date() if hasattr(x, 'date') else x) == current_date)]
                 if len(recent_5) < 3:  # 当日数据不足3根
-                    return False, "当日数据不足"
+                    return self._check_opening_sell_confirm(df_1m, i, recent_5, current_date)
             
             recent_5['vol'] = pd.to_numeric(recent_5['vol'], errors='coerce')
             
