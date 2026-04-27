@@ -57,9 +57,11 @@ class SignalScorer:
     # 评分阈值
     STRONG_THRESHOLD = 85
     MEDIUM_THRESHOLD = 65
+    BASE_SCORE = 30
+    CONFLUENCE_BONUS = 10  # RSI、价格位置、布林偏离共振时补回基础分下调；BASE_SCORE + CONFLUENCE_BONUS = 40
 
     # 价格位置窗口
-    POSITION_WINDOW = 60  # 使用60根K线判断价格位置
+    POSITION_WINDOW = 120  # 使用120根1分钟K线判断价格位置（约半个交易日）
 
     # 动量判断阈值
     MOMENTUM_WINDOW = 10  # 观察近10根K线判断动量
@@ -85,12 +87,15 @@ class SignalScorer:
     CONSOLIDATION_PENALTY_NARROW = 10  # 窄幅横盘扣分
     CONSOLIDATION_PENALTY_MILD = 5  # 轻微横盘扣分
 
+    # 量能评分权重
+    VOLUME_SCORE_WEIGHT = 0.75  # 1分钟量能噪声较大，降低其对总分的决定性
+
     # 极端行情降级参数（对称设计：拉升和杀跌）
     EXTREME_MOMENTUM_THRESHOLD = 0.03  # 极端涨跌幅阈值（3%）
     EXTREME_VOLUME_THRESHOLD = 3.0  # 极端量比阈值（3倍）
     EXTREME_POSITION_HIGH = 0.80  # 极端拉升价格位置上限（80%）
     EXTREME_POSITION_LOW = 0.20  # 极端杀跌价格位置下限（20%）
-    EXTREME_PENALTY_RATIO = 0.30  # 极端行情降级系数（保留30%）
+    EXTREME_SCORE_PENALTY = 30  # 极端行情固定扣分，避免乘法降级过硬
 
     @staticmethod
     def _calc_trend_penalty(df, signal_type):
@@ -304,13 +309,13 @@ class SignalScorer:
             vol_ma = df_vol_20['vol'].mean()
             vol_ratio = current_vol / (vol_ma + 1e-6)
 
-            # 计算价格位置（60根窗口）
+            # 计算价格位置（配置窗口）
             recent_high = df_work['high'].max()
             recent_low = df_work['low'].min()
             price_position = (close - recent_low) / (recent_high - recent_low + 1e-6)
 
-            # 基础分
-            score = 40
+            # 基础分：降低无条件分数，让高质量形态通过共振补分拿回来
+            score = SignalScorer.BASE_SCORE
 
             if signal_type == 'BUY':
                 score += SignalScorer._calc_buy_score(
@@ -352,8 +357,8 @@ class SignalScorer:
                     )
 
                     if is_extreme_surge:
-                        # 极端强势拉升：主力大举推升，明确不应该卖
-                        score = int(score * SignalScorer.EXTREME_PENALTY_RATIO)
+                        # 极端强势拉升不宜机械卖出，但保留固定扣分后的综合判断空间
+                        score -= SignalScorer.EXTREME_SCORE_PENALTY
 
                 elif signal_type == 'BUY':
                     # 买入降级：极端强势杀跌（跌幅大+巨量+创新低）
@@ -365,8 +370,8 @@ class SignalScorer:
                     )
 
                     if is_extreme_fall:
-                        # 极端强势杀跌：主力大举砸盘或恐慌性抛售，不应该买
-                        score = int(score * SignalScorer.EXTREME_PENALTY_RATIO)
+                        # 极端强势杀跌不宜机械抄底，但保留固定扣分后的综合判断空间
+                        score -= SignalScorer.EXTREME_SCORE_PENALTY
 
             final_score = min(100, max(0, score))
             strength = SignalScorer._score_to_strength(final_score)
@@ -399,21 +404,30 @@ class SignalScorer:
             score -= 10  # 高位抄底扣分
 
         # 3. 布林带偏离（15分）
+        bb_supports_buy = False
         if bb_lower is not None:
             try:
                 bb_lower_val = bb_lower.iloc[-1] if hasattr(bb_lower, 'iloc') else bb_lower
                 bb_dist = (close - bb_lower_val) / bb_lower_val
                 if bb_dist < -0.015:
                     score += 15
+                    bb_supports_buy = True
                 elif bb_dist < -0.008:
                     score += 10
+                    bb_supports_buy = True
                 elif bb_dist < 0:
                     score += 5
+                    bb_supports_buy = True
             except:
                 pass
 
-        # 4. 量能形态+下跌期判断（35分）
-        score += SignalScorer._calc_buy_volume_score(df, price_position, vol_ratio)
+        # RSI低位、价格低位、布林下轨偏离三者共振，补回基础分下调的5分
+        if indicator_score is not None and indicator_score >= 8 and price_position < 0.15 and bb_supports_buy:
+            score += SignalScorer.CONFLUENCE_BONUS
+
+        # 4. 量能形态+下跌期判断（1分钟量能噪声较大，统一降权）
+        volume_score = SignalScorer._calc_buy_volume_score(df, price_position, vol_ratio)
+        score += int(round(volume_score * SignalScorer.VOLUME_SCORE_WEIGHT))
 
         return score
 
@@ -442,21 +456,30 @@ class SignalScorer:
             score -= 10  # 半山腰扣分
 
         # 3. 布林带偏离（15分）
+        bb_supports_sell = False
         if bb_upper is not None:
             try:
                 bb_upper_val = bb_upper.iloc[-1] if hasattr(bb_upper, 'iloc') else bb_upper
                 bb_dist = (close - bb_upper_val) / bb_upper_val
                 if bb_dist > 0.015:
                     score += 15
+                    bb_supports_sell = True
                 elif bb_dist > 0.008:
                     score += 10
+                    bb_supports_sell = True
                 elif bb_dist > 0:
                     score += 5
+                    bb_supports_sell = True
             except:
                 pass
 
-        # 4. 量能形态+拉升期判断（35分）
-        score += SignalScorer._calc_sell_volume_score(df, price_position, vol_ratio)
+        # RSI高位、价格高位、布林上轨偏离三者共振，补回基础分下调的5分
+        if indicator_score is not None and indicator_score >= 8 and price_position > 0.85 and bb_supports_sell:
+            score += SignalScorer.CONFLUENCE_BONUS
+
+        # 4. 量能形态+拉升期判断（1分钟量能噪声较大，统一降权）
+        volume_score = SignalScorer._calc_sell_volume_score(df, price_position, vol_ratio)
+        score += int(round(volume_score * SignalScorer.VOLUME_SCORE_WEIGHT))
 
         return score
 

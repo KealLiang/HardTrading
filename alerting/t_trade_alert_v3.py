@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 import signal
 import sys
@@ -122,13 +122,19 @@ class TMonitorConfig:
                             # 说明：5次 ≈ 最多做2个完整T（买-卖-买-卖-买）
     
     # ==================== 信号质量过滤 ====================
-    MIN_SIGNAL_SCORE = 55   # 最低信号分数阈值（0-100分）
+    MIN_SIGNAL_SCORE = 65   # 最低信号分数阈值（0-100分）
                             # 0   = 不过滤，所有信号都输出
                             # 55  = 过滤弱信号，保留中等及以上质量
                             # 65  = 只保留中强信号，适合选择困难症
                             # 75+ = 只保留强信号，信号极少但胜率高
                             # 调大：信号数量↓，质量↑，可能错过机会
                             # 调小：信号数量↑，质量↓，噪音增多
+
+    # ==================== 重复信号评分惩罚 ====================
+    RSI_BUY_WAVE_RESET = 45    # 买入信号后，RSI回到该值以上视为低位情绪波段结束
+    RSI_SELL_WAVE_RESET = 55   # 卖出信号后，RSI回到该值以下视为高位情绪波段结束
+    REPEAT_PRICE_FULL_SCORE_CHANGE = 0.02  # 同向信号价格走出2%新空间后，不再因重复扣分
+    REPEAT_PRICE_MAX_SCORE_PENALTY = 35     # 同价位附近重复信号的最高扣分
 
     # ==================== 涨跌停判断 ====================
     # 移除硬编码阈值，改为动态获取（通过 stock_limit_ratio 方法）
@@ -217,6 +223,7 @@ class TMonitorV3:
         # 信号记录
         self.last_signal_time = {'BUY': None, 'SELL': None}
         self.last_signal_price = {'BUY': None, 'SELL': None}
+        self.rsi_wave_active = {'BUY': False, 'SELL': False}
         self.triggered_signals = []
 
         # 实时模式去重
@@ -526,6 +533,48 @@ class TMonitorV3:
                 tqdm.write(f"[警告] 评分计算失败: {e}")
             return 50
 
+    def _refresh_rsi_wave_state(self, rsi):
+        """RSI回到中性区后，结束同向重复信号的扣分上下文。"""
+        if self.rsi_wave_active['BUY'] and rsi >= TMonitorConfig.RSI_BUY_WAVE_RESET:
+            self.rsi_wave_active['BUY'] = False
+        if self.rsi_wave_active['SELL'] and rsi <= TMonitorConfig.RSI_SELL_WAVE_RESET:
+            self.rsi_wave_active['SELL'] = False
+
+    def _calc_repeat_price_penalty(self, signal_type, current_price, current_time):
+        """同一RSI情绪波段内，同向信号若仍在上一信号价附近则扣分。"""
+        if not self.rsi_wave_active.get(signal_type):
+            return 0
+
+        last_price = self.last_signal_price.get(signal_type)
+        last_time = self.last_signal_time.get(signal_type)
+
+        if not last_price or not last_time:
+            return 0
+
+        try:
+            current_dt = pd.to_datetime(current_time)
+            last_dt = pd.to_datetime(last_time)
+            if current_dt.date() != last_dt.date():
+                return 0
+
+            if signal_type == 'BUY':
+                favorable_change = (last_price - current_price) / last_price
+            else:
+                favorable_change = (current_price - last_price) / last_price
+
+            full_score_change = TMonitorConfig.REPEAT_PRICE_FULL_SCORE_CHANGE
+            if favorable_change >= full_score_change:
+                return 0
+
+            max_penalty = TMonitorConfig.REPEAT_PRICE_MAX_SCORE_PENALTY
+            if favorable_change <= 0:
+                return max_penalty
+
+            penalty = max_penalty * (1 - favorable_change / full_score_change)
+            return int(round(max(0, min(max_penalty, penalty))))
+        except Exception:
+            return 0
+
     def _generate_signal(self, df_1m, i):
         """
         基于1分钟K线生成信号（支持左侧/右侧/混合模式）
@@ -543,7 +592,12 @@ class TMonitorV3:
         bb_upper = df_1m['bb_upper'].iloc[i]
         bb_lower = df_1m['bb_lower'].iloc[i]
         ts = df_1m['datetime'].iloc[i]
-        
+
+        if pd.isna(rsi) or pd.isna(bb_upper) or pd.isna(bb_lower):
+            return None, None, 0
+
+        self._refresh_rsi_wave_state(rsi)
+
         # 右侧/混合模式需要历史RSI
         if mode in ['RIGHT', 'HYBRID']:
             # 检查前2根K线是否在同一交易日
@@ -608,6 +662,10 @@ class TMonitorV3:
         
         elif mode == 'HYBRID':
             # 混合买入：右侧确认（避免买早）+ 适度放宽
+            # 策略0: 低位极值触达（由波段去重控制同一区域重复信号）
+            is_lower_extreme_touch = (rsi < TMonitorConfig.RSI_OVERSOLD and
+                                    close <= bb_lower * TMonitorConfig.BB_TOLERANCE)
+
             # 策略1: RSI从超卖回升（确认筑底完成）
             is_rsi_reversal_up = (rsi_prev < TMonitorConfig.RSI_OVERSOLD and 
                                  rsi >= TMonitorConfig.RSI_OVERSOLD and 
@@ -617,7 +675,7 @@ class TMonitorV3:
             is_rsi_rising = (rsi < 35 and rsi > rsi_prev and rsi_prev > rsi_prev2 and
                            close >= bb_lower)
             
-            if is_rsi_reversal_up or is_rsi_rising:
+            if is_lower_extreme_touch or is_rsi_reversal_up or is_rsi_rising:
                 buy_signal = True
                 buy_reason_prefix = "混合"
         
@@ -627,10 +685,13 @@ class TMonitorV3:
                 allowed, cooldown_msg = self._check_signal_cooldown('BUY', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'BUY')
+                    repeat_penalty = self._calc_repeat_price_penalty('BUY', close, ts)
+                    strength = max(0, strength - repeat_penalty)
                     
                     # 🆕 分数过滤
                     if TMonitorConfig.MIN_SIGNAL_SCORE > 0 and strength < TMonitorConfig.MIN_SIGNAL_SCORE:
-                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE})", 0
+                        penalty_msg = f"，重复扣分{repeat_penalty}" if repeat_penalty else ""
+                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE}{penalty_msg})", 0
                     
                     reason = f"{buy_reason_prefix}买入(RSI:{rsi:.1f})"
                     return 'BUY', reason, strength
@@ -661,16 +722,18 @@ class TMonitorV3:
                 sell_reason_prefix = "右侧"
         
         elif mode == 'HYBRID':
-            # 混合卖出：左侧积极（不错过拉升）+ 持续监控（抓住顶部震荡）
-            # 策略1: 标准左侧卖出（拉升过程）
-            is_left_sell = (rsi > TMonitorConfig.RSI_OVERBOUGHT and 
-                          close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE))
+            # 混合卖出：与买入保持镜像，允许首次高位极值触达，重复信号交给波段去重控制
+            is_upper_extreme_touch = (rsi > TMonitorConfig.RSI_OVERBOUGHT and
+                                    close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE))
             
-            # 策略2: 顶部震荡卖出（RSI虽回落但仍在高位）
-            is_high_consolidation = (rsi > 65 and rsi < rsi_prev and 
-                                   close >= bb_upper * 0.98)  # 接近上轨
+            is_rsi_reversal_down = (rsi_prev > TMonitorConfig.RSI_OVERBOUGHT and
+                                   rsi <= TMonitorConfig.RSI_OVERBOUGHT and
+                                   close >= bb_upper * 0.98)
             
-            if is_left_sell or is_high_consolidation:
+            is_rsi_falling = (rsi > 65 and rsi < rsi_prev and rsi_prev < rsi_prev2 and
+                            close >= bb_upper * 0.98)
+            
+            if is_upper_extreme_touch or is_rsi_reversal_down or is_rsi_falling:
                 sell_signal = True
                 sell_reason_prefix = "混合"
         
@@ -680,10 +743,13 @@ class TMonitorV3:
                 allowed, cooldown_msg = self._check_signal_cooldown('SELL', ts, close)
                 if allowed:
                     strength = self._calc_signal_strength(df_1m, i, 'SELL')
+                    repeat_penalty = self._calc_repeat_price_penalty('SELL', close, ts)
+                    strength = max(0, strength - repeat_penalty)
                     
                     # 🆕 分数过滤
                     if TMonitorConfig.MIN_SIGNAL_SCORE > 0 and strength < TMonitorConfig.MIN_SIGNAL_SCORE:
-                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE})", 0
+                        penalty_msg = f"，重复扣分{repeat_penalty}" if repeat_penalty else ""
+                        return None, f"评分不足({strength}分<{TMonitorConfig.MIN_SIGNAL_SCORE}{penalty_msg})", 0
                     
                     reason = f"{sell_reason_prefix}卖出(RSI:{rsi:.1f})"
                     return 'SELL', reason, strength
@@ -740,6 +806,7 @@ class TMonitorV3:
         # 记录信号
         self.last_signal_time[signal_type] = ts
         self.last_signal_price[signal_type] = price
+        self.rsi_wave_active[signal_type] = True
         self.triggered_signals.append({
             'type': signal_type,
             'price': price,
@@ -1116,12 +1183,12 @@ class MonitorManagerV3:
 
 if __name__ == "__main__":
     # ============ 使用示例 ============
-    # IS_BACKTEST = True
-    IS_BACKTEST = False
+    IS_BACKTEST = True
+    # IS_BACKTEST = False
 
     # 回测时间段
-    backtest_start = "2025-11-03 09:30"
-    backtest_end = "2025-11-06 15:00"
+    backtest_start = "2026-04-21 09:30"
+    backtest_end = "2026-04-25 15:00"
 
     # 股票列表
     symbols = ['000572']
