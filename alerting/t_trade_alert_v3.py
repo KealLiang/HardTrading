@@ -37,10 +37,9 @@ class TMonitorConfig:
 
     # ==================== K线参数 ====================
     KLINE_1M = 7  # TDX协议中1分钟K线的类型代码（固定值，勿改）
-    MAX_HISTORY_BARS_1M = 500  # 实时模式每次获取的1分钟K线数量
-                               # 调大：增加历史数据窗口，RSI/布林带更平滑，但API压力增大
-                               # 调小：减少数据量，但可能导致开盘初期指标不稳定
-                               # 建议：500根（覆盖约2个交易日）
+    WARMUP_BARS = 200  # 指标预热窗口；回测和实盘保持同一历史视野
+    MAX_HISTORY_BARS_1M = WARMUP_BARS + 1  # 实时多取1根，用于丢弃未收完的当前分钟K线
+    CONFIRM_CLOSED_BAR = True  # 实盘是否使用收线确认；False则使用当前未完成分钟K线
 
     # ==================== 技术指标参数 ====================
     RSI_PERIOD = 14   # RSI计算周期（分钟数）
@@ -135,7 +134,7 @@ class TMonitorConfig:
     RSI_BUY_WAVE_RESET = 45    # 买入信号后，RSI回到该值以上视为低位情绪波段结束
     RSI_SELL_WAVE_RESET = 55   # 卖出信号后，RSI回到该值以下视为高位情绪波段结束
     REPEAT_PRICE_FULL_SCORE_CHANGE = 0.02  # 同向信号价格走出2%新空间后，不再因重复扣分
-    REPEAT_PRICE_MAX_SCORE_PENALTY = 35     # 同价位附近重复信号的最高扣分
+    REPEAT_PRICE_MAX_SCORE_PENALTY = 40     # 同价位附近重复信号的最高扣分（略高于100-MIN_SIGNAL_SCORE，可过滤价格相近的重复信号）
 
     # ==================== 涨跌停判断 ====================
     # 移除硬编码阈值，改为动态获取（通过 stock_limit_ratio 方法）
@@ -276,9 +275,11 @@ class TMonitorV3:
             df['datetime'] = pd.to_datetime(df['day'])
             start_dt = pd.to_datetime(start_time)
             end_dt = pd.to_datetime(end_time)
-            df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)].copy()
             df = df.sort_values(by='datetime').reset_index(drop=True)
             df.rename(columns={'volume': 'vol'}, inplace=True)
+            warmup_df = df[df['datetime'] < start_dt].tail(TMonitorConfig.WARMUP_BARS)
+            active_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+            df = pd.concat([warmup_df, active_df], ignore_index=True)
             return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
         except Exception as e:
             logging.error(f"获取历史数据失败: {e}")
@@ -781,11 +782,11 @@ class TMonitorV3:
         strength_tag = ""
         if strength is not None:
             if strength >= 85:
-                strength_tag = " ***[强]"
+                strength_tag = f" ***[强:{strength}]"
             elif strength >= 65:
-                strength_tag = " **[中]"
+                strength_tag = f" **[中:{strength}]"
             else:
-                strength_tag = " *[弱]"
+                strength_tag = f" *[弱:{strength}]"
         
         prefix = "【历史信号】" if is_historical else "【V3信号】"
         msg = (f"{prefix}[{self.stock_name} {self.symbol}] {signal_type}{strength_tag} | "
@@ -814,6 +815,10 @@ class TMonitorV3:
 
     def _process_1m_data(self, df_1m):
         """处理1分钟K线，生成信号"""
+        # 实盘收线确认：最后一根通常是正在形成的分钟K线，丢弃后最多慢1分钟。
+        # 如需恢复实时K线触发，将 CONFIRM_CLOSED_BAR 设为 False。
+        if TMonitorConfig.CONFIRM_CLOSED_BAR:
+            df_1m = df_1m.iloc[:-1].copy()
         if len(df_1m) < TMonitorConfig.RSI_PERIOD:
             return
         
@@ -854,12 +859,13 @@ class TMonitorV3:
                     sys_time.sleep(60)
                     continue
 
-                # 处理信号
+                # 处理信号（默认使用已收完K线，避免未完成K线造成回测/实盘偏差）
                 self._process_1m_data(df_1m)
 
                 # 定期日志
                 if count % 5 == 0:
-                    latest_close = df_1m['close'].iloc[-1]
+                    latest_idx = -2 if TMonitorConfig.CONFIRM_CLOSED_BAR and len(df_1m) > 1 else -1
+                    latest_close = df_1m['close'].iloc[latest_idx]
                     logging.info(
                         f"[{self.stock_name} {self.symbol}] 最新价:{latest_close:.2f}"
                     )
@@ -892,13 +898,23 @@ class TMonitorV3:
         # 准备指标
         df_1m = self._prepare_indicators(df_1m)
         
-        # 缓存K线数据用于可视化
-        self.backtest_kline_data = df_1m.copy()
+        start_dt = pd.to_datetime(self.backtest_start)
+        active_mask = df_1m['datetime'] >= start_dt
+        if not active_mask.any():
+            logging.error("指定时间段内没有可回测数据")
+            return
+        start_idx = active_mask.idxmax()
 
-        logging.info(f"[回测 {self.symbol}] 1分钟K线数:{len(df_1m)}")
+        # 缓存正式回测区间K线用于可视化，warm-up 只用于指标预热
+        self.backtest_kline_data = df_1m[active_mask].copy()
+
+        logging.info(
+            f"[回测 {self.symbol}] 1分钟K线数:{active_mask.sum()} "
+            f"(warm-up:{start_idx})"
+        )
 
         # 遍历1分钟K线
-        for i in range(TMonitorConfig.RSI_PERIOD, len(df_1m)):
+        for i in range(max(TMonitorConfig.RSI_PERIOD, start_idx), len(df_1m)):
             if self.stop_event.is_set():
                 break
 
@@ -916,7 +932,7 @@ class TMonitorV3:
         logging.info(f"[回测 {self.symbol}] 回测结束，共触发{len(self.triggered_signals)}个信号")
         
         # 输出数据统计
-        valid_data = df_1m[df_1m['rsi14'].notna()]
+        valid_data = df_1m[active_mask & df_1m['rsi14'].notna()]
         if len(valid_data) > 0:
             tqdm.write(f"\n{'='*60}")
             tqdm.write(f"[{self.stock_name} {self.symbol}] 回测数据统计:")
@@ -1180,12 +1196,16 @@ class MonitorManagerV3:
 
 if __name__ == "__main__":
     # ============ 使用示例 ============
+    # 实盘说明：
+    # 1) 默认 CONFIRM_CLOSED_BAR=True：实时监控会丢弃最后一根未收完分钟K，使用收线确认，信号最多慢1分钟。
+    #    如需恢复实时K线触发，可将 CONFIRM_CLOSED_BAR 设为 False。
+    # 2) 回测会额外带入 WARMUP_BARS 根历史K线做指标预热，但只在回测起止时间内触发信号。
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
     # 回测时间段
     backtest_start = "2026-04-21 09:30"
-    backtest_end = "2026-04-25 15:00"
+    backtest_end = "2026-04-27 15:00"
 
     # 股票列表（仅在 symbols_file 不存在或读取失败时作为兜底）
     symbols = []
