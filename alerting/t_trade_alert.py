@@ -17,10 +17,11 @@ import os
 # 添加项目根目录到 Python 路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
-from utils.stock_util import convert_stock_code
+from utils.stock_util import convert_stock_code, get_stock_name
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -121,12 +122,8 @@ class TMonitor:
 
     def _get_stock_info(self):
         """获取股票基本信息"""
-        try:
-            df = ak.stock_individual_info_em(symbol=self.symbol)
-            return {row['item']: row['value'] for _, row in df.iterrows()}
-        except Exception as e:
-            print(f"获取{self.symbol}基本信息失败: {str(e)}")
-            return {}
+        data_path = os.path.join(parent_dir, 'data', 'astocks')
+        return {'股票简称': get_stock_name(self.symbol, data_path=data_path)}
 
     def _determine_market(self):
         """根据股票代码确定市场代码"""

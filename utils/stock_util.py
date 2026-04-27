@@ -1,9 +1,10 @@
 import logging
+import os
 from typing import Optional
 
 import pandas as pd
 
-from utils.file_util import read_stock_data
+from utils.file_util import get_stock_file_path, read_stock_data
 
 
 def format_stock_code(code) -> str:
@@ -27,6 +28,44 @@ def format_stock_code(code) -> str:
         '002424'
     """
     return str(code).zfill(6)
+
+
+def get_stock_name_from_local_file(stock_code: str, data_path: str = './data/astocks') -> Optional[str]:
+    """
+    从本地A股日线文件名解析股票名称，如 000008_神州高铁.csv。
+    """
+    file_path = get_stock_file_path(format_stock_code(stock_code), data_path=data_path)
+    if not file_path:
+        return None
+
+    filename = os.path.basename(file_path)
+    name_part = os.path.splitext(filename)[0].split('_', 1)
+    if len(name_part) != 2:
+        return None
+    return name_part[1] or None
+
+
+def get_stock_name(stock_code: str,
+                   data_path: str = './data/astocks',
+                   fallback_akshare: bool = True) -> str:
+    """
+    获取股票简称：优先本地文件名，失败时可用AkShare兜底，最后返回股票代码。
+    """
+    formatted_code = format_stock_code(stock_code)
+    local_name = get_stock_name_from_local_file(formatted_code, data_path=data_path)
+    if local_name:
+        return local_name
+
+    if fallback_akshare:
+        try:
+            import akshare as ak
+            df = ak.stock_individual_info_em(symbol=formatted_code)
+            m = {row['item']: row['value'] for _, row in df.iterrows()}
+            return m.get('股票简称', formatted_code)
+        except Exception as e:
+            logging.debug(f"获取股票 {formatted_code} 名称失败: {e}")
+
+    return formatted_code
 
 
 def stock_limit_ratio(stock_code: str) -> float:

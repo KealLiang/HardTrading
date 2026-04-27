@@ -21,8 +21,7 @@ sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
-from utils.file_util import get_stock_file_path
-from utils.stock_util import convert_stock_code, stock_limit_ratio
+from utils.stock_util import convert_stock_code, get_stock_name, stock_limit_ratio
 from alerting.signal_scoring import SignalScorer, SignalStrength, calc_rsi_indicator_score
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
@@ -236,29 +235,8 @@ class TMonitorV3:
 
     def _get_stock_name(self):
         """获取股票名称"""
-        local_name = self._get_stock_name_from_local_file()
-        if local_name:
-            return local_name
-
-        try:
-            df = ak.stock_individual_info_em(symbol=self.symbol)
-            m = {row['item']: row['value'] for _, row in df.iterrows()}
-            return m.get('股票简称', self.symbol)
-        except Exception:
-            return self.symbol
-
-    def _get_stock_name_from_local_file(self):
-        """优先从本地A股日线文件名解析股票名称，如 000008_神州高铁.csv。"""
         data_path = os.path.join(parent_dir, 'data', 'astocks')
-        file_path = get_stock_file_path(self.symbol, data_path=data_path)
-        if not file_path:
-            return None
-
-        filename = os.path.basename(file_path)
-        name_part = os.path.splitext(filename)[0].split('_', 1)
-        if len(name_part) != 2:
-            return None
-        return name_part[1] or None
+        return get_stock_name(self.symbol, data_path=data_path)
 
     def _determine_market(self):
         """确定市场代码"""
