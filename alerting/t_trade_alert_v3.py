@@ -17,9 +17,11 @@ from tqdm import tqdm
 # 兼容从项目根目录或 alerting 目录运行
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
+from utils.file_util import get_stock_file_path
 from utils.stock_util import convert_stock_code, stock_limit_ratio
 from alerting.signal_scoring import SignalScorer, SignalStrength, calc_rsi_indicator_score
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
@@ -60,7 +62,7 @@ class TMonitorConfig:
     TRADING_MODE = "HYBRID"  # 信号触发策略
                              # "LEFT"   - 左侧交易：抄底摸顶，RSI触及极值区立即信号（激进）
                              # "RIGHT"  - 右侧交易：趋势确认，RSI从极值区回归才信号（保守）
-                             # "HYBRID" - 混合模式：买入偏右侧（确认见底），卖出偏左侧（不错过顶部）
+                             # "HYBRID" - 混合模式：极值触达/转向确认 + 评分过滤，买卖保持镜像
 
     # ==================== 核心信号阈值（对称设计）====================
     RSI_OVERSOLD = 30       # 超卖阈值（买入参考线）
@@ -93,7 +95,7 @@ class TMonitorConfig:
     VOLUME_SURGE_RATIO = 1.5    # 放量突破倍数（评分系统用，判断是否放量）
                                 # 调大(如2.0)：认定"放量"的标准更高
                                 # 调小(如1.3)：轻微放量即认可
-    
+
     # 量价背离检测（顶背离卖出信号）
     DIVERGENCE_PRICE_CHANGE = 0.015   # 价格变化阈值（1.5%）
                                        # 调大：只捕捉大级别背离
@@ -234,12 +236,29 @@ class TMonitorV3:
 
     def _get_stock_name(self):
         """获取股票名称"""
+        local_name = self._get_stock_name_from_local_file()
+        if local_name:
+            return local_name
+
         try:
             df = ak.stock_individual_info_em(symbol=self.symbol)
             m = {row['item']: row['value'] for _, row in df.iterrows()}
             return m.get('股票简称', self.symbol)
         except Exception:
             return self.symbol
+
+    def _get_stock_name_from_local_file(self):
+        """优先从本地A股日线文件名解析股票名称，如 000008_神州高铁.csv。"""
+        data_path = os.path.join(parent_dir, 'data', 'astocks')
+        file_path = get_stock_file_path(self.symbol, data_path=data_path)
+        if not file_path:
+            return None
+
+        filename = os.path.basename(file_path)
+        name_part = os.path.splitext(filename)[0].split('_', 1)
+        if len(name_part) != 2:
+            return None
+        return name_part[1] or None
 
     def _determine_market(self):
         """确定市场代码"""
@@ -661,8 +680,8 @@ class TMonitorV3:
                 buy_reason_prefix = "右侧"
         
         elif mode == 'HYBRID':
-            # 混合买入：右侧确认（避免买早）+ 适度放宽
-            # 策略0: 低位极值触达（由波段去重控制同一区域重复信号）
+            # 混合买入：低位极值触达或转强确认，重复信号交给评分系统处理
+            # 策略0: 低位极值触达
             is_lower_extreme_touch = (rsi < TMonitorConfig.RSI_OVERSOLD and
                                     close <= bb_lower * TMonitorConfig.BB_TOLERANCE)
 
@@ -722,7 +741,7 @@ class TMonitorV3:
                 sell_reason_prefix = "右侧"
         
         elif mode == 'HYBRID':
-            # 混合卖出：与买入保持镜像，允许首次高位极值触达，重复信号交给波段去重控制
+            # 混合卖出：高位极值触达或转弱确认，重复信号交给评分系统处理
             is_upper_extreme_touch = (rsi > TMonitorConfig.RSI_OVERBOUGHT and
                                     close >= bb_upper * (2 - TMonitorConfig.BB_TOLERANCE))
             
@@ -1190,8 +1209,8 @@ if __name__ == "__main__":
     backtest_start = "2026-04-21 09:30"
     backtest_end = "2026-04-25 15:00"
 
-    # 股票列表
-    symbols = ['000572']
+    # 股票列表（仅在 symbols_file 不存在或读取失败时作为兜底）
+    symbols = []
 
     # 自选股文件（可选）
     symbols_file = 'watchlist.txt'
