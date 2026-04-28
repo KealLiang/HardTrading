@@ -849,9 +849,11 @@ class TMonitorV3:
         # 格式化输出（增加强度标识）
         strength_tag = ""
         if strength is not None:
-            if strength >= 85:
+            medium_threshold = TMonitorConfig.MIN_SIGNAL_SCORE + (100 - TMonitorConfig.MIN_SIGNAL_SCORE) / 3
+            strong_threshold = TMonitorConfig.MIN_SIGNAL_SCORE + (100 - TMonitorConfig.MIN_SIGNAL_SCORE) * 2 / 3
+            if strength >= strong_threshold:
                 strength_tag = f" ⭐⭐⭐[强:{strength}]"
-            elif strength >= 65:
+            elif strength >= medium_threshold:
                 strength_tag = f" ⭐⭐[中:{strength}]"
             else:
                 strength_tag = f" ⭐[弱:{strength}]"
@@ -1268,8 +1270,8 @@ if __name__ == "__main__":
     # 1) 默认 CONFIRM_CLOSED_BAR=True：实时监控会丢弃最后一根未收完分钟K，使用收线确认，信号最多慢1分钟。
     #    如需恢复实时K线触发，可将 CONFIRM_CLOSED_BAR 设为 False。
     # 2) 回测会额外带入 WARMUP_BARS 根历史K线做指标预热，但只在回测起止时间内触发信号。
-    # IS_BACKTEST = True
-    IS_BACKTEST = False
+    IS_BACKTEST = True
+    # IS_BACKTEST = False
 
     # 回测时间段
     backtest_start = "2026-04-21 09:30"
