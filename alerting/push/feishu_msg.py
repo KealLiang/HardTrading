@@ -18,7 +18,7 @@ def send_alert(message):
     payload = {
         'msg_type': 'text',
         'content': {
-            'text': message
+            'text': f'<at user_id=\"all\">所有人</at> {message}'
         }
     }
     try:
