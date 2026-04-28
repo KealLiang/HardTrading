@@ -718,6 +718,17 @@ def get_stock_datas():
         data_fetcher.fetch_and_save_data()
 
 
+def clean_duplicate_stock_datas(clean_today_only=True, delete=False, target_date=None, report_path='./data/astocks_duplicate_clean_report.txt'):
+    """扫描/清理A股日线CSV中接口返回的重复行情。"""
+    from fetch.astock_data_cleaner import clean_duplicate_stock_datas as clean_duplicate_data
+    return clean_duplicate_data(
+        clean_today_only=clean_today_only,
+        delete=delete,
+        target_date=target_date,
+        report_path=report_path
+    )
+
+
 def get_etf_datas(etf_list, start_date=None, end_date=None):
     """
     获取A股ETF数据并保存到data/etfs/文件夹
@@ -1753,8 +1764,9 @@ if __name__ == '__main__':
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
 
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # get_stock_datas()
+    # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除
     # full_scan_routine()
     # get_index_data()
     hot_concepts = ["共封装光学(CPO)", "%算力%", "智能电网", "储能", "绿色电力", "商业航天", "%化工%", "创新药"]
