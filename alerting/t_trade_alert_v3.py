@@ -1220,13 +1220,17 @@ class MonitorManagerV3:
 
     def start(self):
         """启动所有监控"""
-        # 初始加载
-        initial_symbols = self._read_symbols_from_file()
-        if initial_symbols is None:
+        # 回测和实时使用独立股票来源：回测只看 symbols，实时才读取 symbols_file。
+        if self.is_backtest:
             initial_symbols = self.symbols or []
-            logging.info(f"使用参数 symbols: {initial_symbols}")
+            logging.info(f"回测使用参数 symbols: {initial_symbols}")
         else:
-            logging.info(f"从自选股文件加载: {initial_symbols}")
+            initial_symbols = self._read_symbols_from_file()
+            if initial_symbols is None:
+                initial_symbols = []
+                logging.warning("实时监控未能从 symbols_file 加载股票列表")
+            else:
+                logging.info(f"从自选股文件加载: {initial_symbols}")
 
         # 启动监控
         for symbol in initial_symbols:
@@ -1273,14 +1277,13 @@ if __name__ == "__main__":
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
+    # 回测股票列表（仅 IS_BACKTEST=True 时使用；实时监控使用 symbols_file）
+    symbols = ['301611']
     # 回测时间段
     backtest_start = "2026-04-21 09:30"
-    backtest_end = "2026-04-27 15:00"
+    backtest_end = "2026-04-28 15:00"
 
-    # 股票列表（仅在 symbols_file 不存在或读取失败时作为兜底）
-    symbols = []
-
-    # 自选股文件（可选）
+    # 实时监控自选股文件（仅 IS_BACKTEST=False 时使用）
     symbols_file = 'watchlist.txt'
 
     manager = MonitorManagerV3(
