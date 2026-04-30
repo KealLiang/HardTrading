@@ -308,7 +308,7 @@ def get_silently_increase_stocks():
     :return: 默默上涨个股的DataFrame。
     """
     # 查询语句：30天涨幅大于等于55%；30天无涨停；非ST；非近新股
-    param = "30天涨幅大于等于55%，30天无涨停，非ST，非近新股"
+    param = "30天涨幅大于等于55%，30天无涨停，流通值大于等于200亿，非ST，非近新股"
     df = query_wencai(param)
     if df is None or df.empty:
         return pd.DataFrame()
