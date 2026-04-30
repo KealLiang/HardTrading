@@ -23,7 +23,6 @@ sys.path.insert(0, parent_dir)
 from push.feishu_msg import send_alert
 from utils.stock_util import convert_stock_code, get_stock_name, stock_limit_ratio
 from alerting.signal_scoring import SignalScorer, SignalStrength, calc_rsi_indicator_score
-from alerting.trend_detector import OneMinuteTrendDetector
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,10 +37,9 @@ class TMonitorConfig:
 
     # ==================== K线参数 ====================
     KLINE_1M = 7  # TDX协议中1分钟K线的类型代码（固定值，勿改）
-    WARMUP_BARS = 720  # 指标预热窗口；约3个交易日，用于趋势检测和指标预热
+    WARMUP_BARS = 200  # 指标预热窗口；回测和实盘保持同一历史视野
     MAX_HISTORY_BARS_1M = WARMUP_BARS + 1  # 实时多取1根，用于丢弃未收完的当前分钟K线
     CONFIRM_CLOSED_BAR = True  # 实盘是否使用收线确认；False则使用当前未完成分钟K线
-    TREND_LOG_ENABLED = True  # 仅打印趋势拐点，不参与买卖信号判断
 
     # ==================== 技术指标参数 ====================
     RSI_PERIOD = 14   # RSI计算周期（分钟数）
@@ -235,9 +233,6 @@ class TMonitorV3:
         
         # 回测数据缓存（用于可视化）
         self.backtest_kline_data = None
-
-        # 趋势检测：当前仅用于打印趋势拐点，不改变信号逻辑
-        self.trend_detector = OneMinuteTrendDetector()
 
     def _get_stock_name(self):
         """获取股票名称"""
@@ -604,31 +599,6 @@ class TMonitorV3:
                 tqdm.write(f"[警告] 评分计算失败: {e}")
             return 50
 
-    def _log_trend_turn_point(self, df_1m, i):
-        """打印趋势拐点；只观察，不参与买卖信号判断。"""
-        if not TMonitorConfig.TREND_LOG_ENABLED:
-            return
-
-        try:
-            visible_df = df_1m.iloc[:i + 1]
-            event = self.trend_detector.update(visible_df)
-            if event is None:
-                return
-
-            msg = (
-                f"【趋势拐点】[{self.stock_name} {self.symbol}] "
-                f"{event.previous.value} -> {event.current.value} | "
-                f"现价:{event.price:.2f} [{event.timestamp}] | "
-                f"{event.reason}"
-            )
-            if self.is_backtest:
-                tqdm.write(msg)
-            else:
-                logging.warning(msg)
-        except Exception as e:
-            if self.is_backtest:
-                tqdm.write(f"[警告] 趋势检测失败: {e}")
-
     def _refresh_rsi_wave_state(self, rsi):
         """RSI回到中性区后，结束同向重复信号的扣分上下文。"""
         if self.rsi_wave_active['BUY'] and rsi >= TMonitorConfig.RSI_BUY_WAVE_RESET:
@@ -692,7 +662,6 @@ class TMonitorV3:
         if pd.isna(rsi) or pd.isna(bb_upper) or pd.isna(bb_lower):
             return None, None, 0
 
-        self._log_trend_turn_point(df_1m, i)
         self._refresh_rsi_wave_state(rsi)
 
         # 右侧/混合模式需要历史RSI
@@ -1309,10 +1278,10 @@ if __name__ == "__main__":
     # IS_BACKTEST = False
 
     # 回测股票列表（仅 IS_BACKTEST=True 时使用；实时监控使用 symbols_file）
-    symbols = ['600821']
+    symbols = ['301611']
     # 回测时间段
     backtest_start = "2026-04-21 09:30"
-    backtest_end = "2026-04-29 15:00"
+    backtest_end = "2026-04-28 15:00"
 
     # 实时监控自选股文件（仅 IS_BACKTEST=False 时使用）
     symbols_file = 'watchlist.txt'
