@@ -49,7 +49,6 @@ class TMonitorConfigV4:
     MIN_CONFIRM_SCORE = 24
 
     # 同向重复信号管理
-    SIGNAL_COOLDOWN_SECONDS = 600
     REPEAT_PRICE_CHANGE = 0.018
     RSI_BUY_WAVE_RESET = 45
     RSI_SELL_WAVE_RESET = 55
@@ -84,20 +83,31 @@ class TMonitorV4(TMonitorV3):
             self.rsi_wave_active['SELL'] = False
 
     def _check_signal_cooldown(self, signal_type, current_time, current_price):
-        """V4按情绪段降频：同向信号至少间隔一段时间，除非价格走出新空间。"""
-        last_time = self.last_signal_time.get(signal_type)
-        last_price = self.last_signal_price.get(signal_type)
+        """同一情绪波段内按价格新空间去重，不使用固定时间冷却。"""
+        if not self.rsi_wave_active.get(signal_type):
+            return True, "允许触发"
 
-        if last_time:
-            try:
-                time_diff = (current_time - last_time).total_seconds()
-                if time_diff < TMonitorConfigV4.SIGNAL_COOLDOWN_SECONDS:
-                    if last_price:
-                        price_change = abs(current_price - last_price) / last_price
-                        if price_change < TMonitorConfigV4.REPEAT_PRICE_CHANGE:
-                            return False, "V4情绪段冷却中"
-            except Exception:
-                pass
+        last_price = self.last_signal_price.get(signal_type)
+        last_time = self.last_signal_time.get(signal_type)
+        if not last_price or not last_time:
+            return True, "允许触发"
+
+        try:
+            current_dt = pd.to_datetime(current_time)
+            last_dt = pd.to_datetime(last_time)
+            if current_dt.date() != last_dt.date():
+                return True, "允许触发"
+
+            if signal_type == 'BUY':
+                favorable_change = (last_price - current_price) / last_price
+                if favorable_change < TMonitorConfigV4.REPEAT_PRICE_CHANGE:
+                    return False, "同一恐慌波段价格空间不足"
+            else:
+                favorable_change = (current_price - last_price) / last_price
+                if favorable_change < TMonitorConfigV4.REPEAT_PRICE_CHANGE:
+                    return False, "同一亢奋波段价格空间不足"
+        except Exception:
+            return True, "允许触发"
 
         return True, "允许触发"
 
@@ -347,26 +357,38 @@ class TMonitorV4(TMonitorV3):
         confirm = confirm_reason or ""
 
         if signal_type == 'BUY':
-            if "20m回撤" in setup and ("脱离低点" in confirm or "价格转强" in confirm):
-                return "急杀衰竭买入"
-            if "RSI极低" in setup and "RSI回升" in confirm:
+            has_confirmed_turn = "脱离低点" in confirm and "价格转强" in confirm
+            has_slowdown = "跌速放缓" in confirm
+            if "20m回撤" in setup and has_confirmed_turn:
+                return "急杀衰竭转折买入"
+            if "RSI极低" in setup and "RSI回升" in confirm and has_confirmed_turn:
                 return "极端恐慌修复买入"
-            if "不再新低" in confirm and "跌速放缓" in confirm:
+            if "RSI极低" in setup and "RSI回升" in confirm:
+                return "极端恐慌修复观察买入"
+            if "不再新低" in confirm and has_slowdown and has_confirmed_turn:
                 return "低位钝化修复买入"
+            if "不再新低" in confirm and ("RSI回升" in confirm or "价格转强" in confirm):
+                return "低位修复观察买入"
             if "触下轨" in setup and "价格转强" in confirm:
-                return "下轨企稳买入"
+                return "下轨修复观察买入"
             return "恐慌衰竭买入"
 
-        if "20m拉升" in setup and ("脱离高点" in confirm or "价格转弱" in confirm):
-            return "冲高衰竭卖出"
-        if "RSI极高" in setup and "RSI回落" in confirm:
-            return "极端亢奋回落卖出"
-        if "不再新高" in confirm and "涨速放缓" in confirm:
-            return "高位钝化回落卖出"
         if "放量滞涨" in confirm:
             return "放量滞涨卖出"
+        has_confirmed_turn = "脱离高点" in confirm and "价格转弱" in confirm
+        has_slowdown = "涨速放缓" in confirm
+        if "20m拉升" in setup and has_confirmed_turn:
+            return "冲高衰竭转折卖出"
+        if "RSI极高" in setup and "RSI回落" in confirm and has_confirmed_turn:
+            return "极端亢奋回落卖出"
+        if "RSI极高" in setup and "RSI回落" in confirm:
+            return "极端亢奋降温预警卖出"
+        if "不再新高" in confirm and has_slowdown and has_confirmed_turn:
+            return "高位钝化回落卖出"
+        if "不再新高" in confirm and ("RSI回落" in confirm or has_slowdown):
+            return "高位降温预警卖出"
         if "触上轨" in setup and "价格转弱" in confirm:
-            return "上轨转弱卖出"
+            return "上轨转弱预警卖出"
         return "亢奋衰竭卖出"
 
     def _generate_signal(self, df_1m, i):
@@ -520,9 +542,9 @@ if __name__ == "__main__":
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
-    symbols = ['605298']
-    backtest_start = "2026-04-30 09:30"
-    backtest_end = "2026-04-30 15:00"
+    symbols = ['600821']
+    backtest_start = "2026-04-21 09:30"
+    backtest_end = "2026-04-29 15:00"
 
     symbols_file = 'watchlist.txt'
 
