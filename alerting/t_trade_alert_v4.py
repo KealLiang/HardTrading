@@ -38,20 +38,30 @@ class TMonitorConfigV4:
     BB_STD = 2
 
     # 情绪窗口
-    SETUP_WINDOW = 20       # 判断是否出现一段恐慌/亢奋
-    EXTREME_WINDOW = 8      # 最近极端情绪观察窗口
-    CONFIRM_WINDOW = 5      # 右侧确认窗口
+    # SETUP_WINDOW：判断是否出现一段恐慌/亢奋；调大更看重慢性情绪，调小更偏急杀/急拉。
+    SETUP_WINDOW = 20
+    # EXTREME_WINDOW：寻找最近极端RSI/触轨；调大更容易捕捉早先极端，调小更要求极端刚发生。
+    EXTREME_WINDOW = 8
+    # CONFIRM_WINDOW：右侧衰竭结构确认；调大更稳但更滞后，调小更灵敏但噪声更大。
+    CONFIRM_WINDOW = 5
+    # MOMENTUM_WINDOW：比较近端涨跌速变化；调大更平滑，调小更敏感。
     MOMENTUM_WINDOW = 6
 
     # 信号阈值
+    # MIN_SIGNAL_SCORE：最终信号门槛；调大信号更少更强，调小信号更多但噪声增加。
     MIN_SIGNAL_SCORE = 72
+    # MIN_SETUP_SCORE：极端情绪门槛；调大要求更强恐慌/亢奋，调小会纳入温和波动。
     MIN_SETUP_SCORE = 24
+    # MIN_CONFIRM_SCORE：右侧衰竭门槛；调大更晚更稳，调小更早更灵敏。
     MIN_CONFIRM_SCORE = 24
 
     # 同向重复信号管理
+    # REPEAT_PRICE_CHANGE：同一情绪波段重复提示所需的新价格空间；调大重复更少，调小更密集。
     REPEAT_PRICE_CHANGE = 0.018
+    # RSI回到中性区后，认为上一段恐慌/亢奋波段结束。
     RSI_BUY_WAVE_RESET = 45
     RSI_SELL_WAVE_RESET = 55
+    # 重复信号评分惩罚：价格走出足够新空间则不扣分，否则按接近程度扣分。
     REPEAT_PRICE_FULL_SCORE_CHANGE = 0.018
     REPEAT_PRICE_MAX_SCORE_PENALTY = 35
 
