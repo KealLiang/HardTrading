@@ -108,16 +108,16 @@ ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 20.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 75.0  # 主板股最低长周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 25.0  # 主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 80.0  # 主板股最低长周期涨幅门槛（%）
 
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 25.0  # 非主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 80.0  # 非主板股最低长周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
+MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 85.0  # 非主板股最低长周期涨幅门槛（%）
 
 # 【超短周期上限】近 N 个交易日涨幅须严格小于下列阈值（过滤预期兑现）
-LEADER_ULTRA_SHORT_PERIOD_DAYS = 3  # 极短周期
+LEADER_ULTRA_SHORT_PERIOD_DAYS = 2  # 极短周期
 MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER = 15.0  # 主板（%）
 MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 20.0  # 非主板（%）
 
