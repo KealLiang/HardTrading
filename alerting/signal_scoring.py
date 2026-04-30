@@ -271,6 +271,17 @@ class SignalScorer:
             return 0
 
     @staticmethod
+    def _current_series_value(value, current_index):
+        """从Series中取当前K线对应值；避免误用回测区间最后一根造成后视镜。"""
+        if value is None:
+            return None
+        if hasattr(value, 'loc') and current_index in value.index:
+            return value.loc[current_index]
+        if hasattr(value, 'iloc'):
+            return value.iloc[-1]
+        return value
+
+    @staticmethod
     def calc_signal_strength(df, i, signal_type,
                              indicator_score=None,
                              bb_upper=None, bb_lower=None,
@@ -316,16 +327,19 @@ class SignalScorer:
 
             # 基础分：降低无条件分数，让高质量形态通过共振补分拿回来
             score = SignalScorer.BASE_SCORE
+            current_index = df_work.index[-1]
+            current_bb_upper = SignalScorer._current_series_value(bb_upper, current_index)
+            current_bb_lower = SignalScorer._current_series_value(bb_lower, current_index)
 
             if signal_type == 'BUY':
                 score += SignalScorer._calc_buy_score(
                     df_work, price_position, vol_ratio, close,
-                    indicator_score, bb_lower
+                    indicator_score, current_bb_lower
                 )
             else:  # SELL
                 score += SignalScorer._calc_sell_score(
                     df_work, price_position, vol_ratio, close,
-                    indicator_score, bb_upper
+                    indicator_score, current_bb_upper
                 )
 
             # 🆕 做T适用性调整
