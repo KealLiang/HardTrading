@@ -448,7 +448,7 @@ def process_volume_daily_cell(ws, row_idx, col_idx, stock, current_date_obj, for
 
 def fill_volume_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                                               stock_entry_count, formatted_trading_days, date_column_start,
-                                              show_period_change, period_column, period_days, period_days_long,
+                                              show_period_change, period_column,
                                               stock_details, date_mapping, max_tracking_days, max_tracking_days_before,
                                               zaban_df, show_warning_column=True, thresholds=None):
     """
@@ -503,7 +503,7 @@ def fill_volume_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_r
         # 填充股票数据行
         fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_colors, stock_entry_count,
                                      formatted_trading_days, date_column_start, show_period_change, period_column,
-                                     period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                     stock_details, date_mapping, max_tracking_days,
                                      max_tracking_days_before, zaban_df, new_high_markers, show_warning_column,
                                      thresholds)
 
@@ -512,7 +512,7 @@ def fill_volume_data_rows_with_concept_groups(ws, result_df, shouban_df, stock_r
 
 def fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_colors, stock_entry_count,
                                  formatted_trading_days, date_column_start, show_period_change, period_column,
-                                 period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                 stock_details, date_mapping, max_tracking_days,
                                  max_tracking_days_before, zaban_df, new_high_markers, show_warning_column=True,
                                  thresholds=None):
     """
@@ -557,10 +557,10 @@ def fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_
 
     # 处理周期涨跌幅列（如果启用）
     if show_period_change and period_column:
-        from analysis.ladder_chart import format_period_change_cell
+        from analysis.ladder_chart import PERIOD_DAYS_LONG, PERIOD_DAYS_VERY_LONG, format_period_change_cell
         entry_date = stock['first_significant_date']
         format_period_change_cell(ws, row_idx, period_column, pure_stock_code, stock_name,
-                                  entry_date, period_days, period_days_long, end_date_yyyymmdd)
+                                  entry_date, PERIOD_DAYS_LONG, PERIOD_DAYS_VERY_LONG, end_date_yyyymmdd)
 
     # 填充日期列数据
     last_board_date = None
@@ -635,7 +635,7 @@ def fill_single_volume_stock_row(ws, row_idx, stock, stock_reason_group, reason_
 
 def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                                 formatted_trading_days, date_column_start, show_period_change,
-                                                period_column, period_days, period_days_long, stock_details,
+                                                period_column, period_days_long, stock_details,
                                                 date_mapping, max_tracking_days, max_tracking_days_before, zaban_df):
     """
     创建成交量版本的按概念分组工作表内容
@@ -735,8 +735,8 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
     # 设置表头，显示量趋势列（成交量版本专用）
     from analysis.ladder_chart import setup_excel_header
     show_warning_column = True
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days,
-                                      date_column_start, show_warning_column, period_days_long)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change,
+                                      date_column_start, show_warning_column)
 
     # 修改表头标题为"量趋势"（成交量版本专用）
     if show_warning_column and formatted_trading_days:
@@ -783,8 +783,8 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
     # 填充数据行，使用成交量版本的填充函数
     fill_volume_data_rows_with_concept_groups(ws, concept_grouped_df, shouban_df, stock_reason_group,
                                               reason_colors, stock_entry_count, formatted_trading_days,
-                                              date_column_start, show_period_change, period_column, period_days,
-                                              period_days_long, stock_details, date_mapping, max_tracking_days,
+                                              date_column_start, show_period_change, period_column,
+                                              stock_details, date_mapping, max_tracking_days,
                                               max_tracking_days_before, zaban_df, show_warning_column, thresholds)
 
     # 调整列宽
@@ -798,7 +798,7 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
 
 def create_volume_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, stock_data, stock_entry_count,
                                         formatted_trading_days, date_column_start, show_period_change, period_column,
-                                        period_days, period_days_long, stock_details, date_mapping, max_tracking_days,
+                                        period_days_long, stock_details, date_mapping, max_tracking_days,
                                         max_tracking_days_before, zaban_df):
     """
     创建成交量版本的按概念分组工作表
@@ -816,5 +816,5 @@ def create_volume_concept_grouped_sheet(wb, sheet_name, result_df, shouban_df, s
     # 填充内容
     create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, stock_entry_count,
                                                 formatted_trading_days, date_column_start, show_period_change,
-                                                period_column, period_days, period_days_long, stock_details,
+                                                period_column, period_days_long, stock_details,
                                                 date_mapping, max_tracking_days, max_tracking_days_before, zaban_df)

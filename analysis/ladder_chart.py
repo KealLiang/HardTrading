@@ -87,6 +87,9 @@ PERIOD_DAYS_CHANGE = 10
 # 计算最近30天的涨跌幅
 PERIOD_DAYS_LONG = 30
 
+# 计算更长周期的涨跌幅
+PERIOD_DAYS_VERY_LONG = 60
+
 # 注意：以下常量已移动到 ladder_chart_helpers.py：
 # - HIGH_GAIN_TRACKING_THRESHOLD, VOLUME_DAYS, VOLUME_RATIO_THRESHOLD, VOLUME_RATIO_LOW_THRESHOLD
 # - NEW_HIGH_DAYS, NEW_HIGH_MARKER, MA_SLOPE_DAYS, MA_SLOPE_THRESHOLD_PCT, COLLAPSE_DAYS_AFTER_BREAK
@@ -137,7 +140,7 @@ SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=
 LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
 
 # 【工作表管理】
-MAX_LEADER_SHEETS = 5  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
+MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
 # 龙头归档文件拆分阈值：当某个归档 part 的「龙头 sheet」数量达到该值时，继续归档会触发拆分
 # 目的是避免单个归档文件无限变大，导致打开/读取慢或失败
 MAX_LEADER_ARCHIVE_SHEETS = 100
@@ -1057,23 +1060,33 @@ def get_color_for_period_change(pct_change):
     if pct_change is None:
         return None
 
+    # 第4列现在按更长周期上色，阈值随周期等比例放大，避免强势股过早挤到同一色阶。
+    threshold_scale = PERIOD_DAYS_VERY_LONG / PERIOD_DAYS_LONG
+    extreme_positive = 100 * threshold_scale
+    strong_positive = 70 * threshold_scale
+    moderate_positive = 40 * threshold_scale
+    mild_positive = 20 * threshold_scale
+    slight_negative = -20 * threshold_scale
+    mild_negative = -40 * threshold_scale
+    moderate_negative = -60 * threshold_scale
+
     # 正值使用紫色系配色
-    if pct_change >= 100:
+    if pct_change >= extreme_positive:
         return PERIOD_CHANGE_COLORS["EXTREME_POSITIVE"]
-    elif pct_change >= 70:
+    elif pct_change >= strong_positive:
         return PERIOD_CHANGE_COLORS["STRONG_POSITIVE"]
-    elif pct_change >= 40:
+    elif pct_change >= moderate_positive:
         return PERIOD_CHANGE_COLORS["MODERATE_POSITIVE"]
-    elif pct_change >= 20:
+    elif pct_change >= mild_positive:
         return PERIOD_CHANGE_COLORS["MILD_POSITIVE"]
     elif pct_change >= 0:
         return PERIOD_CHANGE_COLORS["SLIGHT_POSITIVE"]
     # 负值使用橄榄绿系配色
-    elif pct_change >= -20:
+    elif pct_change >= slight_negative:
         return PERIOD_CHANGE_COLORS["SLIGHT_NEGATIVE"]
-    elif pct_change >= -40:
+    elif pct_change >= mild_negative:
         return PERIOD_CHANGE_COLORS["MILD_NEGATIVE"]
-    elif pct_change >= -60:
+    elif pct_change >= moderate_negative:
         return PERIOD_CHANGE_COLORS["MODERATE_NEGATIVE"]
     else:
         return PERIOD_CHANGE_COLORS["STRONG_NEGATIVE"]
@@ -1884,8 +1897,8 @@ def add_zaban_underline(cell):
     cell.border = new_border
 
 
-def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                       show_warning_column=True, period_days_long=PERIOD_DAYS_LONG):
+def setup_excel_header(ws, formatted_trading_days, show_period_change, date_column_start,
+                       show_warning_column=True):
     """
     设置Excel表头
 
@@ -1893,7 +1906,6 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
         ws: Excel工作表
         formatted_trading_days: 格式化的交易日列表
         show_period_change: 是否显示周期涨跌幅
-        period_days: 周期天数
         date_column_start: 日期列开始位置
         show_warning_column: 是否显示异动预警列
 
@@ -1907,7 +1919,7 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
 
     # 添加周期涨跌幅列（第4列）
     if show_period_change:
-        period_header = f"近{period_days}日\n近{period_days_long}日"
+        period_header = f"近{PERIOD_DAYS_LONG}日\n近{PERIOD_DAYS_VERY_LONG}日"
         header_cell = format_header_cell(ws, 1, 4, period_header, font_size=9)
         header_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
@@ -2592,8 +2604,8 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     period_column = 4
     date_column_start = 4 if not show_period_change else 5
     show_warning_column = True  # 默认显示异动预警列
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column, period_days_long)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, date_column_start,
+                                      show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -2710,7 +2722,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
 
             create_volume_concept_grouped_sheet(wb, volume_sheet_name, volume_grouped_df, shouban_df, stock_data,
                                                 stock_entry_count, formatted_trading_days, date_column_start,
-                                                show_period_change, period_column, period_days, period_days_long,
+                                                show_period_change, period_column, period_days_long,
                                                 stock_details, date_mapping, max_tracking_days,
                                                 max_tracking_days_before,
                                                 zaban_df)
@@ -3111,7 +3123,8 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
             # 使用最后一个交易日作为结束日期
             end_date = date_mapping.get(formatted_trading_days[-1])
             format_period_change_cell(ws, row_idx, period_column, stock_code, stock_name,
-                                      stock['first_significant_date'], period_days, period_days_long, end_date)
+                                      stock['first_significant_date'], PERIOD_DAYS_LONG, PERIOD_DAYS_VERY_LONG,
+                                      end_date)
 
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
@@ -3589,8 +3602,8 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     # ---------------- Excel 结构与数据填充 ----------------
     # 设置Excel表头和日期列
     show_warning_column = True  # 默认显示异动预警列
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column, period_days_long)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, date_column_start,
+                                      show_warning_column)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -3834,7 +3847,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
         # 使用最后一个交易日作为结束日期
         end_date = date_mapping.get(formatted_trading_days[-1])
         format_period_change_cell(ws, row_idx, period_column, stock_code, stock_name,
-                                  stock['first_significant_date'], period_days, period_days_long, end_date)
+                                  stock['first_significant_date'], PERIOD_DAYS_LONG, PERIOD_DAYS_VERY_LONG, end_date)
 
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
@@ -4439,8 +4452,8 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
     print(f"成功筛选出普通龙头股{len(normal_leaders_df)}只，大龙股{len(extra_leaders_df)}只，开始填充工作表内容")
 
     # 复用现有的表头和数据填充逻辑
-    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column=True, period_days_long=period_days_long)
+    date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, date_column_start,
+                                      show_warning_column=True)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
