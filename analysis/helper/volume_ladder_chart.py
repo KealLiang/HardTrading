@@ -736,7 +736,7 @@ def create_volume_concept_grouped_sheet_content(ws, result_df, shouban_df, stock
     from analysis.ladder_chart import setup_excel_header
     show_warning_column = True
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days,
-                                      date_column_start, show_warning_column)
+                                      date_column_start, show_warning_column, period_days_long)
 
     # 修改表头标题为"量趋势"（成交量版本专用）
     if show_warning_column and formatted_trading_days:

@@ -1658,8 +1658,8 @@ def format_daily_pct_change_cell(ws, row, col, current_date_obj, stock_code):
 
 def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                        pure_stock_code, stock_details, stock, date_mapping, max_tracking_days,
-                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE, new_high_markers=None,
-                       latest_entry_dates=None):
+                       max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE,
+                       period_days_long=PERIOD_DAYS_LONG, new_high_markers=None, latest_entry_dates=None):
     """
     处理每日单元格
 
@@ -1678,6 +1678,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
+        period_days_long: 计算长周期涨跌幅的周期天数
         new_high_markers: 新高标记映射
         latest_entry_dates: 每只股票的最新入选日期映射 {pure_stock_code: entry_date}
 
@@ -1726,7 +1727,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
             # 检查当日日期是否在首次显著连板日期之后
             if current_date_obj >= stock['first_significant_date']:
                 # 处理断板后的跟踪
-                if should_track_after_break(stock, current_date_obj, max_tracking_days, period_days):
+                if should_track_after_break(stock, current_date_obj, max_tracking_days, period_days, period_days_long):
                     format_daily_pct_change_cell(ws, row_idx, col_idx, current_date_obj, stock['stock_code'])
             # 检查当日日期是否在首次显著连板日期之前，且在跟踪天数范围内
             elif should_track_before_entry(current_date_obj, stock['first_significant_date'], max_tracking_days_before):
@@ -1771,7 +1772,7 @@ def process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in
     return stock
 
 
-def _is_long_period_change_above_threshold(stock_code, end_date_str):
+def _is_long_period_change_above_threshold(stock_code, end_date_str, period_days_long=PERIOD_DAYS_LONG):
     """
     检查股票在指定日期的长周期涨幅是否超过阈值（使用缓存）
 
@@ -1783,7 +1784,7 @@ def _is_long_period_change_above_threshold(stock_code, end_date_str):
         bool: 是否超过阈值
     """
     # 使用缓存键：股票代码 + 日期
-    cache_key = f"{stock_code}_{end_date_str}"
+    cache_key = f"{stock_code}_{end_date_str}_{period_days_long}"
 
     # 检查缓存
     if cache_key in _long_period_change_cache:
@@ -1791,7 +1792,7 @@ def _is_long_period_change_above_threshold(stock_code, end_date_str):
 
     # 计算长周期涨幅
     try:
-        start_date = get_n_trading_days_before(end_date_str, PERIOD_DAYS_LONG)
+        start_date = get_n_trading_days_before(end_date_str, period_days_long)
         if '-' in start_date:
             start_date = start_date.replace('-', '')
         long_period_change = calculate_stock_period_change(
@@ -1807,7 +1808,8 @@ def _is_long_period_change_above_threshold(stock_code, end_date_str):
         return False
 
 
-def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE):
+def should_track_after_break(stock, current_date_obj, max_tracking_days, period_days=PERIOD_DAYS_CHANGE,
+                             period_days_long=PERIOD_DAYS_LONG):
     """
     判断是否应该跟踪断板后的股票（包装函数）
     如果长周期涨幅超过阈值，则增加额外的跟踪天数
@@ -1818,7 +1820,7 @@ def should_track_after_break(stock, current_date_obj, max_tracking_days, period_
         try:
             current_date_str = current_date_obj.strftime('%Y%m%d')
             stock_code = stock['stock_code']
-            if _is_long_period_change_above_threshold(stock_code, current_date_str):
+            if _is_long_period_change_above_threshold(stock_code, current_date_str, period_days_long):
                 adjusted_max_tracking_days = max_tracking_days + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
         except Exception:
             # 如果计算出错，使用原始值
@@ -1830,7 +1832,7 @@ def should_track_after_break(stock, current_date_obj, max_tracking_days, period_
     )
 
 
-def should_collapse_row(stock, formatted_trading_days, date_mapping):
+def should_collapse_row(stock, formatted_trading_days, date_mapping, period_days_long=PERIOD_DAYS_LONG):
     """
     判断是否应该折叠此行（包装函数）
     如果长周期涨幅超过阈值，则增加额外的折叠天数
@@ -1843,7 +1845,7 @@ def should_collapse_row(stock, formatted_trading_days, date_mapping):
             end_date_str = date_mapping.get(formatted_trading_days[-1])
             if end_date_str:
                 stock_code = stock['stock_code']
-                if _is_long_period_change_above_threshold(stock_code, end_date_str):
+                if _is_long_period_change_above_threshold(stock_code, end_date_str, period_days_long):
                     adjusted_collapse_days = COLLAPSE_DAYS_AFTER_BREAK + EXTRA_TRACKING_DAYS_FOR_HIGH_GAIN
         except Exception:
             # 如果计算出错，使用原始值
@@ -1883,7 +1885,7 @@ def add_zaban_underline(cell):
 
 
 def setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                       show_warning_column=True):
+                       show_warning_column=True, period_days_long=PERIOD_DAYS_LONG):
     """
     设置Excel表头
 
@@ -1905,7 +1907,7 @@ def setup_excel_header(ws, formatted_trading_days, show_period_change, period_da
 
     # 添加周期涨跌幅列（第4列）
     if show_period_change:
-        period_header = f"近{period_days}日\n近{PERIOD_DAYS_LONG}日"
+        period_header = f"近{period_days}日\n近{period_days_long}日"
         header_cell = format_header_cell(ws, 1, 4, period_header, font_size=9)
         header_cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
@@ -2591,7 +2593,7 @@ def build_ladder_chart(start_date, end_date, output_file=OUTPUT_FILE, min_board_
     date_column_start = 4 if not show_period_change else 5
     show_warning_column = True  # 默认显示异动预警列
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column)
+                                      show_warning_column, period_days_long)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -3114,8 +3116,8 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
         # 填充每个交易日的数据
         fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                         shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                        max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
-                        latest_entry_dates)
+                        max_tracking_days, max_tracking_days_before, zaban_df, period_days, period_days_long,
+                        new_high_markers, latest_entry_dates)
 
         # 填充异动预警列
         if show_warning_column and abnormal_detector and formatted_trading_days:
@@ -3182,7 +3184,7 @@ def fill_data_rows(ws, result_df, shouban_df, stock_reason_group, reason_colors,
                     pass
 
         # 判断是否需要折叠此行（仅在启用折叠功能时）
-        if enable_collapse and should_collapse_row(stock, formatted_trading_days, date_mapping):
+        if enable_collapse and should_collapse_row(stock, formatted_trading_days, date_mapping, period_days_long):
             # 收集需要折叠的行索引，稍后统一处理
             rows_to_collapse.append(row_idx)
 
@@ -3262,7 +3264,7 @@ def calculate_max_board_level(all_board_data):
 def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
                     max_tracking_days, max_tracking_days_before, zaban_df, period_days=PERIOD_DAYS_CHANGE,
-                    new_high_markers=None, latest_entry_dates=None):
+                    period_days_long=PERIOD_DAYS_LONG, new_high_markers=None, latest_entry_dates=None):
     """
     填充每日数据
 
@@ -3281,6 +3283,7 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         max_tracking_days_before: 入选前跟踪的最大天数
         zaban_df: 炸板数据DataFrame
         period_days: 计算涨跌幅的周期天数
+        period_days_long: 计算长周期涨跌幅的周期天数
         new_high_markers: 新高标记映射
         latest_entry_dates: 每只股票的最新入选日期映射 {pure_stock_code: entry_date}
     """
@@ -3296,8 +3299,8 @@ def fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_
         # 处理单元格
         stock = process_daily_cell(ws, row_idx, col_idx, formatted_day, board_days, found_in_shouban,
                                    pure_stock_code, stock_details, stock, date_mapping,
-                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
-                                   latest_entry_dates)
+                                   max_tracking_days, max_tracking_days_before, zaban_df, period_days,
+                                   period_days_long, new_high_markers, latest_entry_dates)
 
 
 def adjust_column_widths(ws, formatted_trading_days, date_column_start, show_period_change,
@@ -3587,7 +3590,7 @@ def create_concept_grouped_sheet_content(ws, result_df, shouban_df, stock_data, 
     # 设置Excel表头和日期列
     show_warning_column = True  # 默认显示异动预警列
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column)
+                                      show_warning_column, period_days_long)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
@@ -3836,8 +3839,8 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
     # 填充每个交易日的数据
     fill_daily_data(ws, row_idx, formatted_trading_days, date_column_start, all_board_data,
                     shouban_df, pure_stock_code, stock_details, stock, date_mapping,
-                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, new_high_markers,
-                    latest_entry_dates)
+                    max_tracking_days, max_tracking_days_before, zaban_df, period_days, period_days_long,
+                    new_high_markers, latest_entry_dates)
 
     # 填充异动预警列
     if show_warning_column and abnormal_detector and formatted_trading_days:
@@ -3905,7 +3908,7 @@ def fill_single_stock_row(ws, row_idx, stock, shouban_df, stock_reason_group, re
 
     # 判断是否需要折叠此行（仅在启用折叠功能时）
     if enable_collapse:
-        should_collapse = should_collapse_row(stock, formatted_trading_days, date_mapping)
+        should_collapse = should_collapse_row(stock, formatted_trading_days, date_mapping, period_days_long)
         return should_collapse
 
     # 如果未启用折叠，返回False
@@ -4123,7 +4126,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         # 统计未被折叠的股票数量
         active_count = 0
         for _, stock in group_df.iterrows():
-            if not should_collapse_row(stock, formatted_trading_days, date_mapping):
+            if not should_collapse_row(stock, formatted_trading_days, date_mapping, period_days_long):
                 active_count += 1
 
         concept_activity[concept_group] = active_count
@@ -4234,7 +4237,7 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         # 根据开关决定候选范围
         if SELECT_LEADERS_FROM_ACTIVE_ONLY:
             candidate_df = group_df[~group_df.apply(
-                lambda row: should_collapse_row(row, formatted_trading_days, date_mapping), axis=1
+                lambda row: should_collapse_row(row, formatted_trading_days, date_mapping, period_days_long), axis=1
             )].copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只, 活跃{len(candidate_df)}只, 名额{quota})")
         else:
@@ -4437,7 +4440,7 @@ def create_leader_stocks_sheet_content(ws, concept_grouped_df, shouban_df, stock
 
     # 复用现有的表头和数据填充逻辑
     date_columns = setup_excel_header(ws, formatted_trading_days, show_period_change, period_days, date_column_start,
-                                      show_warning_column=True)
+                                      show_warning_column=True, period_days_long=period_days_long)
 
     # 添加大盘指标行
     add_market_indicators(ws, date_columns, label_col=2)
