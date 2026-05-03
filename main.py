@@ -1304,6 +1304,12 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     )
 
 
+def launch_custom_stock_chart_app():
+    """启动自选股票HTML图表小窗口：粘贴股票代码后生成图表。"""
+    from analysis.html_gen.custom_stock_html_chart import launch_custom_stock_chart_app as launch_app
+    return launch_app()
+
+
 def generate_momo_concept_group_html_charts(
         columns: int = 2,
         before_days: int = 60,
@@ -1759,9 +1765,10 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    # generate_ladder_chart()
-    generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    generate_ladder_chart()
+    # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
+    # launch_custom_stock_chart_app()  # 自选股生成HTML图表
 
     # === 复盘相关 ===
     # daily_routine()
