@@ -1139,6 +1139,7 @@ def whimsical_fupan_analyze():
 
 
 def generate_ladder_chart(historical_range_only=False, board_levels_experiment=False,
+                          min_board_level=2, non_main_board_level=2,
                           board_experiment_output_file="./excel/ladder_analysis_board实验.xlsx"):
     """
     更新同义词分组，基于已有的涨停原因数据文件
@@ -1147,6 +1148,8 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
         historical_range_only: 生成某段历史ladder_chart时设为True：不写龙头归档/不拆分归档、不写候选股txt；日常设为False
         board_levels_experiment: 试min/non_main board_level时设为True：只写「涨停梯队+概念分组」到board_experiment_output_file，不动日常 ladder_analysis.xlsx
         board_experiment_output_file: 上述输出文件
+        min_board_level: 主板入选最低连板数，默认2
+        non_main_board_level: 非主板入选最低连板数，默认2
     """
     from utils.export_stock_codes import extract_stock_codes_from_excel
     from analysis.loader.fupan_data_loader import OUTPUT_FILE
@@ -1154,8 +1157,6 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
     start_date = '20260101'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
 
-    min_board_level = 2
-    non_main_board_level = 2
     show_period_change = True  # 是否计算周期涨跌幅
     sheet_name = None
 
@@ -1765,10 +1766,11 @@ def vcp_score_analysis(scan_file: str, backtest_file: str):
 if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
-    generate_ladder_chart()
+    # generate_ladder_chart()
     # generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
     # launch_custom_stock_chart_app()  # 自选股生成HTML图表
+    generate_ladder_chart(historical_range_only=True, board_levels_experiment=True, min_board_level=3, non_main_board_level=2)  # 实验不同参数的天梯
 
     # === 复盘相关 ===
     # daily_routine()
