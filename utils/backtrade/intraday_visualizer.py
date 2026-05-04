@@ -6,6 +6,7 @@ import logging
 import os
 import warnings
 from datetime import datetime
+from threading import Lock
 
 # 设置非交互式后端，避免多线程警告
 import matplotlib
@@ -22,6 +23,9 @@ import pandas as pd
 from matplotlib.font_manager import FontProperties
 
 plt.rcParams['axes.unicode_minus'] = False
+
+# matplotlib/mplfinance 依赖全局绘图状态，多股票回测并发保存图片时需要串行化。
+_PLOT_LOCK = Lock()
 
 
 class IntradayVisualizer:
@@ -448,78 +452,100 @@ class IntradayVisualizer:
         filename = f"backtest_{symbol}_{timestamp}.png"
         output_path = os.path.join(self.output_dir, filename)
 
-        # 创建图表（关闭数据量警告）
-        fig, axes = mpf.plot(
-            chart_df,
-            type='candle',
-            style=self.style,
-            ylabel='价格',
-            volume=True,
-            ylabel_lower='成交量',
-            addplot=addplots,
-            figsize=(20, 10),
-            returnfig=True,
-            tight_layout=True,
-            warn_too_much_data=len(chart_df) + 1000  # 关闭数据量警告
-        )
+        fig = None
+        with _PLOT_LOCK:
+            try:
+                # 创建图表（关闭数据量警告）
+                fig, axes = mpf.plot(
+                    chart_df,
+                    type='candle',
+                    style=self.style,
+                    ylabel='价格',
+                    volume=True,
+                    ylabel_lower='成交量',
+                    addplot=addplots,
+                    figsize=(20, 10),
+                    returnfig=True,
+                    tight_layout=True,
+                    warn_too_much_data=len(chart_df) + 1000  # 关闭数据量警告
+                )
 
-        # 设置标题
-        axes[0].set_title(title, loc='left', fontweight='bold', fontsize=12)
+                # 设置标题
+                axes[0].set_title(title, loc='left', fontweight='bold', fontsize=12)
 
-        # 添加图例
-        axes[0].legend(loc='upper left', fontsize=10)
+                # 添加图例
+                axes[0].legend(loc='upper left', fontsize=10)
 
-        # 添加评分标注
-        if annotation_info:
-            self._add_score_annotations(axes[0], chart_df, annotation_info)
+                # 添加评分标注
+                if annotation_info:
+                    self._add_score_annotations(axes[0], chart_df, annotation_info)
 
-        # 优化X轴显示 - 每30根K线显示一个刻度
-        from matplotlib.ticker import FuncFormatter
+                self._add_day_boundary_lines(axes, chart_df)
 
-        num_bars = len(chart_df)
+                # 优化X轴显示：按数据量自适应，避免多日1分钟图刻度过密
+                from matplotlib.ticker import FuncFormatter
 
-        # 自定义格式化函数：将数值索引转换为实际日期
-        def format_date(x, pos=None):
-            """将mplfinance的数值索引转换为日期时间字符串"""
-            idx = int(x)
-            if idx < 0 or idx >= len(chart_df):
-                return ''
-            dt = chart_df.index[idx]
-            # 统一显示完整日期时间：月-日 时:分
-            return dt.strftime('%m-%d %H:%M')
+                num_bars = len(chart_df)
 
-        # 设置主刻度位置：每30根K线一个刻度
-        tick_spacing = 30
-        tick_positions = list(range(0, num_bars, tick_spacing))
+                # 自定义格式化函数：将mplfinance的数值索引转换为实际日期
+                def format_date(x, pos=None):
+                    """将mplfinance的数值索引转换为日期时间字符串"""
+                    idx = int(x)
+                    if idx < 0 or idx >= len(chart_df):
+                        return ''
+                    dt = chart_df.index[idx]
+                    return dt.strftime('%m-%d %H:%M')
 
-        # 确保第一个和最后一个位置有刻度
-        if 0 not in tick_positions:
-            tick_positions.insert(0, 0)
-        if num_bars - 1 not in tick_positions:
-            tick_positions.append(num_bars - 1)
+                max_ticks = 28
+                tick_spacing = max(30, num_bars // max_ticks)
+                tick_positions = list(range(0, num_bars, tick_spacing))
 
-        # 应用到主图
-        axes[0].set_xticks(tick_positions)
-        axes[0].xaxis.set_major_formatter(FuncFormatter(format_date))
+                # 确保第一个和最后一个位置有刻度
+                if 0 not in tick_positions:
+                    tick_positions.insert(0, 0)
+                if num_bars - 1 not in tick_positions:
+                    tick_positions.append(num_bars - 1)
 
-        # 应用到成交量副图
-        if len(axes) > 1:
-            axes[1].set_xticks(tick_positions)
-            axes[1].xaxis.set_major_formatter(FuncFormatter(format_date))
+                # 应用到主图
+                axes[0].set_xticks(tick_positions)
+                axes[0].xaxis.set_major_formatter(FuncFormatter(format_date))
 
-        fig.autofmt_xdate(rotation=45)
+                # 应用到成交量副图
+                if len(axes) > 1:
+                    axes[1].set_xticks(tick_positions)
+                    axes[1].xaxis.set_major_formatter(FuncFormatter(format_date))
 
-        # 保存图表（降低DPI以提升渲染速度）
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+                fig.autofmt_xdate(rotation=45)
 
-        # 等待图片完全写入磁盘（增加等待时间确保大图表完成渲染）
-        import time
-        time.sleep(1)
-
-        plt.close(fig)
+                # 使用当前 Figure 保存，避免并发时 plt.savefig 保存到其他线程的画布。
+                fig.savefig(output_path, dpi=150, bbox_inches='tight')
+            finally:
+                if fig is not None:
+                    plt.close(fig)
 
         print(f"✓ 已生成回测图表: {output_path}")
         return output_path
+
+    @staticmethod
+    def _add_day_boundary_lines(axes, chart_df):
+        """在跨日位置添加略深竖线，便于辨认交易日切换。"""
+        if len(chart_df) < 2:
+            return
+
+        dates = pd.Series(chart_df.index.date)
+        boundary_positions = dates[dates.ne(dates.shift())].index.tolist()
+        boundary_positions = [pos for pos in boundary_positions if pos > 0]
+
+        for pos in boundary_positions:
+            x = pos - 0.5
+            for ax in axes:
+                ax.axvline(
+                    x=x,
+                    color='#6f6f6f',
+                    linewidth=1.0,
+                    alpha=0.7,
+                    zorder=0
+                )
 
     def _add_score_annotations(self, ax, chart_df, annotation_info):
         """
