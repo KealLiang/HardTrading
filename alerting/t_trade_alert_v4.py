@@ -173,6 +173,93 @@ class TMonitorV4(TMonitorV3):
             return 0
         return series.iloc[-1] / (series.iloc[0] + 1e-10) - 1
 
+    def _price_turn_score(self, df_1m, i, signal_type):
+        """价格拐点分层：弱转折保留灵敏度，强转折给更高分。"""
+        if i < 4:
+            return 0, ""
+
+        row = df_1m.iloc[i]
+        prev = df_1m.iloc[i - 1]
+        recent_prev = df_1m.iloc[i - 3:i]
+        score = 0
+        reasons = []
+
+        if signal_type == 'BUY':
+            if row['close'] > prev['close']:
+                score += 3
+            if row['close'] > row['ema5']:
+                score += 4
+                reasons.append("站上短均")
+            if row['close'] > recent_prev['close'].max():
+                score += 5
+                reasons.append("突破近3收盘")
+        else:
+            if row['close'] < prev['close']:
+                score += 3
+            if row['close'] < row['ema5']:
+                score += 4
+                reasons.append("跌破短均")
+            if row['close'] < recent_prev['close'].min():
+                score += 5
+                reasons.append("跌破近3收盘")
+
+        return score, "，".join(reasons)
+
+    def _volume_structure_score(self, df_1m, i, signal_type):
+        """1分钟量能只做辅助：识别承接、卖压衰减、滞涨和量价背离。"""
+        if i < 6:
+            return 0, ""
+
+        row = df_1m.iloc[i]
+        prev = df_1m.iloc[i - 1]
+        recent = self._window(df_1m, i, 6)
+        prev_part = recent.iloc[:3]
+        last_part = recent.iloc[-3:]
+        vol_ma20 = row.get('vol_ma20')
+        if pd.isna(vol_ma20) or vol_ma20 <= 0:
+            return 0, ""
+
+        score = 0
+        reasons = []
+        vol_ratio = row['vol'] / (vol_ma20 + 1e-10)
+        prev_avg_vol = prev_part['vol'].mean()
+        last_avg_vol = last_part['vol'].mean()
+
+        if signal_type == 'BUY':
+            # 急跌后量能收缩，说明卖压边际衰减。
+            recent_low_now = last_part['low'].min()
+            recent_low_prev = prev_part['low'].min()
+            if recent_low_now <= recent_low_prev * 1.002 and last_avg_vol < prev_avg_vol * 0.85:
+                score += 6
+                reasons.append("卖压衰减")
+
+            # 阳线修复且量能不弱，说明有主动承接。
+            if row['close'] > row['open'] and vol_ratio >= 0.7:
+                score += 5
+                reasons.append("承接修复")
+            if row['close'] > prev['close'] and vol_ratio >= 1.2:
+                score += 5
+                reasons.append("放量修复")
+
+        else:
+            # 冲高后量大但价格推不动，是典型滞涨。
+            if vol_ratio >= 1.2 and row['close'] <= prev['close'] * 1.003:
+                score += 7
+                reasons.append("放量滞涨")
+
+            # 价格创新高附近，但量能没有跟随放大，属于亢奋降温预警。
+            recent_high_now = last_part['high'].max()
+            recent_high_prev = prev_part['high'].max()
+            if recent_high_now >= recent_high_prev * 0.998 and last_avg_vol < prev_avg_vol * 0.85:
+                score += 5
+                reasons.append("缩量冲高")
+
+            if row['close'] < row['open'] and vol_ratio >= 0.9:
+                score += 4
+                reasons.append("主动回落")
+
+        return score, "，".join(reasons)
+
     def _panic_setup_score(self, df_1m, i):
         row = df_1m.iloc[i]
         recent = self._window(df_1m, i, TMonitorConfigV4.SETUP_WINDOW)
@@ -286,16 +373,17 @@ class TMonitorV4(TMonitorV3):
             score += 7
             reasons.append("跌速放缓")
 
-        if row['close'] > row['ema5'] or row['close'] > prev['close']:
-            score += 8
-            reasons.append("价格转强")
+        price_score, price_reason = self._price_turn_score(df_1m, i, 'BUY')
+        if price_score:
+            score += price_score
+            if price_reason:
+                reasons.append(price_reason)
 
-        vol_ma20 = row.get('vol_ma20')
-        if pd.notna(vol_ma20) and vol_ma20 > 0:
-            if row['vol'] <= vol_ma20 * 1.8:
-                score += 5
-            if row['close'] > row['open'] and row['vol'] >= vol_ma20 * 0.7:
-                score += 5
+        volume_score, volume_reason = self._volume_structure_score(df_1m, i, 'BUY')
+        if volume_score:
+            score += volume_score
+            if volume_reason:
+                reasons.append(volume_reason)
 
         return score, "，".join(reasons) if reasons else "未见衰竭"
 
@@ -330,17 +418,17 @@ class TMonitorV4(TMonitorV3):
             score += 7
             reasons.append("涨速放缓")
 
-        if row['close'] < row['ema5'] or row['close'] < prev['close']:
-            score += 8
-            reasons.append("价格转弱")
+        price_score, price_reason = self._price_turn_score(df_1m, i, 'SELL')
+        if price_score:
+            score += price_score
+            if price_reason:
+                reasons.append(price_reason)
 
-        vol_ma20 = row.get('vol_ma20')
-        if pd.notna(vol_ma20) and vol_ma20 > 0:
-            if row['vol'] >= vol_ma20 * 1.2 and row['close'] <= prev['close'] * 1.003:
-                score += 7
-                reasons.append("放量滞涨")
-            elif row['vol'] <= vol_ma20 * 0.9:
-                score += 4
+        volume_score, volume_reason = self._volume_structure_score(df_1m, i, 'SELL')
+        if volume_score:
+            score += volume_score
+            if volume_reason:
+                reasons.append(volume_reason)
 
         return score, "，".join(reasons) if reasons else "未见衰竭"
 
@@ -367,7 +455,13 @@ class TMonitorV4(TMonitorV3):
         confirm = confirm_reason or ""
 
         if signal_type == 'BUY':
-            has_confirmed_turn = "脱离低点" in confirm and "价格转强" in confirm
+            has_price_turn = (
+                "站上短均" in confirm or
+                "突破近3收盘" in confirm or
+                "承接修复" in confirm or
+                "放量修复" in confirm
+            )
+            has_confirmed_turn = "脱离低点" in confirm and has_price_turn
             has_slowdown = "跌速放缓" in confirm
             if "20m回撤" in setup and has_confirmed_turn:
                 return "急杀衰竭转折买入"
@@ -377,15 +471,21 @@ class TMonitorV4(TMonitorV3):
                 return "极端恐慌修复观察买入"
             if "不再新低" in confirm and has_slowdown and has_confirmed_turn:
                 return "低位钝化修复买入"
-            if "不再新低" in confirm and ("RSI回升" in confirm or "价格转强" in confirm):
+            if "不再新低" in confirm and ("RSI回升" in confirm or has_price_turn):
                 return "低位修复观察买入"
-            if "触下轨" in setup and "价格转强" in confirm:
+            if "触下轨" in setup and has_price_turn:
                 return "下轨修复观察买入"
             return "恐慌衰竭买入"
 
         if "放量滞涨" in confirm:
             return "放量滞涨卖出"
-        has_confirmed_turn = "脱离高点" in confirm and "价格转弱" in confirm
+        has_price_turn = (
+            "跌破短均" in confirm or
+            "跌破近3收盘" in confirm or
+            "放量滞涨" in confirm or
+            "主动回落" in confirm
+        )
+        has_confirmed_turn = "脱离高点" in confirm and has_price_turn
         has_slowdown = "涨速放缓" in confirm
         if "20m拉升" in setup and has_confirmed_turn:
             return "冲高衰竭转折卖出"
@@ -397,7 +497,7 @@ class TMonitorV4(TMonitorV3):
             return "高位钝化回落卖出"
         if "不再新高" in confirm and ("RSI回落" in confirm or has_slowdown):
             return "高位降温预警卖出"
-        if "触上轨" in setup and "价格转弱" in confirm:
+        if "触上轨" in setup and has_price_turn:
             return "上轨转弱预警卖出"
         return "亢奋衰竭卖出"
 
@@ -552,9 +652,9 @@ if __name__ == "__main__":
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
-    symbols = ['600821']
-    backtest_start = "2026-04-21 09:30"
-    backtest_end = "2026-04-29 15:00"
+    symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195']
+    backtest_start = "2026-04-22 09:30"
+    backtest_end = "2026-04-30 15:00"
 
     symbols_file = 'watchlist.txt'
 
