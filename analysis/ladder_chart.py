@@ -30,7 +30,7 @@ from analysis.helper.ladder_chart_helpers import (
     get_new_high_markers_cached,
     # MA斜率
     get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics,
-    is_ma_trend_rising, is_ma_trend_falling,
+    is_ma_trend_rising, is_leader_second_wave_long_ok,
     # 跟踪判断
     clear_high_gain_cache,
     should_track_after_break as _should_track_after_break,
@@ -111,18 +111,19 @@ ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 25.0  # 主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER = 80.0  # 主板股最低长周期涨幅门槛（%）
-
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 30.0  # 主板：龙头条件1，近 PERIOD_DAYS_LONG 涨幅门槛（%）
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 30.0  # 非主板股最低短周期涨幅门槛（%）
-MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 85.0  # 非主板股最低长周期涨幅门槛（%）
+MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 35.0  # 非主板：龙头条件1，近 PERIOD_DAYS_LONG 涨幅门槛（%）
+
+# 【龙头 condition2：二波/老牌】近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高/min低-1)% 下限，即区间振幅
+LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN = 95.0
+LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN = 105.0
 
 # 【超短周期上限】近 N 个交易日涨幅须严格小于下列阈值（过滤预期兑现）
-LEADER_ULTRA_SHORT_PERIOD_DAYS = 2  # 极短周期
+LEADER_ULTRA_SHORT_PERIOD_DAYS = 3  # 极短周期
 MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER = 15.0  # 主板（%）
-MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 20.0  # 非主板（%）
+MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 18.0  # 非主板（%）
 
 # 【名额分配规则】按板块活跃度（概念组的活跃股票数量）排名动态分配龙头数量
 LEADER_QUOTA_TOP1 = 5  # 最热板块（排名第1）
@@ -140,7 +141,7 @@ SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=
 LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
 
 # 【工作表管理】
-MAX_LEADER_SHEETS = 3  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
+MAX_LEADER_SHEETS = 5  # 最大龙头股工作表保留数量（超过此数量会自动归档旧的sheet）
 # 龙头归档文件拆分阈值：当某个归档 part 的「龙头 sheet」数量达到该值时，继续归档会触发拆分
 # 目的是避免单个归档文件无限变大，导致打开/读取慢或失败
 MAX_LEADER_ARCHIVE_SHEETS = 100
@@ -4038,13 +4039,15 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     
     筛选条件（由全局参数控制，区分主板和非主板）：
     - 主板股：
-      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER (默认2)
-      * 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER (默认20%)
-      * 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER (默认60%)
+      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER
+      * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER（阈值名沿用，窗口为长周期）
+      * 条件2（二波/老牌）：近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高/min低-1)% >=
+        LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN，且 MA20>MA10，且收盘或最高在 MA10~MA20 之间，
+        且非 is_ma_trend_falling。若无法解析复盘截止日 end_date，则条件1/2 均不成立（不再用旧长周期涨幅兜底）。
     - 非主板股（创业板/科创板/北交所）：
-      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN (默认1)
-      * 最低短周期涨幅：MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN (默认30%)
-      * 最低长周期涨幅：MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN (默认70%)
+      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
+      * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+      * 条件2振幅下限：LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
     - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
     - 排除概念组：LEADER_EXCLUDE_CONCEPTS
     - 超短周期（LEADER_ULTRA_SHORT_PERIOD_DAYS 个交易日）涨幅上限：主板 <
@@ -4201,28 +4204,29 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         """检查涨幅门槛和趋势"""
         if row['market_type'] == 'main':
             short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-            long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER
         else:  # 非主板
             short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-            long_threshold = MIN_LONG_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
 
-        short_ok = row['short_period_change'] >= short_threshold
-        long_ok = row['long_period_change'] >= long_threshold
+        # 条件1：近 period_days_long 涨幅达阈值（与 long_period_change 一致）+ 明显上升趋势
+        cond1_change_ok = row['long_period_change'] >= short_threshold
 
-        # 如果无法获取结束日期，则无法进行趋势判断，回退到原有逻辑
+        # 无截止日则无法计算均线/二波，不按旧「长周期涨幅」放行，避免与现行龙头语义不一致
         if end_date_yyyymmdd is None:
-            return short_ok | long_ok
+            return False
 
-        # 获取股票代码
         stock_code = row['stock_code']
 
-        # 条件1：满足短周期条件 + 必须处于明显上升趋势
-        condition1 = short_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
+        condition1 = cond1_change_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
 
-        # 条件2：满足长周期条件 + 不能处于明显下降趋势
-        condition2 = long_ok and not is_ma_trend_falling(stock_code, end_date_yyyymmdd)
+        # 条件2：二波/老牌 — 近 PERIOD_DAYS_VERY_LONG 根有效 K 的振幅 + MA10~MA20 带 + MA20>MA10 + 非明显下跌
+        if row['market_type'] == 'main':
+            sw_min_range = LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN
+        else:
+            sw_min_range = LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
+        condition2 = is_leader_second_wave_long_ok(
+            stock_code, end_date_yyyymmdd, PERIOD_DAYS_VERY_LONG, sw_min_range
+        )
 
-        # 满足条件1或条件2即可入选
         return condition1 | condition2
 
     def check_ultra_short_cap(row):

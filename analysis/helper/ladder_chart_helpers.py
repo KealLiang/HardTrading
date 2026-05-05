@@ -95,6 +95,7 @@ def clear_helper_caches():
     _ma_slope_cache.clear()
     _slope_stats = {'min': float('inf'), 'max': float('-inf'), 'count': 0, 'sum': 0}
     _zaban_format_cache.clear()
+    is_leader_second_wave_long_ok.cache_clear()
 
 
 def cache_zaban_format(stock_code, formatted_day, is_zaban):
@@ -840,6 +841,119 @@ def is_ma_trend_falling(stock_code, end_date_yyyymmdd, ma_days=MA_SLOPE_DAYS):
 
     if ma_5 >= ma_10:
         return False  # 不是空头排列
+
+    return True
+
+
+# 龙头 condition2：二波形态 — 向前最多多扫若干行以凑够「有效交易日」数量（跳过停牌/空价）
+LEADER_SECOND_WAVE_MAX_SCAN_BACK_ROWS = 200
+
+
+def _leader_row_valid_ohlc_for_second_wave(row) -> bool:
+    """有效 K 线：收盘/最高/最低为有限正数（停牌日常为缺省或 0）。"""
+    try:
+        for col in ('收盘', '最高', '最低'):
+            v = row[col]
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                return False
+            fv = float(v)
+            if fv <= 0 or not np.isfinite(fv):
+                return False
+        return True
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _resolve_df_end_iloc_pos(df: pd.DataFrame, end_date_yyyymmdd: str):
+    """截至 end_date 的最后一根 K 线在 df 中的 iloc 位置（0..len-1）。"""
+    try:
+        end_date_str = f"{end_date_yyyymmdd[:4]}-{end_date_yyyymmdd[4:6]}-{end_date_yyyymmdd[6:8]}"
+        end_date_dt = pd.to_datetime(end_date_str)
+        all_dates = pd.to_datetime(df['日期'])
+        valid_dates = all_dates[all_dates <= end_date_dt]
+        if valid_dates.empty:
+            return None
+        closest_date = valid_dates.max()
+        mask = (pd.to_datetime(df['日期']) == closest_date).to_numpy()
+        positions = np.flatnonzero(mask)
+        if positions.size == 0:
+            return None
+        return int(positions[-1])
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=8000)
+def is_leader_second_wave_long_ok(
+    stock_code: str,
+    end_date_yyyymmdd: str,
+    very_long_days: int,
+    min_range_pct: float,
+) -> bool:
+    """
+    龙头筛选 condition2：「老牌/二波」长逻辑（与 ladder_chart 中 PERIOD_DAYS_VERY_LONG 等参数配合）。
+
+    条件（均为截至 end_date 的数据）：
+    - 从 end 日向前跳过无效 K 线，凑满 very_long_days 根有效日；
+      该集合内 (max(最高) / min(最低) - 1) * 100 >= min_range_pct；
+    - MA20 > MA10，且 (MA10 < 收盘 < MA20) 或 (MA10 < 最高 < MA20)；
+    - 非 is_ma_trend_falling（防明显主跌段）。
+    """
+    if not stock_code or not end_date_yyyymmdd or len(str(end_date_yyyymmdd)) != 8:
+        return False
+
+    df = get_stock_data_df(stock_code)
+    if df is None or df.empty:
+        return False
+
+    pos = _resolve_df_end_iloc_pos(df, end_date_yyyymmdd)
+    if pos is None:
+        return False
+
+    row_today = df.iloc[pos]
+    if not _leader_row_valid_ohlc_for_second_wave(row_today):
+        return False
+    close = float(row_today['收盘'])
+    high = float(row_today['最高'])
+
+    lows: list = []
+    highs: list = []
+    n_valid = 0
+    p = pos
+    scanned = 0
+    while p >= 0 and n_valid < int(very_long_days) and scanned < int(very_long_days) + LEADER_SECOND_WAVE_MAX_SCAN_BACK_ROWS:
+        r = df.iloc[p]
+        if _leader_row_valid_ohlc_for_second_wave(r):
+            lows.append(float(r['最低']))
+            highs.append(float(r['最高']))
+            n_valid += 1
+        p -= 1
+        scanned += 1
+
+    if n_valid < int(very_long_days):
+        return False
+
+    min_low = min(lows)
+    max_high = max(highs)
+    if min_low <= 0:
+        return False
+    range_pct = (max_high / min_low - 1.0) * 100.0
+    if range_pct < float(min_range_pct):
+        return False
+
+    ma10 = get_ma_value(stock_code, end_date_yyyymmdd, 10)
+    ma20 = get_ma_value(stock_code, end_date_yyyymmdd, 20)
+    if ma10 is None or ma20 is None:
+        return False
+    if ma20 <= ma10:
+        return False
+
+    in_band = (ma10 < close < ma20) or (ma10 < high < ma20)
+    if not in_band:
+        return False
+
+    if is_ma_trend_falling(stock_code, end_date_yyyymmdd):
+        return False
 
     return True
 
