@@ -116,7 +116,7 @@ MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 30.0  # 主板：龙头条件1，近 PERIOD
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
 MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 35.0  # 非主板：龙头条件1，近 PERIOD_DAYS_LONG 涨幅门槛（%）
 
-# 【龙头 condition2：二波/老牌】近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高/min低-1)% 下限，即区间振幅
+# 【龙头 condition2：二波/老牌】近 PERIOD_DAYS_VERY_LONG 根有效K的振幅阈值，超过此值才作为二波候选
 LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN = 95.0
 LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN = 105.0
 
@@ -4041,13 +4041,13 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     - 主板股：
       * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER
       * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER（阈值名沿用，窗口为长周期）
-      * 条件2（二波/老牌）：近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高/min低-1)% >=
-        LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN，且 MA20>MA10，且收盘或最高在 MA10~MA20 之间，
+      * 条件2（二波/老牌）：近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高-min低)/max高*100% >=
+        LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN，且最新收盘>该窗口最早收盘；且 MA20>MA10，且收盘或最高在 MA10~MA20 之间，
         且非 is_ma_trend_falling。若无法解析复盘截止日 end_date，则条件1/2 均不成立（不再用旧长周期涨幅兜底）。
     - 非主板股（创业板/科创板/北交所）：
       * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
       * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-      * 条件2振幅下限：LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
+      * 条件2：同上振幅口径与方向约束，振幅下限 LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
     - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
     - 排除概念组：LEADER_EXCLUDE_CONCEPTS
     - 超短周期（LEADER_ULTRA_SHORT_PERIOD_DAYS 个交易日）涨幅上限：主板 <

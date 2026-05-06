@@ -895,7 +895,8 @@ def is_leader_second_wave_long_ok(
 
     条件（均为截至 end_date 的数据）：
     - 从 end 日向前跳过无效 K 线，凑满 very_long_days 根有效日；
-      该集合内 (max(最高) / min(最低) - 1) * 100 >= min_range_pct；
+      该集合内区间振幅（同花顺口径）(max(最高)-min(最低))/max(最高)*100 >= min_range_pct；
+      且最新收盘 > 该窗口内最早一根有效 K 的收盘（方向约束）；
     - MA20 > MA10，且 (MA10 < 收盘 < MA20) 或 (MA10 < 最高 < MA20)；
     - 非 is_ma_trend_falling（防明显主跌段）。
     """
@@ -918,6 +919,7 @@ def is_leader_second_wave_long_ok(
 
     lows: list = []
     highs: list = []
+    closes_win: list = []
     n_valid = 0
     p = pos
     scanned = 0
@@ -926,6 +928,7 @@ def is_leader_second_wave_long_ok(
         if _leader_row_valid_ohlc_for_second_wave(r):
             lows.append(float(r['最低']))
             highs.append(float(r['最高']))
+            closes_win.append(float(r['收盘']))
             n_valid += 1
         p -= 1
         scanned += 1
@@ -935,10 +938,13 @@ def is_leader_second_wave_long_ok(
 
     min_low = min(lows)
     max_high = max(highs)
-    if min_low <= 0:
+    if max_high <= 0 or min_low <= 0:
         return False
-    range_pct = (max_high / min_low - 1.0) * 100.0
+    range_pct = (max_high - min_low) / max_high * 100.0
     if range_pct < float(min_range_pct):
+        return False
+    # 方向：窗口内最近收盘 vs 最早一根有效日收盘（closes_win[0] 为截止日，[-1] 为窗口最旧）
+    if closes_win[0] <= closes_win[-1]:
         return False
 
     ma10 = get_ma_value(stock_code, end_date_yyyymmdd, 10)
