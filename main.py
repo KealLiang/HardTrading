@@ -652,7 +652,7 @@ def daily_routine():
     """
     # 定义日常流程步骤
     daily_steps = [
-        (get_stock_datas, "拉取A股交易数据"),
+        # (get_stock_datas, "拉取A股交易数据"),
         (get_index_data, "拉取各大指数数据"),
         (fetch_ths_fupan, "拉取热门个股数据"),
         (whimsical_fupan_analyze, "执行题材分析"),
@@ -1767,13 +1767,13 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
-    generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    # generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
     # launch_custom_stock_chart_app()  # 自选股生成HTML图表
     # generate_ladder_chart(historical_range_only=True, board_levels_experiment=True, min_board_level=3, non_main_board_level=2)  # 实验不同参数的天梯
 
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # get_stock_datas()
     # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除
     # full_scan_routine()
