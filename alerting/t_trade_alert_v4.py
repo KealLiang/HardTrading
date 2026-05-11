@@ -51,13 +51,13 @@ class TMonitorConfigV4:
     # MIN_SIGNAL_SCORE：最终信号门槛；调大信号更少更强，调小信号更多但噪声增加。
     MIN_SIGNAL_SCORE = 72
     # MIN_SETUP_SCORE：极端情绪门槛；调大要求更强恐慌/亢奋，调小会纳入温和波动。
-    MIN_SETUP_SCORE = 24
+    MIN_SETUP_SCORE = 26
     # MIN_CONFIRM_SCORE：右侧衰竭门槛；调大更晚更稳，调小更早更灵敏。
-    MIN_CONFIRM_SCORE = 24
+    MIN_CONFIRM_SCORE = 26
 
     # 同向重复信号管理
     # REPEAT_PRICE_CHANGE：同一情绪波段重复提示所需的新价格空间；调大重复更少，调小更密集。
-    REPEAT_PRICE_CHANGE = 0.018
+    REPEAT_PRICE_CHANGE = 0.02
     # RSI回到中性区后，认为上一段恐慌/亢奋波段结束。
     RSI_BUY_WAVE_RESET = 45
     RSI_SELL_WAVE_RESET = 55
@@ -653,8 +653,9 @@ if __name__ == "__main__":
     # IS_BACKTEST = False
 
     symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195']
-    backtest_start = "2026-04-22 09:30"
-    backtest_end = "2026-04-30 15:00"
+    # symbols = ['600527']
+    backtest_start = "2026-04-30 09:30"
+    backtest_end = "2026-05-08 15:00"
 
     symbols_file = 'watchlist.txt'
 
