@@ -302,8 +302,38 @@ def _calculate_period_changes(stock_code: str, signal_date: str, data_dir: str) 
     return period_changes
 
 
+def _stock_concept_bracket_inner_html(concepts: List[str]) -> str:
+    """股票概念方括号内的 HTML（不含外层 <b>），与历史展示一致。"""
+    if not concepts:
+        return ''
+    n = len(concepts)
+    if n <= 4:
+        return " + ".join(concepts)
+    split_idx = (n + 1) // 2
+    first_line = " + ".join(concepts[:split_idx])
+    second_line = " + ".join(concepts[split_idx:])
+    return f"{first_line}<br>{second_line}"
+
+
+def _format_stock_concept_bracket_html(concepts: List[str]) -> str:
+    """同花顺股票概念：单独一行时的整段 HTML。"""
+    inner = _stock_concept_bracket_inner_html(concepts)
+    if not inner:
+        return ''
+    return f"<b>[{inner}]</b>"
+
+
+def _format_zt_reason_bracket_html(zt_concepts: List[str]) -> str:
+    """复盘涨停概念：与 Excel 习惯一致，词条间用紧密的 + 连接。"""
+    if not zt_concepts:
+        return ''
+    inner = "+".join(zt_concepts)
+    return f"[{inner}]"
+
+
 def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict],
                   concepts: Optional[List[str]] = None,
+                  zt_limit_up_concepts: Optional[List[str]] = None,
                   chart_df: Optional[pd.DataFrame] = None,
                   data_dir: str = './data/astocks') -> str:
     """
@@ -313,26 +343,28 @@ def _format_title(stock_code: str, stock_name: str, signal_dates_info: List[Dict
         stock_code: 股票代码
         stock_name: 股票名称
         signal_dates_info: 信号日期信息列表
-        concepts: 所属概念列表，不为空时以 [A+B+C] 形式追加到标题首行
+        concepts: 同花顺股票概念列表。与 zt_limit_up_concepts 同时存在时，图内标题首行仅代码+名称，
+            股票概念单独成行；涨停概念只在页顶灰条展示（由调用方 chart_titles 负责），图内不再重复。
+        zt_limit_up_concepts: 复盘涨停概念。仅当没有股票概念时，才在图内首行名称后附加 [a+b+…]。
         chart_df: 当前图窗 K 线数据，用于取最新一日成交额（列名 amount）
         data_dir: 计算周期涨跌幅所用数据目录
         
     Returns:
         格式化的标题HTML字符串
     """
-    # 概念行：允许拆成最多两行，避免一行过长
     title_parts: List[str] = []
-    if concepts:
-        n = len(concepts)
-        if n <= 4:
-            concept_str = " + ".join(concepts)
-            concept_tag = f"[{concept_str}]"
-        else:
-            split_idx = (n + 1) // 2  # 前一半略多
-            first_line = " + ".join(concepts[:split_idx])
-            second_line = " + ".join(concepts[split_idx:])
-            concept_tag = f"[{first_line}<br>{second_line}]"
-        title_parts.append(f"<b>{stock_code} {stock_name} {concept_tag}</b>")
+    zt = [x for x in (zt_limit_up_concepts or []) if x]
+    stock_tags = [x for x in (concepts or []) if x]
+
+    if zt and stock_tags:
+        title_parts.append(f"<b>{stock_code} {stock_name}</b>")
+        title_parts.append(_format_stock_concept_bracket_html(stock_tags))
+    elif stock_tags:
+        inner = _stock_concept_bracket_inner_html(stock_tags)
+        title_parts.append(f"<b>{stock_code} {stock_name} [{inner}]</b>")
+    elif zt:
+        zt_br = _format_zt_reason_bracket_html(zt)
+        title_parts.append(f"<b>{stock_code} {stock_name} {zt_br}</b>")
     else:
         title_parts.append(f"<b>{stock_code} {stock_name}</b>")
 
@@ -515,6 +547,7 @@ def _create_single_chart_figure(
         after_days: int = DEFAULT_AFTER_DAYS,
         data_dir: str = './data/astocks',
         concepts: Optional[List[str]] = None,
+        zt_limit_up_concepts: Optional[List[str]] = None,
         kline_up_color: str = '#ff4444',
         kline_down_color: str = '#00aa00',
         overlay_segment_start: Optional[str] = None,
@@ -536,6 +569,8 @@ def _create_single_chart_figure(
         before_days: 信号日前显示的交易日数
         after_days: 信号日后显示的交易日数
         data_dir: 数据目录
+        concepts: 同花顺股票概念（板块）列表
+        zt_limit_up_concepts: 复盘涨停原因；无股票概念时写入图内标题，有股票概念时不写入图内（避免与页顶重复）
         
     Returns:
         go.Figure: Plotly图表对象
@@ -916,6 +951,7 @@ def _create_single_chart_figure(
         # 4. 生成标题
         title = _format_title(
             stock_code, stock_name, signal_dates_info, concepts=concepts,
+            zt_limit_up_concepts=zt_limit_up_concepts,
             chart_df=chart_df, data_dir=data_dir,
         )
 

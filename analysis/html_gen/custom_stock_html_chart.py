@@ -110,6 +110,15 @@ def generate_custom_stock_html_charts(
     except Exception as e:
         logging.warning(f"加载概念映射失败，跳过概念标签: {e}")
 
+    fupan_zt_raw: Dict[str, str] = {}
+    _zt_to_tags = None
+    try:
+        from analysis.loader.fupan_data_loader import load_zt_concept_by_stock_code, zt_concept_string_to_tags
+        fupan_zt_raw = load_zt_concept_by_stock_code()
+        _zt_to_tags = zt_concept_string_to_tags
+    except Exception as e:
+        logging.warning(f"加载复盘涨停概念失败，将仅用同花顺概念映射: {e}")
+
     for stock_code in stock_codes:
         try:
             stock_name = _find_stock_name(stock_code, data_dir)
@@ -149,6 +158,11 @@ def generate_custom_stock_html_charts(
                 'details': '用户输入',
             }]
 
+            raw_zt = fupan_zt_raw.get(stock_code)
+            zt_tags: List[str] = []
+            if raw_zt and _zt_to_tags:
+                zt_tags = _zt_to_tags(raw_zt)
+
             fig = _create_single_chart_figure(
                 stock_code=stock_code,
                 stock_name=stock_name,
@@ -158,13 +172,17 @@ def generate_custom_stock_html_charts(
                 after_days=after_days,
                 data_dir=data_dir,
                 concepts=concept_lookup.get(stock_code) or [],
+                zt_limit_up_concepts=zt_tags if zt_tags else None,
             )
             if fig is None:
                 continue
 
             chart_figures.append(fig)
             chart_codes.append(stock_code)
-            chart_titles.append(f"{stock_code} {stock_name}".strip())
+            # 页面上方灰底标题栏只显示本列表文字；Plotly 内 layout.title 含完整 HTML，
+            # 易被用户忽略或与工具栏重叠，故外层至少同步「代码 名称 + 涨停概念」纯文本。
+            _outer_zt = f" [{'+'.join(zt_tags)}]" if zt_tags else ""
+            chart_titles.append(f"{stock_code} {stock_name}{_outer_zt}".strip())
 
         except Exception as e:
             logging.error(f"生成股票图失败 {stock_code}: {e}")

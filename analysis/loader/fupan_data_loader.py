@@ -1,5 +1,7 @@
+import os
 import re
 from datetime import datetime
+from typing import Optional
 
 import pandas as pd
 
@@ -687,6 +689,155 @@ def load_attention_data(start_date, end_date, is_main_board=True):
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
+
+
+def _normalize_pure_code_from_cell(part0: str) -> Optional[str]:
+    """单元格首段股票代码 -> 6 位纯数字代码。"""
+    stock_code = str(part0).strip()
+    if stock_code.startswith(('sh', 'sz', 'bj')):
+        stock_code = stock_code[2:]
+    stock_code = stock_code.strip()
+    if len(stock_code) == 6 and stock_code.isdigit():
+        return stock_code
+    m = re.search(r'(\d{6})', stock_code)
+    return m.group(1) if m else None
+
+
+def _iter_date_columns_in_range(df: pd.DataFrame, start_date: str, end_date: str):
+    """遍历表头为交易日的列，产出 (列名, YYYYMMDD)。"""
+    for col in df.columns:
+        if not isinstance(col, str):
+            continue
+        if re.match(r'^\d{4}/\d{1,2}/\d{1,2}$', col):
+            date_obj = pd.to_datetime(col)
+        elif re.match(r'^\d{4}年\d{1,2}月\d{1,2}日$', col):
+            date_parts = re.findall(r'\d+', col)
+            if len(date_parts) != 3:
+                continue
+            date_obj = datetime(int(date_parts[0]), int(date_parts[1]), int(date_parts[2]))
+        else:
+            continue
+        ymd = date_obj.strftime('%Y%m%d')
+        if ymd >= start_date and ymd <= end_date:
+            yield col, ymd
+
+
+def _collect_shouban_concept_events(
+        df: pd.DataFrame, start_date: str, end_date: str,
+) -> list[tuple[str, str, str, int]]:
+    """首板 sheet：与 load_shouban_data 相同的单元格解析，产出 (纯代码, 日期, 概念, 来源序)。"""
+    rows: list[tuple[str, str, str, int]] = []
+    for date_col, ymd in _iter_date_columns_in_range(df, start_date, end_date):
+        for _, cell_value in df[date_col].items():
+            if pd.isna(cell_value):
+                continue
+            parts = str(cell_value).split(';')
+            if len(parts) < 5:
+                continue
+            pure = _normalize_pure_code_from_cell(parts[0])
+            if not pure:
+                continue
+            concept = parts[-1].strip() if parts else ''
+            rows.append((pure, ymd, concept, 0))
+    return rows
+
+
+def _collect_lianban_concept_events(
+        df: pd.DataFrame, start_date: str, end_date: str,
+) -> list[tuple[str, str, str, int]]:
+    """连板 sheet：与 load_lianban_data 相同的单元格解析。"""
+    rows: list[tuple[str, str, str, int]] = []
+    for date_col, ymd in _iter_date_columns_in_range(df, start_date, end_date):
+        for _, cell_value in df[date_col].items():
+            if pd.isna(cell_value):
+                continue
+            parts = str(cell_value).split(';')
+            if len(parts) < 5:
+                continue
+            pure = _normalize_pure_code_from_cell(parts[0])
+            if not pure:
+                continue
+            board_info = parts[4].strip() if len(parts) > 4 else None
+            if not board_info:
+                continue
+            board_days, _ = extract_board_info(board_info)
+            if not board_days:
+                continue
+            concept = parts[-1].strip() if parts else ''
+            rows.append((pure, ymd, concept, 1))
+    return rows
+
+
+def _resolve_fupan_excel_path() -> str:
+    """
+    复盘 Excel 绝对路径：先按进程 cwd 下的 FUPAN_FILE，否则锚定到本仓库根目录下的 excel/。
+    （避免从 IDE 等非项目根 cwd 启动时读不到文件。）
+    """
+    cwd_candidate = os.path.abspath(FUPAN_FILE)
+    if os.path.exists(cwd_candidate):
+        return cwd_candidate
+    # analysis/loader/ -> 仓库根
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    anchored = os.path.join(repo_root, 'excel', 'fupan_stocks.xlsx')
+    if os.path.exists(anchored):
+        return anchored
+    return cwd_candidate
+
+
+def load_zt_concept_by_stock_code(
+        start_date: str = "20000101",
+        end_date: str = "20991231",
+) -> dict[str, str]:
+    """
+    从复盘 Excel「首板数据」「连板数据」汇总每只股票的最新涨停概念原因字符串。
+
+    解析规则与 load_shouban_data / load_lianban_data 中「概念」字段一致（分号分隔单元格的末段）。
+    同一交易日若首板与连板均出现，取连板行（与连板信息更一致）。
+
+    Returns:
+        纯代码 -> 原始概念字符串（可能含「+」连接多个标签）
+    """
+    excel_path = _resolve_fupan_excel_path()
+    if not os.path.exists(excel_path):
+        return {}
+
+    events: list[tuple[str, str, str, int]] = []
+    try:
+        df_shou = pd.read_excel(excel_path, sheet_name="首板数据")
+        events.extend(_collect_shouban_concept_events(df_shou, start_date, end_date))
+    except Exception:
+        pass
+    try:
+        df_lb = pd.read_excel(excel_path, sheet_name="连板数据")
+        events.extend(_collect_lianban_concept_events(df_lb, start_date, end_date))
+    except Exception:
+        pass
+
+    if not events:
+        return {}
+
+    ev_df = pd.DataFrame(events, columns=['纯代码', '日期', '概念', '_src'])
+    ev_df = ev_df.sort_values(['纯代码', '日期', '_src'])
+    latest = ev_df.groupby('纯代码', as_index=False).last()
+
+    out: dict[str, str] = {}
+    for _, row in latest.iterrows():
+        c = str(row['概念']).strip()
+        if c and c != '其他':
+            out[str(row['纯代码'])] = c
+    return out
+
+
+def zt_concept_string_to_tags(raw: str) -> list[str]:
+    """
+    将复盘 Excel 中的概念字符串拆成标题用标签列表（支持半角/全角加号）。
+    空串或占位「其他」返回空列表。
+    """
+    s = str(raw).strip()
+    if not s or s == '其他':
+        return []
+    parts = re.split(r'[+＋]', s)
+    return [p.strip() for p in parts if p and p.strip() and p.strip() != '其他']
 
 
 def load_momo_shangzhang_data(start_date, end_date):
