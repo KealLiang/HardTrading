@@ -28,7 +28,7 @@ LIANBAN_STOCKS_PER_LINE = 5  # 连板天梯图层：每5只股票换行
 MOMO_STOCKS_PER_LINE = 3  # 默默上涨图层：每3只股票换行
 ZHANGTING_OPEN_THRESHOLD = 10  # 涨停开板次数阈值（超过此值加下划线标记）
 JI_BAN_TIERS = 2  # 次高几板显示阶数（2表示显示第2高和第3高）
-ATTENTION_TOP_N = 10  # 关注度榜取前N名（用于加粗股票名称）
+ATTENTION_TOP_N = 20  # 关注度榜取前N名（用于加粗股票名称）
 
 # 高门槛股代码前缀配置（用于区分不同交易门槛的股票）
 HIGH_THRESHOLD_STOCK_PREFIXES = ['8', '688']  # 以这些前缀开头的股票为高门槛股
