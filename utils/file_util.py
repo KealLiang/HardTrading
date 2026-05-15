@@ -4,6 +4,21 @@ import os
 import pandas as pd
 
 
+def _coerce_stock_code_str(stock_code):
+    """无效入参返回 None，避免对 float/NaN 执行 '.' in stock_code 触发 TypeError。"""
+    if stock_code is None:
+        return None
+    try:
+        if pd.isna(stock_code):
+            return None
+    except TypeError:
+        pass
+    s = str(stock_code).strip()
+    if not s or s.lower() == "nan":
+        return None
+    return s
+
+
 def save_list_to_file(data_list, filename='./data/result.txt'):
     """
     将list的内容保存到一个文本文件中。
@@ -26,8 +41,11 @@ def get_stock_file_path(stock_code, data_path='./data/astocks', stock_name=None)
     :return: 找到的文件完整路径，如果未找到则返回None
     """
     try:
+        sc = _coerce_stock_code_str(stock_code)
+        if sc is None:
+            return None
         # 处理股票代码格式，去除可能的后缀如 .SH
-        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+        clean_code = sc.split(".")[0] if "." in sc else sc
 
         # 确保使用绝对路径
         abs_data_path = os.path.abspath(data_path)
@@ -50,7 +68,7 @@ def get_stock_file_path(stock_code, data_path='./data/astocks', stock_name=None)
                 return os.path.join(abs_data_path, file)
 
         # 如果没有找到文件，记录日志
-        logging.info(f"未找到股票 {stock_code} 的数据文件")
+        logging.info(f"未找到股票 {sc} 的数据文件")
         return None
 
     except Exception as e:
@@ -97,8 +115,11 @@ def find_all_stock_files(stock_code, data_path='./data/astocks'):
     :return: 包含所有匹配文件路径的列表，如果未找到则返回空列表
     """
     try:
+        sc = _coerce_stock_code_str(stock_code)
+        if sc is None:
+            return []
         # 处理股票代码格式，去除可能的后缀如 .SH
-        clean_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
+        clean_code = sc.split(".")[0] if "." in sc else sc
 
         # 确保使用绝对路径
         abs_data_path = os.path.abspath(data_path)

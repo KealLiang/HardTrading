@@ -4261,6 +4261,15 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
             candidate_df = group_df.copy()
             print(f"  处理概念组: {concept_group} (总计{len(group_df)}只股票, 名额{quota})")
 
+        # 空表 apply(axis=1) 仍会回调一行全 NaN，误触发读 K 线；无有效 stock_code 时后续也无意义
+        if candidate_df.empty:
+            print(f"    概念组 {concept_group} 无符合条件的股票")
+            continue
+        candidate_df = candidate_df.loc[candidate_df["stock_code"].notna()].copy()
+        if candidate_df.empty:
+            print(f"    概念组 {concept_group} 无符合条件的股票")
+            continue
+
         # 筛选符合龙头条件的股票（区分主板和非主板）
         candidate_df['market_type'] = candidate_df['stock_code'].apply(get_stock_market_type)
         board_mask = candidate_df.apply(check_board_level, axis=1)
