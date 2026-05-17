@@ -560,12 +560,14 @@ def generate_leader_sheet_html_charts(
         virtual_bars: Optional[Sequence[VirtualBarInput]] = None,
         use_leader_archive: bool = True,
         merge_leader_archive_splits: bool = False,
+        show_daily_relative_strength: bool = False,
 ) -> Optional[str]:
     """
     从全部龙头sheet生成全量HTML图表（包含入选/移除标记）。
 
     use_leader_archive: 是否合并「{主文件名}_龙头归档.xlsx」中的历史龙头 sheet（默认开启）。
     merge_leader_archive_splits: 是否在上述基础上再合并 leader_archives 下拆分归档（默认关闭，避免读入过久远/过大）。
+    show_daily_relative_strength: 是否计算并绘制底部「每日相对强弱」子图（默认关闭）。
     """
     if columns not in [1, 2, 3]:
         logging.warning(f"列数 {columns} 无效，使用默认值2")
@@ -711,7 +713,7 @@ def generate_leader_sheet_html_charts(
                 overlay_down_color='#66cc66',
                 # 龙头图：建仓区间只锚定最新“龙头入选”信号
                 entry_range_anchor_signal_types=['龙头入选'],
-                show_daily_relative_strength=True,
+                show_daily_relative_strength=show_daily_relative_strength,
                 daily_relative_strength_label='每日相对强弱',
             )
             if fig is None:
