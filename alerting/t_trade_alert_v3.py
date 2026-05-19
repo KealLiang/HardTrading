@@ -142,6 +142,11 @@ class TMonitorConfig:
     # 移除硬编码阈值，改为动态获取（通过 stock_limit_ratio 方法）
     # 自动适配：主板10%、科创板/创业板20%、北交所30%
 
+    @classmethod
+    def min_history_bars(cls):
+        """生成信号所需的最少历史K线数。"""
+        return cls.RSI_PERIOD
+
 
 class PositionManager:
     """仓位管理器（处理T+1限制）"""
@@ -193,6 +198,13 @@ class PositionManager:
 
 class TMonitorV3:
     """V3做T监控器：纯信号模式 - RSI+布林带+量价确认"""
+
+    CONFIG = TMonitorConfig
+
+    @property
+    def cfg(self):
+        """当前监控器使用的配置类（子类可设为独立 CONFIG）。"""
+        return self.CONFIG
 
     def __init__(self, symbol, stop_event,
                  push_msg=True, is_backtest=False,
@@ -250,7 +262,7 @@ class TMonitorV3:
 
     def _connect_api(self):
         """连接行情服务器"""
-        for host, port in TMonitorConfig.HOSTS:
+        for host, port in self.cfg.HOSTS:
             if self.api.connect(host, port):
                 return True
         return False
@@ -279,7 +291,7 @@ class TMonitorV3:
             end_dt = pd.to_datetime(end_time)
             df = df.sort_values(by='datetime').reset_index(drop=True)
             df.rename(columns={'volume': 'vol'}, inplace=True)
-            warmup_df = df[df['datetime'] < start_dt].tail(TMonitorConfig.WARMUP_BARS)
+            warmup_df = df[df['datetime'] < start_dt].tail(self.cfg.WARMUP_BARS)
             active_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
             df = pd.concat([warmup_df, active_df], ignore_index=True)
             return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
@@ -891,9 +903,9 @@ class TMonitorV3:
         """处理1分钟K线，生成信号"""
         # 实盘收线确认：最后一根通常是正在形成的分钟K线，丢弃后最多慢1分钟。
         # 如需恢复实时K线触发，将 CONFIRM_CLOSED_BAR 设为 False。
-        if TMonitorConfig.CONFIRM_CLOSED_BAR:
+        if self.cfg.CONFIRM_CLOSED_BAR:
             df_1m = df_1m.iloc[:-1].copy()
-        if len(df_1m) < TMonitorConfig.RSI_PERIOD:
+        if len(df_1m) < self.cfg.min_history_bars():
             return
         
         # 计算技术指标
@@ -925,8 +937,8 @@ class TMonitorV3:
             while not self.stop_event.is_set():
                 # 获取1分钟K线
                 df_1m = self._get_realtime_bars(
-                    TMonitorConfig.KLINE_1M,
-                    TMonitorConfig.MAX_HISTORY_BARS_1M
+                    self.cfg.KLINE_1M,
+                    self.cfg.MAX_HISTORY_BARS_1M,
                 )
 
                 if df_1m is None:
@@ -938,7 +950,7 @@ class TMonitorV3:
 
                 # 定期日志
                 if count % 5 == 0:
-                    latest_idx = -2 if TMonitorConfig.CONFIRM_CLOSED_BAR and len(df_1m) > 1 else -1
+                    latest_idx = -2 if self.cfg.CONFIRM_CLOSED_BAR and len(df_1m) > 1 else -1
                     latest_close = df_1m['close'].iloc[latest_idx]
                     logging.info(
                         f"[{self.stock_name} {self.symbol}] 最新价:{latest_close:.2f}"
@@ -988,7 +1000,7 @@ class TMonitorV3:
         )
 
         # 遍历1分钟K线
-        for i in range(max(TMonitorConfig.RSI_PERIOD, start_idx), len(df_1m)):
+        for i in range(max(self.cfg.min_history_bars(), start_idx), len(df_1m)):
             if self.stop_event.is_set():
                 break
 

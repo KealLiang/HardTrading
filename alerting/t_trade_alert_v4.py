@@ -27,7 +27,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class TMonitorConfigV4:
     """V4配置：识别日内情绪局部衰竭点。"""
 
-    # 复用V3的数据源和基础运行参数
+    # 行情连接（与 V3 相同的服务器列表）
+    HOSTS = TMonitorConfig.HOSTS
     KLINE_1M = TMonitorConfig.KLINE_1M
     WARMUP_BARS = 240
     MAX_HISTORY_BARS_1M = WARMUP_BARS + 1
@@ -78,12 +79,25 @@ class TMonitorConfigV4:
     REPEAT_PRICE_FULL_SCORE_CHANGE = 0.018
     REPEAT_PRICE_MAX_SCORE_PENALTY = 35
 
+    @classmethod
+    def min_history_bars(cls):
+        """生成信号所需的最少历史K线数。"""
+        return max(
+            cls.LOCATION_WINDOW,
+            cls.SETUP_WINDOW,
+            cls.BB_PERIOD,
+            cls.RSI_PERIOD,
+            cls.CONFIRM_WINDOW + 2,
+        )
+
 
 class TMonitorV4(TMonitorV3):
     """V4做T监控器：识别恐慌/亢奋情绪的局部衰竭点。"""
 
+    CONFIG = TMonitorConfigV4
+
     def _get_monitor_params(self):
-        return TMonitorConfigV4.monitor_params()
+        return self.cfg.monitor_params()
 
     def _prepare_indicators(self, df):
         df = df.copy()
@@ -93,9 +107,9 @@ class TMonitorV4(TMonitorV3):
         df['low'] = pd.to_numeric(df['low'], errors='coerce')
         df['vol'] = pd.to_numeric(df['vol'], errors='coerce')
 
-        df['rsi14'] = self._calc_rsi(df['close'], TMonitorConfigV4.RSI_PERIOD)
+        df['rsi14'] = self._calc_rsi(df['close'], self.cfg.RSI_PERIOD)
         df['bb_upper'], df['bb_mid'], df['bb_lower'] = self._calc_bollinger(
-            df['close'], TMonitorConfigV4.BB_PERIOD, TMonitorConfigV4.BB_STD
+            df['close'], self.cfg.BB_PERIOD, self.cfg.BB_STD
         )
         df['ema5'] = df['close'].ewm(span=5, adjust=False).mean()
         df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -103,9 +117,9 @@ class TMonitorV4(TMonitorV3):
         return df
 
     def _refresh_rsi_wave_state(self, rsi):
-        if self.rsi_wave_active['BUY'] and rsi >= TMonitorConfigV4.RSI_BUY_WAVE_RESET:
+        if self.rsi_wave_active['BUY'] and rsi >= self.cfg.RSI_BUY_WAVE_RESET:
             self.rsi_wave_active['BUY'] = False
-        if self.rsi_wave_active['SELL'] and rsi <= TMonitorConfigV4.RSI_SELL_WAVE_RESET:
+        if self.rsi_wave_active['SELL'] and rsi <= self.cfg.RSI_SELL_WAVE_RESET:
             self.rsi_wave_active['SELL'] = False
 
     def _check_signal_cooldown(self, signal_type, current_time, current_price):
@@ -126,11 +140,11 @@ class TMonitorV4(TMonitorV3):
 
             if signal_type == 'BUY':
                 favorable_change = (last_price - current_price) / last_price
-                if favorable_change < TMonitorConfigV4.REPEAT_PRICE_CHANGE:
+                if favorable_change < self.cfg.REPEAT_PRICE_CHANGE:
                     return False, "同一恐慌波段价格空间不足"
             else:
                 favorable_change = (current_price - last_price) / last_price
-                if favorable_change < TMonitorConfigV4.REPEAT_PRICE_CHANGE:
+                if favorable_change < self.cfg.REPEAT_PRICE_CHANGE:
                     return False, "同一亢奋波段价格空间不足"
         except Exception:
             return True, "允许触发"
@@ -158,15 +172,15 @@ class TMonitorV4(TMonitorV3):
             else:
                 favorable_change = (current_price - last_price) / last_price
 
-            if favorable_change >= TMonitorConfigV4.REPEAT_PRICE_FULL_SCORE_CHANGE:
+            if favorable_change >= self.cfg.REPEAT_PRICE_FULL_SCORE_CHANGE:
                 return 0
             if favorable_change <= 0:
-                return TMonitorConfigV4.REPEAT_PRICE_MAX_SCORE_PENALTY
+                return self.cfg.REPEAT_PRICE_MAX_SCORE_PENALTY
 
-            penalty = TMonitorConfigV4.REPEAT_PRICE_MAX_SCORE_PENALTY * (
-                1 - favorable_change / TMonitorConfigV4.REPEAT_PRICE_FULL_SCORE_CHANGE
+            penalty = self.cfg.REPEAT_PRICE_MAX_SCORE_PENALTY * (
+                1 - favorable_change / self.cfg.REPEAT_PRICE_FULL_SCORE_CHANGE
             )
-            return int(round(max(0, min(TMonitorConfigV4.REPEAT_PRICE_MAX_SCORE_PENALTY, penalty))))
+            return int(round(max(0, min(self.cfg.REPEAT_PRICE_MAX_SCORE_PENALTY, penalty))))
         except Exception:
             return 0
 
@@ -278,8 +292,8 @@ class TMonitorV4(TMonitorV3):
 
     def _panic_setup_score(self, df_1m, i):
         row = df_1m.iloc[i]
-        recent = self._window(df_1m, i, TMonitorConfigV4.SETUP_WINDOW)
-        extreme = self._window(df_1m, i, TMonitorConfigV4.EXTREME_WINDOW)
+        recent = self._window(df_1m, i, self.cfg.SETUP_WINDOW)
+        extreme = self._window(df_1m, i, self.cfg.EXTREME_WINDOW)
 
         score = 0
         reasons = []
@@ -300,7 +314,7 @@ class TMonitorV4(TMonitorV3):
             reasons.append("触下轨")
 
         drop_from_high = row['close'] / (recent['high'].max() + 1e-10) - 1
-        setup_w = TMonitorConfigV4.SETUP_WINDOW
+        setup_w = self.cfg.SETUP_WINDOW
         if drop_from_high <= -0.035:
             score += 12
             reasons.append(f"{setup_w}m回撤{drop_from_high:.1%}")
@@ -320,8 +334,8 @@ class TMonitorV4(TMonitorV3):
 
     def _climax_setup_score(self, df_1m, i):
         row = df_1m.iloc[i]
-        recent = self._window(df_1m, i, TMonitorConfigV4.SETUP_WINDOW)
-        extreme = self._window(df_1m, i, TMonitorConfigV4.EXTREME_WINDOW)
+        recent = self._window(df_1m, i, self.cfg.SETUP_WINDOW)
+        extreme = self._window(df_1m, i, self.cfg.EXTREME_WINDOW)
 
         score = 0
         reasons = []
@@ -342,7 +356,7 @@ class TMonitorV4(TMonitorV3):
             reasons.append("触上轨")
 
         rise_from_low = row['close'] / (recent['low'].min() + 1e-10) - 1
-        setup_w = TMonitorConfigV4.SETUP_WINDOW
+        setup_w = self.cfg.SETUP_WINDOW
         if rise_from_low >= 0.035:
             score += 12
             reasons.append(f"{setup_w}m拉升{rise_from_low:.1%}")
@@ -362,8 +376,8 @@ class TMonitorV4(TMonitorV3):
 
     def _panic_exhaustion_score(self, df_1m, i):
         row = df_1m.iloc[i]
-        confirm = self._window(df_1m, i, TMonitorConfigV4.CONFIRM_WINDOW)
-        momentum = self._window(df_1m, i, TMonitorConfigV4.MOMENTUM_WINDOW)
+        confirm = self._window(df_1m, i, self.cfg.CONFIRM_WINDOW)
+        momentum = self._window(df_1m, i, self.cfg.MOMENTUM_WINDOW)
         prev = df_1m.iloc[i - 1]
         prev2 = df_1m.iloc[i - 2]
 
@@ -407,8 +421,8 @@ class TMonitorV4(TMonitorV3):
 
     def _climax_exhaustion_score(self, df_1m, i):
         row = df_1m.iloc[i]
-        confirm = self._window(df_1m, i, TMonitorConfigV4.CONFIRM_WINDOW)
-        momentum = self._window(df_1m, i, TMonitorConfigV4.MOMENTUM_WINDOW)
+        confirm = self._window(df_1m, i, self.cfg.CONFIRM_WINDOW)
+        momentum = self._window(df_1m, i, self.cfg.MOMENTUM_WINDOW)
         prev = df_1m.iloc[i - 1]
         prev2 = df_1m.iloc[i - 2]
 
@@ -451,7 +465,7 @@ class TMonitorV4(TMonitorV3):
         return score, "，".join(reasons) if reasons else "未见衰竭"
 
     def _location_score(self, df_1m, i, signal_type):
-        recent = self._window(df_1m, i, TMonitorConfigV4.LOCATION_WINDOW)
+        recent = self._window(df_1m, i, self.cfg.LOCATION_WINDOW)
         row = df_1m.iloc[i]
         pos = self._safe_range_position(row['close'], recent['low'].min(), recent['high'].max())
         if signal_type == 'BUY':
@@ -520,15 +534,7 @@ class TMonitorV4(TMonitorV3):
         return "亢奋衰竭卖出"
 
     def _generate_signal(self, df_1m, i):
-        min_bars = max(
-            TMonitorConfigV4.MIN_BARS if hasattr(TMonitorConfigV4, 'MIN_BARS') else 0,
-            TMonitorConfigV4.LOCATION_WINDOW,
-            TMonitorConfigV4.SETUP_WINDOW,
-            TMonitorConfigV4.BB_PERIOD,
-            TMonitorConfigV4.RSI_PERIOD,
-            TMonitorConfigV4.CONFIRM_WINDOW + 2,
-        )
-        if i < min_bars:
+        if i < self.cfg.min_history_bars():
             return None, None, 0
 
         row = df_1m.iloc[i]
@@ -568,13 +574,13 @@ class TMonitorV4(TMonitorV3):
 
         candidates = []
         if (
-            buy_setup >= TMonitorConfigV4.MIN_SETUP_SCORE and
-            buy_confirm >= TMonitorConfigV4.MIN_CONFIRM_SCORE
+            buy_setup >= self.cfg.MIN_SETUP_SCORE and
+            buy_confirm >= self.cfg.MIN_CONFIRM_SCORE
         ):
             candidates.append(('BUY', buy_score, buy_setup_reason, buy_confirm_reason))
         if (
-            sell_setup >= TMonitorConfigV4.MIN_SETUP_SCORE and
-            sell_confirm >= TMonitorConfigV4.MIN_CONFIRM_SCORE
+            sell_setup >= self.cfg.MIN_SETUP_SCORE and
+            sell_confirm >= self.cfg.MIN_CONFIRM_SCORE
         ):
             candidates.append(('SELL', sell_score, sell_setup_reason, sell_confirm_reason))
 
@@ -588,8 +594,8 @@ class TMonitorV4(TMonitorV3):
 
         repeat_penalty = self._calc_repeat_price_penalty(signal_type, close, ts)
         score = max(0, min(100, int(round(score - repeat_penalty))))
-        if score < TMonitorConfigV4.MIN_SIGNAL_SCORE:
-            return None, f"评分不足({score}分<{TMonitorConfigV4.MIN_SIGNAL_SCORE})", 0
+        if score < self.cfg.MIN_SIGNAL_SCORE:
+            return None, f"评分不足({score}分<{self.cfg.MIN_SIGNAL_SCORE})", 0
 
         label = self._classify_signal_label(signal_type, setup_reason, confirm_reason)
         reason = f"{label}(RSI:{rsi:.1f}; {setup_reason}; {confirm_reason})"
