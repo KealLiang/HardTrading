@@ -883,6 +883,10 @@ class TMonitorV3:
             'strength': strength
         })
 
+    def _get_monitor_params(self):
+        """子类可覆盖，供回测图展示监控参数。"""
+        return None
+
     def _process_1m_data(self, df_1m):
         """处理1分钟K线，生成信号"""
         # 实盘收线确认：最后一根通常是正在形成的分钟K线，丢弃后最多慢1分钟。
@@ -1031,7 +1035,8 @@ class TMonitorV3:
                     symbol=self.symbol,
                     stock_name=self.stock_name,
                     backtest_start=self.backtest_start,
-                    backtest_end=self.backtest_end
+                    backtest_end=self.backtest_end,
+                    monitor_params=self._get_monitor_params(),
                 )
             except Exception as e:
                 tqdm.write(f"[警告] {self.symbol} 可视化失败: {e}")

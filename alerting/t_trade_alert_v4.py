@@ -38,6 +38,8 @@ class TMonitorConfigV4:
     BB_STD = 2
 
     # 情绪窗口
+    # LOCATION_WINDOW：区间位置加分所用高低点窗口；调大更偏日内大级别高低位置。
+    LOCATION_WINDOW = 60
     # SETUP_WINDOW：判断是否出现一段恐慌/亢奋；调大更看重慢性情绪，调小更偏急杀/急拉。
     SETUP_WINDOW = 20
     # EXTREME_WINDOW：寻找最近极端RSI/触轨；调大更容易捕捉早先极端，调小更要求极端刚发生。
@@ -46,6 +48,17 @@ class TMonitorConfigV4:
     CONFIRM_WINDOW = 5
     # MOMENTUM_WINDOW：比较近端涨跌速变化；调大更平滑，调小更敏感。
     MOMENTUM_WINDOW = 6
+
+    @classmethod
+    def monitor_params(cls):
+        """回测图展示的监控参数（情绪窗口顺序）。"""
+        return [
+            cls.LOCATION_WINDOW,
+            cls.SETUP_WINDOW,
+            cls.EXTREME_WINDOW,
+            cls.CONFIRM_WINDOW,
+            cls.MOMENTUM_WINDOW,
+        ]
 
     # 信号阈值
     # MIN_SIGNAL_SCORE：最终信号门槛；调大信号更少更强，调小信号更多但噪声增加。
@@ -68,6 +81,9 @@ class TMonitorConfigV4:
 
 class TMonitorV4(TMonitorV3):
     """V4做T监控器：识别恐慌/亢奋情绪的局部衰竭点。"""
+
+    def _get_monitor_params(self):
+        return TMonitorConfigV4.monitor_params()
 
     def _prepare_indicators(self, df):
         df = df.copy()
@@ -284,12 +300,13 @@ class TMonitorV4(TMonitorV3):
             reasons.append("触下轨")
 
         drop_from_high = row['close'] / (recent['high'].max() + 1e-10) - 1
+        setup_w = TMonitorConfigV4.SETUP_WINDOW
         if drop_from_high <= -0.035:
             score += 12
-            reasons.append(f"20m回撤{drop_from_high:.1%}")
+            reasons.append(f"{setup_w}m回撤{drop_from_high:.1%}")
         elif drop_from_high <= -0.020:
             score += 8
-            reasons.append(f"20m回撤{drop_from_high:.1%}")
+            reasons.append(f"{setup_w}m回撤{drop_from_high:.1%}")
 
         down_ratio = (recent['close'].diff().dropna() < 0).mean()
         if down_ratio >= 0.60:
@@ -325,12 +342,13 @@ class TMonitorV4(TMonitorV3):
             reasons.append("触上轨")
 
         rise_from_low = row['close'] / (recent['low'].min() + 1e-10) - 1
+        setup_w = TMonitorConfigV4.SETUP_WINDOW
         if rise_from_low >= 0.035:
             score += 12
-            reasons.append(f"20m拉升{rise_from_low:.1%}")
+            reasons.append(f"{setup_w}m拉升{rise_from_low:.1%}")
         elif rise_from_low >= 0.020:
             score += 8
-            reasons.append(f"20m拉升{rise_from_low:.1%}")
+            reasons.append(f"{setup_w}m拉升{rise_from_low:.1%}")
 
         up_ratio = (recent['close'].diff().dropna() > 0).mean()
         if up_ratio >= 0.60:
@@ -433,7 +451,7 @@ class TMonitorV4(TMonitorV3):
         return score, "，".join(reasons) if reasons else "未见衰竭"
 
     def _location_score(self, df_1m, i, signal_type):
-        recent = self._window(df_1m, i, 60)
+        recent = self._window(df_1m, i, TMonitorConfigV4.LOCATION_WINDOW)
         row = df_1m.iloc[i]
         pos = self._safe_range_position(row['close'], recent['low'].min(), recent['high'].max())
         if signal_type == 'BUY':
@@ -463,7 +481,7 @@ class TMonitorV4(TMonitorV3):
             )
             has_confirmed_turn = "脱离低点" in confirm and has_price_turn
             has_slowdown = "跌速放缓" in confirm
-            if "20m回撤" in setup and has_confirmed_turn:
+            if "m回撤" in setup and has_confirmed_turn:
                 return "急杀衰竭转折买入"
             if "RSI极低" in setup and "RSI回升" in confirm and has_confirmed_turn:
                 return "极端恐慌修复买入"
@@ -487,7 +505,7 @@ class TMonitorV4(TMonitorV3):
         )
         has_confirmed_turn = "脱离高点" in confirm and has_price_turn
         has_slowdown = "涨速放缓" in confirm
-        if "20m拉升" in setup and has_confirmed_turn:
+        if "m拉升" in setup and has_confirmed_turn:
             return "冲高衰竭转折卖出"
         if "RSI极高" in setup and "RSI回落" in confirm and has_confirmed_turn:
             return "极端亢奋回落卖出"
@@ -504,6 +522,7 @@ class TMonitorV4(TMonitorV3):
     def _generate_signal(self, df_1m, i):
         min_bars = max(
             TMonitorConfigV4.MIN_BARS if hasattr(TMonitorConfigV4, 'MIN_BARS') else 0,
+            TMonitorConfigV4.LOCATION_WINDOW,
             TMonitorConfigV4.SETUP_WINDOW,
             TMonitorConfigV4.BB_PERIOD,
             TMonitorConfigV4.RSI_PERIOD,
@@ -652,10 +671,10 @@ if __name__ == "__main__":
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
-    symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195']
-    # symbols = ['600527']
-    backtest_start = "2026-04-30 09:30"
-    backtest_end = "2026-05-08 15:00"
+    # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584']
+    symbols = ['600584']
+    backtest_start = "2026-05-12 09:30"
+    backtest_end = "2026-05-18 15:00"
 
     symbols_file = 'watchlist.txt'
 

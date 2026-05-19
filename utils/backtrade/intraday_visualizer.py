@@ -86,7 +86,8 @@ class IntradayVisualizer:
         )
 
     def plot_backtest_result(self, df_1m, signals, symbol, stock_name=None,
-                             backtest_start=None, backtest_end=None, **kwargs):
+                             backtest_start=None, backtest_end=None,
+                             monitor_params=None, **kwargs):
         """
         绘制回测结果（通用接口）
         
@@ -98,6 +99,7 @@ class IntradayVisualizer:
         :param stock_name: 股票名称（可选）
         :param backtest_start: 回测开始时间
         :param backtest_end: 回测结束时间
+        :param monitor_params: 监控参数列表，顺序与策略配置一致，用于回测图标题展示
         :param kwargs: 其他参数（如技术指标）
         :return: 输出文件路径
         """
@@ -121,7 +123,8 @@ class IntradayVisualizer:
         # 生成标题
         title = self._generate_title(
             symbol, stock_name, signals,
-            backtest_start, backtest_end
+            backtest_start, backtest_end,
+            monitor_params=monitor_params,
         )
 
         # 绘制图表
@@ -410,7 +413,8 @@ class IntradayVisualizer:
         return addplots, {}  # 返回空的annotation_info
 
     def _generate_title(self, symbol, stock_name, signals,
-                        backtest_start, backtest_end):
+                        backtest_start, backtest_end,
+                        monitor_params=None):
         """生成图表标题"""
         # 统计信号
         buy_signals = [s for s in signals if s['type'] == 'BUY']
@@ -441,6 +445,10 @@ class IntradayVisualizer:
 
         if backtest_start and backtest_end:
             title += f"\n回测区间: {backtest_start} ~ {backtest_end}"
+
+        if monitor_params:
+            params_text = ", ".join(str(p) for p in monitor_params)
+            title += f"\n监控参数：[{params_text}]"
 
         return title
 
@@ -648,7 +656,7 @@ class IntradayVisualizer:
 
 def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
                            backtest_start=None, backtest_end=None,
-                           output_dir=None):
+                           output_dir=None, monitor_params=None):
     """
     快速函数：绘制单个股票的日内回测结果
     
@@ -659,6 +667,7 @@ def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
     :param backtest_start: 回测开始时间
     :param backtest_end: 回测结束时间
     :param output_dir: 输出目录（默认为项目根目录下的 alerting/backtest_results）
+    :param monitor_params: 监控参数列表，顺序与策略配置一致，用于回测图标题展示
     :return: 输出文件路径
     """
     # 智能路径解析：确保无论从哪里运行都保存到正确位置
@@ -674,5 +683,6 @@ def plot_intraday_backtest(df_1m, signals, symbol, stock_name=None,
         symbol=symbol,
         stock_name=stock_name,
         backtest_start=backtest_start,
-        backtest_end=backtest_end
+        backtest_end=backtest_end,
+        monitor_params=monitor_params,
     )
