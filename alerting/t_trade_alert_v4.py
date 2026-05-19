@@ -2,8 +2,6 @@ import logging
 import os
 import sys
 import winsound
-from threading import Event
-
 import pandas as pd
 from tqdm import tqdm
 
@@ -14,12 +12,7 @@ sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
-from alerting.t_trade_alert_v3 import (
-    MonitorManagerV3,
-    PositionManager,
-    TMonitorConfig,
-    TMonitorV3,
-)
+from alerting.t_trade_alert_base import MonitorManagerBase, PositionManager, TMonitorBase
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -27,9 +20,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class TMonitorConfigV4:
     """V4配置：识别日内情绪局部衰竭点。"""
 
-    # 行情连接（与 V3 相同的服务器列表）
-    HOSTS = TMonitorConfig.HOSTS
-    KLINE_1M = TMonitorConfig.KLINE_1M
+    # 行情连接
+    HOSTS = [
+        ('117.34.114.27', 7709),
+        ('202.96.138.90', 7709),
+    ]
     WARMUP_BARS = 240
     MAX_HISTORY_BARS_1M = WARMUP_BARS + 1
     CONFIRM_CLOSED_BAR = True
@@ -91,7 +86,7 @@ class TMonitorConfigV4:
         )
 
 
-class TMonitorV4(TMonitorV3):
+class TMonitorV4(TMonitorBase):
     """V4做T监控器：识别恐慌/亢奋情绪的局部衰竭点。"""
 
     CONFIG = TMonitorConfigV4
@@ -645,37 +640,16 @@ class TMonitorV4(TMonitorV3):
         })
 
 
-class MonitorManagerV4(MonitorManagerV3):
+class MonitorManagerV4(MonitorManagerBase):
     """V4多股票监控管理器。"""
 
-    def _start_monitor(self, symbol):
-        if symbol in self._monitor_events:
-            return
-        ev = Event()
-
-        position_mgr = None
-        if self.is_backtest:
-            position_mgr = PositionManager(initial_shares=1000)
-
-        monitor = TMonitorV4(
-            symbol, ev,
-            push_msg=not self.is_backtest,
-            is_backtest=self.is_backtest,
-            backtest_start=self.backtest_start,
-            backtest_end=self.backtest_end,
-            position_manager=position_mgr,
-            enable_visualization=self.enable_visualization
-        )
-        fut = self.executor.submit(monitor.run)
-        self._monitor_events[symbol] = ev
-        self._monitor_futures[symbol] = fut
-        self._monitors[symbol] = monitor
-        logging.info(f"已启动V4监控: {symbol}")
+    monitor_class = TMonitorV4
+    monitor_label = "V4监控"
 
 
 if __name__ == "__main__":
-    IS_BACKTEST = True
-    # IS_BACKTEST = False
+    # IS_BACKTEST = True
+    IS_BACKTEST = False
 
     # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584']
     symbols = ['600584']
