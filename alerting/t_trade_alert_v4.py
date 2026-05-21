@@ -47,13 +47,19 @@ class TMonitorConfigV4:
 
     @classmethod
     def monitor_params(cls):
-        """回测图展示的监控参数（情绪窗口顺序）。"""
+        """回测图展示：情绪窗口 + 波段判定与相关阈值。"""
         return [
+            # 情绪窗口
             cls.LOCATION_WINDOW,
             cls.SETUP_WINDOW,
             cls.EXTREME_WINDOW,
             cls.CONFIRM_WINDOW,
             cls.MOMENTUM_WINDOW,
+            # 波段判定
+            cls.WAVE_END_REQUIRE_EXCURSION,
+            cls.WAVE_END_PRICE_TOLERANCE,
+            cls.WAVE_END_MIN_EXCURSION,
+            cls.REPEAT_PRICE_CHANGE,
         ]
 
     # 信号阈值
@@ -67,9 +73,18 @@ class TMonitorConfigV4:
     # 同向重复信号管理
     # REPEAT_PRICE_CHANGE：同一情绪波段重复提示所需的新价格空间；调大重复更少，调小更密集。
     REPEAT_PRICE_CHANGE = 0.02
-    # RSI回到中性区后，认为上一段恐慌/亢奋波段结束。
+
+    # [波段结束]的判定逻辑（__main__ 可覆盖）：False=回锚即结束；True=须先走出幅度再回锚（收紧）。
+    WAVE_END_REQUIRE_EXCURSION = False
+
+    # 情绪波段结束：RSI 回到中性区，且现价回到上一笔同向信号价附近（博弈区告一段落）。
     RSI_BUY_WAVE_RESET = 45
     RSI_SELL_WAVE_RESET = 55
+
+    # 相对上一笔同向信号价的「回到」容差；买卖对称，用绝对偏离。
+    WAVE_END_PRICE_TOLERANCE = 0.01
+    # 收紧时：自锚点须先走出不低于重复提示的空间（卖看 high、买看 low）。
+    WAVE_END_MIN_EXCURSION = 0.02
     # 重复信号评分惩罚：价格走出足够新空间则不扣分，否则按接近程度扣分。
     REPEAT_PRICE_FULL_SCORE_CHANGE = 0.018
     REPEAT_PRICE_MAX_SCORE_PENALTY = 35
@@ -91,6 +106,11 @@ class TMonitorV4(TMonitorBase):
 
     CONFIG = TMonitorConfigV4
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 同向波段内极值：SELL=信号后最高 high，BUY=信号后最低 low
+        self._wave_extreme = {'BUY': None, 'SELL': None}
+
     def _get_monitor_params(self):
         return self.cfg.monitor_params()
 
@@ -111,11 +131,66 @@ class TMonitorV4(TMonitorBase):
         df['vol_ma20'] = df['vol'].rolling(20).mean()
         return df
 
-    def _refresh_rsi_wave_state(self, rsi):
-        if self.rsi_wave_active['BUY'] and rsi >= self.cfg.RSI_BUY_WAVE_RESET:
-            self.rsi_wave_active['BUY'] = False
-        if self.rsi_wave_active['SELL'] and rsi <= self.cfg.RSI_SELL_WAVE_RESET:
-            self.rsi_wave_active['SELL'] = False
+    def _is_near_last_signal_price(self, signal_type, price):
+        """现价是否仍在上次同向信号价附近（近期博弈成本区）。"""
+        last = self.last_signal_price.get(signal_type)
+        if not last or last <= 0:
+            return False
+        return abs(price - last) / last <= self.cfg.WAVE_END_PRICE_TOLERANCE
+
+    def _update_wave_extreme(self, row):
+        for side, field, pick_max in (
+            ('SELL', 'high', True),
+            ('BUY', 'low', False),
+        ):
+            if not self.rsi_wave_active.get(side):
+                continue
+            val = row[field]
+            if pd.isna(val):
+                continue
+            prev = self._wave_extreme[side]
+            if prev is None:
+                self._wave_extreme[side] = val
+            elif pick_max:
+                self._wave_extreme[side] = max(prev, val)
+            else:
+                self._wave_extreme[side] = min(prev, val)
+
+    def _has_wave_excursion(self, signal_type):
+        anchor = self.last_signal_price.get(signal_type)
+        extreme = self._wave_extreme.get(signal_type)
+        if not anchor or anchor <= 0 or extreme is None or pd.isna(extreme):
+            return False
+        if signal_type == 'SELL':
+            return (extreme - anchor) / anchor >= self.cfg.WAVE_END_MIN_EXCURSION
+        return (anchor - extreme) / anchor >= self.cfg.WAVE_END_MIN_EXCURSION
+
+    def _try_end_wave(self, signal_type, rsi, close):
+        if not self.rsi_wave_active.get(signal_type):
+            return
+        if signal_type == 'BUY':
+            if rsi < self.cfg.RSI_BUY_WAVE_RESET:
+                return
+        elif rsi > self.cfg.RSI_SELL_WAVE_RESET:
+            return
+        if not self._is_near_last_signal_price(signal_type, close):
+            return
+        if (
+            self.cfg.WAVE_END_REQUIRE_EXCURSION and
+            not self._has_wave_excursion(signal_type)
+        ):
+            return
+        self.rsi_wave_active[signal_type] = False
+        self._wave_extreme[signal_type] = None
+
+    def _refresh_rsi_wave_state(self, row):
+        """波段结束：RSI复位+回锚；收紧时另须自锚点曾走出 WAVE_END_MIN_EXCURSION。"""
+        rsi = row['rsi14']
+        close = row['close']
+        if self.cfg.WAVE_END_REQUIRE_EXCURSION:
+            self._update_wave_extreme(row)
+        self._try_end_wave('BUY', rsi, close)
+        self._try_end_wave('SELL', rsi, close)
 
     def _check_signal_cooldown(self, signal_type, current_time, current_price):
         """同一情绪波段内按价格新空间去重，不使用固定时间冷却。"""
@@ -539,7 +614,7 @@ class TMonitorV4(TMonitorBase):
         if pd.isna(rsi) or pd.isna(row['bb_upper']) or pd.isna(row['bb_lower']):
             return None, None, 0
 
-        self._refresh_rsi_wave_state(rsi)
+        self._refresh_rsi_wave_state(row)
 
         current_date = ts.date() if hasattr(ts, 'date') else ts
         day_first_bar = None
@@ -631,6 +706,8 @@ class TMonitorV4(TMonitorBase):
         self.last_signal_time[signal_type] = ts
         self.last_signal_price[signal_type] = price
         self.rsi_wave_active[signal_type] = True
+        if self.cfg.WAVE_END_REQUIRE_EXCURSION:
+            self._wave_extreme[signal_type] = price
         self.triggered_signals.append({
             'type': signal_type,
             'price': price,
@@ -648,15 +725,26 @@ class MonitorManagerV4(MonitorManagerBase):
 
 
 if __name__ == "__main__":
-    # IS_BACKTEST = True
-    IS_BACKTEST = False
+    IS_BACKTEST = True
+    # IS_BACKTEST = False
 
-    # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584']
-    symbols = ['600584']
-    backtest_start = "2026-05-12 09:30"
-    backtest_end = "2026-05-18 15:00"
+    # [波段结束]判定逻辑：False=回锚即结束；True=须先走出幅度再回锚（在 False 上收紧，信号更少）
+    # WAVE_END_REQUIRE_EXCURSION = False
+    WAVE_END_REQUIRE_EXCURSION = True
+    TMonitorConfigV4.WAVE_END_REQUIRE_EXCURSION = WAVE_END_REQUIRE_EXCURSION
+
+    symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323']
+    # symbols = ['688323']
+    backtest_start = "2026-05-14 09:30"
+    backtest_end = "2026-05-20 15:00"
 
     symbols_file = 'watchlist.txt'
+
+    wave_mode = "plan A: 须走出再回锚" if WAVE_END_REQUIRE_EXCURSION else "plan B: 回锚即结束"
+    logging.info("=" * 60)
+    logging.info("启动V4做T监控 - 情绪衰竭拐点模式")
+    logging.info(f"波段结束={wave_mode} | WAVE_END_REQUIRE_EXCURSION={WAVE_END_REQUIRE_EXCURSION}")
+    logging.info("=" * 60)
 
     manager = MonitorManagerV4(
         symbols=symbols,
@@ -667,7 +755,4 @@ if __name__ == "__main__":
         reload_interval_sec=5
     )
 
-    logging.info("=" * 60)
-    logging.info("启动V4做T监控 - 情绪衰竭拐点模式")
-    logging.info("=" * 60)
     manager.start()
