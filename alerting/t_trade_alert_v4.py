@@ -733,10 +733,10 @@ if __name__ == "__main__":
     WAVE_END_REQUIRE_EXCURSION = True
     TMonitorConfigV4.WAVE_END_REQUIRE_EXCURSION = WAVE_END_REQUIRE_EXCURSION
 
-    symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323']
-    # symbols = ['688323']
-    backtest_start = "2026-05-14 09:30"
-    backtest_end = "2026-05-20 15:00"
+    # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323']
+    symbols = ['300959']
+    backtest_start = "2026-05-22 09:30"
+    backtest_end = "2026-05-27 15:00"
 
     symbols_file = 'watchlist.txt'
 
