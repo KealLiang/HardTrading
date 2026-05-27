@@ -28,6 +28,11 @@ class TMonitorConfig:
         ('202.96.138.90', 7709),
     ]
 
+    # 回测数据源：tdx（默认）| akshare
+    BACKTEST_DATA_SOURCE = "tdx"
+    TDX_BACKTEST_CHUNK_BARS = 800
+    TDX_BACKTEST_MAX_CHUNKS = 50
+
     # ==================== K线参数 ====================
     WARMUP_BARS = 200  # 指标预热窗口；回测和实盘保持同一历史视野
     MAX_HISTORY_BARS_1M = WARMUP_BARS + 1  # 实时多取1根，用于丢弃未收完的当前分钟K线

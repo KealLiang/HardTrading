@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import Event
 
-import akshare as ak
 import pandas as pd
 from pytdx.hq import TdxHq_API
 from tqdm import tqdm
@@ -18,6 +17,13 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
+from alerting.backtest_data_source import (
+    BACKTEST_SOURCE_AKSHARE,
+    BACKTEST_SOURCE_TDX,
+    BacktestDataUnavailable,
+    fetch_akshare_minute,
+    fetch_tdx_minute,
+)
 from utils.stock_util import convert_stock_code, get_stock_name, stock_limit_ratio
 from utils.backtrade.intraday_visualizer import plot_intraday_backtest
 
@@ -134,18 +140,61 @@ class TMonitorBase:
             logging.error(f"获取{self.symbol}数据失败: {e}")
             return None
 
+    def _backtest_data_source(self):
+        return getattr(self.cfg, "BACKTEST_DATA_SOURCE", BACKTEST_SOURCE_TDX).lower()
+
+    def _log_fetch_meta(self, meta):
+        logging.info(
+            f"[回测取数 {self.symbol}] 数据源={meta.source} | "
+            f"库内范围 {meta.oldest} ~ {meta.newest} ({meta.total_bars}根) | "
+            f"回测段 {meta.active_bars}根 + 预热 {meta.warmup_bars}根"
+        )
+
     def _get_historical_data(self, start_time, end_time, period='1'):
+        source = self._backtest_data_source()
         try:
-            df = ak.stock_zh_a_minute(symbol=self.full_symbol, period=period, adjust="qfq")
-            df['datetime'] = pd.to_datetime(df['day'])
-            start_dt = pd.to_datetime(start_time)
-            end_dt = pd.to_datetime(end_time)
-            df = df.sort_values(by='datetime').reset_index(drop=True)
-            df.rename(columns={'volume': 'vol'}, inplace=True)
-            warmup_df = df[df['datetime'] < start_dt].tail(self.cfg.WARMUP_BARS)
-            active_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
-            df = pd.concat([warmup_df, active_df], ignore_index=True)
-            return df[['datetime', 'open', 'high', 'low', 'close', 'vol']]
+            if source == BACKTEST_SOURCE_AKSHARE:
+                df, meta = fetch_akshare_minute(
+                    self.full_symbol,
+                    start_time,
+                    end_time,
+                    self.cfg.WARMUP_BARS,
+                    period=period,
+                )
+            elif source == BACKTEST_SOURCE_TDX:
+                if period != '1':
+                    logging.warning(
+                        f"{self.symbol} 通达信回测仅支持1分钟，已忽略 period={period}"
+                    )
+                if not self._connect_api():
+                    logging.error(f"{self.symbol} 通达信连接失败，无法拉取回测数据")
+                    return None
+                try:
+                    df, meta = fetch_tdx_minute(
+                        self.api,
+                        self.market,
+                        self.symbol,
+                        start_time,
+                        end_time,
+                        self.cfg.WARMUP_BARS,
+                        TDX_KLINE_1M,
+                        self._process_raw_data,
+                        chunk_size=getattr(self.cfg, "TDX_BACKTEST_CHUNK_BARS", 800),
+                        max_chunks=getattr(self.cfg, "TDX_BACKTEST_MAX_CHUNKS", 50),
+                    )
+                finally:
+                    self.api.disconnect()
+            else:
+                logging.error(
+                    f"未知 BACKTEST_DATA_SOURCE={source}，"
+                    f"请使用 '{BACKTEST_SOURCE_TDX}' 或 '{BACKTEST_SOURCE_AKSHARE}'"
+                )
+                return None
+            self._log_fetch_meta(meta)
+            return df
+        except BacktestDataUnavailable as e:
+            logging.error(f"[回测取数 {self.symbol}] {e}")
+            return None
         except Exception as e:
             logging.error(f"获取历史数据失败: {e}")
             return None
@@ -286,8 +335,8 @@ class TMonitorBase:
         self.backtest_kline_data = df_1m[active_mask].copy()
 
         logging.info(
-            f"[回测 {self.symbol}] 1分钟K线数:{active_mask.sum()} "
-            f"(warm-up:{start_idx})"
+            f"[回测 {self.symbol}] 数据源={self._backtest_data_source()} | "
+            f"1分钟K线数:{active_mask.sum()} (warm-up:{start_idx})"
         )
 
         for i in range(max(self.cfg.min_history_bars(), start_idx), len(df_1m)):

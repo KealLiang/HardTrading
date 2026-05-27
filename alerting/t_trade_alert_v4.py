@@ -12,7 +12,11 @@ sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
 from push.feishu_msg import send_alert
-from alerting.t_trade_alert_base import MonitorManagerBase, PositionManager, TMonitorBase
+from alerting.t_trade_alert_base import (
+    MonitorManagerBase,
+    PositionManager,
+    TMonitorBase,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -28,6 +32,11 @@ class TMonitorConfigV4:
     WARMUP_BARS = 240
     MAX_HISTORY_BARS_1M = WARMUP_BARS + 1
     CONFIRM_CLOSED_BAR = True
+
+    # 回测数据源：tdx=通达信（默认，与实盘一致）；akshare=前复权分钟线（对照用）
+    BACKTEST_DATA_SOURCE = "tdx"
+    TDX_BACKTEST_CHUNK_BARS = 800
+    TDX_BACKTEST_MAX_CHUNKS = 50
 
     RSI_PERIOD = 14
     BB_PERIOD = 20
@@ -728,6 +737,10 @@ if __name__ == "__main__":
     IS_BACKTEST = True
     # IS_BACKTEST = False
 
+    # 回测数据源：tdx（默认，与实盘一致）| akshare
+    BACKTEST_DATA_SOURCE = "tdx"
+    TMonitorConfigV4.BACKTEST_DATA_SOURCE = BACKTEST_DATA_SOURCE
+
     # [波段结束]判定逻辑：False=回锚即结束；True=须先走出幅度再回锚（在 False 上收紧，信号更少）
     # WAVE_END_REQUIRE_EXCURSION = False
     WAVE_END_REQUIRE_EXCURSION = True
@@ -740,10 +753,13 @@ if __name__ == "__main__":
 
     symbols_file = 'watchlist.txt'
 
-    wave_mode = "plan A: 须走出再回锚" if WAVE_END_REQUIRE_EXCURSION else "plan B: 回锚即结束"
+    wave_mode = "须走出再回锚" if WAVE_END_REQUIRE_EXCURSION else "回锚即结束"
     logging.info("=" * 60)
     logging.info("启动V4做T监控 - 情绪衰竭拐点模式")
-    logging.info(f"波段结束={wave_mode} | WAVE_END_REQUIRE_EXCURSION={WAVE_END_REQUIRE_EXCURSION}")
+    logging.info(
+        f"回测数据源={BACKTEST_DATA_SOURCE} | 波段结束={wave_mode} | "
+        f"WAVE_END_REQUIRE_EXCURSION={WAVE_END_REQUIRE_EXCURSION}"
+    )
     logging.info("=" * 60)
 
     manager = MonitorManagerV4(
