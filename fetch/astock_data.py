@@ -7,6 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from typing import List, Optional, Tuple
 
 import akshare as ak
 import pandas as pd
@@ -85,42 +86,106 @@ class StockDataFetcher:
         if self.enable_auto_captcha:
             logging.info("自动验证码解决功能已启用")
 
+    def _normalize_stock_code_6(self, stock_code: object) -> str:
+        code = str(stock_code or '').strip()
+        if code.startswith(('sh', 'sz', 'bj')) and len(code) > 2:
+            code = code[2:]
+        if '.' in code:
+            code = code.split('.', 1)[0]
+        return code.zfill(6)
+
+    def _is_valid_stock_name(self, code: str, name: str) -> bool:
+        text = str(name or '').strip()
+        return bool(text) and text != code
+
+    def _infer_stock_name_from_local(self, stock_code: str) -> str:
+        """从本地 CSV 文件名或 stock_mapping 推断股票名称；无法解析时抛错。"""
+        code = self._normalize_stock_code_6(stock_code)
+        for filename in self._find_files_by_code(code):
+            stem = filename[:-4] if filename.lower().endswith('.csv') else filename
+            if stem.startswith(f"{code}_") and len(stem) > len(code) + 1:
+                name = stem[len(code) + 1:].strip()
+                if self._is_valid_stock_name(code, name):
+                    return name
+
+        mapping_path = os.path.join(self.save_path, 'stock_mapping.csv')
+        if os.path.isfile(mapping_path):
+            try:
+                mapping_df = pd.read_csv(mapping_path, dtype=str)
+                for _, row in mapping_df.iterrows():
+                    raw_code = str(row.get('code', '') or '')
+                    norm = self._normalize_stock_code_6(raw_code)
+                    if norm == code:
+                        name = str(row.get('name', '') or '').strip()
+                        if self._is_valid_stock_name(code, name):
+                            return name
+            except Exception as e:
+                logging.warning(f"读取 stock_mapping.csv 失败: {e}")
+
+        raise ValueError(
+            f"无法从本地解析股票 {code} 的有效名称（需已有 {code}_股票名.csv，"
+            f"且名称不能等于代码；或配置 {mapping_path}）"
+        )
+
+    def _build_stock_code_name_pairs(
+        self,
+        target_stocks: Optional[List[str]],
+        skip_spot_lookup: bool,
+    ) -> List[Tuple[str, str]]:
+        if target_stocks:
+            normalized = [self._normalize_stock_code_6(c) for c in target_stocks]
+            if skip_spot_lookup:
+                pairs = []
+                for code in normalized:
+                    pairs.append((code, self._infer_stock_name_from_local(code)))
+                logging.info(
+                    f"已跳过全市场实时名录，从本地解析 {len(pairs)} 只股票（代码+名称）"
+                )
+                return pairs
+
+        # 全市场或未启用 skip：走实时接口获取代码与名称
+        try:
+            stock_real_time = ak.stock_zh_a_spot_em()
+            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
+        except Exception as e:
+            logging.error(f"获取股票列表失败: {str(e)}")
+            self._handle_verification_needed("获取股票列表时可能需要验证")
+            stock_real_time = ak.stock_zh_a_spot_em()
+            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
+
+        if target_stocks:
+            target_set = {self._normalize_stock_code_6(c) for c in target_stocks}
+            pairs = [
+                (self._normalize_stock_code_6(code), str(name))
+                for code, name in all_stocks
+                if self._normalize_stock_code_6(code) in target_set
+            ]
+            missing = target_set - {code for code, _ in pairs}
+            if missing:
+                logging.warning(f"实时名录未找到以下股票，将尝试本地名称: {sorted(missing)}")
+                for code in sorted(missing):
+                    pairs.append((code, self._infer_stock_name_from_local(code)))
+            for code, name in pairs:
+                if not self._is_valid_stock_name(code, name):
+                    raise ValueError(f"股票 {code} 的名称无效: {name!r}（不得为空或等于代码）")
+            return pairs
+
+        return [(self._normalize_stock_code_6(code), str(name)) for code, name in all_stocks]
+
     @timer
-    def fetch_and_save_data(self, stock_list=None):
+    def fetch_and_save_data(self, stock_list=None, skip_spot_lookup: bool = False):
         """
         获取A股股票的每日数据，并保存到CSV文件。
         
         :param stock_list: 指定要获取的股票列表，默认为None表示使用初始化时设置的列表
+        :param skip_spot_lookup: 为 True 且指定了 stock_list 时，不从全市场实时接口拉名录
         """
         # 使用传入的stock_list或初始化时设置的列表
         target_stocks = stock_list or self.stock_list
-
-        # 获取股票代码和名称
-        try:
-            stock_real_time = ak.stock_zh_a_spot_em()
-            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
-
-            # 如果有指定股票列表，筛选出目标股票
-            if target_stocks:
-                stock_list = [stock for stock in all_stocks if stock[0] in target_stocks]
-                if len(stock_list) < len(target_stocks):
-                    missing = set(target_stocks) - set([s[0] for s in stock_list])
-                    logging.warning(f"未找到以下股票: {missing}")
-            else:
-                stock_list = all_stocks
-        except Exception as e:
-            logging.error(f"获取股票列表失败: {str(e)}")
-            self._handle_verification_needed("获取股票列表时可能需要验证")
-            # 重新尝试获取股票列表
-            stock_real_time = ak.stock_zh_a_spot_em()
-            all_stocks = stock_real_time[['代码', '名称']].values.tolist()
-            if target_stocks:
-                stock_list = [stock for stock in all_stocks if stock[0] in target_stocks]
-            else:
-                stock_list = all_stocks
+        stock_pairs = self._build_stock_code_name_pairs(target_stocks, skip_spot_lookup=skip_spot_lookup)
 
         # 设置总任务数
-        self.total_tasks = len(stock_list)
+        self.total_tasks = len(stock_pairs)
         logging.info(f"开始处理 {self.total_tasks} 只股票数据")
 
         # 在开始处理前暂停，等待用户确认
@@ -133,7 +198,7 @@ class StockDataFetcher:
                     stock_code,
                     stock_name
                 ): (stock_code, stock_name)
-                for stock_code, stock_name in stock_list
+                for stock_code, stock_name in stock_pairs
             }
 
             for future in as_completed(futures):
@@ -700,6 +765,68 @@ class StockDataBroker:
         if len(result) > 0:
             return result[0]
         return None
+
+
+def scan_single_day_stock_csvs(save_path: str = './data/astocks') -> List[str]:
+    """
+    扫描有效日线仅 1 行的残缺 CSV（多为写入中断或异常兜底覆盖导致）。
+
+    Returns:
+        去重排序后的 6 位股票代码列表
+    """
+    codes: List[str] = []
+    if not os.path.isdir(save_path):
+        return codes
+    for filename in os.listdir(save_path):
+        if not filename.endswith('.csv'):
+            continue
+        m = re.match(r'^(\d{6})_', filename)
+        if not m:
+            continue
+        file_path = os.path.join(save_path, filename)
+        try:
+            df = pd.read_csv(file_path, header=None, usecols=[0], names=['日期'], parse_dates=True)
+            valid = df[~df['日期'].isna()]
+            if len(valid) == 1:
+                codes.append(m.group(1))
+        except Exception as e:
+            logging.warning(f"扫描 {filename} 时跳过: {e}")
+    return sorted(set(codes))
+
+
+def repair_truncated_stock_csvs(
+    stock_list: Optional[List[str]] = None,
+    start_date: str = '20250930',
+    save_path: str = './data/astocks',
+    max_workers: int = 8,
+    max_sleep_time: int = 2000,
+    skip_spot_lookup: bool = True,
+) -> List[str]:
+    """
+    用历史接口重拉残缺 CSV 股票（合并写回，不先删文件）。
+
+    Args:
+        stock_list: 指定代码列表；为 None 时自动扫描「仅 1 行有效日线」的文件
+        skip_spot_lookup: 默认 True，从本地 CSV 文件名解析名称，不拉全市场实时名录
+    """
+    target_codes = stock_list or scan_single_day_stock_csvs(save_path)
+    if not target_codes:
+        logging.info("未发现需修复的残缺 CSV")
+        return []
+
+    logging.info(f"将用历史接口重拉 {len(target_codes)} 只股票: {target_codes}")
+    data_fetcher = StockDataFetcher(
+        start_date=start_date,
+        end_date=None,
+        save_path=save_path,
+        max_workers=max_workers,
+        stock_list=target_codes,
+        force_update=False,
+        max_sleep_time=max_sleep_time,
+    )
+    data_fetcher.fetch_and_save_data(stock_list=target_codes, skip_spot_lookup=skip_spot_lookup)
+    logging.info(f"残缺 CSV 修复任务已提交完成（共 {len(target_codes)} 只）")
+    return target_codes
 
 
 # 使用示例

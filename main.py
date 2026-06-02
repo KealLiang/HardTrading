@@ -718,6 +718,28 @@ def get_stock_datas():
         data_fetcher.fetch_and_save_data()
 
 
+def repair_truncated_stock_datas(stock_list=None, start_date='20250930', skip_spot_lookup=True):
+    """
+    修复写入中断导致的残缺 CSV（有效日线仅 1 行）。
+
+    走历史接口按 stock_list 重拉并合并写回；stock_list 为 None 时自动扫描 ./data/astocks。
+    默认 skip_spot_lookup=True：从本地 CSV 文件名取名称，不拉全市场实时名录（降低限流风险）。
+    """
+    from fetch.astock_data import repair_truncated_stock_csvs, scan_single_day_stock_csvs
+
+    if stock_list is None:
+        stock_list = scan_single_day_stock_csvs('./data/astocks')
+        print(f"自动扫描到 {len(stock_list)} 只残缺 CSV: {stock_list}")
+    if not stock_list:
+        print("无需修复")
+        return []
+    return repair_truncated_stock_csvs(
+        stock_list=stock_list,
+        start_date=start_date,
+        skip_spot_lookup=skip_spot_lookup,
+    )
+
+
 def clean_duplicate_stock_datas(clean_today_only=True, delete=False, target_date=None, report_path='./data/astocks_duplicate_clean_report.txt'):
     """扫描/清理A股日线CSV中接口返回的重复行情。"""
     from fetch.astock_data_cleaner import clean_duplicate_stock_datas as clean_duplicate_data
@@ -1770,14 +1792,15 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
-    generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
-    # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
+    # generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
+    generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
     # launch_custom_stock_chart_app()  # 自选股生成HTML图表
     # generate_ladder_chart(historical_range_only=True, board_levels_experiment=True, min_board_level=3, non_main_board_level=2)  # 实验不同参数的天梯
 
     # === 复盘相关 ===
     # daily_routine()
     # get_stock_datas()
+    # repair_truncated_stock_datas(stock_list=None)  # 修复残缺CSV：自动扫描仅1行有效日线→历史接口重拉
     # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除
     # full_scan_routine()
     # get_index_data()

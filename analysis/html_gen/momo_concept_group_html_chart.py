@@ -427,25 +427,24 @@ def generate_momo_concept_group_html_charts(
             logging.warning(f"未找到股票数据: {stock_code} {stock_name}")
             continue
 
-        # 兜底：当（最晚信号日 + after_days）推不够时，覆盖到该股CSV自身的最新可用日期
-        if use_latest_stock_end_fallback:
+        # 兜底：图表区间裁剪到该股 CSV 实际有的日期（避免 after_days 推到“未来”导致 loc 报错）
+        valid_index = stock_data.index[~stock_data.index.isna()]
+        if use_latest_stock_end_fallback and not valid_index.empty:
             try:
-                stock_last_ymd = stock_data.index.max().strftime('%Y%m%d')
-                if (
-                    chart_end
-                    and isinstance(chart_end, str)
-                    and chart_end.isdigit()
-                    and stock_last_ymd
-                    and stock_last_ymd.isdigit()
-                    and chart_end < stock_last_ymd
-                ):
+                stock_first_ymd = valid_index.min().strftime('%Y%m%d')
+                stock_last_ymd = valid_index.max().strftime('%Y%m%d')
+                if chart_start.isdigit() and stock_first_ymd.isdigit() and chart_start < stock_first_ymd:
+                    chart_start = stock_first_ymd
+                if chart_end.isdigit() and stock_last_ymd.isdigit() and chart_end > stock_last_ymd:
+                    chart_end = stock_last_ymd
+                elif chart_end.isdigit() and stock_last_ymd.isdigit() and chart_end < stock_last_ymd:
                     chart_end = stock_last_ymd
             except Exception:
                 pass
 
         start_dt = datetime.strptime(chart_start, '%Y%m%d')
         end_dt = datetime.strptime(chart_end, '%Y%m%d')
-        chart_df = stock_data.loc[start_dt:end_dt].copy()
+        chart_df = stock_data[(stock_data.index >= start_dt) & (stock_data.index <= end_dt)].copy()
         chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
         if chart_df.empty:
             continue
