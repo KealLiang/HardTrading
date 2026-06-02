@@ -1154,7 +1154,7 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
     from utils.export_stock_codes import extract_stock_codes_from_excel
     from analysis.loader.fupan_data_loader import OUTPUT_FILE
 
-    start_date = '20260101'  # 调整为Excel中有数据的日期范围
+    start_date = '20260301'  # 调整为Excel中有数据的日期范围
     end_date = None  # 过了0点需指定日期
 
     show_period_change = True  # 是否计算周期涨跌幅
