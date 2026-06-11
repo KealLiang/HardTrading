@@ -668,9 +668,20 @@ def generate_leader_sheet_html_charts(
                 logging.warning(f"未找到股票数据: {stock_code} {stock_name}")
                 continue
 
+            valid_index = stock_data.index[~stock_data.index.isna()]
+            if stock_data.index.isna().any():
+                logging.warning(f"股票 {stock_code} CSV 含无效日期行(NaT)脏数据，已跳过")
+            if not valid_index.empty:
+                stock_last = valid_index.max().strftime('%Y%m%d')
+                if chart_end > stock_last:
+                    chart_end = stock_last
+                stock_first = valid_index.min().strftime('%Y%m%d')
+                if chart_start.replace('-', '') < stock_first:
+                    chart_start = stock_first
+
             start_dt = datetime.strptime(chart_start.replace('-', ''), '%Y%m%d')
             end_dt = datetime.strptime(chart_end, '%Y%m%d')
-            chart_df = stock_data.loc[start_dt:end_dt].copy()
+            chart_df = stock_data[(stock_data.index >= start_dt) & (stock_data.index <= end_dt)].copy()
             chart_df = chart_df.dropna(subset=['Open', 'High', 'Low', 'Close'])
             if chart_df.empty:
                 continue
