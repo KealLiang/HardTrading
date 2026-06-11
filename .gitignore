@@ -7,6 +7,7 @@
 /kline_charts/
 /data/indexes/
 /data/long/
+alerting/state/
 __pycache__/
 .idea/
 .cursor/

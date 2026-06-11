@@ -9,6 +9,9 @@ V5：在 V4「情绪局部衰竭」框架上的对称升级。
 5. 文案：RSI 语境异常时 BUY/SELL 前加「疑似」（不改变是否触发）。
 
 不包含「横盘起爆/突破」逻辑（与衰竭拐点不同赛道）。
+
+实盘记忆：与 V4 相同，目的是保障实盘和回测一致（继承 TMonitorConfigV4 的 LIVE_STATE_*，逻辑在 t_trade_alert_base）；
+启动时通达信静默回放重建波段状态，回测不受影响。
 """
 import logging
 import os
@@ -625,11 +628,7 @@ class TMonitorV5(TMonitorV4):
             winsound.Beep(1500 if signal_type == 'BUY' else 500, 500)
             send_alert(msg)
 
-        self.last_signal_time[signal_type] = ts
-        self.last_signal_price[signal_type] = price
-        self.rsi_wave_active[signal_type] = True
-        if self.cfg.WAVE_END_REQUIRE_EXCURSION:
-            self._wave_extreme[signal_type] = price
+        self._record_signal_state(signal_type, price, ts)
         self.triggered_signals.append({
             'type': signal_type,
             'price': price,
@@ -637,6 +636,7 @@ class TMonitorV5(TMonitorV4):
             'reason': reason,
             'strength': strength,
         })
+        self._save_live_state_if_needed()
 
 
 class MonitorManagerV5(MonitorManagerBase):
@@ -657,9 +657,9 @@ if __name__ == "__main__":
     TMonitorConfigV5.WAVE_END_REQUIRE_EXCURSION = WAVE_END_REQUIRE_EXCURSION
 
     # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323', '603520']
-    symbols = ['600584']
-    backtest_start = "2026-05-22 09:30"
-    backtest_end = "2026-05-27 15:00"
+    symbols = ['301188']
+    backtest_start = "2026-06-06 09:30"
+    backtest_end = "2026-06-11 15:00"
     symbols_file = 'watchlist.txt'
 
     wave_mode = "须走出再回锚" if WAVE_END_REQUIRE_EXCURSION else "回锚即结束"

@@ -5,7 +5,7 @@ import signal
 import sys
 import time as sys_time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Event
 
 import pandas as pd
@@ -17,6 +17,14 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
 
+from alerting.monitor_state_store import (
+    apply_loaded_state,
+    build_payload,
+    format_state_summary,
+    load_live_state,
+    save_live_state,
+    state_file_path,
+)
 from alerting.backtest_data_source import (
     BACKTEST_SOURCE_AKSHARE,
     BACKTEST_SOURCE_TDX,
@@ -107,6 +115,113 @@ class TMonitorBase:
         self.triggered_signals = []
         self._processed_signals = set()
         self.backtest_kline_data = None
+
+    def _live_state_enabled(self):
+        return (
+            not self.is_backtest
+            and getattr(self.cfg, "LIVE_STATE_PERSIST", False)
+        )
+
+    def _live_state_path(self):
+        state_dir = getattr(self.cfg, "LIVE_STATE_DIR", None)
+        return state_file_path(self.symbol, state_dir)
+
+    def _load_live_state_if_needed(self):
+        retention = int(getattr(self.cfg, "LIVE_STATE_RETENTION_DAYS", 2))
+        data = load_live_state(self._live_state_path(), retention)
+        if not data:
+            return
+        summaries = apply_loaded_state(self, data)
+        if summaries:
+            logging.info(
+                f"[{self.stock_name} {self.symbol}] 已恢复波段状态 "
+                f"(保留{retention}天): {', '.join(summaries)}"
+            )
+
+    def _save_live_state_if_needed(self):
+        if not self._live_state_enabled():
+            return
+        wave_extreme = getattr(self, "_wave_extreme", None)
+        payload = build_payload(
+            self.symbol,
+            self.last_signal_time,
+            self.last_signal_price,
+            self.rsi_wave_active,
+            wave_extreme=wave_extreme,
+        )
+        try:
+            save_live_state(self._live_state_path(), payload)
+        except OSError as e:
+            logging.warning(f"[{self.symbol}] 保存波段状态失败: {e}")
+
+    def _reset_wave_state(self):
+        self.last_signal_time = {'BUY': None, 'SELL': None}
+        self.last_signal_price = {'BUY': None, 'SELL': None}
+        self.rsi_wave_active = {'BUY': False, 'SELL': False}
+        if hasattr(self, '_wave_extreme'):
+            self._wave_extreme = {'BUY': None, 'SELL': None}
+
+    def _record_signal_state(self, signal_type, price, ts):
+        """仅更新波段记忆（回放预热与实盘推送共用，不推送）。"""
+        self.last_signal_time[signal_type] = ts
+        self.last_signal_price[signal_type] = price
+        self.rsi_wave_active[signal_type] = True
+        if (
+            getattr(self.cfg, 'WAVE_END_REQUIRE_EXCURSION', False)
+            and hasattr(self, '_wave_extreme')
+        ):
+            self._wave_extreme[signal_type] = price
+
+    def _warmup_live_state_from_history(self):
+        """实盘启动时用近 N 日通达信 1 分钟线回放，重建波段记忆（不推送历史信号）。"""
+        if not self._live_state_enabled():
+            return
+
+        retention = int(getattr(self.cfg, 'LIVE_STATE_RETENTION_DAYS', 2))
+        if getattr(self.cfg, 'LIVE_STATE_REPLAY_ON_START', True):
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=retention)
+            start_str = start_dt.strftime('%Y-%m-%d 09:30')
+            end_str = end_dt.strftime('%Y-%m-%d %H:%M')
+
+            self._reset_wave_state()
+            df = self._get_historical_data(start_str, end_str, period='1')
+            if df is None or df.empty:
+                logging.warning(
+                    f"[{self.stock_name} {self.symbol}] 近{retention}日回放无数据，空状态启动"
+                )
+                return
+
+            df = self._prepare_indicators(df)
+            start_ts = pd.to_datetime(start_str)
+            active_mask = df['datetime'] >= start_ts
+            if not active_mask.any():
+                logging.warning(
+                    f"[{self.stock_name} {self.symbol}] 回放区间无有效K线，空状态启动"
+                )
+                return
+
+            start_idx = active_mask.idxmax()
+            replay_count = 0
+            for i in range(max(self.cfg.min_history_bars(), start_idx), len(df)):
+                signal_type, reason, strength = self._generate_signal(df, i)
+                if signal_type:
+                    self._record_signal_state(
+                        signal_type,
+                        df['close'].iloc[i],
+                        df['datetime'].iloc[i],
+                    )
+                    replay_count += 1
+
+            self._save_live_state_if_needed()
+            summaries = format_state_summary(self)
+            detail = ', '.join(summaries) if summaries else '无未结束波段'
+            logging.info(
+                f"[{self.stock_name} {self.symbol}] 已从近{retention}日行情回放重建记忆 "
+                f"({replay_count}个历史触发点): {detail}"
+            )
+        else:
+            self._load_live_state_if_needed()
 
     def _get_stock_name(self):
         data_path = os.path.join(parent_dir, 'data', 'astocks')
@@ -278,6 +393,7 @@ class TMonitorBase:
                 tqdm.write(f"[{self.stock_name}] 信号被过滤: {reason}")
 
     def _run_live(self):
+        self._warmup_live_state_from_history()
         if not self._connect_api():
             logging.error(f"{self.symbol} 连接服务器失败")
             return

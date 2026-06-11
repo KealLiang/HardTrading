@@ -1,3 +1,12 @@
+"""
+V4：日内情绪局部衰竭拐点监控。
+
+实盘记忆（仅监控，回测不走；加记忆是为了获取近期信号与极值点，避免实盘信号受到程序[日内启动的时刻]影响）：
+- 启动时用通达信静默回放近 LIVE_STATE_RETENTION_DAYS 个日历日（自 T-N 日 09:30 起）
+  + 当日 09:30 至启动时刻，重建波段状态（冷却/同向价/rsi_wave），不推送历史信号。
+- RETENTION_DAYS=2 为日历回看（6-11 启动 → 自 6-9 09:30 起算 6-9、6-10 两整日）；当日 09:30~启动时刻另段追加，不计入该「2」。
+- 运行中落盘 alerting/state/{代码}.json；配置见 TMonitorConfigV4 LIVE_STATE_*（实现在 t_trade_alert_base）。
+"""
 import logging
 import os
 import sys
@@ -98,6 +107,12 @@ class TMonitorConfigV4:
     REPEAT_PRICE_FULL_SCORE_CHANGE = 0.018
     REPEAT_PRICE_MAX_SCORE_PENALTY = 35
 
+    # 实盘波段记忆：启动时回放近 N 日行情重建；运行中落盘防崩溃（回测不使用）
+    LIVE_STATE_PERSIST = True
+    LIVE_STATE_RETENTION_DAYS = 2
+    LIVE_STATE_REPLAY_ON_START = True
+    LIVE_STATE_DIR = None
+
     @classmethod
     def min_history_bars(cls):
         """生成信号所需的最少历史K线数。"""
@@ -191,6 +206,7 @@ class TMonitorV4(TMonitorBase):
             return
         self.rsi_wave_active[signal_type] = False
         self._wave_extreme[signal_type] = None
+        self._save_live_state_if_needed()
 
     def _refresh_rsi_wave_state(self, row):
         """波段结束：RSI复位+回锚；收紧时另须自锚点曾走出 WAVE_END_MIN_EXCURSION。"""
@@ -712,11 +728,7 @@ class TMonitorV4(TMonitorBase):
             winsound.Beep(1500 if signal_type == 'BUY' else 500, 500)
             send_alert(msg)
 
-        self.last_signal_time[signal_type] = ts
-        self.last_signal_price[signal_type] = price
-        self.rsi_wave_active[signal_type] = True
-        if self.cfg.WAVE_END_REQUIRE_EXCURSION:
-            self._wave_extreme[signal_type] = price
+        self._record_signal_state(signal_type, price, ts)
         self.triggered_signals.append({
             'type': signal_type,
             'price': price,
@@ -724,6 +736,7 @@ class TMonitorV4(TMonitorBase):
             'reason': reason,
             'strength': strength
         })
+        self._save_live_state_if_needed()
 
 
 class MonitorManagerV4(MonitorManagerBase):
@@ -747,9 +760,9 @@ if __name__ == "__main__":
     TMonitorConfigV4.WAVE_END_REQUIRE_EXCURSION = WAVE_END_REQUIRE_EXCURSION
 
     # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323', '603520']
-    symbols = ['603520']
-    backtest_start = "2026-05-22 09:30"
-    backtest_end = "2026-05-27 15:00"
+    symbols = ['000657', '002156']
+    backtest_start = "2026-05-27 09:30"
+    backtest_end = "2026-06-02 15:00"
 
     symbols_file = 'watchlist.txt'
 
