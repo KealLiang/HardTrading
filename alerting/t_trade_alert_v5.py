@@ -656,10 +656,10 @@ if __name__ == "__main__":
     WAVE_END_REQUIRE_EXCURSION = True
     TMonitorConfigV5.WAVE_END_REQUIRE_EXCURSION = WAVE_END_REQUIRE_EXCURSION
 
-    # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323', '603520']
-    symbols = ['301188']
-    backtest_start = "2026-06-06 09:30"
-    backtest_end = "2026-06-11 15:00"
+    # symbols = ['002181', '002940', '300390', '300620', '301306', '301611', '600338', '600821', '688195', '600584', '688323', '603520', '605589']
+    symbols = ['605589']
+    backtest_start = "2026-06-07 09:30"
+    backtest_end = "2026-06-12 15:00"
     symbols_file = 'watchlist.txt'
 
     wave_mode = "须走出再回锚" if WAVE_END_REQUIRE_EXCURSION else "回锚即结束"

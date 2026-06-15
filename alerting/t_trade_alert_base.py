@@ -5,7 +5,7 @@ import signal
 import sys
 import time as sys_time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime
 from threading import Event
 
 import pandas as pd
@@ -172,6 +172,114 @@ class TMonitorBase:
         ):
             self._wave_extreme[signal_type] = price
 
+    def _fetch_minute_data(
+        self,
+        end_time,
+        start_time=None,
+        retention_days=None,
+        period='1',
+        log_prefix='取数',
+        *,
+        log_level=logging.INFO,
+    ):
+        """回测与实盘预热共用的分钟线取数入口，返回 (df, meta)。"""
+        source = self._backtest_data_source()
+        try:
+            if source == BACKTEST_SOURCE_AKSHARE:
+                if retention_days is not None:
+                    logging.warning(
+                        f"{self.symbol} akshare 暂不支持 retention_days，"
+                        "实盘预热请使用 BACKTEST_DATA_SOURCE='tdx'"
+                    )
+                    return None, None
+                df, meta = fetch_akshare_minute(
+                    self.full_symbol,
+                    start_time,
+                    end_time,
+                    self.cfg.WARMUP_BARS,
+                    period=period,
+                )
+            elif source == BACKTEST_SOURCE_TDX:
+                if period != '1':
+                    logging.warning(
+                        f"{self.symbol} 通达信回测仅支持1分钟，已忽略 period={period}"
+                    )
+                if not self._connect_api():
+                    logging.error(f"{self.symbol} 通达信连接失败，无法拉取数据")
+                    return None, None
+                try:
+                    df, meta = fetch_tdx_minute(
+                        self.api,
+                        self.market,
+                        self.symbol,
+                        end_time,
+                        self.cfg.WARMUP_BARS,
+                        TDX_KLINE_1M,
+                        self._process_raw_data,
+                        start_time=start_time,
+                        retention_days=retention_days,
+                        chunk_size=getattr(self.cfg, "TDX_BACKTEST_CHUNK_BARS", 800),
+                        max_chunks=getattr(self.cfg, "TDX_BACKTEST_MAX_CHUNKS", 50),
+                    )
+                finally:
+                    self.api.disconnect()
+            else:
+                logging.error(
+                    f"未知 BACKTEST_DATA_SOURCE={source}，"
+                    f"请使用 '{BACKTEST_SOURCE_TDX}' 或 '{BACKTEST_SOURCE_AKSHARE}'"
+                )
+                return None, None
+
+            self._log_fetch_meta(meta, log_prefix=log_prefix, log_level=log_level)
+            return df, meta
+        except BacktestDataUnavailable as e:
+            logging.log(log_level, f"[{log_prefix} {self.symbol}] {e}")
+            return None, None
+        except Exception as e:
+            logging.error(f"[{log_prefix} {self.symbol}] 获取数据失败: {e}")
+            return None, None
+
+    def _log_filtered_signal_reason(self, reason):
+        """候选信号未触发时输出原因（回测调试用）。"""
+        if not reason:
+            return
+        if "涨停" in reason or "跌停" in reason:
+            return
+        tqdm.write(f"[{self.stock_name}] 信号被过滤: {reason}")
+
+    def _replay_history(self, df, active_start, *, record_only=False, log_filtered=None):
+        """按 active_start 回放历史 K 线；record_only=True 时只更新波段记忆不推送。"""
+        if log_filtered is None:
+            log_filtered = getattr(self.cfg, 'LOG_FILTERED_SIGNALS', False)
+
+        df = self._prepare_indicators(df)
+        start_dt = pd.to_datetime(active_start)
+        active_mask = df['datetime'] >= start_dt
+        if not active_mask.any():
+            return 0
+
+        start_idx = active_mask.idxmax()
+        if not record_only:
+            self.backtest_kline_data = df[active_mask].copy()
+
+        replay_count = 0
+        for i in range(max(self.cfg.min_history_bars(), start_idx), len(df)):
+            if not record_only and self.stop_event.is_set():
+                break
+
+            signal_type, reason, strength = self._generate_signal(df, i)
+            if signal_type:
+                price = df['close'].iloc[i]
+                ts = df['datetime'].iloc[i]
+                if record_only:
+                    self._record_signal_state(signal_type, price, ts)
+                else:
+                    self._trigger_signal(signal_type, price, ts, reason, strength)
+                replay_count += 1
+            elif reason and log_filtered:
+                self._log_filtered_signal_reason(reason)
+        return replay_count
+
     def _warmup_live_state_from_history(self):
         """实盘启动时用近 N 日通达信 1 分钟线回放，重建波段记忆（不推送历史信号）。"""
         if not self._live_state_enabled():
@@ -180,39 +288,24 @@ class TMonitorBase:
         retention = int(getattr(self.cfg, 'LIVE_STATE_RETENTION_DAYS', 2))
         if getattr(self.cfg, 'LIVE_STATE_REPLAY_ON_START', True):
             end_dt = datetime.now()
-            start_dt = end_dt - timedelta(days=retention)
-            start_str = start_dt.strftime('%Y-%m-%d 09:30')
             end_str = end_dt.strftime('%Y-%m-%d %H:%M')
 
             self._reset_wave_state()
-            df = self._get_historical_data(start_str, end_str, period='1')
-            if df is None or df.empty:
+            df, meta = self._fetch_minute_data(
+                end_str,
+                retention_days=retention,
+                log_prefix='实盘回放',
+                log_level=logging.WARNING,
+            )
+            if df is None or df.empty or meta is None:
                 logging.warning(
                     f"[{self.stock_name} {self.symbol}] 近{retention}日回放无数据，空状态启动"
                 )
                 return
 
-            df = self._prepare_indicators(df)
-            start_ts = pd.to_datetime(start_str)
-            active_mask = df['datetime'] >= start_ts
-            if not active_mask.any():
-                logging.warning(
-                    f"[{self.stock_name} {self.symbol}] 回放区间无有效K线，空状态启动"
-                )
-                return
-
-            start_idx = active_mask.idxmax()
-            replay_count = 0
-            for i in range(max(self.cfg.min_history_bars(), start_idx), len(df)):
-                signal_type, reason, strength = self._generate_signal(df, i)
-                if signal_type:
-                    self._record_signal_state(
-                        signal_type,
-                        df['close'].iloc[i],
-                        df['datetime'].iloc[i],
-                    )
-                    replay_count += 1
-
+            replay_count = self._replay_history(
+                df, meta.active_start, record_only=True, log_filtered=False
+            )
             self._save_live_state_if_needed()
             summaries = format_state_summary(self)
             detail = ', '.join(summaries) if summaries else '无未结束波段'
@@ -258,61 +351,35 @@ class TMonitorBase:
     def _backtest_data_source(self):
         return getattr(self.cfg, "BACKTEST_DATA_SOURCE", BACKTEST_SOURCE_TDX).lower()
 
-    def _log_fetch_meta(self, meta):
-        logging.info(
-            f"[回测取数 {self.symbol}] 数据源={meta.source} | "
-            f"库内范围 {meta.oldest} ~ {meta.newest} ({meta.total_bars}根) | "
-            f"回测段 {meta.active_bars}根 + 预热 {meta.warmup_bars}根"
+    def _log_fetch_meta(self, meta, log_prefix='取数', log_level=logging.INFO):
+        fetched = (
+            f"拉取 {meta.fetched_bars} 根"
+            f"({meta.fetched_oldest} ~ {meta.fetched_newest}) | "
+            if meta.fetched_bars else ""
+        )
+        replay = ""
+        if meta.replay_dates:
+            replay = (
+                f"回放 {len(meta.replay_dates)} 日 "
+                f"{meta.replay_dates[0]} ~ {meta.replay_dates[-1]} | "
+            )
+        logging.log(
+            log_level,
+            f"[{log_prefix} {self.symbol}] 数据源={meta.source} | "
+            f"{fetched}"
+            f"{replay}"
+            f"切片 {meta.total_bars} 根({meta.oldest} ~ {meta.newest}) | "
+            f"活跃 {meta.active_bars}根 + 预热 {meta.warmup_bars}根"
         )
 
     def _get_historical_data(self, start_time, end_time, period='1'):
-        source = self._backtest_data_source()
-        try:
-            if source == BACKTEST_SOURCE_AKSHARE:
-                df, meta = fetch_akshare_minute(
-                    self.full_symbol,
-                    start_time,
-                    end_time,
-                    self.cfg.WARMUP_BARS,
-                    period=period,
-                )
-            elif source == BACKTEST_SOURCE_TDX:
-                if period != '1':
-                    logging.warning(
-                        f"{self.symbol} 通达信回测仅支持1分钟，已忽略 period={period}"
-                    )
-                if not self._connect_api():
-                    logging.error(f"{self.symbol} 通达信连接失败，无法拉取回测数据")
-                    return None
-                try:
-                    df, meta = fetch_tdx_minute(
-                        self.api,
-                        self.market,
-                        self.symbol,
-                        start_time,
-                        end_time,
-                        self.cfg.WARMUP_BARS,
-                        TDX_KLINE_1M,
-                        self._process_raw_data,
-                        chunk_size=getattr(self.cfg, "TDX_BACKTEST_CHUNK_BARS", 800),
-                        max_chunks=getattr(self.cfg, "TDX_BACKTEST_MAX_CHUNKS", 50),
-                    )
-                finally:
-                    self.api.disconnect()
-            else:
-                logging.error(
-                    f"未知 BACKTEST_DATA_SOURCE={source}，"
-                    f"请使用 '{BACKTEST_SOURCE_TDX}' 或 '{BACKTEST_SOURCE_AKSHARE}'"
-                )
-                return None
-            self._log_fetch_meta(meta)
-            return df
-        except BacktestDataUnavailable as e:
-            logging.error(f"[回测取数 {self.symbol}] {e}")
-            return None
-        except Exception as e:
-            logging.error(f"获取历史数据失败: {e}")
-            return None
+        df, _ = self._fetch_minute_data(
+            end_time,
+            start_time=start_time,
+            period=period,
+            log_prefix='回测取数',
+        )
+        return df
 
     @staticmethod
     def _process_raw_data(raw_data):
@@ -389,8 +456,8 @@ class TMonitorBase:
             ts = df_1m['datetime'].iloc[i]
             self._trigger_signal(signal_type, price, ts, reason, strength)
         elif reason and self.is_backtest:
-            if "涨停" not in reason and "跌停" not in reason:
-                tqdm.write(f"[{self.stock_name}] 信号被过滤: {reason}")
+            # 原设计：仅回测模式下单根评估时输出；实盘 loop 不会进入（is_backtest=False）
+            self._log_filtered_signal_reason(reason)
 
     def _run_live(self):
         self._warmup_live_state_from_history()
@@ -434,46 +501,31 @@ class TMonitorBase:
             logging.error("回测模式下必须指定 backtest_start/backtest_end")
             return
 
-        df_1m = self._get_historical_data(self.backtest_start, self.backtest_end, period='1')
-        if df_1m is None or df_1m.empty:
+        df_1m, meta = self._fetch_minute_data(
+            self.backtest_end,
+            start_time=self.backtest_start,
+            log_prefix='回测取数',
+        )
+        if df_1m is None or df_1m.empty or meta is None:
             logging.error("指定时间段内没有数据")
             return
 
-        df_1m = self._prepare_indicators(df_1m)
-
-        start_dt = pd.to_datetime(self.backtest_start)
-        active_mask = df_1m['datetime'] >= start_dt
-        if not active_mask.any():
-            logging.error("指定时间段内没有可回测数据")
-            return
-        start_idx = active_mask.idxmax()
-
-        self.backtest_kline_data = df_1m[active_mask].copy()
-
         logging.info(
             f"[回测 {self.symbol}] 数据源={self._backtest_data_source()} | "
-            f"1分钟K线数:{active_mask.sum()} (warm-up:{start_idx})"
+            f"1分钟K线数:{meta.active_bars} (warm-up:{meta.warmup_bars})"
         )
 
-        for i in range(max(self.cfg.min_history_bars(), start_idx), len(df_1m)):
-            if self.stop_event.is_set():
-                break
-
-            signal_type, reason, strength = self._generate_signal(df_1m, i)
-            if signal_type:
-                price = df_1m['close'].iloc[i]
-                ts = df_1m['datetime'].iloc[i]
-                self._trigger_signal(signal_type, price, ts, reason, strength)
-
-            sys_time.sleep(0.001)
+        # log_filtered 默认走 cfg.LOG_FILTERED_SIGNALS（False），与历史回测一致
+        self._replay_history(df_1m, meta.active_start, record_only=False)
 
         logging.info(f"[回测 {self.symbol}] 回测结束，共触发{len(self.triggered_signals)}个信号")
 
-        valid_data = df_1m[active_mask & df_1m['rsi14'].notna()]
+        bt_df = self.backtest_kline_data
+        valid_data = bt_df[bt_df['rsi14'].notna()] if bt_df is not None else pd.DataFrame()
         if len(valid_data) > 0:
             tqdm.write(f"\n{'='*60}")
             tqdm.write(f"[{self.stock_name} {self.symbol}] 回测数据统计:")
-            tqdm.write(f"  有效K线数: {len(valid_data)}/{len(df_1m)}")
+            tqdm.write(f"  有效K线数: {len(valid_data)}/{len(bt_df)}")
             tqdm.write(f"  价格范围: {valid_data['close'].min():.2f} ~ {valid_data['close'].max():.2f}")
             tqdm.write(f"  RSI范围: {valid_data['rsi14'].min():.1f} ~ {valid_data['rsi14'].max():.1f}")
             tqdm.write(f"  RSI平均: {valid_data['rsi14'].mean():.1f}")

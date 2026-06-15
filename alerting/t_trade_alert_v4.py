@@ -2,9 +2,10 @@
 V4：日内情绪局部衰竭拐点监控。
 
 实盘记忆（仅监控，回测不走；加记忆是为了获取近期信号与极值点，避免实盘信号受到程序[日内启动的时刻]影响）：
-- 启动时用通达信静默回放近 LIVE_STATE_RETENTION_DAYS 个日历日（自 T-N 日 09:30 起）
-  + 当日 09:30 至启动时刻，重建波段状态（冷却/同向价/rsi_wave），不推送历史信号。
-- RETENTION_DAYS=2 为日历回看（6-11 启动 → 自 6-9 09:30 起算 6-9、6-10 两整日）；当日 09:30~启动时刻另段追加，不计入该「2」。
+- 启动时用通达信静默回放近 LIVE_STATE_RETENTION_DAYS 个**有 K 线的交易日**
+  （从拉取数据中识别日期）+ 截止启动时刻，重建波段状态，不推送历史信号。
+- 取数/切片与回测共用 fetch_tdx_minute + slice_backtest_range；实盘仅多传 retention_days 自动定起点。
+- RETENTION_DAYS=2 表示数据中最近 2 个交易日（周一已开盘则含当日 partial）。
 - 运行中落盘 alerting/state/{代码}.json；配置见 TMonitorConfigV4 LIVE_STATE_*（实现在 t_trade_alert_base）。
 """
 import logging
@@ -46,6 +47,8 @@ class TMonitorConfigV4:
     BACKTEST_DATA_SOURCE = "tdx"
     TDX_BACKTEST_CHUNK_BARS = 800
     TDX_BACKTEST_MAX_CHUNKS = 50
+    # 回测调试：为 True 时在回放中打印「信号被过滤」；默认 False（历史回测行为）
+    LOG_FILTERED_SIGNALS = False
 
     RSI_PERIOD = 14
     BB_PERIOD = 20
