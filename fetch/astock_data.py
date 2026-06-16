@@ -19,6 +19,112 @@ from utils.date_util import get_trading_days, format_date
 from utils.file_util import find_all_stock_files
 from utils.stock_util import convert_stock_code
 
+# 历史日线数据源：'sina'（新浪，默认）| 'eastmoney'（东财 push2his，易限流）
+HIST_DATA_SOURCE = 'sina'
+
+HIST_STANDARD_COLUMNS = [
+    '日期', '股票代码', '开盘', '收盘', '最高', '最低', '成交量', '成交额',
+    '振幅', '涨跌幅', '涨跌额', '换手率',
+]
+
+
+def _hist_end_date(end_date: Optional[str]) -> str:
+    return end_date or datetime.now().strftime('%Y%m%d')
+
+
+def _sina_symbol(stock_code: str) -> str:
+    if stock_code.startswith('6'):
+        return f'sh{stock_code}'
+    if stock_code.startswith('92'):
+        return f'bj{stock_code}'
+    return f'sz{stock_code}'
+
+
+def _calc_hist_amplitude(high: pd.Series, low: pd.Series) -> pd.Series:
+    low_num = pd.to_numeric(low, errors='coerce')
+    high_num = pd.to_numeric(high, errors='coerce')
+    amp = (high_num - low_num) / low_num.replace(0, pd.NA) * 100
+    return amp.round(2).fillna(0)
+
+
+def _normalize_hist_sina(df: pd.DataFrame, stock_code: str) -> pd.DataFrame:
+    """将 ak.stock_zh_a_daily 结果转为与东财 hist 一致的 12 列。"""
+    out = pd.DataFrame()
+    out['日期'] = pd.to_datetime(df['date'])
+    out['股票代码'] = stock_code
+    out['开盘'] = pd.to_numeric(df['open'], errors='coerce')
+    out['收盘'] = pd.to_numeric(df['close'], errors='coerce')
+    out['最高'] = pd.to_numeric(df['high'], errors='coerce')
+    out['最低'] = pd.to_numeric(df['low'], errors='coerce')
+    out['成交量'] = pd.to_numeric(df['volume'], errors='coerce') / 100  # 股 -> 手
+    out['成交额'] = pd.to_numeric(df['amount'], errors='coerce')
+    out['涨跌幅'] = out['收盘'].pct_change() * 100
+    out.loc[out.index[0], '涨跌幅'] = 0
+    out['涨跌额'] = out['收盘'].diff().fillna(0)
+    if 'turnover' in df.columns:
+        out['换手率'] = pd.to_numeric(df['turnover'], errors='coerce') * 100
+    else:
+        out['换手率'] = 0
+    out['振幅'] = _calc_hist_amplitude(out['最高'], out['最低'])
+    return out[HIST_STANDARD_COLUMNS]
+
+
+def _fetch_hist_sina(stock_code: str, start_date: str, end_date: Optional[str]) -> pd.DataFrame:
+    raw = ak.stock_zh_a_daily(
+        symbol=_sina_symbol(stock_code),
+        start_date=start_date,
+        end_date=_hist_end_date(end_date),
+        adjust='qfq',
+    )
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=HIST_STANDARD_COLUMNS)
+    return _normalize_hist_sina(raw, stock_code)
+
+
+def _fetch_hist_eastmoney(stock_code: str, start_date: str, end_date: Optional[str]) -> pd.DataFrame:
+    return ak.stock_zh_a_hist(
+        symbol=stock_code,
+        start_date=start_date,
+        end_date=_hist_end_date(end_date),
+        adjust='qfq',
+    )
+
+
+def fetch_stock_hist(stock_code: str, start_date: str, end_date: Optional[str] = None,
+                     source: Optional[str] = None) -> pd.DataFrame:
+    """
+    拉取历史日线（统一 12 列输出）。source 默认读模块级 HIST_DATA_SOURCE。
+    """
+    src = (source or HIST_DATA_SOURCE).lower()
+    if src == 'sina':
+        return _fetch_hist_sina(stock_code, start_date, end_date)
+    if src == 'eastmoney':
+        return _fetch_hist_eastmoney(stock_code, start_date, end_date)
+    raise ValueError(f"未知历史数据源: {src}，可选 sina / eastmoney")
+
+
+def atomic_write_csv(df: pd.DataFrame, file_path: str, **to_csv_kwargs) -> None:
+    """
+    原子写入 CSV：先写 .tmp，fsync 落盘后用 os.replace 替换目标文件。
+    避免 to_csv 直接覆盖时中途断电导致原文件被截断为 NUL。
+    """
+    tmp_path = f"{file_path}.tmp"
+    try:
+        df.to_csv(tmp_path, **to_csv_kwargs)
+        fd = os.open(tmp_path, os.O_RDWR)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp_path, file_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
+
 
 def auto_captcha_solve(verification_url):
     """
@@ -331,17 +437,9 @@ class StockDataFetcher:
 
     def _fetch_stock_data(self, stock_code):
         """
-        获取股票数据，封装为单独方法便于后续扩展或修改
-        
-        :param stock_code: 股票代码
-        :return: 股票数据DataFrame
+        获取股票历史日线，数据源由模块级 HIST_DATA_SOURCE 控制（默认新浪）。
         """
-        return ak.stock_zh_a_hist(
-            symbol=stock_code,
-            start_date=self.start_date,
-            end_date=self.end_date,
-            adjust="qfq"
-        )
+        return fetch_stock_hist(stock_code, self.start_date, self.end_date)
 
     def _wait_if_paused(self):
         """
@@ -564,8 +662,7 @@ class StockDataFetcher:
                 combined_data = pd.concat([existing_data, missing_data])
                 # 按日期排序
                 combined_data = combined_data.sort_values(by='日期')
-                # 重写整个文件
-                combined_data.to_csv(file_path, index=False, header=False)
+                atomic_write_csv(combined_data, file_path, index=False, header=False)
                 logging.info(f"已更新 {os.path.basename(file_path)}: {update_message}")
             else:
                 logging.info(f"没有新数据需要更新：{os.path.basename(file_path)}")
@@ -582,7 +679,7 @@ class StockDataFetcher:
         """
         创建新数据文件
         """
-        data.to_csv(file_path, index=False, header=False)
+        atomic_write_csv(data, file_path, index=False, header=False)
         logging.info(f"Created new file: {os.path.basename(file_path)}")
 
     @timer
@@ -741,7 +838,8 @@ class StockDataBroker:
 
         # 去掉股票名称中间的空格
         stock_df["name"] = stock_df["name"].apply(lambda x: x.replace(" ", ""))
-        stock_df.to_csv(f"{self.save_path}stock_mapping.csv", index=False, header=["code", "name"])
+        mapping_path = os.path.join(self.save_path, "stock_mapping.csv")
+        atomic_write_csv(stock_df, mapping_path, index=False, header=["code", "name"])
         return stock_df
 
     def get_name_by_code(self, seek_code):
