@@ -10,7 +10,10 @@ from matplotlib.font_manager import FontProperties
 from wordcloud import WordCloud
 
 from config.holder import config
+from fetch.tonghuashun.wencai_client import apply_pywencai_headers_patch
 from utils.date_util import get_current_or_prev_trading_day
+
+apply_pywencai_headers_patch()
 
 # 确保字体文件路径正确
 font_path = 'fonts/微软雅黑.ttf'

@@ -3,19 +3,13 @@ import sys
 from datetime import datetime, time
 
 import pandas as pd
-import pywencai
 
-from config.holder import config
+from fetch.tonghuashun.wencai_client import query_wencai
 from utils.date_util import get_trading_days, get_prev_trading_day, is_trading_day
 
 # fupan_file = "./excel/fupan_stocks.xlsx" # Removed global variable
 # 涨停缓存
 zt_cache = {}
-
-
-def query_wencai(param):  # Added cookie parameter
-    df = pywencai.get(question=param, sort_key='股票代码', sort_order='desc', loop=True, cookie=config.ths_cookie)
-    return df
 
 
 def get_fanbao_stocks(date, board_suffix=""):
@@ -406,13 +400,19 @@ def save_to_excel(dataframes, dates, fupan_type, target_excel_file, existing_dat
     new_data = existing_data.copy()
     for date in dates:
         date_formatted = datetime.strptime(date, '%Y%m%d').strftime('%Y年%m月%d日')
+        if dataframes[date].empty:
+            print(f"未获取到 {date_formatted} 的 {fupan_type} 数据，跳过保存。")
+            continue
+
         save_data = dataframes[date].apply(lambda row: '; '.join(row.astype(str)), axis=1)
         save_data.name = date_formatted
 
-        # 如果该日期已经存在，则跳过
+        # 已有有效数据则跳过；空列视为未写入，允许覆盖
         if date_formatted in new_data.columns:
-            print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过追加。")
-            continue
+            if new_data[date_formatted].notna().any():
+                print(f"数据 {date_formatted} 已存在于 {target_excel_file}，跳过追加。")
+                continue
+            new_data = new_data.drop(columns=[date_formatted])
 
         # 合并数据
         new_data = pd.concat([new_data, save_data], axis=1)
@@ -474,7 +474,10 @@ def daily_fupan(fupan_type, start_date, end_date, board_suffix, target_excel_fil
     cached_existing_dates = set()
     if sheet_exists(target_excel_file, fupan_type):
         cached_existing_data = pd.read_excel(target_excel_file, sheet_name=fupan_type, index_col=0)
-        cached_existing_dates = set(cached_existing_data.columns)
+        cached_existing_dates = {
+            col for col in cached_existing_data.columns
+            if cached_existing_data[col].notna().any()
+        }
 
     # 特殊处理"默默上涨"类型，因为它不能查历史数据
     if fupan_type == '默默上涨':

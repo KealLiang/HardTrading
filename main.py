@@ -1024,7 +1024,7 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20260115"
+    start_date = "20260530"
     # end_date = '20251230'
     end_date = None
     # all_fupan(start_date, end_date)
@@ -1050,7 +1050,7 @@ def clean_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20260301'  # 开始日期
+    start_date = '20260401'  # 开始日期
     # end_date = '20251230'  # 结束日期
     end_date = None
     draw_fupan_lb(start_date, end_date)
@@ -1060,7 +1060,7 @@ def draw_ths_fupan_html():
     """
     生成HTML交互式复盘图
     """
-    start_date = '20260301'  # 开始日期
+    start_date = '20260401'  # 开始日期
     # end_date = '20260108'  # 结束日期
     end_date = None
     draw_fupan_lb_html(start_date, end_date, buy_days_before=1)
@@ -1076,7 +1076,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20260301'
+    start_date = '20260401'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
