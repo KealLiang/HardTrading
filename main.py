@@ -1331,12 +1331,14 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
 
 
 def analyze_leader_performance_stats(
-        excel_path: str = './excel/ladder_analysis.xlsx',
+        # excel_path: str = './excel/ladder_analysis.xlsx',
+        excel_path: str = './excel/leader_archives/ladder_analysis_龙头归档_20260616.xlsx',
         output_markdown: str = None,
         use_leader_archive: bool = False,
         merge_leader_archive_splits: bool = False,
+        hold_days: int = 3,
 ):
-    """统计龙头候选 T+1 开盘买入、T+2/T+3/T+4 收盘卖出的胜率与盈亏比，输出 Markdown。
+    """统计龙头候选：T-1 选出，T 开盘买入，T+1…T+x 收盘观测（x 默认 3），输出 Markdown。
 
     默认仅读 excel_path 内龙头 sheet；需含历史数据时设 use_leader_archive=True。
     """
@@ -1346,6 +1348,7 @@ def analyze_leader_performance_stats(
         output_markdown=output_markdown,
         use_leader_archive=use_leader_archive,
         merge_leader_archive_splits=merge_leader_archive_splits,
+        hold_days=hold_days,
     )
 
 

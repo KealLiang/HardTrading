@@ -2,7 +2,7 @@
 龙头候选股后续表现统计（胜率 / 盈亏比 / 期望值）
 
 数据来源：复盘 Excel 中「龙头*」工作表（可选合并龙头归档）。
-假设 T 日收盘后产生龙头候选，T+1 开盘价买入，统计至 T+2 / T+3 / T+4 收盘的收益率。
+T-1 为选出日（sheet 快照日），T 为买入日（T-1 次一交易日开盘价），统计至 T+x 收盘价（x 默认 3）。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from openpyxl import Workbook, load_workbook
 
@@ -22,8 +22,10 @@ from analysis.html_gen.leader_sheet_html_chart import (
 )
 from utils.date_util import get_latest_trade_date, get_next_trading_day
 
-# 统计持有至信号日后第 N 个交易日收盘（T+1 买入，故 N=2/3/4 对应隔日可卖后的 1~3 个交易日）
-DEFAULT_HOLD_CLOSE_OFFSETS = (2, 3, 4)
+# 买入日 T 后第 x 个交易日收盘卖出，默认 x=3
+DEFAULT_HOLD_DAYS_AFTER_BUY = 3
+
+HoldDaysArg = Union[int, Sequence[int]]
 
 # 名额日志行：存储芯片: 3; 柏诚股份, 博敏电子, (和远气体)
 _QUOTA_LOG_LINE_RE = re.compile(r'^(.+?)[:：]\s*(\d+)\s*[;；]\s*(.+)$')
@@ -57,7 +59,7 @@ class TradeOutcome:
 @dataclass
 class HorizonStats:
     label: str
-    hold_close_offset: int
+    hold_days: int  # 买入日 T 后第 x 个交易日
     total_samples: int
     valid_samples: int
     skipped_samples: int
@@ -68,6 +70,23 @@ class HorizonStats:
     expectancy: float
     median_return: float
     avg_return: float
+
+
+def normalize_hold_days(hold_days: HoldDaysArg) -> Tuple[int, ...]:
+    """
+    将 hold_days 规范为观测窗口元组。
+
+    - 传 int x：统计 T+1 … T+x（含），例如 3 → (1, 2, 3)
+    - 传序列：仅统计指定 x，例如 (1, 3, 5)
+    """
+    if isinstance(hold_days, int):
+        if hold_days <= 0:
+            raise ValueError('hold_days 须 >= 1')
+        return tuple(range(1, hold_days + 1))
+    days = tuple(int(d) for d in hold_days)
+    if not days or any(d <= 0 for d in days):
+        raise ValueError('hold_days 须均为正整数')
+    return days
 
 
 def _yyyymmdd_from_iso(date_iso: str) -> str:
@@ -321,16 +340,22 @@ def _get_open_close(stock_code: str, date_yyyymmdd: str) -> tuple[Optional[float
     return open_p, close_p
 
 
-def evaluate_sample_at_horizon(
+def evaluate_sample_at_hold_days(
     sample: LeaderSample,
-    hold_close_offset: int,
+    hold_days: int,
     latest_trade_date: str,
 ) -> Optional[TradeOutcome]:
-    """T 日信号，T+1 开盘买，T+hold_close_offset 收盘卖。"""
-    signal_yyyymmdd = _yyyymmdd_from_iso(sample.signal_date)
-    buy_date = shift_trading_days(signal_yyyymmdd, 1)
-    sell_date = shift_trading_days(signal_yyyymmdd, hold_close_offset)
-    if not buy_date or not sell_date:
+    """
+    T-1 选出，T 开盘买入，T+x 收盘观测。
+
+    hold_days 为 x：自买入日 T 起向后 x 个交易日的收盘价。
+    """
+    signal_yyyymmdd = _yyyymmdd_from_iso(sample.signal_date)  # T-1
+    buy_date = shift_trading_days(signal_yyyymmdd, 1)  # T
+    if not buy_date:
+        return None
+    sell_date = shift_trading_days(buy_date, hold_days)  # T+x
+    if not sell_date:
         return None
     if sell_date > latest_trade_date:
         return None
@@ -354,7 +379,7 @@ def evaluate_sample_at_horizon(
 def compute_horizon_stats(
     outcomes: Sequence[Optional[TradeOutcome]],
     label: str,
-    hold_close_offset: int,
+    hold_days: int,
     total_samples: int,
 ) -> HorizonStats:
     valid = [o for o in outcomes if o is not None]
@@ -377,7 +402,7 @@ def compute_horizon_stats(
 
     return HorizonStats(
         label=label,
-        hold_close_offset=hold_close_offset,
+        hold_days=hold_days,
         total_samples=total_samples,
         valid_samples=len(valid),
         skipped_samples=total_samples - len(valid),
@@ -411,31 +436,31 @@ class SegmentReport:
 
 def compute_stats_for_samples(
     samples: Sequence[LeaderSample],
-    hold_close_offsets: Sequence[int],
+    hold_days_list: Sequence[int],
     latest_trade_date: str,
 ) -> tuple[List[HorizonStats], Dict[str, List[HorizonStats]]]:
     overall_stats: List[HorizonStats] = []
     concept_outcomes: Dict[str, Dict[int, List[Optional[TradeOutcome]]]] = {}
 
-    for offset in hold_close_offsets:
-        label = f'T+{offset}'
+    for hold_days in hold_days_list:
+        label = f'T+{hold_days}'
         outcomes: List[Optional[TradeOutcome]] = []
         for sample in samples:
-            outcome = evaluate_sample_at_horizon(sample, offset, latest_trade_date)
+            outcome = evaluate_sample_at_hold_days(sample, hold_days, latest_trade_date)
             outcomes.append(outcome)
-            concept_outcomes.setdefault(sample.concept_group, {}).setdefault(offset, []).append(outcome)
+            concept_outcomes.setdefault(sample.concept_group, {}).setdefault(hold_days, []).append(outcome)
         overall_stats.append(
-            compute_horizon_stats(outcomes, label, offset, total_samples=len(samples))
+            compute_horizon_stats(outcomes, label, hold_days, total_samples=len(samples))
         )
 
     concept_stats: Dict[str, List[HorizonStats]] = {}
-    for concept_group, by_offset in concept_outcomes.items():
+    for concept_group, by_hold_days in concept_outcomes.items():
         concept_sample_count = sum(1 for s in samples if s.concept_group == concept_group)
         row: List[HorizonStats] = []
-        for offset in hold_close_offsets:
-            outcomes = by_offset.get(offset, [])
+        for hold_days in hold_days_list:
+            outcomes = by_hold_days.get(hold_days, [])
             row.append(
-                compute_horizon_stats(outcomes, f'T+{offset}', offset, total_samples=concept_sample_count)
+                compute_horizon_stats(outcomes, f'T+{hold_days}', hold_days, total_samples=concept_sample_count)
             )
         concept_stats[concept_group] = row
     return overall_stats, concept_stats
@@ -491,6 +516,7 @@ def build_markdown_report(
     excel_path: str,
     snapshots: Sequence[dict],
     segment_reports: Sequence[SegmentReport],
+    hold_days_list: Sequence[int],
     use_leader_archive: bool,
     merge_leader_archive_splits: bool,
     latest_trade_date: str,
@@ -515,20 +541,21 @@ def build_markdown_report(
         f'- 合并拆分归档：{"是" if merge_leader_archive_splits else "否"}',
         f'- 龙头 sheet 数：{len(snapshots)}',
         f'- 候选样本数：{len(all_samples)}（普通龙头 {normal_count}，大龙股 {extra_count}）',
-        f'- 信号日期范围：{date_range}',
+        f'- 观测窗口：T+{"/T+".join(str(d) for d in hold_days_list)} 收盘价（T=买入日）',
+        f'- 选出日范围（T-1）：{date_range}',
         f'- 数据截止交易日：{_iso_from_yyyymmdd(latest_trade_date)}',
         '',
         '## 统计口径',
         '',
-        '- **信号日 T**：龙头 sheet 快照日（收盘后选出候选）',
-        '- **买入**：T+1 开盘价',
-        '- **卖出 / 观测**：T+2 / T+3 / T+4 收盘价（A 股 T+1 交割，最早 T+2 可卖）',
+        '- **T-1**：选出日（龙头 sheet 快照日，收盘后识别候选）',
+        '- **T**：买入日（T-1 的次一交易日，**开盘价**买入）',
+        f'- **观测**：T+x 日**收盘价**（传 int 时统计 x=1…{hold_days_list[-1] if hold_days_list else "?"}；当前窗口 T+{"/T+".join(str(d) for d in hold_days_list)}）',
         '- **普通龙头 / 大龙股**：按 sheet 布局区分（名额日志之上=普通龙头，之下=大龙股；无日志时以空行分块）',
         '- **概念组**：与龙头名额分配一致——优先读 sheet 内名额汇总日志；缺失时按 `select_concept_group_for_stock` 回退',
         '- **胜率**：收益率 > 0 的样本占比',
         '- **盈亏比**：盈利样本平均收益 / 亏损样本平均亏损（绝对值）',
         '- **期望值**：胜率 × 均盈 − (1 − 胜率) × 均亏',
-        '- 样本不足（缺行情或卖出日尚未到来）的条目计入「跳过」',
+        '- **跳过**：T+x 尚未到来（选出日太近）、或缺买入/卖出日行情数据的样本；不计入有效样本，但计入总样本',
     ]
 
     for report in segment_reports:
@@ -549,17 +576,17 @@ def run_leader_performance_stats(
     output_markdown: Optional[str] = None,
     use_leader_archive: bool = False,
     merge_leader_archive_splits: bool = False,
-    hold_close_offsets: Sequence[int] = DEFAULT_HOLD_CLOSE_OFFSETS,
+    hold_days: HoldDaysArg = DEFAULT_HOLD_DAYS_AFTER_BUY,
 ) -> str:
     """
-    读取龙头 sheet，统计 T+1 开盘买入后在 T+2/T+3/T+4 收盘卖出的表现，输出 Markdown。
+    读取龙头 sheet，统计 T 开盘买入、T+x 收盘卖出的表现，输出 Markdown。
 
     Args:
         excel_path: 复盘 Excel 路径（默认 ladder_analysis.xlsx，仅读该文件内龙头 sheet）
         output_markdown: 输出 md 路径；默认与 excel 同目录下 leader_performance_stats.md
         use_leader_archive: 为 True 时额外合并 {excel}_龙头归档.xlsx（及可选拆分归档）
         merge_leader_archive_splits: 是否额外合并 leader_archives 下拆分文件
-        hold_close_offsets: 卖出观测日 = 信号日 T 后第 N 个交易日收盘，默认 (2,3,4)
+        hold_days: 最大持有观测日 x：传 int 时统计 T+1…T+x（默认 3 → 1/2/3）；传序列则只统计指定 x
 
     Returns:
         写入的 Markdown 文件绝对路径
@@ -590,6 +617,8 @@ def run_leader_performance_stats(
         for wb in archive_wbs:
             wb.close()
 
+    hold_days_list = normalize_hold_days(hold_days)
+
     latest_trade_date = get_latest_trade_date()
     if not latest_trade_date:
         raise RuntimeError('无法获取最近交易日')
@@ -602,13 +631,14 @@ def run_leader_performance_stats(
     segment_reports: List[SegmentReport] = []
     for title, pred in segment_defs:
         seg_samples = [s for s in samples if pred(s)]
-        overall, concept = compute_stats_for_samples(seg_samples, hold_close_offsets, latest_trade_date)
+        overall, concept = compute_stats_for_samples(seg_samples, hold_days_list, latest_trade_date)
         segment_reports.append(SegmentReport(title=title, samples=seg_samples, overall_stats=overall, concept_stats=concept))
 
     markdown = build_markdown_report(
         excel_path=excel_path,
         snapshots=snapshots,
         segment_reports=segment_reports,
+        hold_days_list=hold_days_list,
         use_leader_archive=use_leader_archive,
         merge_leader_archive_splits=merge_leader_archive_splits,
         latest_trade_date=latest_trade_date,

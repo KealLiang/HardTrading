@@ -6,6 +6,7 @@ from analysis.leader_performance_stats import (
     TradeOutcome,
     _split_entries_by_row_gap,
     compute_horizon_stats,
+    normalize_hold_days,
     parse_leader_quota_log,
     resolve_concept_group,
 )
@@ -46,6 +47,11 @@ def test_resolve_concept_group_prefers_quota_log():
         ['长鑫产业链', '存储芯片'],
     )
     assert group == '存储芯片'
+
+
+def test_normalize_hold_days():
+    assert normalize_hold_days(3) == (1, 2, 3)
+    assert normalize_hold_days([1, 3, 5]) == (1, 3, 5)
 
 
 def test_split_entries_by_row_gap():
