@@ -1330,6 +1330,25 @@ def generate_leader_sheet_html_charts(columns: int = 2, before_days: int = 60, a
     )
 
 
+def analyze_leader_performance_stats(
+        excel_path: str = './excel/ladder_analysis.xlsx',
+        output_markdown: str = None,
+        use_leader_archive: bool = False,
+        merge_leader_archive_splits: bool = False,
+):
+    """统计龙头候选 T+1 开盘买入、T+2/T+3/T+4 收盘卖出的胜率与盈亏比，输出 Markdown。
+
+    默认仅读 excel_path 内龙头 sheet；需含历史数据时设 use_leader_archive=True。
+    """
+    from analysis.leader_performance_stats import run_leader_performance_stats
+    return run_leader_performance_stats(
+        excel_path=excel_path,
+        output_markdown=output_markdown,
+        use_leader_archive=use_leader_archive,
+        merge_leader_archive_splits=merge_leader_archive_splits,
+    )
+
+
 def launch_custom_stock_chart_app():
     """启动自选股票HTML图表小窗口：粘贴股票代码后生成图表。"""
     from analysis.html_gen.custom_stock_html_chart import launch_custom_stock_chart_app as launch_app
@@ -1792,13 +1811,14 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
+    analyze_leader_performance_stats()
     # generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
     # launch_custom_stock_chart_app()  # 自选股生成HTML图表
     # generate_ladder_chart(historical_range_only=True, board_levels_experiment=True, min_board_level=3, non_main_board_level=2)  # 实验不同参数的天梯
 
     # === 复盘相关 ===
-    daily_routine()
+    # daily_routine()
     # get_stock_datas()
     # repair_truncated_stock_datas(stock_list=None)  # 修复残缺CSV：自动扫描仅1行有效日线→历史接口重拉
     # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除
