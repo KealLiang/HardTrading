@@ -1076,7 +1076,7 @@ def fupan_statistics_to_excel():
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20260401'
+    start_date = '20260601'
     end_date = None
     plot_all(start_date, end_date)
     # plot_all()
@@ -1814,14 +1814,14 @@ if __name__ == '__main__':
     # === 热门天梯 ===
     # whimsical_fupan_analyze()
     # generate_ladder_chart()
-    analyze_leader_performance_stats()
+    # analyze_leader_performance_stats()
     # generate_leader_sheet_html_charts(columns=2, before_days=90, after_days=30)  # 虚拟K线 virtual_bars=[(-3.0, 10.0), (5, -5)]
     # generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30)  # 默默上涨
     # launch_custom_stock_chart_app()  # 自选股生成HTML图表
     # generate_ladder_chart(historical_range_only=True, board_levels_experiment=True, min_board_level=3, non_main_board_level=2)  # 实验不同参数的天梯
 
     # === 复盘相关 ===
-    # daily_routine()
+    daily_routine()
     # get_stock_datas()
     # repair_truncated_stock_datas(stock_list=None)  # 修复残缺CSV：自动扫描仅1行有效日线→历史接口重拉
     # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除
