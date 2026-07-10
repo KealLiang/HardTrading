@@ -23,3 +23,8 @@ run_main.py
 temp/
 candidate_stocks_result/
 /data/screenshots/
+data/**/*.csv
+.augment/
+*.png
+*.log
+*.txt
