@@ -14,6 +14,15 @@ from openpyxl.utils import get_column_letter
 from analysis.concept_analyzer import (
     analyze_concepts_from_ladder_data, format_concept_analysis_summary
 )
+from analysis.helper.leader_morphology import (
+    LEADER_MORPHOLOGY_MODE_HEAD_TAIL,
+    LEADER_MORPHOLOGY_MODE_BOTTOM_TO_HIGH,
+    build_leader_morphology_config,
+    check_leader_morphology,
+    clear_leader_morphology_cache,
+    is_bottom_to_high_high_risk_leader,
+    pool_excluding_bottom_to_high_high_risk,
+)
 from analysis.helper.ladder_chart_helpers import (
     # 常量
     VOLUME_DAYS, VOLUME_RATIO_THRESHOLD, VOLUME_RATIO_LOW_THRESHOLD,
@@ -30,7 +39,6 @@ from analysis.helper.ladder_chart_helpers import (
     get_new_high_markers_cached,
     # MA斜率
     get_ma_slope_indicator, clear_ma_slope_cache, print_slope_statistics,
-    is_ma_trend_rising, is_leader_second_wave_long_ok,
     # 跟踪判断
     clear_high_gain_cache,
     should_track_after_break as _should_track_after_break,
@@ -111,14 +119,21 @@ ENABLE_COLOR_DIFFERENT_FROM_GROUP = True
 # ==================== 龙头股筛选相关参数 ====================
 # 【筛选门槛 - 主板股】
 MIN_BOARD_LEVEL_FOR_LEADER = 1  # 主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER = 30.0  # 主板：龙头条件1，近 PERIOD_DAYS_LONG 涨幅门槛（%）
 # 【筛选门槛 - 非主板股（创业板/科创板/北交所）】
 MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN = 0  # 非主板股最低连板数门槛
-MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN = 37.0  # 非主板：龙头条件1，近 PERIOD_DAYS_LONG 涨幅门槛（%）
 
-# 【龙头 condition2：二波/老牌】近 PERIOD_DAYS_VERY_LONG 根有效K的振幅阈值，超过此值才作为二波候选
-LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN = 95.0
-LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN = 105.0
+# 【形态 head_tail】条件1：窗口首尾收盘涨幅下限（%），(主板, 非主板)
+LEADER_MORPHOLOGY_HEAD_TAIL_MIN_CHANGE = (30.0, 37.0)
+
+# 【形态 bottom_to_high】条件1：低点→高点收盘涨幅闭区间（%），((主板min, max), (非主板min, max))
+LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_CHANGE_RANGE = ((26.0, 56.0), (36.0, 66.0))
+
+# 【形态 bottom_to_high】120日涨幅过高则不入普通龙头（> 阈值过滤；大龙股仍从完整候选池识别）
+LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_HIGH_RISK_PERIOD_DAYS = 120
+LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_HIGH_RISK_MAX_CHANGE = 200.0
+
+# 【龙头 condition2：二波/老牌】近 PERIOD_DAYS_VERY_LONG 根有效K的振幅阈值，(主板, 非主板)
+LEADER_SECOND_WAVE_MIN_RANGE_PCT = (95.0, 105.0)
 
 # 【超短周期上限】近 N 个交易日涨幅须严格小于下列阈值（过滤预期兑现）
 LEADER_ULTRA_SHORT_PERIOD_DAYS = 3  # 极短周期
@@ -138,6 +153,8 @@ LEADER_EXTRA_LONG_PERIOD_THRESHOLD = 100.0  # 大龙股长周期涨幅阈值（%
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
+# LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_HEAD_TAIL  # head_tail | bottom_to_high
+LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_BOTTOM_TO_HIGH
 LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
 
 # 【工作表管理】
@@ -186,6 +203,7 @@ def clear_caches():
     global _top_attention_stocks_cache, _long_period_change_cache
     # 清理 helpers 模块的缓存
     clear_helper_caches()
+    clear_leader_morphology_cache()
     _top_attention_stocks_cache = None
     _long_period_change_cache.clear()
     print("已清理所有缓存")
@@ -4037,22 +4055,10 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     - 默认板块（第5名到 LEADER_QUOTA_DEFAULT_THRESHOLD 之间）：LEADER_QUOTA_DEFAULT 只
     - 非热门板块（LEADER_QUOTA_DEFAULT_THRESHOLD 之后）：LEADER_QUOTA_COLD 只
     
-    筛选条件（由全局参数控制，区分主板和非主板）：
-    - 主板股：
-      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER
-      * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER（阈值名沿用，窗口为长周期）
-      * 条件2（二波/老牌）：近 PERIOD_DAYS_VERY_LONG 根有效 K 内 (max高-min低)/max高*100% >=
-        LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN，且最新收盘>该窗口最早收盘；且 MA20>MA10，且收盘或最高在 MA10~MA20 之间，
-        且非 is_ma_trend_falling。若无法解析复盘截止日 end_date，则条件1/2 均不成立（不再用旧长周期涨幅兜底）。
-    - 非主板股（创业板/科创板/北交所）：
-      * 最低连板数：MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
-      * 条件1 涨幅门槛：近 period_days_long 日涨幅 >= MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
-      * 条件2：同上振幅口径与方向约束，振幅下限 LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
-    - 是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY
-    - 排除概念组：LEADER_EXCLUDE_CONCEPTS
-    - 超短周期（LEADER_ULTRA_SHORT_PERIOD_DAYS 个交易日）涨幅上限：主板 <
-      MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER，非主板 <
-      MAX_ULTRA_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN（严格小于）
+    单股门槛（连板、超短涨幅上限）见本函数内 check_board_level / check_ultra_short_cap。
+    形态条件（条件1 趋势龙 | 条件2 二波）由 analysis.helper.leader_morphology 实现，
+    模式开关 LEADER_MORPHOLOGY_MODE（默认 head_tail）。
+    是否只从活跃股选择：SELECT_LEADERS_FROM_ACTIVE_ONLY；排除概念组：LEADER_EXCLUDE_CONCEPTS
     
     Args:
         concept_grouped_df: 按概念分组且已计算长周期涨跌幅的DataFrame
@@ -4200,34 +4206,34 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
         else:  # 非主板（创业板/科创板/北交所）
             return row['max_board_level'] >= MIN_BOARD_LEVEL_FOR_LEADER_NON_MAIN
 
-    def check_change_threshold(row):
-        """检查涨幅门槛和趋势"""
-        if row['market_type'] == 'main':
-            short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER
-        else:  # 非主板
-            short_threshold = MIN_SHORT_PERIOD_CHANGE_FOR_LEADER_NON_MAIN
+    morphology_config = build_leader_morphology_config(
+        period_days_long=period_days_long,
+        period_days_very_long=PERIOD_DAYS_VERY_LONG,
+        head_tail_min_change=LEADER_MORPHOLOGY_HEAD_TAIL_MIN_CHANGE,
+        bottom_to_high_change_range=LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_CHANGE_RANGE,
+        second_wave_min_range=LEADER_SECOND_WAVE_MIN_RANGE_PCT,
+        bottom_to_high_high_risk_period_days=LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_HIGH_RISK_PERIOD_DAYS,
+        bottom_to_high_high_risk_max_change=LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_HIGH_RISK_MAX_CHANGE,
+    )
 
-        # 条件1：近 period_days_long 涨幅达阈值（与 long_period_change 一致）+ 明显上升趋势
-        cond1_change_ok = row['long_period_change'] >= short_threshold
-
-        # 无截止日则无法计算均线/二波，不按旧「长周期涨幅」放行，避免与现行龙头语义不一致
-        if end_date_yyyymmdd is None:
-            return False
-
-        stock_code = row['stock_code']
-
-        condition1 = cond1_change_ok and is_ma_trend_rising(stock_code, end_date_yyyymmdd)
-
-        # 条件2：二波/老牌 — 近 PERIOD_DAYS_VERY_LONG 根有效 K 的振幅 + MA10~MA20 带 + MA20>MA10 + 非明显下跌
-        if row['market_type'] == 'main':
-            sw_min_range = LEADER_SECOND_WAVE_MIN_RANGE_PCT_MAIN
-        else:
-            sw_min_range = LEADER_SECOND_WAVE_MIN_RANGE_PCT_NON_MAIN
-        condition2 = is_leader_second_wave_long_ok(
-            stock_code, end_date_yyyymmdd, PERIOD_DAYS_VERY_LONG, sw_min_range
+    def _normal_leader_pool(qualified_df):
+        """普通龙头名额池；bottom_to_high 模式下排除高危股，大龙识别仍用完整 qualified_df。"""
+        if LEADER_MORPHOLOGY_MODE != LEADER_MORPHOLOGY_MODE_BOTTOM_TO_HIGH:
+            return qualified_df
+        return pool_excluding_bottom_to_high_high_risk(
+            qualified_df, end_date_yyyymmdd, morphology_config
         )
 
-        return condition1 | condition2
+    def check_change_threshold(row):
+        """形态条件：趋势龙 | 二波（见 leader_morphology，模式 LEADER_MORPHOLOGY_MODE）"""
+        return check_leader_morphology(
+            stock_code=row['stock_code'],
+            market_type=row['market_type'],
+            long_period_change=row['long_period_change'],
+            end_date_yyyymmdd=end_date_yyyymmdd,
+            config=morphology_config,
+            mode=LEADER_MORPHOLOGY_MODE,
+        )
 
     def check_ultra_short_cap(row):
         """超短周期涨幅须低于上限（主板/非主板阈值不同，见全局常量）"""
@@ -4310,8 +4316,9 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
     selection_summary_lines = []  # 用于输出“各板块入选名 + 括号内因名额未入选”
     for concept_group, qualified_df in all_qualified_stocks.items():
         quota = concept_quota[concept_group]
-        leaders = qualified_df.head(quota)
-        dropped_by_quota_df = qualified_df.iloc[len(leaders):]  # 通过门槛但因名额限制未入选
+        normal_pool = _normal_leader_pool(qualified_df)
+        leaders = normal_pool.head(quota)
+        dropped_by_quota_df = normal_pool.iloc[len(leaders):]  # 通过门槛但因名额限制未入选
 
         # 仅打印有入选的概念组
         if len(leaders) > 0:
@@ -4408,8 +4415,8 @@ def select_leader_stocks_from_concept_groups(concept_grouped_df, date_mapping, f
                 print(f"    概念组 {concept_group} 已达到名额上限（{quota}只），无需补充")
                 continue
 
-            # 获取该概念组所有符合条件的股票（已排序）
-            qualified_df = all_qualified_stocks[concept_group]
+            # 获取该概念组所有符合条件的股票（已排序；普通龙头补位排除高危）
+            qualified_df = _normal_leader_pool(all_qualified_stocks[concept_group])
 
             # 从符合条件的股票中排除已选中的，并且排除超过阈值的股票
             remaining_df = qualified_df[

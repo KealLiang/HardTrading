@@ -57,12 +57,22 @@
 
 ### 形态条件（二选一，OR）
 
-**条件1 — 趋势龙**
+> 实现：`analysis/helper/leader_morphology.py`  
+> 模式开关：`LEADER_MORPHOLOGY_MODE`（`head_tail` | `bottom_to_high`，默认 `head_tail`）
 
-- 近30日涨幅达门槛
-- **且** `is_ma_trend_rising`：5日/10日均线斜率向上 + 多头排列
+**条件1 — 趋势龙**（两种模式二选一，均须 + 均线上升趋势）
 
-**条件2 — 二波/老牌**
+| 模式 | 涨幅口径 | 主板 | 非主板 |
+|------|----------|------|--------|
+| `head_tail` | 近30日**首尾**收盘涨幅 ≥ 下限 | ≥ 30% | ≥ 37% |
+| `bottom_to_high` | 近30日**低点→其后高点**收盘涨幅 **闭区间** | 25% ~ 35% | 32% ~ 42% |
+
+参数常量（`ladder_chart.py`，元组约定均为 **(主板, 非主板)**）：
+- `LEADER_MORPHOLOGY_HEAD_TAIL_MIN_CHANGE = (30, 37)`
+- `LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_CHANGE_RANGE = ((25, 35), (32, 42))`
+- `LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_HIGH_RISK_*`：120日涨幅 > 250% 不入**普通龙头**（大龙不受影响）
+
+**条件2 — 二波/老牌**（两种模式共用）
 
 - 近60根有效K 振幅 `(max高-min低)/max高×100` ≥ 95%（非主板 105%）
 - 最新收盘 > 窗口最早收盘（方向向上）
@@ -132,6 +142,9 @@
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
+| `LEADER_MORPHOLOGY_MODE` | head_tail / bottom_to_high | 形态模式 |
+| `LEADER_MORPHOLOGY_HEAD_TAIL_MIN_CHANGE` | (30, 37) | head_tail 涨幅下限，(主板, 非主板) |
+| `LEADER_MORPHOLOGY_BOTTOM_TO_HIGH_CHANGE_RANGE` | ((25,35),(32,42)) | bottom_to_high 闭区间 |
 | `PERIOD_DAYS_LONG` | 30 | 长周期涨幅窗口 |
 | `PERIOD_DAYS_VERY_LONG` | 60 | 二波振幅窗口 |
 | `LEADER_ULTRA_SHORT_PERIOD_DAYS` | 3 | 超短过滤窗口 |
