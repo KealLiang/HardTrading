@@ -860,40 +860,47 @@ def read_and_plot_html(fupan_file, start_date=None, end_date=None, output_path=N
         lianban_results.append((date, max_lianban, max_lianban_stocks))
         lianban_second_results.append((date, second_lianban, second_lianban_stocks))
 
-        # 跌停数据处理
-        dieting_col = dieting_data[date].dropna()
-        dieting_col = dieting_col.fillna('').astype(str)
-        dieting_stocks = dieting_col.str.split(';').apply(lambda x: [item.strip() for item in x])
-        dieting_df = pd.DataFrame(dieting_stocks.tolist(), columns=[
-            '股票代码', '股票简称', '跌停开板次数', '首次跌停时间',
-            '跌停类型', '最新价', '最新涨跌幅',
-            '连续跌停天数', '跌停原因类型'
-        ])
-
-        if not dieting_df.empty:
-            dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].fillna(0)
-            dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].replace('', 0)
-            dieting_df['连续跌停天数'] = pd.to_numeric(dieting_df['连续跌停天数'], errors='coerce').fillna(0).astype(
-                int)
-
-            max_dieting = dieting_df['连续跌停天数'].max()
-            max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
-            max_dieting_stocks = []
-            if not max_dieting_filtered.empty:
-                max_dieting_stocks = [apply_bold_for_attention_stocks(
-                    format_stock_name_with_indicators(row['股票代码'], row['股票简称']),
-                    row['股票代码'], date, attention_by_date
-                ) for _, row in max_dieting_filtered.iterrows()]
-                # 提取最大连续跌停的股票代码
-                date_codes.extend(extract_stock_codes_from_df(max_dieting_filtered))
-        else:
+        # 跌停数据处理（某日无跌停时 Excel 可能缺列，按 0 处理）
+        if date not in dieting_data.columns:
             max_dieting = 0
             max_dieting_stocks = []
+        else:
+            dieting_col = dieting_data[date].dropna()
+            dieting_col = dieting_col.fillna('').astype(str)
+            dieting_stocks = dieting_col.str.split(';').apply(lambda x: [item.strip() for item in x])
+            dieting_df = pd.DataFrame(dieting_stocks.tolist(), columns=[
+                '股票代码', '股票简称', '跌停开板次数', '首次跌停时间',
+                '跌停类型', '最新价', '最新涨跌幅',
+                '连续跌停天数', '跌停原因类型'
+            ])
+
+            if not dieting_df.empty:
+                dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].fillna(0)
+                dieting_df['连续跌停天数'] = dieting_df['连续跌停天数'].replace('', 0)
+                dieting_df['连续跌停天数'] = pd.to_numeric(dieting_df['连续跌停天数'], errors='coerce').fillna(0).astype(
+                    int)
+
+                max_dieting = dieting_df['连续跌停天数'].max()
+                max_dieting_filtered = dieting_df[dieting_df['连续跌停天数'] == max_dieting]
+                max_dieting_stocks = []
+                if not max_dieting_filtered.empty:
+                    max_dieting_stocks = [apply_bold_for_attention_stocks(
+                        format_stock_name_with_indicators(row['股票代码'], row['股票简称']),
+                        row['股票代码'], date, attention_by_date
+                    ) for _, row in max_dieting_filtered.iterrows()]
+                    # 提取最大连续跌停的股票代码
+                    date_codes.extend(extract_stock_codes_from_df(max_dieting_filtered))
+            else:
+                max_dieting = 0
+                max_dieting_stocks = []
         dieting_results.append((date, -max_dieting, max_dieting_stocks))
 
         # 首板数据
-        shouban_col = shouban_data[date].dropna()
-        shouban_counts.append(len(shouban_col))
+        if date not in shouban_data.columns:
+            shouban_counts.append(0)
+        else:
+            shouban_col = shouban_data[date].dropna()
+            shouban_counts.append(len(shouban_col))
 
         # 默默上涨数据处理
         if has_momo_data and date in momo_data.columns:
