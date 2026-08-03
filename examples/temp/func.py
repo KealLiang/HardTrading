@@ -27,9 +27,9 @@ from akshare.utils.tqdm import get_tqdm
 # 【修改源码】签名扩展：
 # - timeout 默认 15 -> 30：分页请求更稳
 # - cache_pages：每 N 页落盘断点缓存，失败可续传
-# - max_retries / retry_sleep：单页遇到 503/空响应时退避重试（2026-08 新增）
+# - max_retries / retry_sleep：单页遇到 503/空响应时退避重试（2026-08 新增；保守默认）
 def fetch_paginated_data(url: str, base_params: Dict, timeout: int = 30, cache_pages: int = 5,
-                         max_retries: int = 5, retry_sleep: float = 0.8):
+                         max_retries: int = 3, retry_sleep: float = 2.0):
     """
     东方财富-分页获取数据并合并结果（支持断点续传）
     :param url: 接口URL
@@ -40,9 +40,9 @@ def fetch_paginated_data(url: str, base_params: Dict, timeout: int = 30, cache_p
     :type timeout: int
     :param cache_pages: 每N页保存一次缓存，0表示不启用缓存
     :type cache_pages: int
-    :param max_retries: 单页请求失败时的最大重试次数（应对 push2delay 偶发 503）
+    :param max_retries: 单页最多尝试次数（含首次；默认 3，避免过密重试）
     :type max_retries: int
-    :param retry_sleep: 重试基础等待秒数，实际等待 = retry_sleep * attempt
+    :param retry_sleep: 重试基础等待秒数，实际等待 = retry_sleep * attempt（约 2s/4s）
     :type retry_sleep: float
     :return: 合并后的数据
     :rtype: pandas.DataFrame
@@ -68,6 +68,8 @@ def fetch_paginated_data(url: str, base_params: Dict, timeout: int = 30, cache_p
     # 【修改源码】单页请求封装：先校验 HTTP/正文再 json()，失败则退避重试
     # 背景：push2delay 偶发返回 503 纯文本（upstream connect error），直接 r.json()
     # 会抛 Expecting value: line 1 column 1 (char 0)，导致整次全市场拉取中断。
+    # 这更像网关/上游偶发断连，不是典型反爬（反爬多见 403/验证码/持续空包）。
+    # 默认最多 3 次、间隔约 2s/4s，避免过密重试。
     def _request_json(params: Dict) -> Dict:
         last_err = None
         for attempt in range(1, max_retries + 1):
