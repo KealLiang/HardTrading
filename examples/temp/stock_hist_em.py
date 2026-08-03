@@ -4,6 +4,12 @@
 Date: 2025/3/10 18:00
 Desc: 东方财富网-行情首页-沪深京 A 股
 https://quote.eastmoney.com/
+
+【修改源码】留存说明（相对 stock_hist_em.origin.py / 官方 akshare）：
+- 本文件仅 stock_zh_a_spot_em() 的 url/pz 相对官方有改动；其余函数保持官方原样
+- 升级 akshare 后请把该函数内【修改源码】段落重新打到
+  site-packages/akshare/stock_feature/stock_hist_em.py
+- 对照基线：examples/temp/stock_hist_em.origin.py
 """
 
 import pandas as pd
@@ -19,10 +25,21 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     :return: 实时行情
     :rtype: pandas.DataFrame
     """
-    url = "https://push2.eastmoney.com/api/qt/clist/get"  # 去掉82.前缀，原接口https://82.push2
+    # 【修改源码】接口域名演进（官方原样 -> 本地反爬调整）：
+    # 1) 官方：https://82.push2.eastmoney.com/api/qt/clist/get
+    # 2) 早期改：去掉 82. 前缀，改用 https://push2.eastmoney.com/...（部分网络更通）
+    # 3) 现行：改用 https://push2delay.eastmoney.com/...（延时行情域名，规避 push2 直连被掐）
+    #    注意：push2delay 会偶发 HTTP 503 纯文本 upstream error，需配合 utils/func.py 的重试逻辑
+    # url = "https://82.push2.eastmoney.com/api/qt/clist/get"  # 官方原接口
+    # url = "https://push2.eastmoney.com/api/qt/clist/get"  # 去掉82.前缀的历史方案
+    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
-        "pz": "20",
+        # 【修改源码】pz 调整说明：
+        # - 官方默认 pz=100
+        # - 反爬阶段曾降到 20，降低单页负载，但总页数约 295，更容易中途失败
+        # - 2026-08：在 func.py 加重试后改回 100，总页数约 59，整体更稳
+        "pz": "100",
         "po": "1",
         "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
