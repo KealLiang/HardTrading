@@ -40,7 +40,8 @@ OUTPUT_FILE = "./excel/fupan_analysis.xlsx"
 INDEX_FILE = "./data/indexes/sz399006_创业板指.csv"
 
 
-def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True, priority_reasons=None):
+def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True, priority_reasons=None,
+                    reasons_file=None):
     """
     处理涨停数据，转换为更易于分析的格式
 
@@ -49,6 +50,7 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
     :param clean_output: 是否清空现有Excel并重新创建，默认为False
     :param save_reasons: 是否保存去重后的涨停原因，默认为True
     :param priority_reasons: 优先选择的原因列表，默认为None
+    :param reasons_file: 涨停原因 JSON 输出路径；默认 unique_reasons_{start}_to_{end}.json
     """
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
@@ -175,8 +177,8 @@ def process_zt_data(start_date, end_date, clean_output=False, save_reasons=True,
 
     # 如果需要，保存去重后的涨停原因
     if save_reasons and all_reasons:
-        # 生成包含日期范围的文件名
-        reasons_file = f"./data/reasons/unique_reasons_{start_date}_to_{end_date}.json"
+        if not reasons_file:
+            reasons_file = f"./data/reasons/unique_reasons_{start_date}_to_{end_date}.json"
         success, message = save_unique_reasons(all_reasons, reasons_file)
         if success:
             print(message)

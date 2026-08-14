@@ -578,8 +578,8 @@ def plot_market_analysis(df, save_path='./images/market_analysis', limit_up_df=N
     plot_open_break_group_returns(df, save_path)
 
 
-def plot_all(start_date=None, end_date=None, path='./excel/'):
-    """绘制所有分析图表"""
+def plot_all(start_date=None, end_date=None, path='./excel/', save_path=None):
+    """绘制所有分析图表。save_path 指定时覆盖到固定前缀，避免滚动窗口每天产生新文件。"""
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
 
@@ -592,7 +592,9 @@ def plot_all(start_date=None, end_date=None, path='./excel/'):
     filtered_df = filter_data_by_date(df, start_date, end_date)
 
     # 确定保存路径
-    if start_date or end_date:
+    if save_path:
+        market_save_path = save_path
+    elif start_date or end_date:
         date_range = f"{start_date or 'start'}_to_{end_date or 'end'}"
         market_save_path = f'./images/market_analysis_{date_range}'
     else:

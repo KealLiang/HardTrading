@@ -13,6 +13,20 @@ from strategy.scannable_pullback_rebound_strategy import ScannablePullbackReboun
 from strategy.weekly_volume_momentum_strategy import WeeklyVolumeMomentumStrategy
 
 from utils.logging_util import redirect_print_to_logger
+from utils.daily_window import (
+    LOOKBACK_TRADING_DAYS,
+    LADDER_SHEET_NAME,
+    FUPAN_PNG,
+    FUPAN_HTML,
+    STATS_PLOT_PREFIX,
+    REASONS_FILE,
+    MARKET_ANALYSIS_FILE,
+    window_dates,
+    drop_stale_ladder_period_sheets,
+    trim_excel_rows_by_date,
+    rotate_artifacts,
+    maybe_remind_rotate,
+)
 
 # 忽略jieba库中的pkg_resources警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -659,7 +673,8 @@ def daily_routine():
         (generate_ladder_chart, "生成热门股天梯"),
         (draw_ths_fupan, "绘制涨跌高度图"),
         (draw_ths_fupan_html, "生成涨跌高度html"),
-        (lambda: generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30), "板块龙头生成html走势图"),
+        (lambda: generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30,
+                                                   use_leader_archive=False), "板块龙头生成html走势图"),
         (lambda: generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30), "默默上涨生成html走势图"),
         # (lambda: generate_momo_html_charts(days=20, columns=2, after_days=20), "新入选默默上涨简化html走势图"),
         (fupan_statistics_to_excel, "生成统计数据"),
@@ -673,6 +688,7 @@ def daily_routine():
     ]
 
     execute_routine(daily_steps, "daily_routine")
+    maybe_remind_rotate()
 
 
 def full_scan_routine(candidate_model='a'):
@@ -1024,22 +1040,24 @@ def find_similar_trends():
 
 
 def fetch_ths_fupan():
-    start_date = "20260530"
-    # end_date = '20251230'
-    end_date = None
-    # all_fupan(start_date, end_date)
+    start_date, end_date = window_dates()
     all_fupan(start_date, end_date, types='all,else')
+
+
+def rotate_daily_artifacts():
+    """一键归档当前日常产物。回看打开 excel/daily_history/{start}_{end}/。"""
+    return rotate_artifacts()
 
 
 def clean_ths_fupan():
     """
     清理 fupan_stocks.xlsx 历史数据，控制文件大小
     
-    - 保留最近 keep_days 天的数据
+    - 保留最近 keep_days 天的数据（与日常滚动窗口一致）
     - 删除前自动备份（备份文件名含起止日期）
     - dry_run=True 时只预览不实际删除
     """
-    keep_days = 150  # 保留最近x天数据
+    keep_days = LOOKBACK_TRADING_DAYS
     dry_run = False  # 设为 True 可先预览要删除的数据
     
     # 清理所有 fupan 文件（fupan_stocks.xlsx 和 fupan_stocks_non_main.xlsx）
@@ -1050,36 +1068,28 @@ def clean_ths_fupan():
 
 
 def draw_ths_fupan():
-    start_date = '20260401'  # 开始日期
-    # end_date = '20251230'  # 结束日期
-    end_date = None
-    draw_fupan_lb(start_date, end_date)
+    start_date, end_date = window_dates()
+    draw_fupan_lb(start_date, end_date, output_path=FUPAN_PNG)
 
 
 def draw_ths_fupan_html():
     """
     生成HTML交互式复盘图
     """
-    start_date = '20260401'  # 开始日期
-    # end_date = '20260108'  # 结束日期
-    end_date = None
-    draw_fupan_lb_html(start_date, end_date, buy_days_before=1)
+    start_date, end_date = window_dates()
+    draw_fupan_lb_html(start_date, end_date, output_path=FUPAN_HTML, buy_days_before=1)
 
 
 def fupan_statistics_to_excel():
-    # 指定时段的复盘总体复盘数据
-    start_date = '20250930'
-    # end_date = '20250228'
-    end_date = None
+    start_date, end_date = window_dates()
     # 在daily_routine中强制使用单线程，避免多线程冲突
     fupan_all_statistics(start_date, end_date, max_workers=1)
+    trim_excel_rows_by_date(MARKET_ANALYSIS_FILE, start_date)
 
 
 def fupan_statistics_excel_plot():
-    start_date = '20260601'
-    end_date = None
-    plot_all(start_date, end_date)
-    # plot_all()
+    start_date, end_date = window_dates()
+    plot_all(start_date, end_date, save_path=STATS_PLOT_PREFIX)
 
 
 def stocks_time_sharing_price():
@@ -1149,11 +1159,8 @@ def clean_synonym_groups(lookback_days=60, dry_run=False):
 
 
 def whimsical_fupan_analyze():
-    # 执行归类分析
-    start_date = "20251030"
-    end_date = None
-
-    process_zt_data(start_date, end_date, clean_output=True)
+    start_date, end_date = window_dates()
+    process_zt_data(start_date, end_date, clean_output=True, reasons_file=REASONS_FILE)
     # add_vba_for_excel()
 
     # 为【未分类原因】归类1
@@ -1162,7 +1169,8 @@ def whimsical_fupan_analyze():
 
 def generate_ladder_chart(historical_range_only=False, board_levels_experiment=False,
                           min_board_level=2, non_main_board_level=2,
-                          board_experiment_output_file="./excel/ladder_analysis_board实验.xlsx"):
+                          board_experiment_output_file="./excel/ladder_analysis_board实验.xlsx",
+                          start_date=None, end_date=None):
     """
     更新同义词分组，基于已有的涨停原因数据文件
     可用于自动更新theme_color_util.py中的synonym_groups
@@ -1172,15 +1180,19 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
         board_experiment_output_file: 上述输出文件
         min_board_level: 主板入选最低连板数，默认2
         non_main_board_level: 非主板入选最低连板数，默认2
+        start_date/end_date: 默认用日常滚动窗口；补历史区间时显式传入
     """
     from utils.export_stock_codes import extract_stock_codes_from_excel
     from analysis.loader.fupan_data_loader import OUTPUT_FILE
 
-    start_date = '20260301'  # 调整为Excel中有数据的日期范围
-    end_date = None  # 过了0点需指定日期
+    if start_date is None or end_date is None:
+        window_start, window_end = window_dates()
+        start_date = start_date or window_start
+        end_date = end_date or window_end
 
     show_period_change = True  # 是否计算周期涨跌幅
-    sheet_name = None
+    # 日常用固定 sheet 名，避免滚动起点跨月留下「涨停梯队YYYYMM」残留页
+    sheet_name = None if (historical_range_only or board_levels_experiment) else LADDER_SHEET_NAME
 
     # 定义优先原因列表
     priority_reasons = [
@@ -1209,6 +1221,9 @@ def generate_ladder_chart(historical_range_only=False, board_levels_experiment=F
                        group_aggregations=group_aggregations or None,
                        update_leader_archive=not historical_range_only,
                        ladder_only_workbook=board_levels_experiment)
+
+    if not historical_range_only and not board_levels_experiment:
+        drop_stale_ladder_period_sheets(output_file)
 
     if historical_range_only or board_levels_experiment:
         return
@@ -1822,6 +1837,8 @@ if __name__ == '__main__':
 
     # === 复盘相关 ===
     daily_routine()
+    # rotate_daily_artifacts()  # 一键归档当前日常产物到 excel/daily_history/{start}_{end}/，回看直接打开该目录
+
     # get_stock_datas()
     # repair_truncated_stock_datas(stock_list=None)  # 修复残缺CSV：自动扫描仅1行有效日线→历史接口重拉
     # clean_duplicate_stock_datas(clean_today_only=True, delete=False)   # 扫描今日重复行情，开关控制是否删除

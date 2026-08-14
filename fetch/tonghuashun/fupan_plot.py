@@ -269,7 +269,7 @@ class GlobalLabelManager:
         return best_pos if best_pos else (0, 0)
 
 
-def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=None):
+def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=None, output_path=None):
     # 使用默认配置或传入的配置
     config = LABEL_CONFIG.copy()
     if label_config:
@@ -723,19 +723,25 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     ax2.legend(loc='upper right', fontsize=8)  # 副 y 轴图例（连板/跌停/几板）
     plt.tight_layout()
     
-    # 生成文件名
-    date_range = ""
-    if start_date and end_date:
-        date_range = f"{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}"
-    elif start_date:
-        date_range = f"from_{start_date.strftime('%Y%m%d')}"
-    elif end_date:
-        date_range = f"to_{end_date.strftime('%Y%m%d')}"
+    # 生成文件名：日常入口可传入固定路径，避免滚动窗口每天产生新文件
+    if output_path:
+        filename = output_path
     else:
-        date_range = datetime.now().strftime('%Y%m%d')
-        
-    filename = f"images/fupan_lb_{date_range}.png"
-    
+        date_range = ""
+        if start_date and end_date:
+            date_range = f"{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}"
+        elif start_date:
+            date_range = f"from_{start_date.strftime('%Y%m%d')}"
+        elif end_date:
+            date_range = f"to_{end_date.strftime('%Y%m%d')}"
+        else:
+            date_range = datetime.now().strftime('%Y%m%d')
+        filename = f"images/fupan_lb_{date_range}.png"
+
+    out_dir = os.path.dirname(filename)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
     # 保存图片
     plt.savefig(filename, format='png', dpi=300)
     plt.close()
@@ -744,10 +750,10 @@ def read_and_plot_data(fupan_file, start_date=None, end_date=None, label_config=
     return filename
 
 
-def draw_fupan_lb(start_date=None, end_date=None, label_config=None):
+def draw_fupan_lb(start_date=None, end_date=None, label_config=None, output_path=None):
     # 示例调用
     fupan_file = "./excel/fupan_stocks.xlsx"
-    return read_and_plot_data(fupan_file, start_date, end_date, label_config)
+    return read_and_plot_data(fupan_file, start_date, end_date, label_config, output_path=output_path)
 
 
 if __name__ == '__main__':
