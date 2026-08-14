@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -100,10 +101,47 @@ def rotate_artifacts():
     """
     start_date, end_date = window_dates()
     dest_dir = os.path.join(HISTORY_DIR, f'{start_date}_{end_date}')
-    os.makedirs(dest_dir, exist_ok=True)
-    print(f"=== 换档归档到 {dest_dir} ===")
-
     copied = []
+    steps = [
+        ("复制日常产物", lambda: _copy_daily_artifacts(dest_dir, copied)),
+        ("记录换档标记", lambda: _write_rotate_marker(start_date, end_date)),
+        ("备份并裁剪复盘源数据", _backup_and_trim_fupan_sources),
+    ]
+    total_steps = len(steps)
+    started_at = datetime.now()
+    total_start = time.time()
+
+    print(f"=== 开始rotate_daily_artifacts {started_at.strftime('%Y-%m-%d %H:%M:%S')} ===")
+    print(f"归档目录: {dest_dir}")
+    print(f"总共 {total_steps} 个步骤")
+
+    try:
+        for i, (description, func) in enumerate(steps, 1):
+            print(f"\n[步骤{i}/{total_steps}] 开始{description}...")
+            logging.info(f"=== 步骤{i}: 开始{description} ===")
+            step_start = time.time()
+            func()
+            step_duration = time.time() - step_start
+            logging.info(f"=== 步骤{i}: {description}完成 (耗时: {step_duration:.2f}秒) ===")
+            print(f"✓ {description}完成 (耗时: {step_duration:.2f}秒)")
+
+        total_duration = time.time() - total_start
+        print(f"\n=== 所有步骤执行完成！总耗时: {total_duration:.2f}秒 "
+              f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===")
+        print(f"共归档 {len(copied)} 个查看产物，回看请打开: {dest_dir}")
+        print("源头备份目录: excel/fupan_backups/（与 daily_history 分开）")
+        print("当前日常文件保留，下次 daily_routine 会按滚动窗口覆盖生成。")
+        logging.info(f"=== rotate_daily_artifacts全部完成 (总耗时: {total_duration:.2f}秒) ===")
+        return dest_dir
+    except Exception as e:
+        error_msg = f"换档归档执行过程中发生错误: {str(e)}"
+        print(f"\n❌ {error_msg}")
+        logging.error(error_msg, exc_info=True)
+        raise
+
+
+def _copy_daily_artifacts(dest_dir, copied):
+    os.makedirs(dest_dir, exist_ok=True)
     for src in ARTIFACTS:
         if os.path.exists(src):
             dst = os.path.join(dest_dir, os.path.basename(src))
@@ -119,16 +157,17 @@ def rotate_artifacts():
         copied.append(os.path.basename(png))
         print(f"  已复制: {png}")
 
+
+def _write_rotate_marker(start_date, end_date):
+    os.makedirs(HISTORY_DIR, exist_ok=True)
     with open(ROTATE_MARKER, 'w', encoding='utf-8') as f:
         f.write(f'{start_date}\t{end_date}\t{datetime.now().isoformat(timespec="seconds")}\n')
+    print(f"  已写入换档标记: {ROTATE_MARKER}")
 
-    print("正在裁剪复盘源数据（fupan_stocks）到当前窗口...")
-    clean_all_fupan_files(keep_days=LOOKBACK_TRADING_DAYS, dry_run=False)
 
-    print(f"\n=== 换档完成，共归档 {len(copied)} 个文件 ===")
-    print(f"回看请打开: {dest_dir}")
-    print("当前日常文件保留，下次 daily_routine 会按滚动窗口覆盖生成。")
-    return dest_dir
+def _backup_and_trim_fupan_sources():
+    """源头备份到 excel/fupan_backups/（与 daily_history 无关），成功后再裁当前文件。"""
+    clean_all_fupan_files(keep_days=LOOKBACK_TRADING_DAYS, dry_run=False, backup=True)
 
 
 def maybe_remind_rotate():

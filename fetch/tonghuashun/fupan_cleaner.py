@@ -14,6 +14,8 @@ from datetime import datetime
 import pandas as pd
 from openpyxl import load_workbook
 
+FUPAN_BACKUP_DIR = './excel/fupan_backups'
+
 
 def parse_date_from_column(col_name):
     """
@@ -57,38 +59,36 @@ def get_date_range_from_sheet(excel_path, sheet_name='首板数据'):
 
 def backup_excel_file(excel_path):
     """
-    备份 Excel 文件，备份文件名格式：fupan_stocks_YYYYMMDD-YYYYMMDD.xlsx
-    
-    :param excel_path: 原文件路径
-    :return: 备份文件路径，失败返回 None
+    备份到 excel/fupan_backups/，文件名格式：fupan_stocks_YYYYMMDD-YYYYMMDD.xlsx
     """
     if not os.path.exists(excel_path):
         print(f"文件不存在: {excel_path}")
         return None
 
-    # 获取起止日期
     earliest, latest = get_date_range_from_sheet(excel_path, '首板数据')
     if not earliest or not latest:
         print("无法获取数据日期范围，使用当前时间作为备份文件名")
         earliest = latest = datetime.now().strftime('%Y%m%d')
 
-    # 构造备份文件名
-    dir_name = os.path.dirname(excel_path)
+    os.makedirs(FUPAN_BACKUP_DIR, exist_ok=True)
     base_name = os.path.basename(excel_path)
     name_without_ext = os.path.splitext(base_name)[0]
     backup_name = f"{name_without_ext}_{earliest}-{latest}.xlsx"
-    backup_path = os.path.join(dir_name, backup_name)
+    backup_path = os.path.join(FUPAN_BACKUP_DIR, backup_name)
 
-    # 如果备份文件已存在，添加序号
     counter = 1
-    original_backup_path = backup_path
     while os.path.exists(backup_path):
         backup_name = f"{name_without_ext}_{earliest}-{latest}_{counter}.xlsx"
-        backup_path = os.path.join(dir_name, backup_name)
+        backup_path = os.path.join(FUPAN_BACKUP_DIR, backup_name)
         counter += 1
 
     try:
         shutil.copy2(excel_path, backup_path)
+        src_size = os.path.getsize(excel_path)
+        dst_size = os.path.getsize(backup_path)
+        if src_size != dst_size:
+            print(f"❌ 备份大小不一致，终止: {excel_path} ({src_size}) vs {backup_path} ({dst_size})")
+            return None
         print(f"✅ 已备份到: {backup_path}")
         return backup_path
     except Exception as e:
@@ -96,13 +96,14 @@ def backup_excel_file(excel_path):
         return None
 
 
-def clean_fupan_excel(excel_path, keep_days=60, dry_run=False):
+def clean_fupan_excel(excel_path, keep_days=60, dry_run=False, backup=True):
     """
     清理 fupan_stocks.xlsx 中的历史数据
     
     :param excel_path: Excel 文件路径
     :param keep_days: 保留最近 N 天的数据（以交易日期列为准）
     :param dry_run: 如果为 True，只打印要删除的列，不实际删除
+    :param backup: 删除前是否在同目录备份（默认 True）
     :return: 清理是否成功
     """
     if not os.path.exists(excel_path):
@@ -167,12 +168,14 @@ def clean_fupan_excel(excel_path, keep_days=60, dry_run=False):
                 print(f"  - {col_name}")
             return True
 
-        # 备份原文件
-        print("\n正在备份原文件...")
-        backup_path = backup_excel_file(excel_path)
-        if not backup_path:
-            print("备份失败，终止清理操作")
-            return False
+        if backup:
+            print("\n正在备份原文件...")
+            backup_path = backup_excel_file(excel_path)
+            if not backup_path:
+                print("备份失败，终止清理操作")
+                return False
+        else:
+            print("\n已跳过备份（调用方已另行归档）")
 
         # 开始清理
         print("\n正在清理数据...")
@@ -216,12 +219,13 @@ def clean_fupan_excel(excel_path, keep_days=60, dry_run=False):
         return False
 
 
-def clean_all_fupan_files(keep_days=60, dry_run=False):
+def clean_all_fupan_files(keep_days=60, dry_run=False, backup=True):
     """
     清理所有 fupan_stocks 相关文件
     
     :param keep_days: 保留最近 N 天的数据
     :param dry_run: 如果为 True，只打印要删除的列，不实际删除
+    :param backup: 删除前是否在同目录备份（默认 True）
     """
     files = [
         "./excel/fupan_stocks.xlsx",
@@ -230,7 +234,7 @@ def clean_all_fupan_files(keep_days=60, dry_run=False):
 
     for file_path in files:
         if os.path.exists(file_path):
-            clean_fupan_excel(file_path, keep_days=keep_days, dry_run=dry_run)
+            clean_fupan_excel(file_path, keep_days=keep_days, dry_run=dry_run, backup=backup)
         else:
             print(f"文件不存在，跳过: {file_path}")
 
