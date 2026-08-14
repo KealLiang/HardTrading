@@ -28,3 +28,5 @@ data/**/*.csv
 *.png
 *.log
 *.txt
+!excel/daily_history/**/*.png
+!excel/daily_history/**/*.txt
