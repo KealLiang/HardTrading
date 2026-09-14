@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "ChanLens 缠论透镜",
+  "version": "1.0.0",
+  "description": "自绘 K 线 + 缠论结构叠层：分型 / 笔 / 线段 / 中枢 / 背驰 / 三类买卖点，多级别联动，全部参数可调，源码在你手里。",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://push2his.eastmoney.com/*",
+    "https://push2.eastmoney.com/*",
+    "https://quotes.sina.cn/*",
+    "https://hq.sinajs.cn/*",
+    "https://finance.sina.com.cn/*"
+  ],
+  "background": {
+    "service_worker": "background/service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.xueqiu.com/*",
+        "*://xueqiu.com/*",
+        "*://*.sina.com.cn/*",
+        "*://finance.sina.com/*",
+        "*://*.eastmoney.com/*",
+        "*://quote.eastmoney.com/*",
+        "*://*.10jqka.com.cn/*",
+        "*://*.tradingview.com/*",
+        "*://cn.tradingview.com/*"
+      ],
+      "js": [
+        "core/indicators.js",
+        "core/chan.js",
+        "chart/renderer.js",
+        "ui/panel.js",
+        "content/adapters.js",
+        "content/datasource.js",
+        "content/content.js"
+      ],
+      "css": [
+        "ui/panel.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
