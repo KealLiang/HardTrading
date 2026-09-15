@@ -11,15 +11,46 @@ StructGuide 那类插件把结构画在网站自己的 canvas 上，坐标要靠
 代价：和原网站自带指标不能共存。收益：坐标永远准、想加什么指标自己加、
 多级别联动（叠加方案根本做不到）成为可能。
 
+## 形态：不是站点叠加，而是独立 App
+
+因为 K 线是自绘的，一旦不需要"盖在原图上"，"必须在某个网站里打开"就失去了意义。
+所以本插件的主形态是**扩展自己的全屏页面**（`chrome-extension://…/app/app.html`）：
+不依赖任何网站，不需要起本地服务器，同时因为扩展页面的 origin 为 null，
+拿数据依旧不受 CORS 限制。
+
+站点注入脚本只保留一个用途：你在东财/雪球看盘时，右下角点一下「缠」，
+把当前这只股票带进 App。
+
+数据层在 `core/market.js`（纯 fetch、无 chrome 依赖），App 页面**直连**它
+（扩展页面有 `host_permissions`，天然免 CORS）；background 只做缓存与
+content script 的代理兜底，App 不再依赖消息转发，不会因 service worker
+的休眠/重启窗口卡住界面。
+
 ## 安装（Chrome / Edge）
 
 1. 打开 `chrome://extensions`（Edge 是 `edge://extensions`）
 2. 右上角打开「开发者模式」
 3. 点「加载已解压的扩展程序」，选择本目录 `D:\Trading\plugins\chanlens`
-4. 打开任意支持站点的个股页面，右下角出现蓝色「缠」按钮即成功
+4. **点击浏览器工具栏的 ChanLens 图标**打开 App（建议把它固定到工具栏）
+   - 若当前正好在个股页面（东财/雪球/新浪/同花顺），会自动带上该只股票
+   - 在个股页面也可以点右下角浮动的「缠」按钮进入
 
-支持站点：雪球 / 新浪财经 / 东方财富 / 同花顺 / TradingView（自动从 URL 识别股票代码，
-识别不到会弹窗让你手输 6 位代码）。
+App 打开后：顶栏输入代码或拼音/汉字（如 `600519` / `茅台`）搜索，
+回车或点选即加入自选；左侧自选股列表点击秒切，**Alt + ↑/↓** 在自选股间循环，
+列表项上右键删除。也可直接用 `chrome-extension://<扩展ID>/app/app.html?code=600519` 直达。
+
+**批量导入自选**：顶栏「批量导入」或自选栏右上「批量」，粘贴一整段即可：
+
+```
+600519
+SH600036
+000001, 300750
+601318 中国平安
+```
+
+支持一行一个、逗号/空格/分号分隔、`sh/sz` 前缀与点号写法，自动**去重**；
+`代码 名称` 混写会带上名称，其余缺失名称在后台并发自动补全。
+另外在搜索框直接粘贴含多个代码的文本，会**自动转成批量导入**，`Ctrl+Enter` 确认。
 
 ## 功能
 
@@ -42,16 +73,23 @@ chanlens/
 │   └── service_worker.js    行情代理（绕开页面 CORS），东财主源 + 新浪备用
 ├── content/
 │   ├── adapters.js          站点适配：从 URL/DOM 识别股票代码
-│   ├── datasource.js        content 侧行情请求 + 时间戳标准化 + 导出
-│   └── content.js           主入口：串起 拉数据→引擎→渲染→面板
+│   ├── datasource.js        行情请求 + 时间戳标准化 + 导出（App 与 content 共用）
+│   ├── launcher.js          站点内的浮动入口：识别代码 → 跳 App
+│   └── content_legacy.js    旧模式（页面内直接画图）入口，已不从 manifest 引用
+├── app/
+│   ├── app.html             ★ 主界面：扩展自己的全屏 App 页
+│   ├── app.css              外壳布局（顶栏/搜索/自选侧栏）
+│   └── app.js               搜索、自选股批量导入与快速切换、串起面板与渲染
 ├── core/
 │   ├── indicators.js        EMA / MACD / 区间力度
-│   └── chan.js              ★ 缠论引擎（纯函数、无 DOM，Node 可直接测）
+│   ├── chan.js              ★ 缠论引擎（纯函数、无 DOM，Node 可直接测）
+│   └── market.js            数据层：东财 K线(主)+新浪(备)、搜索、名称反查（SW 与 App 共用）
 ├── chart/
 │   └── renderer.js          K 线 + 叠层 canvas 渲染、缩放/平移/十字光标
 ├── ui/
 │   ├── panel.js             控制面板（参数表驱动，加参数=加一行 schema）
-│   └── panel.css
+│   ├── panel.css            面板样式，含嵌入模式（App 外壳使用）
+│   └── launcher.css         站点浮动按钮样式
 ├── python/
 │   ├── chan_engine.py       ★ 同一套算法的 Python 版（给 D:\Trading 回测用）
 │   └── test_chan_engine.py  与 JS 引擎交叉验证

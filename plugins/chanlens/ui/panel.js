@@ -144,10 +144,16 @@
   }
 
   function create(options) {
+    options = options || {};
+    var host = options.container || document.body;
+    var embedded = !!options.container;
+    var chartHeights = options.chartHeights || [430, 210, 210];
+    var extraRight = options.extraHead || null;   // 宿主页面可往标题栏塞自己的控件
+
     var state = null;
     var root = el('div', 'cl-root');
-    var launcher = el('button', 'cl-launcher', '缠');
-    launcher.title = 'ChanLens 缠论透镜（点击展开/收起）';
+    var launcher = embedded ? null : el('button', 'cl-launcher', '缠');
+    if (launcher) launcher.title = 'ChanLens 缠论透镜（点击展开/收起）';
     var panel = el('div', 'cl-panel');
     var head = el('div', 'cl-head');
     var body = el('div', 'cl-body');
@@ -170,7 +176,8 @@
     head.appendChild(adjSel);
 
     var hideBtn = el('button', 'cl-btn', '收起');
-    head.appendChild(hideBtn);
+    if (!embedded) head.appendChild(hideBtn);
+    if (extraRight) head.appendChild(extraRight);
 
     body.appendChild(mainCol);
     body.appendChild(sideCol);
@@ -178,7 +185,8 @@
     panel.appendChild(body);
     panel.appendChild(status);
     root.appendChild(panel);
-    root.appendChild(launcher);
+    if (launcher) root.appendChild(launcher);
+    if (embedded) root.className += ' cl-embedded';
 
     var chartHosts = [];
 
@@ -209,7 +217,7 @@
         mainCol.appendChild(wrap);
 
         var canvas = el('canvas', 'cl-chart');
-        canvas.style.height = (i === 0 ? 430 : 210) + 'px';
+        canvas.style.height = (chartHeights[i] != null ? chartHeights[i] : 210) + 'px';
         mainCol.appendChild(canvas);
         chartHosts.push({ canvas: canvas, sel: sel });
       }
@@ -324,20 +332,22 @@
       adjSel.value = state.adjust;
       buildTabs();
       buildSide();
-      rebuildCharts(3);
-      launcher.classList.add('cl-hidden');
+      rebuildCharts(options.chartCount || 3);
+      if (launcher) launcher.classList.add('cl-hidden');
+      host.appendChild(root);
       options.onReady && options.onReady(state, chartHosts);
-      document.body.appendChild(root);
     });
 
-    hideBtn.addEventListener('click', function () {
-      panel.style.display = 'none';
-      launcher.classList.remove('cl-hidden');
-    });
-    launcher.addEventListener('click', function () {
-      panel.style.display = 'flex';
-      launcher.classList.add('cl-hidden');
-    });
+    if (!embedded) {
+      hideBtn.addEventListener('click', function () {
+        panel.style.display = 'none';
+        launcher.classList.remove('cl-hidden');
+      });
+      launcher.addEventListener('click', function () {
+        panel.style.display = 'flex';
+        launcher.classList.add('cl-hidden');
+      });
+    }
     adjSel.addEventListener('change', function () {
       state.adjust = +adjSel.value;
       saveState(state);
@@ -345,6 +355,7 @@
     });
 
     return {
+      root: root,
       canvases: function () { return chartHosts.map(function (h) { return h.canvas; }); },
       getState: function () { return state; },
       setStatus: setStatus,

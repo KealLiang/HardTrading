@@ -161,3 +161,25 @@
 .cl-help { color: #888; font-size: 11px; margin-top: 2px; }
 
 .cl-side select { width: 100%; padding: 3px 6px; border: 1px solid #d3d8de; border-radius: 4px; font-size: 12px; }
+
+/* ------------------------------------------------- 嵌入模式（App 外壳使用） */
+.cl-root.cl-embedded {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.cl-root.cl-embedded .cl-panel {
+  position: static;
+  z-index: auto;   /* 关键：flex item 也吃 z-index，不归零会顶着弹层之上 */
+  width: auto;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.cl-root.cl-embedded .cl-body { min-height: 0; flex: 1; }
+.cl-root.cl-embedded .cl-main { min-width: 0; }

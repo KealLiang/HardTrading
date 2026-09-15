@@ -20,7 +20,7 @@
       var settled = false;
       var timer = setTimeout(function () {
         if (!settled) { settled = true; reject(new Error('background 响应超时')); }
-      }, 20000);
+      }, 8000);
       function done(reply) {
         if (settled) return;
         settled = true; clearTimeout(timer);
@@ -52,14 +52,32 @@
     const hit = localCache.get(key);
     if (hit && Date.now() - hit.at < LOCAL_TTL) return hit.data;
 
-    const reply = await ask({
+    const req = {
       type: 'CL_FETCH_KLINE', code: code, period: period,
       limit: limit || 800, adjust: adjust == null ? 1 : adjust
-    });
-    if (!reply || !reply.ok) throw new Error((reply && reply.error) || '未知错误');
-    localCache.set(key, { at: Date.now(), data: reply.data });
+    };
+
+    let data = null, lastErr = null;
+    try {
+      const reply = await ask(req);
+      if (!reply || !reply.ok) throw new Error((reply && reply.error) || '未知错误');
+      data = reply.data;
+    } catch (e) { lastErr = e; }
+
+    /* 兜底：App 页面本身有 host_permissions，可以直接跨源请求，
+       background 服务睡着/重启的窗口期不至于卡死界面 */
+    if ((!data || !data.klines || !data.klines.length) && global.CLMarket) {
+      try {
+        data = await global.CLMarket.fetchKline(code, period, limit || 800, adjust == null ? 1 : adjust);
+      } catch (e2) {
+        throw new Error((lastErr && lastErr.message ? lastErr.message + ' / ' : '') + e2.message);
+      }
+    }
+    if (!data) throw new Error((lastErr && lastErr.message) || '未知错误');
+
+    localCache.set(key, { at: Date.now(), data: data });
     if (localCache.size > 30) localCache.delete(localCache.keys().next().value);
-    return reply.data;
+    return data;
   }
 
   /** 把 ISO/各种时间字符串解析成毫秒（用于多级别时间轴对齐） */
