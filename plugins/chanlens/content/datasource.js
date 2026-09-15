@@ -8,27 +8,35 @@
 (function (global) {
   'use strict';
 
-  var reqId = 0;
-  var pending = new Map();
   var localCache = new Map();
   var LOCAL_TTL = 45 * 1000;
 
-  chrome.runtime.onMessage.addListener(function (msg) {
-    if (!msg || msg.__chanlensReply) return;
-    var p = pending.get(msg.__id);
-    if (p) { pending.delete(msg.__id); p(msg); }
-  });
-
+  /**
+   * MV3 中 background 的 sendResponse 回包通过 sendMessage 的 Promise 返回，
+   * 不是一条新的广播消息。这里同时兼容 Promise 与 callback 两种 API 形态。
+   */
   function ask(msg) {
     return new Promise(function (resolve, reject) {
-      var id = ++reqId;
-      msg.__id = id;
-      pending.set(id, resolve);
-      setTimeout(function () {
-        if (pending.has(id)) { pending.delete(id); reject(new Error('background 响应超时')); }
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (!settled) { settled = true; reject(new Error('background 响应超时')); }
       }, 20000);
-      try { chrome.runtime.sendMessage(msg); }
-      catch (e) { pending.delete(id); reject(e); }
+      function done(reply) {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        var err = (typeof chrome !== 'undefined' && chrome.runtime.lastError) ? chrome.runtime.lastError.message : null;
+        if (err) reject(new Error(err)); else resolve(reply);
+      }
+      try {
+        var pr = chrome.runtime.sendMessage(msg);
+        if (pr && typeof pr.then === 'function') {
+          pr.then(done).catch(function (e) {
+            if (!settled) { settled = true; clearTimeout(timer); reject(e); }
+          });
+        } else {
+          chrome.runtime.sendMessage(msg, done);
+        }
+      } catch (e) { clearTimeout(timer); settled = true; reject(e); }
     });
   }
 
