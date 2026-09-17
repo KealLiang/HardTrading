@@ -493,16 +493,15 @@
       if (!self.klines) return;
       e.preventDefault();
       var L = self.layout();
-      var spanBefore = self.window.t1 - self.window.t0;
       var factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
       var pxRatio = Math.max(0, Math.min(1, (e.offsetX - L.left) / (L.right - L.left)));
-      var anchorT = self.window.t0 + spanBefore * pxRatio;
-      var newSpan = Math.max(self.minSpan(), Math.min(self.maxSpan(), spanBefore * factor));
-      self.window.t0 = anchorT - newSpan * pxRatio;
-      self.window.t1 = self.window.t0 + newSpan;
-      self.clampWindow();
-      if (self.options.onWindowChange) self.options.onWindowChange(self.window);
-      self.draw();
+      if (self.options.onZoom) {
+        // 由外层统一驱动所有图，按各自当前跨度同比缩放（避免绝对窗口广播造成跳变）
+        self.options.onZoom({ factor: factor, pxRatio: pxRatio });
+      } else {
+        self.zoomBy(factor, pxRatio);
+        self.draw();
+      }
     }, { passive: false });
 
     this.canvas.addEventListener('mousedown', function (e) {
@@ -512,14 +511,14 @@
     this.canvas.addEventListener('mousemove', function (e) {
       self.cross = { x: e.offsetX, y: e.offsetY };
       if (dragging) {
-        var L = self.layout();
-        var span = self.window.t1 - self.window.t0;
-        var perPx = span / (L.right - L.left);
-        var dt = (e.offsetX - lastX) * perPx;
+        var L2 = self.layout();
+        var dFrac = (e.offsetX - lastX) / Math.max(1, L2.right - L2.left);
         lastX = e.offsetX;
-        self.window.t0 -= dt; self.window.t1 -= dt;
-        self.clampWindow();
-        if (self.options.onWindowChange) self.options.onWindowChange(self.window);
+        if (self.options.onPan) {
+          self.options.onPan({ dFrac: dFrac });       // 相对位移，各图按自身跨度平移
+        } else {
+          self.panBy(dFrac);
+        }
       }
       self.draw();
     });
@@ -537,10 +536,55 @@
       var n = Math.min(self.klines.length, self.options.defaultBars || 160);
       var s = self.klines.length - n;
       self.window = { t0: self.klines[s]._t, t1: self.maxT() };
-      if (self.options.onWindowChange) self.options.onWindowChange(self.window);
+      if (self.options.onZoom) self.options.onZoom({ reset: n });
       self.draw();
     });
     this.canvas.style.cursor = 'crosshair';
+  };
+
+  /**
+   * 按倍数缩放。锚点用「相对位置」表示，因此不同周期/不同数据长度的图
+   * 可以同步缩放而不会互相干扰（各图只动自己的跨度，比例一致）。
+   * @param factor  >1 缩小（显示更多），<1 放大
+   * @param pxRatio 锚点在可视区内的横向比例 0..1
+   */
+  ChartView.prototype.zoomBy = function (factor, pxRatio) {
+    if (!this.klines) return this;
+    pxRatio = Math.max(0, Math.min(1, pxRatio == null ? 0.5 : pxRatio));
+    var spanBefore = this.window.t1 - this.window.t0;
+    var anchorT = this.window.t0 + spanBefore * pxRatio;
+    var newSpan = Math.max(this.minSpan(), Math.min(this.maxSpan(), spanBefore * factor));
+    this.window.t0 = anchorT - newSpan * pxRatio;
+    this.window.t1 = this.window.t0 + newSpan;
+    this.clampWindow();
+    return this;
+  };
+
+  /** 按可视区宽度比例平移；dFrac>0 表示内容右移（窗口左移） */
+  ChartView.prototype.panBy = function (dFrac) {
+    if (!this.klines) return this;
+    var span = this.window.t1 - this.window.t0;
+    var dt = dFrac * span;
+    this.window.t0 -= dt; this.window.t1 -= dt;
+    this.clampWindow();
+    return this;
+  };
+
+  /** 全览：把整段数据全部显示出来 */
+  ChartView.prototype.zoomFull = function () {
+    if (!this.klines || !this.klines.length) return this;
+    this.window = { t0: this.minT(), t1: this.maxT() };
+    this.clampWindow();
+    return this;
+  };
+
+  /** 复位到默认根数（双击） */
+  ChartView.prototype.zoomReset = function (n) {
+    if (!this.klines || !this.klines.length) return this;
+    n = Math.min(this.klines.length, n || this.options.defaultBars || 160);
+    this.window = { t0: this.klines[this.klines.length - n]._t, t1: this.maxT() };
+    this.clampWindow();
+    return this;
   };
 
   ChartView.prototype.minSpan = function () {

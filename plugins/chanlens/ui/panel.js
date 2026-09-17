@@ -169,6 +169,14 @@
     head.appendChild(el('div', 'cl-spacer'));
     head.appendChild(tabsEl);
 
+    var fullBtn = el('button', 'cl-btn', '全览');
+    fullBtn.title = '三图一键显示完整数据区间（免滚轮）';
+    fullBtn.style.marginLeft = '6px';
+    fullBtn.addEventListener('click', function () {
+      options.onAction && options.onAction('full');
+    });
+    head.appendChild(fullBtn);
+
     var adjSel = el('select');
     ADJUSTS.forEach(function (a) {
       var o = el('option', null, a.label); o.value = a.id; adjSel.appendChild(o);
@@ -298,6 +306,7 @@
       sideCol.appendChild(el('h4', null, '操作'));
       var actRow = el('div', 'cl-row');
       [
+        ['全览', function () { options.onAction && options.onAction('full'); }],
         ['重算', function () { options.onAction && options.onAction('recalc'); }],
         ['导出JSON', function () { options.onAction && options.onAction('export'); }],
         ['保存截图', function () { options.onAction && options.onAction('shot'); }],
