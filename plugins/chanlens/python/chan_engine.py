@@ -489,6 +489,7 @@ def _div_by_zs(parts, zss, hist, klines, opts):
                 'target_k': extreme_k_index(klines, leave['start_k'], leave['end_k'],
                                             'high' if is_top else 'low'),
                 'target_price': leave['high'] if is_top else leave['low'],
+                'ready_k': leave['end_k'],
                 'f_enter': fa if basis == 'macd' else ra,
                 'f_leave': fc if basis == 'macd' else rc,
                 'ratio': ratio, 'basis': basis})
@@ -538,7 +539,8 @@ def detect_points(parts, zss, divs, opts) -> List[Dict[str, Any]]:
                 continue
             p = parts[j]
             if direction > 0 and opts['show_buy'] and p['low'] > zs.zg:
-                pts.append({'level': 3, 'type': 1, '_k': p['end_k'], 'price': p['low'],
+                pts.append({'level': 3, 'type': 1, '_k': p['end_k'],
+                            'ready_k': p['end_k'], 'price': p['low'],
                             'note': '三买·回抽不入中枢'})
             elif direction < 0 and opts['show_sell'] and p['high'] < zs.zd:
                 pts.append({'level': 3, 'type': -1, '_k': p['end_k'], 'price': p['high'],
@@ -561,10 +563,12 @@ def detect_points(parts, zss, divs, opts) -> List[Dict[str, Any]]:
                 continue
             c = parts[t]
             if is_buy and c['low'] > d['target_price']:
-                pts.append({'level': 2, 'type': 1, '_k': c['end_k'], 'price': c['low'],
+                pts.append({'level': 2, 'type': 1, '_k': c['end_k'], 'ready_k': c['end_k'],
+                            'price': c['low'],
                             'note': '二买·回抽不破前低'})
             elif not is_buy and c['high'] < d['target_price']:
-                pts.append({'level': 2, 'type': -1, '_k': c['end_k'], 'price': c['high'],
+                pts.append({'level': 2, 'type': -1, '_k': c['end_k'], 'ready_k': c['end_k'],
+                            'price': c['high'],
                             'note': '二卖·反抽不破前高'})
             break
     return pts
@@ -607,7 +611,7 @@ def analyze_klines(klines: List[Dict[str, float]],
     pts = detect_points(parts, zss, divs, opts)
     last_k = len(klines) - 1
     for p in pts:
-        p['confirmed'] = (last_k - p['_k']) >= 3
+        p['confirmed'] = (last_k - p.get('ready_k', p['_k'])) >= 3
 
     return {
         'klines': klines, 'merged': merged, 'fractals': fractals,

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<!-- 开发用：给 app.html 注入 chrome.* 桩，便于在普通浏览器里调试 UI。勿发布。 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ChanLens App (test harness)</title>
+  <script>
+    var Q = location.search;
+    var SEED = [
+      { code: '600519', name: '' },          // 旧数据：名称缺失
+      { code: '000001', name: '000001' },    // 旧数据：名称退化为代码
+      { code: '601318', name: '中国平安' }    // 正常
+    ];
+    var saved = [];
+    window.chrome = {
+      storage: {
+        sync: { get: function (k, cb) { cb({}); }, set: function () {} },
+        local: {
+          get: function (k, cb) {
+            var box = {};
+            if (Q.indexOf('del=') >= 0 && k === 'chanlens.watchlist.v1') box[k] = SEED;
+            cb(box);
+          },
+          set: function (box) { saved.push(JSON.parse(JSON.stringify(box))); }
+        }
+      },
+      runtime: {
+        sendMessage: function (msg, cb) {
+          var reply = { ok: false, error: 'test-harness stub' };
+          if (cb) setTimeout(function () { cb(reply); }, 5);
+          return Promise.resolve(reply);
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="../ui/panel.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-bar">
+    <span class="app-logo">缠</span>
+    <span class="app-name">ChanLens 缠论透镜</span>
+
+    <div class="app-search">
+      <input id="search" type="text" autocomplete="off" placeholder="输入代码或拼音/汉字，如 600519 / 茅台">
+      <div id="suggest" class="app-suggest hidden"></div>
+    </div>
+
+    <div class="app-cur">
+      <span id="curName" class="app-cur-name">未选择标的</span>
+      <span id="curCode" class="app-cur-code"></span>
+    </div>
+
+    <div class="app-actions">
+      <button id="addBtn" class="cl-btn" title="把当前标的加入自选">+ 自选</button>
+      <button id="importBtn" class="cl-btn" title="批量粘贴多个代码">批量导入</button>
+      <span class="app-hint">Alt+↑/↓ 切换自选</span>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <aside class="app-side">
+      <div class="app-side-head">
+        <span>自选股</span>
+        <span class="app-side-tools">
+          <span id="delBtn" class="app-side-add" title="批量删除自选股">批量删除</span>
+        </span>
+      </div>
+      <ul id="watchlist" class="app-list"></ul>
+      <div id="sideTip" class="app-tip">列表项上右键删除；Alt+↑/↓ 快速切换。</div>
+    </aside>
+    <main id="stage" class="app-stage"></main>
+  </div>
+
+  <div id="importModal" class="app-modal hidden">
+    <div class="app-modal-box">
+      <div class="app-modal-head">批量导入自选</div>
+      <textarea id="importText" spellcheck="false" rows="9"
+        placeholder="一行一个，或用逗号 / 空格 / 分号分隔，可混写名称：&#10;600519&#10;SH600036&#10;000001, 300750&#10;601318 中国平安"></textarea>
+      <div id="importPreview" class="app-modal-preview"></div>
+      <div class="app-modal-foot">
+        <span id="importStat" class="app-hint"></span>
+        <button id="importCancel" class="cl-btn">取消</button>
+        <button id="importOk" class="cl-btn cl-primary">导入 (Ctrl+Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delModal" class="app-modal hidden">
+    <div class="app-modal-box">
+      <div class="app-modal-head">批量删除自选股</div>
+      <div class="app-modal-tip">勾选要删除的标的，确认后不可恢复。</div>
+      <div id="delList" class="app-modal-list"></div>
+      <div class="app-modal-foot">
+        <span id="delStat" class="app-hint"></span>
+        <button id="delToggle" class="cl-btn">全不选</button>
+        <button id="delCancel" class="cl-btn">取消</button>
+        <button id="delOk" class="cl-btn cl-primary">删除 (Ctrl+Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../core/indicators.js"></script>
+  <script src="../core/chan.js"></script>
+  <script src="../core/market.js"></script>
+  <script src="../chart/renderer.js"></script>
+  <script src="../ui/panel.js"></script>
+  <script src="../content/datasource.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // 测试辅助：?open=1 直接打开批量导入弹层；?del=1 进入批量删除模式
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        var pre = document.createElement('pre');
+        pre.id = 'diag';
+        if (Q.indexOf('open=1') >= 0) {
+          document.getElementById('importModal').classList.remove('hidden');
+          setTimeout(function () {
+            var box = document.querySelector('.app-modal-box');
+            var modal = document.getElementById('importModal');
+            var panel = document.querySelector('.cl-panel');
+            var cs = box ? getComputedStyle(box) : null;
+            var cp = panel ? getComputedStyle(panel) : null;
+            var mid = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+            var stack = document.elementsFromPoint(innerWidth / 2, innerHeight / 2)
+              .slice(0, 6).map(function (e) { return e.tagName + '.' + (e.className || ''); });
+            var chain = [], n = box;
+            while (n && n !== document.body) {
+              var c = getComputedStyle(n);
+              chain.push(n.tagName + '.' + (n.className || '').split(' ')[0] +
+                '{pos:' + c.position + ',z:' + c.zIndex + ',pe:' + c.pointerEvents +
+                ',tf:' + c.transform + ',filter:' + c.filter.slice(0, 20) + ',contain:' + c.contain + '}');
+              n = n.parentElement;
+            }
+            box.style.outline = '3px solid red';
+            pre.textContent = [
+              'modal.display=' + getComputedStyle(modal).display,
+              'modal.z=' + getComputedStyle(modal).zIndex,
+              'modal.pe=' + getComputedStyle(modal).pointerEvents,
+              'box.rect=' + (box ? JSON.stringify(box.getBoundingClientRect()) : 'null'),
+              'box.display=' + (cs ? cs.display : '-'),
+              'box.bg=' + (cs ? cs.backgroundColor : '-'),
+              'box.visibility=' + (cs ? cs.visibility : '-'),
+              'panel.position=' + (cp ? cp.position : '-'),
+              'panel.z=' + (cp ? cp.zIndex : '-'),
+              'elementFromPoint(center)=' + (mid ? mid.tagName + '.' + mid.className : 'null'),
+              'stack=' + JSON.stringify(stack),
+              'chain=' + chain.join(' < ')
+            ].join('\n');
+            document.body.appendChild(pre);
+          }, 300);
+        } else if (Q.indexOf('del=2') >= 0) {
+          // 只打开弹窗，不执行删除，便于截图
+          document.getElementById('delBtn').click();
+          document.body.appendChild(pre);
+        } else if (Q.indexOf('del=1') >= 0) {
+          // 点「批量删除」→ 弹窗默认全选 → 取消勾选第 2 只 → 确认删除
+          try {
+            document.getElementById('delBtn').click();
+            var lines = [
+              'modal.display=' + getComputedStyle(document.getElementById('delModal')).display,
+              'rows=' + document.querySelectorAll('#delList input').length,
+              'default.checked=' + JSON.stringify([].map.call(document.querySelectorAll('#delList input'), function (i) { return i.checked; })),
+              'stat=' + document.getElementById('delStat').textContent,
+              'toggle.label=' + document.getElementById('delToggle').textContent
+            ];
+            var cks = document.querySelectorAll('#delList input');
+            cks[1].checked = false;
+            cks[1].dispatchEvent(new Event('change'));
+            lines.push('after.uncheck.stat=' + document.getElementById('delStat').textContent);
+            lines.push('after.uncheck.toggle.label=' + document.getElementById('delToggle').textContent);
+            document.getElementById('delOk').click();
+            lines.push('modal.closed=' + document.getElementById('delModal').classList.contains('hidden'));
+            lines.push('remaining=' + JSON.stringify(window.ChanLensApp.watchlist()));
+            lines.push('storage.last=' + (saved.length ? JSON.stringify(saved[saved.length - 1]) : '-'));
+            pre.textContent = lines.join('\n');
+          } catch (e) {
+            pre.textContent = 'TEST ERROR: ' + e.message;
+          }
+          document.body.appendChild(pre);
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>

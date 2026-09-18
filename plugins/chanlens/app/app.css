@@ -1,0 +1,166 @@
+/* ==========================================================================
+ * app.css —— App 外壳布局（扩展自己的页面，不存在第三方页面污染问题）
+ * ========================================================================== */
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #f2f4f7;
+  color: #222;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ 顶栏 */
+.app-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #1f2933;
+  color: #f4f6f8;
+  flex: none;
+}
+.app-bar .cl-btn { background: #2f3e4d; color: #e8edf2; border: 1px solid #46586a; }
+
+.app-logo {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: #2b6cb0; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600;
+}
+.app-name { font-weight: 600; letter-spacing: .5px; }
+
+.app-search { position: relative; width: 320px; }
+.app-search input {
+  width: 100%; box-sizing: border-box;
+  padding: 6px 9px; border-radius: 6px;
+  border: 1px solid #46586a; background: #2b3743; color: #f4f6f8;
+  outline: none;
+}
+.app-search input:focus { border-color: #5b9bd5; }
+
+.app-suggest {
+  position: absolute; top: 32px; left: 0; right: 0;
+  background: #fff; color: #222;
+  border: 1px solid #d6dae0; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.16);
+  max-height: 280px; overflow: auto; z-index: 50;
+}
+.app-suggest.hidden { display: none; }
+.app-suggest-item { padding: 6px 10px; cursor: pointer; display: flex; gap: 8px; }
+.app-suggest-item:hover, .app-suggest-item.active { background: #eaf2fb; }
+.app-suggest-item .code { color: #777; font-family: ui-monospace, Consolas, monospace; }
+.app-suggest-empty { padding: 8px 10px; color: #888; }
+
+.app-cur { display: flex; align-items: baseline; gap: 8px; margin-left: auto; }
+.app-cur-name { font-size: 15px; font-weight: 600; }
+.app-cur-code { color: #9fb0c0; font-family: ui-monospace, Consolas, monospace; }
+
+.app-actions { display: flex; align-items: center; gap: 8px; }
+.app-hint { color: #9fb0c0; font-size: 12px; }
+
+/* ------------------------------------------------------------------ 主体 */
+.app-body { flex: 1; display: flex; min-height: 0; }
+
+.app-side {
+  width: 172px; flex: none;
+  background: #fff; border-right: 1px solid #e3e6ea;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.app-side-head {
+  padding: 8px 12px; font-weight: 600; color: #445;
+  border-bottom: 1px solid #eef1f4; background: #fafbfc;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.app-side-add {
+  font-weight: 400; font-size: 11px; color: #2b6cb0;
+  cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  border: 1px solid #cfe0f2; background: #f2f7fd;
+}
+.app-side-add:hover { background: #e3eefb; }
+.app-side-add.danger { color: #b02b2b; border-color: #f0d2d2; background: #fdf4f4; }
+.app-side-add.danger:hover { background: #f9e4e4; }
+.app-side-tools { display: flex; gap: 6px; font-weight: 400; }
+.hidden { display: none !important; }
+
+/* 批量删除弹层：勾选列表 */
+.app-modal-tip { font-size: 12px; color: #888; margin-top: -4px; }
+.app-modal-list {
+  max-height: 240px; overflow: auto;
+  border: 1px solid #e2e6eb; border-radius: 6px; padding: 4px 8px;
+}
+.app-modal-list label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 4px; font-size: 12px; cursor: pointer;
+  border-bottom: 1px solid #f4f6f8;
+}
+.app-modal-list label:last-child { border-bottom: none; }
+.app-modal-list label:hover { background: #f6f9fc; }
+.app-modal-list .code {
+  color: #888; font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace; margin-left: auto;
+}
+.app-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+.app-list li {
+  padding: 7px 12px; cursor: pointer;
+  border-bottom: 1px solid #f2f4f7;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.app-list li:hover { background: #f4f8fc; }
+.app-list li.active { background: #e6f0fa; box-shadow: inset 3px 0 0 #2b6cb0; }
+.app-list .nm { font-weight: 500; }
+.app-list .cd { color: #888; font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
+.app-list .empty { padding: 12px; color: #999; text-align: center; }
+.app-tip { padding: 8px 12px; color: #999; font-size: 11px; border-top: 1px solid #eef1f4; }
+
+.app-stage { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 8px; }
+
+/* 面板嵌入到 stage 之后补一个白底卡片 */
+.app-stage .cl-panel { background: #fff; }
+
+/* ------------------------------------------------------------ 批量导入弹层 */
+.app-modal {
+  position: fixed; inset: 0;
+  background: rgba(20, 26, 33, .42);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2147483647;
+}
+.app-modal.hidden { display: none; }
+.app-modal-box {
+  width: 480px; max-width: calc(100vw - 40px);
+  background: #fff; border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.28);
+  padding: 14px 16px 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.app-modal-head { font-size: 14px; font-weight: 600; }
+.app-modal textarea {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid #d6dae0; border-radius: 6px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.6;
+  font-family: inherit; resize: vertical; outline: none;
+}
+.app-modal textarea:focus { border-color: #5b9bd5; }
+.app-modal-preview {
+  max-height: 150px; overflow: auto;
+  border: 1px dashed #dfe3e8; border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; color: #555;
+  display: flex; flex-wrap: wrap; gap: 4px 6px;
+}
+.app-modal-preview .tag {
+  padding: 2px 7px; background: #eef4fb; border-radius: 10px;
+  border: 1px solid #d8e6f5;
+}
+.app-modal-preview .tag.bad {
+  background: #fdf1f1; border-color: #f3d4d4; color: #a33;
+}
+.app-modal-foot {
+  display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+}
+.app-modal-foot .app-hint { margin-right: auto; }
+.cl-btn.cl-primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+.cl-btn.cl-primary:hover { background: #1d4e8f; }

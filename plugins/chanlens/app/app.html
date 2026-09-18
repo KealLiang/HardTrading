@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ChanLens 缠论透镜</title>
+  <link rel="stylesheet" href="../ui/panel.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-bar">
+    <span class="app-logo">缠</span>
+    <span class="app-name">ChanLens 缠论透镜</span>
+
+    <div class="app-search">
+      <input id="search" type="text" autocomplete="off" placeholder="输入代码或拼音/汉字，如 600519 / 茅台">
+      <div id="suggest" class="app-suggest hidden"></div>
+    </div>
+
+    <div class="app-cur">
+      <span id="curName" class="app-cur-name">未选择标的</span>
+      <span id="curCode" class="app-cur-code"></span>
+    </div>
+
+    <div class="app-actions">
+      <button id="addBtn" class="cl-btn" title="把当前标的加入自选">+ 自选</button>
+      <button id="importBtn" class="cl-btn" title="批量粘贴多个代码">批量导入</button>
+      <span class="app-hint">Alt+↑/↓ 切换自选</span>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <aside class="app-side">
+      <div class="app-side-head">
+        <span>自选股</span>
+        <span class="app-side-tools">
+          <span id="delBtn" class="app-side-add" title="批量删除自选股">批量删除</span>
+        </span>
+      </div>
+      <ul id="watchlist" class="app-list"></ul>
+      <div id="sideTip" class="app-tip">列表项上右键删除；Alt+↑/↓ 快速切换。</div>
+    </aside>
+    <main id="stage" class="app-stage"></main>
+  </div>
+
+  <div id="importModal" class="app-modal hidden">
+    <div class="app-modal-box">
+      <div class="app-modal-head">批量导入自选</div>
+      <textarea id="importText" spellcheck="false" rows="9"
+        placeholder="一行一个，或用逗号 / 空格 / 分号分隔，可混写名称：&#10;600519&#10;SH600036&#10;000001, 300750&#10;601318 中国平安"></textarea>
+      <div id="importPreview" class="app-modal-preview"></div>
+      <div class="app-modal-foot">
+        <span id="importStat" class="app-hint"></span>
+        <button id="importCancel" class="cl-btn">取消</button>
+        <button id="importOk" class="cl-btn cl-primary">导入 (Ctrl+Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delModal" class="app-modal hidden">
+    <div class="app-modal-box">
+      <div class="app-modal-head">批量删除自选股</div>
+      <div class="app-modal-tip">勾选要删除的标的，确认后不可恢复。</div>
+      <div id="delList" class="app-modal-list"></div>
+      <div class="app-modal-foot">
+        <span id="delStat" class="app-hint"></span>
+        <button id="delToggle" class="cl-btn">全不选</button>
+        <button id="delCancel" class="cl-btn">取消</button>
+        <button id="delOk" class="cl-btn cl-primary">删除 (Ctrl+Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../core/indicators.js"></script>
+  <script src="../core/chan.js"></script>
+  <script src="../core/market.js"></script>
+  <script src="../chart/renderer.js"></script>
+  <script src="../ui/panel.js"></script>
+  <script src="../content/datasource.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

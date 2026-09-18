@@ -418,16 +418,26 @@
       var isBuy = p.type > 0;
       var r = 9;
       var cy = isBuy ? y + r + 12 : y - r - 12;
+      // 右侧确认数据还不够的信号画半透明+虚线圈（与笔/线段的虚线同一套语言）
+      var pending = !p.confirmed;
+      if (pending) ctx.globalAlpha = 0.45;
       ctx.beginPath();
       ctx.arc(x, cy, r, 0, Math.PI * 2);
       ctx.fillStyle = isBuy ? this.theme.buy : this.theme.sell;
       ctx.fill();
+      if (pending) {
+        ctx.setLineDash([3, 2]);
+        ctx.strokeStyle = isBuy ? this.theme.buy : this.theme.sell;
+        ctx.beginPath(); ctx.arc(x, cy, r + 2.5, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.fillStyle = '#ffffff';
       ctx.font = '10px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText((labels[p.level] || p.level) + (isBuy ? '买' : '卖'), x, cy);
       ctx.textBaseline = 'alphabetic';
+      ctx.globalAlpha = 1;
     }, this);
   };
 

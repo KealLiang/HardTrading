@@ -513,6 +513,8 @@
           type: dir > 0 ? -1 : 1,
           kind: dir > 0 ? 'top' : 'bottom',
           targetK: extremeKIndex(klines, c.startK, c.endK, dir > 0 ? 'high' : 'low'),
+          // 信号确立所需的信息终点：第 3 笔走完的那一根（targetK 可能早于它）
+          readyK: c.endK,
           targetPrice: dir > 0 ? c.high : c.low,
           zsIndex: zsIndexCovering(zss, i, i + 2),
           fEnter: basis === 'macd' ? fA : rA,
@@ -582,6 +584,7 @@
           type: isTop ? -1 : 1,
           kind: isTop ? 'top' : 'bottom',
           targetK: extremeKIndex(klines, leave.startK, leave.endK, isTop ? 'high' : 'low'),
+          readyK: leave.endK,
           targetPrice: isTop ? leave.high : leave.low,
           zsIndex: seq[i].zsIndex,
           enterParts: enter.partCount, leaveParts: leave.partCount,
@@ -617,8 +620,16 @@
     var pts = [];
     if (!opts.showBuy && !opts.showSell) return pts;
 
-    function add(level, type, k, price, note, extra) {
-      pts.push({ level: level, type: type, _k: k, price: price, note: note,
+    /**
+     * @param k        标记的图形位置（K 线索引）
+     * @param readyK   该信号**确立**所需信息的最后一根 K 线索引（>= k）
+     *                 判定它依赖的结构在 readyK 走到才完整；此前它尚未"存在"。
+     *                 回测成交价应取 readyK + 1 根的开盘（或之后），不可用第 k 根收盘价。
+     */
+    function add(level, type, k, price, note, extra, readyK) {
+      pts.push({ level: level, type: type, _k: k,
+                 readyK: readyK == null ? k : Math.max(k, readyK),
+                 price: price, note: note,
                  confirmed: false, extra: extra || null });
     }
 
@@ -630,7 +641,7 @@
       if (!isBuy && !opts.showSell) continue;
       add(1, d.type, d.targetK, d.targetPrice,
           isBuy ? '一买·底背驰' : '一卖·顶背驰',
-          { ratio: d.ratio, basis: d.basis });
+          { ratio: d.ratio, basis: d.basis }, d.readyK);
     }
 
     // —— 三类：离开中枢后的第一次回抽，未重新落回中枢区间 ——
@@ -726,7 +737,8 @@
     // 已确认 = 后面还有新的走势延伸出来
     var lastK = klines.length - 1;
     for (var i = 0; i < points.length; i++) {
-      points[i].confirmed = (lastK - points[i]._k) >= 3;
+      // 判据：确立信号的那一根之后还要再走出 1 根（分型右侧确认），才算彻底定型
+      points[i].confirmed = (lastK - points[i].readyK) >= 3;
     }
 
     return {
