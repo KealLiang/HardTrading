@@ -715,7 +715,8 @@ def full_scan_routine(candidate_model='a'):
 
 
 # 拉a股历史数据
-def get_stock_datas():
+# source: None 时取 fetch/astock_data.py 的 REALTIME_DATA_SOURCE；可传 'tencent' / 'eastmoney' 临时切换
+def get_stock_datas(source=None):
     stock_list = ["600610", "300033"]
     use_realtime = True
 
@@ -726,7 +727,7 @@ def get_stock_datas():
     # 根据参数选择不同的数据获取方式
     if use_realtime:
         # 使用实时数据接口更新当天数据
-        ok = data_fetcher.fetch_and_save_data_from_realtime()
+        ok = data_fetcher.fetch_and_save_data_from_realtime(source=source)
         if not ok:
             raise RuntimeError("get_stock_datas失败：拉取实时数据接口返回空或发生异常")
     else:

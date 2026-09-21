@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 
 import akshare as ak
 import pandas as pd
+import requests
 import winsound
 
 from decorators.practical import timer
@@ -101,6 +102,134 @@ def fetch_stock_hist(stock_code: str, start_date: str, end_date: Optional[str] =
     if src == 'eastmoney':
         return _fetch_hist_eastmoney(stock_code, start_date, end_date)
     raise ValueError(f"未知历史数据源: {src}，可选 sina / eastmoney")
+
+
+# 当日行情快照数据源：'tencent'（腾讯 qt.gtimg.cn 批量，一次 ~200 只，不限流）| 'eastmoney'（东财 push2 分页，易限流）
+REALTIME_DATA_SOURCE = 'tencent'
+
+TX_QUOTE_URL = 'https://qt.gtimg.cn/q='
+TX_QUOTE_HEADERS = {
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                   '(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'),
+    'Referer': 'https://gu.qq.com/',
+}
+# 腾讯行情返回是 "v_sh600000=..." 的 ~ 分隔文本，字段索引固定
+TX_FIELD = {
+    'name': 1, 'code': 2, 'close': 3, 'prev_close': 4, 'open': 5,
+    'time': 30, 'change': 31, 'pct': 32, 'high': 33, 'low': 34,
+    'detail': 35,  # "最新价/成交量(手)/成交额(元)"，成交额比 37 位的万元值精确
+    'volume': 36, 'amount_wan': 37, 'turnover': 38, 'amplitude': 43,
+}
+
+
+def _tx_symbol(stock_code: str) -> str:
+    """6 位代码 -> 腾讯行情符号（sh/sz/bj 前缀）。"""
+    code = str(stock_code).zfill(6)
+    if code.startswith(('92', '43', '83', '87', '8')):
+        return f'bj{code}'
+    if code.startswith(('60', '68', '9')):
+        return f'sh{code}'
+    return f'sz{code}'
+
+
+def _parse_tx_quote(line: str) -> Optional[dict]:
+    """
+    解析单行腾讯行情；停牌/退市/无效行返回 None。
+    输出列名与东财 stock_zh_a_spot_em 对齐，便于复用同一套落库逻辑。
+    """
+    if not line.startswith('v_') or '="' not in line:
+        return None
+    body = line.split('="', 1)[1].rstrip(';').rstrip('"')
+    f = body.split('~')
+    if len(f) <= TX_FIELD['amplitude']:
+        return None
+
+    def num(idx, scale=1.0):
+        v = pd.to_numeric(f[idx], errors='coerce')
+        return float(v) * scale if pd.notna(v) else 0.0
+
+    close = num(TX_FIELD['close'])
+    if close <= 0:  # 停牌/退市：现价为 0，无当日行情
+        return None
+
+    # 成交额优先取 detail 段的精确值（元），缺失时回退到 37 位的万元值
+    detail = f[TX_FIELD['detail']].split('/') if len(f) > TX_FIELD['detail'] else []
+    amount = pd.to_numeric(detail[2], errors='coerce') if len(detail) >= 3 else None
+    if amount is None or pd.isna(amount) or amount <= 0:
+        amount = num(TX_FIELD['amount_wan'], 10000.0)
+
+    return {
+        '代码': f[TX_FIELD['code']],
+        '名称': f[TX_FIELD['name']],
+        '今开': num(TX_FIELD['open']),
+        '最新价': close,
+        '最高': num(TX_FIELD['high']),
+        '最低': num(TX_FIELD['low']),
+        '成交量': num(TX_FIELD['volume']),          # 手，与东财一致
+        '成交额': float(amount),                    # 元，与东财一致
+        '振幅': num(TX_FIELD['amplitude']),
+        '涨跌幅': num(TX_FIELD['pct']),
+        '涨跌额': num(TX_FIELD['change']),
+        '换手率': num(TX_FIELD['turnover']),
+        '行情时间': f[TX_FIELD['time']],
+    }
+
+
+def fetch_spot_tencent(codes: List[str], batch_size: int = 200, sleep: float = 0.15,
+                       retries: int = 3, timeout: int = 20,
+                       quote_date: Optional[str] = None) -> pd.DataFrame:
+    """
+    腾讯批量行情：按 codes 批量拉取当日快照，列名与东财 spot 一致。
+
+    :param codes: 6 位股票代码列表
+    :param quote_date: 期望行情日期 'YYYY-MM-DD'；腾讯回传的行情日期不符的行会被丢弃
+                       （防止非交易日把上一交易日数据写成当日）。传 None 则不校验。
+    :return: DataFrame，行为有效行情，列为 代码/名称/今开/最新价/.../换手率/行情时间
+    """
+    cols = ['代码', '名称', '今开', '最新价', '最高', '最低', '成交量', '成交额',
+            '振幅', '涨跌幅', '涨跌额', '换手率', '行情时间']
+    rows, session = [], requests.Session()  # 跟随环境代理，与 akshare 行为一致
+    want_date = (quote_date or '').replace('-', '')
+    stale_cnt, req_cnt, fail_cnt = 0, 0, 0
+
+    for i in range(0, len(codes), batch_size):
+        chunk = codes[i:i + batch_size]
+        query = ','.join(_tx_symbol(c) for c in chunk)
+        text = None
+        for attempt in range(1, retries + 1):
+            try:
+                resp = session.get(TX_QUOTE_URL + query, headers=TX_QUOTE_HEADERS, timeout=timeout)
+                req_cnt += 1
+                if resp.status_code == 200 and resp.content:
+                    text = resp.content.decode('gbk', errors='replace')
+                    break
+            except Exception as e:
+                logging.warning(f"[tencent] 第 {i // batch_size + 1} 批第 {attempt} 次请求失败: {e}")
+            time.sleep(0.5 * attempt)
+        if text is None:
+            fail_cnt += 1
+            logging.warning(f"[tencent] 第 {i // batch_size + 1} 批（{len(chunk)} 只）拉取失败，已跳过")
+            continue
+
+        for line in text.split(';'):
+            item = _parse_tx_quote(line.strip())
+            if item is None:
+                continue
+            if want_date and not str(item['行情时间']).startswith(want_date):
+                stale_cnt += 1
+                continue
+            rows.append(item)
+        time.sleep(sleep)
+
+    df = pd.DataFrame(rows, columns=cols)
+    logging.info(f"[tencent] 请求 {req_cnt} 批、失败 {fail_cnt} 批、有效行情 {len(df)} 条"
+                 f"（停牌/退市及无成交跳过，日期不符丢弃 {stale_cnt} 条）")
+
+    # 大面积日期不符 = 今天不是交易日（或行情未更新），返回空让上层报错，避免写脏数据
+    if want_date and stale_cnt > len(rows) and len(rows) < len(codes) * 0.2:
+        logging.error(f"[tencent] 行情日期与 {quote_date} 不符的条数过多（{stale_cnt}），判定无当日行情")
+        return pd.DataFrame(columns=cols)
+    return df
 
 
 def atomic_write_csv(df: pd.DataFrame, file_path: str, **to_csv_kwargs) -> None:
@@ -683,11 +812,13 @@ class StockDataFetcher:
         logging.info(f"Created new file: {os.path.basename(file_path)}")
 
     @timer
-    def fetch_and_save_data_from_realtime(self, today=None):
+    def fetch_and_save_data_from_realtime(self, today=None, source=None, codes=None):
         """
         从实时行情数据获取今日股票数据并保存
-        
+
         :param today: 今天的日期
+        :param source: 数据源 'tencent' | 'eastmoney'，None 时取模块级 REALTIME_DATA_SOURCE
+        :param codes: 股票代码列表，None 时腾讯链路自动取本地数据目录已有代码
         :return: None
         """
         # 检查当前时间，如果早于15:30或晚于23:55，返回提示信息
@@ -702,10 +833,23 @@ class StockDataFetcher:
         if today is None:
             today = now.strftime("%Y-%m-%d")
 
+        src = (source or REALTIME_DATA_SOURCE).lower()
         try:
-            # 使用实时数据接口获取所有股票数据
-            logging.info("开始从实时数据接口获取当日股票数据...")
-            stock_real_time = ak.stock_zh_a_spot_em()
+            if src == 'eastmoney':
+                # 使用东财实时数据接口获取所有股票数据
+                logging.info("开始从实时数据接口获取当日股票数据...")
+                stock_real_time = ak.stock_zh_a_spot_em()
+            elif src == 'tencent':
+                # 腾讯批量行情：代码名录默认取本地数据目录（不依赖任何在线名录接口）
+                if not codes:
+                    codes = sorted(self.map_code_to_file().keys())
+                if not codes:
+                    logging.error("本地数据目录为空，腾讯链路无可用代码名录")
+                    return False
+                logging.info(f"开始从腾讯行情接口获取当日股票数据（共 {len(codes)} 只）...")
+                stock_real_time = fetch_spot_tencent(codes, quote_date=today)
+            else:
+                raise ValueError(f"未知实时数据源: {src}，可选 tencent / eastmoney")
 
             if stock_real_time.empty:
                 logging.error("获取实时数据失败，返回空数据")
