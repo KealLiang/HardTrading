@@ -11,6 +11,7 @@
       { code: '000001', name: '000001' },    // 旧数据：名称退化为代码
       { code: '601318', name: '中国平安' }    // 正常
     ];
+    if (Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) { SEED[0].cat = 'c1'; SEED[1].cat = 'c2'; }
     var saved = [];
     window.chrome = {
       storage: {
@@ -18,7 +19,12 @@
         local: {
           get: function (k, cb) {
             var box = {};
-            if (Q.indexOf('del=') >= 0 && k === 'chanlens.watchlist.v1') box[k] = SEED;
+            if ((Q.indexOf('del=') >= 0 || Q.indexOf('cat=') >= 0 || Q.indexOf('shot=') >= 0) && k === 'chanlens.watchlist.v1') box[k] = SEED;
+            if ((Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) && k === 'chanlens.watchcats.v1') {
+              box[k] = [{ id: '', name: '未分类', closed: false },
+                        { id: 'c1', name: '核心池', closed: false },
+                        { id: 'c2', name: '观察池', closed: true }];
+            }
             cb(box);
           },
           set: function (box) { saved.push(JSON.parse(JSON.stringify(box))); }
@@ -63,11 +69,12 @@
       <div class="app-side-head">
         <span>自选股</span>
         <span class="app-side-tools">
-          <span id="delBtn" class="app-side-add" title="批量删除自选股">批量删除</span>
+          <span id="catBtn" class="app-side-add" title="新建分类（文件夹）">+ 分类</span>
+          <span id="delBtn" class="app-side-add danger" title="批量删除自选股">批量删除</span>
         </span>
       </div>
       <ul id="watchlist" class="app-list"></ul>
-      <div id="sideTip" class="app-tip">列表项上右键删除；Alt+↑/↓ 快速切换。</div>
+      <div id="sideTip" class="app-tip">右键标的：移动/删除　右键分类名：重命名/删除　拖动标的到分类名可移动　Alt+↑/↓ 切换。</div>
     </aside>
     <main id="stage" class="app-stage"></main>
   </div>
@@ -78,6 +85,10 @@
       <textarea id="importText" spellcheck="false" rows="9"
         placeholder="一行一个，或用逗号 / 空格 / 分号分隔，可混写名称：&#10;600519&#10;SH600036&#10;000001, 300750&#10;601318 中国平安"></textarea>
       <div id="importPreview" class="app-modal-preview"></div>
+      <div class="app-modal-row">
+        <span class="app-hint">导入到分类</span>
+        <select id="importCat"></select>
+      </div>
       <div class="app-modal-foot">
         <span id="importStat" class="app-hint"></span>
         <button id="importCancel" class="cl-btn">取消</button>
@@ -100,6 +111,20 @@
     </div>
   </div>
 
+  <div id="catModal" class="app-modal hidden">
+    <div class="app-modal-box app-modal-narrow">
+      <div id="catModalHead" class="app-modal-head">新建分类</div>
+      <input id="catName" type="text" maxlength="16" spellcheck="false" placeholder="分类名，如 核心池 / 观察池">
+      <div class="app-modal-foot">
+        <span id="catErr" class="app-hint"></span>
+        <button id="catCancel" class="cl-btn">取消</button>
+        <button id="catOk" class="cl-btn cl-primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ctxMenu" class="app-ctx hidden"></div>
+
   <script src="../core/indicators.js"></script>
   <script src="../core/chan.js"></script>
   <script src="../core/market.js"></script>
@@ -113,7 +138,64 @@
       setTimeout(function () {
         var pre = document.createElement('pre');
         pre.id = 'diag';
-        if (Q.indexOf('open=1') >= 0) {
+        if (Q.indexOf('cat=') >= 0) {
+          // 分类（文件夹）功能自测
+          try {
+            var L = [];
+            var grpNames = function () {
+              return [].map.call(document.querySelectorAll('#watchlist .grp'), function (g) {
+                return g.querySelector('.grp-name').textContent + ':' + g.querySelector('.grp-count').textContent;
+              });
+            };
+            L.push('cats.init=' + JSON.stringify(window.ChanLensApp.categories()));
+            L.push('groups.init=' + JSON.stringify(grpNames()));
+            L.push('items.init=' + document.querySelectorAll('#watchlist li.item').length);
+            L.push('migration.cat=' + JSON.stringify(window.ChanLensApp.watchlist().map(function (w) { return w.cat; })));
+            // 新建分类
+            document.getElementById('catBtn').click();
+            L.push('catModal.open=' + !document.getElementById('catModal').classList.contains('hidden'));
+            document.getElementById('catName').value = '核心池';
+            document.getElementById('catOk').click();
+            L.push('catModal.closed=' + document.getElementById('catModal').classList.contains('hidden'));
+            L.push('cats.afterNew=' + JSON.stringify(window.ChanLensApp.categories()));
+            // 重名校验
+            document.getElementById('catBtn').click();
+            document.getElementById('catName').value = '核心池';
+            document.getElementById('catOk').click();
+            L.push('dup.err=' + document.getElementById('catErr').textContent +
+                   ' / stillOpen=' + !document.getElementById('catModal').classList.contains('hidden'));
+            document.getElementById('catCancel').click();
+            // 移动标的
+            var cid = window.ChanLensApp.categories()[1].id;
+            window.ChanLensApp.moveTo('600519', cid);
+            L.push('groups.afterMove=' + JSON.stringify(grpNames()));
+            L.push('ordered=' + JSON.stringify(window.ChanLensApp.ordered().map(function (w) { return w.code + '@' + w.cat; })));
+            // 折叠 / 展开
+            var heads = document.querySelectorAll('#watchlist .grp');
+            heads[0].click();
+            L.push('collapsed.items=' + document.querySelectorAll('#watchlist li.item').length);
+            heads = document.querySelectorAll('#watchlist .grp');
+            heads[0].click();
+            L.push('expanded.items=' + document.querySelectorAll('#watchlist li.item').length);
+            // 右键菜单
+            var li = document.querySelector('#watchlist li.item');
+            li.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 200 }));
+            L.push('ctx.open=' + !document.getElementById('ctxMenu').classList.contains('hidden'));
+            L.push('ctx.items=' + JSON.stringify([].map.call(document.querySelectorAll('#ctxMenu .app-ctx-item'), function (d) { return d.textContent; })));
+            document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            L.push('ctx.closed=' + document.getElementById('ctxMenu').classList.contains('hidden'));
+            // 导入弹层的分类下拉
+            document.getElementById('importBtn').click();
+            L.push('importCat.options=' + JSON.stringify([].map.call(document.getElementById('importCat').options, function (o) { return o.value + '=' + o.textContent; })));
+            document.getElementById('importCancel').click();
+            var catSaves = saved.filter(function (b) { return b['chanlens.watchcats.v1']; });
+            L.push('storage.cats=' + (catSaves.length ? JSON.stringify(catSaves[catSaves.length - 1]) : '-'));
+            pre.textContent = L.join('\n');
+          } catch (e) {
+            pre.textContent = 'TEST ERROR: ' + e.message + '\n' + (e.stack || '');
+          }
+          document.body.appendChild(pre);
+        } else if (Q.indexOf('open=1') >= 0) {
           document.getElementById('importModal').classList.remove('hidden');
           setTimeout(function () {
             var box = document.querySelector('.app-modal-box');

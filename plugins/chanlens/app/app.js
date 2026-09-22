@@ -32,6 +32,9 @@
   var suggestItems = [];
   var activeSuggest = -1;
 
+  /** 状态栏输出：panel 在「同步回调」场景（如测试桩）下可能尚未赋值，统一在这里兜底 */
+  function setStatus(msg, warn) { if (panel && panel.setStatus) panel.setStatus(msg, warn); }
+
   var PERIOD_LABEL = {};
   CLPanel.PERIODS.forEach(function (p) { PERIOD_LABEL[p.id] = p.label; });
 
@@ -67,11 +70,187 @@
     return CLMarket.fetchName(code).catch(function () { return send({ type: 'CL_QUOTE', code: code }); });
   }
 
+  /* ------------------------------------------------------------------ 分类 */
+  /**
+   * 分类（文件夹）模型：
+   *   cats[0] 固定是「未分类」(id='')，其余按新建顺序排列
+   *   自选股只多了一个字段 cat = 分类 id，旧数据没有 cat 就落到「未分类」，向后兼容
+   */
+  var CAT_KEY = 'chanlens.watchcats.v1';
+  var UNCAT = '';
+  var cats = [];              // [{id, name, closed}]
+  var activeCat = UNCAT;      // 「+自选」「批量导入」的默认落点
+  var dragCode = null;
+  var catSeq = 1;
+
+  function ensureUncat() {
+    if (!cats.length || cats[0].id !== UNCAT) cats.unshift({ id: UNCAT, name: '未分类', closed: false });
+    cats[0].name = '未分类';
+  }
+
+  function loadCats(cb) {
+    chrome.storage.local.get(CAT_KEY, function (box) {
+      var arr = box && box[CAT_KEY];
+      cats = Array.isArray(arr)
+        ? arr.filter(function (c) { return c && typeof c === 'object' && c.id !== undefined; })
+        : [];
+      cats.forEach(function (c) {
+        if (!c.name) c.name = '分类';
+        var n = parseInt(String(c.id).replace(/^c/, ''), 10);
+        if (n >= catSeq) catSeq = n + 1;
+      });
+      ensureUncat();
+      cb && cb();
+    });
+  }
+
+  function saveCats() {
+    var box = {}; box[CAT_KEY] = cats;
+    try { chrome.storage.local.set(box); } catch (e) { /* 忽略 */ }
+  }
+
+  function catName(id) {
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === (id || UNCAT)) return cats[i].name;
+    return '未分类';
+  }
+
+  function itemsOf(id) {
+    return watchlist.filter(function (w) { return (w.cat || UNCAT) === id; });
+  }
+
+  /** 分组顺序下的扁平列表：分组顺序 → 组内按加入顺序。Alt+↑/↓ 与批量删除都用它 */
+  function orderedItems() {
+    var out = [], seen = [];
+    cats.forEach(function (c) {
+      itemsOf(c.id).forEach(function (w) { out.push(w); seen.push(w); });
+    });
+    watchlist.forEach(function (w) { if (seen.indexOf(w) < 0) out.push(w); });  // cat 指向已删分类的兜底
+    return out;
+  }
+
+  /* ------------------------------------------------- 分类名输入弹层（新建/重命名） */
+  var catModalEl = document.getElementById('catModal');
+  var catNameEl = document.getElementById('catName');
+  var catHeadEl = document.getElementById('catModalHead');
+  var catErrEl = document.getElementById('catErr');
+
+  function askCatName(title, def, cb, excludeId) {
+    catHeadEl.textContent = title;
+    catNameEl.value = def || '';
+    catErrEl.textContent = '';
+    catModalEl.classList.remove('hidden');
+    catNameEl.focus(); catNameEl.select();
+    catNameEl.onkeydown = function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); finishCatName(null); }
+      else if (e.key === 'Enter') { e.preventDefault(); confirmCatName(); }
+    };
+    function finish(v) {
+      catModalEl.classList.add('hidden');
+      catNameEl.onkeydown = null;
+      cb && cb(v);
+    }
+    catNameEl._finish = finish;
+    catNameEl._exclude = excludeId;
+  }
+  function finishCatName(v) { catNameEl._finish && catNameEl._finish(v); }
+  function confirmCatName() {
+    var v = (catNameEl.value || '').trim();
+    if (!v) { catErrEl.textContent = '名字不能为空'; return; }
+    var ex = catNameEl._exclude;
+    var dup = cats.some(function (c) { return c.id !== ex && c.id !== UNCAT && c.name === v; });
+    if (dup) { catErrEl.textContent = '已有同名分类'; return; }
+    finishCatName(v);
+  }
+  if (catModalEl) {
+    document.getElementById('catOk').addEventListener('click', confirmCatName);
+    document.getElementById('catCancel').addEventListener('click', function () { finishCatName(null); });
+    catModalEl.addEventListener('click', function (e) { if (e.target === catModalEl) finishCatName(null); });
+  }
+
+  function newCat(then) {
+    askCatName('新建分类', '', function (name) {
+      if (!name) return;
+      var c = { id: 'c' + (catSeq++), name: name, closed: false };
+      cats.push(c);
+      saveCats(); renderWatchlist();
+      then && then(c.id);
+    });
+  }
+
+  function renameCat(id) {
+    var c = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === id) c = cats[i];
+    if (!c || c.id === UNCAT) return;
+    askCatName('重命名分类', c.name, function (name) {
+      if (!name) return;
+      c.name = name;
+      saveCats(); renderWatchlist();
+    }, c.id);
+  }
+
+  function dropCat(id) {
+    var c = null, idx = -1;
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === id) { c = cats[i]; idx = i; }
+    if (!c || c.id === UNCAT) return;
+    var n = itemsOf(id).length;
+    if (!window.confirm('删除分类「' + c.name + '」？' + (n ? '其中 ' + n + ' 只标的会移到「未分类」，' : '') + '标的本身不会删除。')) return;
+    watchlist.forEach(function (w) { if ((w.cat || UNCAT) === id) w.cat = UNCAT; });
+    cats.splice(idx, 1);
+    if (activeCat === id) activeCat = UNCAT;
+    saveCats(); saveWatchlist(); renderWatchlist();
+    setStatus('已删除分类「' + c.name + '」');
+  }
+
+  function moveTo(code, id) {
+    var w = null;
+    for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === code) w = watchlist[i];
+    if (!w) return;
+    w.cat = id;
+    saveWatchlist(); renderWatchlist();
+    setStatus('已把 ' + (w.name || w.code) + ' 移到「' + catName(id) + '」');
+  }
+
+  function delOne(code) {
+    var w = null, idx = -1;
+    for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === code) { w = watchlist[i]; idx = i; }
+    if (!w) return;
+    watchlist.splice(idx, 1);
+    saveWatchlist(); renderWatchlist();
+    setStatus('已从自选删除 ' + (w.name || w.code));
+  }
+
+  /* ------------------------------------------------------------- 右键菜单 */
+  var ctxEl = document.getElementById('ctxMenu');
+  function showCtx(e, entries) {
+    ctxEl.innerHTML = '';
+    entries.forEach(function (en) {
+      if (en.sep) { var s = document.createElement('div'); s.className = 'app-ctx-sep'; ctxEl.appendChild(s); return; }
+      var d = document.createElement('div');
+      d.className = 'app-ctx-item' + (en.danger ? ' danger' : '') + (en.disabled ? ' disabled' : '');
+      d.textContent = en.label;
+      if (!en.disabled) d.addEventListener('click', function () { hideCtx(); en.fn && en.fn(); });
+      ctxEl.appendChild(d);
+    });
+    ctxEl.classList.remove('hidden');
+    ctxEl.style.left = e.clientX + 'px';
+    ctxEl.style.top = e.clientY + 'px';
+    var r = ctxEl.getBoundingClientRect();
+    if (r.right > window.innerWidth) ctxEl.style.left = Math.max(2, window.innerWidth - r.width - 4) + 'px';
+    if (r.bottom > window.innerHeight) ctxEl.style.top = Math.max(2, window.innerHeight - r.height - 4) + 'px';
+  }
+  function hideCtx() { if (ctxEl) ctxEl.classList.add('hidden'); }
+  document.addEventListener('mousedown', function (e) { if (ctxEl && !ctxEl.contains(e.target)) hideCtx(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideCtx(); });
+  window.addEventListener('resize', hideCtx);
+
   /* ------------------------------------------------------------------ 自选股 */
+  function loadAll(cb) { loadCats(function () { loadWatchlist(cb); }); }
+
   function loadWatchlist(cb) {
     chrome.storage.local.get(WL_KEY, function (box) {
       var arr = box && box[WL_KEY];
       watchlist = Array.isArray(arr) ? arr.filter(function (x) { return x && x.code; }) : [];
+      watchlist.forEach(function (w) { if (w.cat === undefined) w.cat = UNCAT; });
       cb && cb();
     });
   }
@@ -90,24 +269,91 @@
       listEl.appendChild(empty);
       return;
     }
-    watchlist.forEach(function (item, idx) {
-      var li = document.createElement('li');
-      if (item.code === current.code) li.className = 'active';
-      var nm = document.createElement('span');
-      nm.className = 'nm';
-      nm.textContent = item.name || item.code;
-      var cd = document.createElement('span');
-      cd.className = 'cd';
-      cd.textContent = item.code;
-      li.appendChild(nm); li.appendChild(cd);
-      li.addEventListener('click', function () { setCurrent(item.code, item.name); });
-      li.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-        watchlist.splice(idx, 1);
-        saveWatchlist();
-        renderWatchlist();
+
+    cats.forEach(function (c) {
+      var items = itemsOf(c.id);
+
+      /* ---- 分组头：点击折叠/展开并设为默认落点，右键重命名/删除，可接收拖拽 ---- */
+      var gh = document.createElement('li');
+      gh.className = 'grp' + (c.closed ? ' closed' : '') + (c.id === activeCat ? ' grp-active' : '');
+      gh.title = '点击折叠/展开；高亮表示「+自选」「批量导入」默认加到这个分类';
+      var caret = document.createElement('span');
+      caret.className = 'grp-caret';
+      caret.textContent = c.closed ? '▸' : '▾';
+      var gnm = document.createElement('span');
+      gnm.className = 'grp-name';
+      gnm.textContent = c.name;
+      var gct = document.createElement('span');
+      gct.className = 'grp-count';
+      gct.textContent = items.length;
+      gh.appendChild(caret); gh.appendChild(gnm); gh.appendChild(gct);
+
+      gh.addEventListener('click', function () {
+        c.closed = !c.closed;
+        activeCat = c.id;
+        saveCats(); renderWatchlist();
       });
-      listEl.appendChild(li);
+      gh.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        var ents = [
+          { label: '新建分类…', fn: function () { newCat(); } }
+        ];
+        if (c.id !== UNCAT) {
+          ents.push({ label: '重命名…', fn: function () { renameCat(c.id); } });
+          ents.push({ label: '删除分类', danger: true, fn: function () { dropCat(c.id); } });
+        } else {
+          ents.push({ label: '「未分类」不可改名/删除', disabled: true });
+        }
+        ents.push({ sep: true });
+        ents.push({ label: c.closed ? '展开' : '折叠', fn: function () { c.closed = !c.closed; saveCats(); renderWatchlist(); } });
+        ents.push({ label: '设为默认落点', disabled: c.id === activeCat, fn: function () { activeCat = c.id; renderWatchlist(); } });
+        showCtx(e, ents);
+      });
+      gh.addEventListener('dragover', function (e) { e.preventDefault(); gh.classList.add('drop'); });
+      gh.addEventListener('dragleave', function () { gh.classList.remove('drop'); });
+      gh.addEventListener('drop', function (e) {
+        e.preventDefault();
+        gh.classList.remove('drop');
+        var code = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || dragCode;
+        if (code) moveTo(code, c.id);
+      });
+      listEl.appendChild(gh);
+
+      if (c.closed) return;
+
+      /* ---- 组内标的 ---- */
+      items.forEach(function (item) {
+        var li = document.createElement('li');
+        li.className = 'item' + (item.code === current.code ? ' active' : '');
+        li.draggable = true;
+        var nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = item.name || item.code;
+        var cd = document.createElement('span');
+        cd.className = 'cd';
+        cd.textContent = item.code;
+        li.appendChild(nm); li.appendChild(cd);
+        li.addEventListener('click', function () { setCurrent(item.code, item.name); });
+        li.addEventListener('dragstart', function (e) {
+          dragCode = item.code;
+          li.classList.add('dragging');
+          if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.code); }
+        });
+        li.addEventListener('dragend', function () { dragCode = null; li.classList.remove('dragging'); });
+        li.addEventListener('contextmenu', function (e) {
+          e.preventDefault();
+          var ents = [];
+          cats.forEach(function (t) {
+            if (t.id === (item.cat || UNCAT)) return;
+            ents.push({ label: '移动到「' + t.name + '」', fn: function () { moveTo(item.code, t.id); } });
+          });
+          ents.push({ label: '新建分类并移入…', fn: function () { newCat(function (id) { moveTo(item.code, id); }); } });
+          ents.push({ sep: true });
+          ents.push({ label: '从自选中删除', danger: true, fn: function () { delOne(item.code); } });
+          showCtx(e, ents);
+        });
+        listEl.appendChild(li);
+      });
     });
   }
 
@@ -134,14 +380,15 @@
   function openDel() {
     if (!watchlist.length) { panel.setStatus('自选股列表是空的'); return; }
     delListEl.innerHTML = '';
-    watchlist.forEach(function (w) {
+    orderedItems().forEach(function (w) {
       var lab = document.createElement('label');
       var ck = document.createElement('input');
       ck.type = 'checkbox'; ck.value = w.code; ck.checked = true;
       ck.addEventListener('change', syncDelStat);
       var nm = document.createElement('span'); nm.textContent = w.name || w.code;
+      var ct = document.createElement('span'); ct.className = 'cat'; ct.textContent = catName(w.cat);
       var cd = document.createElement('span'); cd.className = 'code'; cd.textContent = w.code;
-      lab.appendChild(ck); lab.appendChild(nm); lab.appendChild(cd);
+      lab.appendChild(ck); lab.appendChild(nm); lab.appendChild(ct); lab.appendChild(cd);
       delListEl.appendChild(lab);
     });
     syncDelStat();
@@ -247,16 +494,18 @@
     for (var k = 0; k < CONC; k++) worker();
   }
 
-  function importBulk(items) {
+  function importBulk(items, cat) {
     var added = 0, updated = 0;
+    var to = (cat === undefined || cat === null) ? activeCat : cat;
     items.forEach(function (it) {
       var hit = null;
       for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === it.code) hit = watchlist[i];
       if (hit) {
         if (it.name && !hit.name) { hit.name = it.name; updated++; }
+        if (to && !hit.cat) hit.cat = to;
         return;
       }
-      watchlist.push({ code: it.code, name: it.name || '' });
+      watchlist.push({ code: it.code, name: it.name || '', cat: to });
       added++;
     });
     saveWatchlist();
@@ -487,12 +736,28 @@
   var importText = document.getElementById('importText');
   var importPreview = document.getElementById('importPreview');
   var importStat = document.getElementById('importStat');
+  var importCatEl = document.getElementById('importCat');
+
+  /** 把分类列表灌进 <select>，selId 为默认选中项 */
+  function fillCatSelect(sel, selId) {
+    if (!sel) return;
+    sel.innerHTML = '';
+    cats.forEach(function (c) {
+      var op = document.createElement('option');
+      op.value = c.id;
+      op.textContent = c.name + '（' + itemsOf(c.id).length + '）';
+      sel.appendChild(op);
+    });
+    sel.value = (selId === undefined || selId === null) ? UNCAT : selId;
+    if (sel.value !== String((selId === undefined || selId === null) ? UNCAT : selId)) sel.value = UNCAT;
+  }
 
   function openImport() {
     modal.classList.remove('hidden');
     importText.value = '';
     importPreview.innerHTML = '';
     importStat.textContent = '';
+    fillCatSelect(importCatEl, activeCat);
     importText.focus();
   }
   function closeImport() { modal.classList.add('hidden'); }
@@ -521,12 +786,13 @@
   function doImport() {
     var res = parseCodes(importText.value);
     if (!res.items.length) { importStat.textContent = '没有可导入的代码'; return; }
-    var stat = importBulk(res.items);
+    var to = importCatEl ? importCatEl.value : activeCat;
+    var stat = importBulk(res.items, to);
     closeImport();
-    panel.setStatus('批量导入完成：新增 ' + stat.added + ' 只，补全名称 ' + stat.updated +
-                    ' 只（缺失名称正在后台自动补全）');
+    setStatus('批量导入完成：新增 ' + stat.added + ' 只，补全名称 ' + stat.updated +
+                    ' 只，归入「' + catName(to) + '」（缺失名称正在后台自动补全）');
     if (stat.added && !current.code) {
-      var first = watchlist[watchlist.length - 1];
+      var first = orderedItems()[orderedItems().length - 1];
       if (first) setCurrent(first.code, first.name);
     }
   }
@@ -556,18 +822,27 @@
   addBtn.addEventListener('click', function () {
     if (!current.code) return;
     addToWatchlist(current.code, current.name);
-    panel.setStatus('已加入自选：' + (current.name || current.code));
+    setStatus('已加入自选「' + catName(activeCat) + '」：' + (current.name || current.code));
   });
 
-  /* Alt + ↑/↓ 在自选股之间快速切换 */
+  var catBtnEl = document.getElementById('catBtn');
+  if (catBtnEl) catBtnEl.addEventListener('click', function () {
+    newCat(function (id) {
+      activeCat = id;
+      renderWatchlist();
+      setStatus('已新建分类「' + catName(id) + '」，新加入的自选会默认放这里');
+    });
+  });
+
+  /* Alt + ↑/↓ 在自选股之间快速切换（按分组顺序） */
   document.addEventListener('keydown', function (e) {
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !watchlist.length) return;
     e.preventDefault();
-    var idx = -1;
-    for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === current.code) idx = i;
-    idx = e.key === 'ArrowDown' ? (idx + 1) % watchlist.length
-                                : (idx - 1 + watchlist.length) % watchlist.length;
-    setCurrent(watchlist[idx].code, watchlist[idx].name);
+    var seq = orderedItems(), idx = -1;
+    for (var i = 0; i < seq.length; i++) if (seq[i].code === current.code) idx = i;
+    idx = e.key === 'ArrowDown' ? (idx + 1) % seq.length
+                                : (idx - 1 + seq.length) % seq.length;
+    setCurrent(seq[idx].code, seq[idx].name);
   });
 
   /* 窗口变化时重排图表高度 */
@@ -589,7 +864,7 @@
     chartHeights: chartHeights(),
     onReady: function (state) {
       state.levels[0] = state.period;
-      loadWatchlist(function () {
+      loadAll(function () {
         renderWatchlist();
         resolveMissingNames(40);   // 兼容旧数据：启动时自动补全缺失/退化为代码的名称
         var fromUrl = new URLSearchParams(location.search).get('code');
@@ -599,7 +874,7 @@
           for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === initial) known = watchlist[i].name;
           setCurrent(initial, known || '');
         } else {
-          panel.setStatus('顶栏输入代码或从自选股里挑一只开始，例如 600519');
+          setStatus('顶栏输入代码或从自选股里挑一只开始，例如 600519');
         }
       });
     },
@@ -619,6 +894,10 @@
 
   window.ChanLensApp = {
     open: setCurrent,
-    watchlist: function () { return watchlist.slice(); }
+    watchlist: function () { return watchlist.slice(); },
+    ordered: function () { return orderedItems(); },
+    categories: function () { return cats.map(function (c) { return { id: c.id, name: c.name, count: itemsOf(c.id).length }; }); },
+    moveTo: moveTo,
+    newCat: newCat
   };
 })();

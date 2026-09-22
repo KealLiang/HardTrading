@@ -33,11 +33,12 @@
       <div class="app-side-head">
         <span>自选股</span>
         <span class="app-side-tools">
-          <span id="delBtn" class="app-side-add" title="批量删除自选股">批量删除</span>
+          <span id="catBtn" class="app-side-add" title="新建分类（文件夹）">+ 分类</span>
+          <span id="delBtn" class="app-side-add danger" title="批量删除自选股">批量删除</span>
         </span>
       </div>
       <ul id="watchlist" class="app-list"></ul>
-      <div id="sideTip" class="app-tip">列表项上右键删除；Alt+↑/↓ 快速切换。</div>
+      <div id="sideTip" class="app-tip">右键标的：移动/删除　右键分类名：重命名/删除　拖动标的到分类名可移动　Alt+↑/↓ 切换。</div>
     </aside>
     <main id="stage" class="app-stage"></main>
   </div>
@@ -48,6 +49,10 @@
       <textarea id="importText" spellcheck="false" rows="9"
         placeholder="一行一个，或用逗号 / 空格 / 分号分隔，可混写名称：&#10;600519&#10;SH600036&#10;000001, 300750&#10;601318 中国平安"></textarea>
       <div id="importPreview" class="app-modal-preview"></div>
+      <div class="app-modal-row">
+        <span class="app-hint">导入到分类</span>
+        <select id="importCat"></select>
+      </div>
       <div class="app-modal-foot">
         <span id="importStat" class="app-hint"></span>
         <button id="importCancel" class="cl-btn">取消</button>
@@ -69,6 +74,20 @@
       </div>
     </div>
   </div>
+
+  <div id="catModal" class="app-modal hidden">
+    <div class="app-modal-box app-modal-narrow">
+      <div id="catModalHead" class="app-modal-head">新建分类</div>
+      <input id="catName" type="text" maxlength="16" spellcheck="false" placeholder="分类名，如 核心池 / 观察池">
+      <div class="app-modal-foot">
+        <span id="catErr" class="app-hint"></span>
+        <button id="catCancel" class="cl-btn">取消</button>
+        <button id="catOk" class="cl-btn cl-primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ctxMenu" class="app-ctx hidden"></div>
 
   <script src="../core/indicators.js"></script>
   <script src="../core/chan.js"></script>
