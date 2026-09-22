@@ -31,6 +31,8 @@
   var syncing = false;
   var suggestItems = [];
   var activeSuggest = -1;
+  var quotes = {};            // code -> {price, pct}，自选列表右侧的涨跌幅
+  var quoteTimer = null;
 
   /** 状态栏输出：panel 在「同步回调」场景（如测试桩）下可能尚未赋值，统一在这里兜底 */
   function setStatus(msg, warn) { if (panel && panel.setStatus) panel.setStatus(msg, warn); }
@@ -126,6 +128,37 @@
     });
     watchlist.forEach(function (w) { if (seen.indexOf(w) < 0) out.push(w); });  // cat 指向已删分类的兜底
     return out;
+  }
+
+  /* --------------------------------------------------------- 涨跌幅快照 */
+  /** 批量拉自选最新涨跌幅；失败静默降级为逐只查询（复用名称反查接口） */
+  function refreshQuotes() {
+    var codes = watchlist.map(function (w) { return w.code; });
+    if (!codes.length) { quotes = {}; renderWatchlist(); return Promise.resolve(); }
+    return CLMarket.fetchQuotes(codes)
+      .catch(function () {
+        var out = {}, idx = 0, CONC = 4;
+        function worker() {
+          if (idx >= codes.length) return Promise.resolve();
+          var c = codes[idx++];
+          return fetchName(c)
+            .then(function (q) { if (q) out[c] = { price: q.price, pct: q.pct }; })
+            .catch(function () { /* 拿不到就不显示 */ })
+            .then(worker);
+        }
+        var all = [];
+        for (var k = 0; k < CONC; k++) all.push(worker());
+        return Promise.all(all).then(function () { return out; });
+      })
+      .then(function (m) {
+        if (m && Object.keys(m).length) { quotes = m; renderWatchlist(); }
+      })
+      .catch(function () { /* 静默：涨跌幅拿不到不影响主功能 */ });
+  }
+
+  function fmtPct(p) {
+    if (p == null || !isFinite(p)) return '—';
+    return (p > 0 ? '+' : '') + p.toFixed(2) + '%';
   }
 
   /* ------------------------------------------------- 分类名输入弹层（新建/重命名） */
@@ -332,7 +365,17 @@
         var cd = document.createElement('span');
         cd.className = 'cd';
         cd.textContent = item.code;
-        li.appendChild(nm); li.appendChild(cd);
+        var row = document.createElement('span');
+        row.className = 'row';
+        row.appendChild(cd);
+        var pc = document.createElement('span');
+        var pct = quotes[item.code] ? quotes[item.code].pct : null;
+        pc.className = 'pc' + (pct == null || !isFinite(pct) ? ' flat'
+                              : pct > 0 ? ' up' : pct < 0 ? ' down' : ' flat');
+        pc.textContent = fmtPct(pct);
+        pc.title = '最新日K涨跌幅（打开时拉取，10 分钟兜底刷新；看图直接刷新页面）';
+        row.appendChild(pc);
+        li.appendChild(nm); li.appendChild(row);
         li.addEventListener('click', function () { setCurrent(item.code, item.name); });
         li.addEventListener('dragstart', function (e) {
           dragCode = item.code;
@@ -511,6 +554,7 @@
     saveWatchlist();
     renderWatchlist();
     resolveMissingNames(40);
+    refreshQuotes();
     return { added: added, updated: updated };
   }
 
@@ -867,6 +911,10 @@
       loadAll(function () {
         renderWatchlist();
         resolveMissingNames(40);   // 兼容旧数据：启动时自动补全缺失/退化为代码的名称
+        refreshQuotes();           // 自选列表右侧涨跌幅
+        quoteTimer = setInterval(function () {
+          if (document.visibilityState === 'visible') refreshQuotes();  // 后台页不刷，省流量
+        }, 600000);   // 10 分钟兜底刷新，日常看图直接刷新页面即可
         var fromUrl = new URLSearchParams(location.search).get('code');
         var initial = (fromUrl && /^\d{6}$/.test(fromUrl)) ? fromUrl : (watchlist[0] && watchlist[0].code);
         if (initial) {
@@ -898,6 +946,8 @@
     ordered: function () { return orderedItems(); },
     categories: function () { return cats.map(function (c) { return { id: c.id, name: c.name, count: itemsOf(c.id).length }; }); },
     moveTo: moveTo,
-    newCat: newCat
+    newCat: newCat,
+    refreshQuotes: refreshQuotes,
+    quotes: function () { return JSON.parse(JSON.stringify(quotes)); }
   };
 })();

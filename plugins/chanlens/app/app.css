@@ -114,6 +114,14 @@ body {
 .app-list li.active { background: #e6f0fa; box-shadow: inset 3px 0 0 #2b6cb0; }
 .app-list .nm { font-weight: 500; }
 .app-list .cd { color: #888; font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
+.app-list .row { display: flex; align-items: baseline; gap: 4px; }
+.app-list .pc {
+  margin-left: auto; font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.app-list .pc.up { color: #d0342c; }      /* 涨：红 */
+.app-list .pc.down { color: #1a9a4e; }    /* 跌：绿 */
+.app-list .pc.flat { color: #98a2ad; }
 .app-list .empty { padding: 12px; color: #999; text-align: center; }
 
 /* 分类（文件夹）分组头 */

@@ -21,7 +21,8 @@
     "https://searchapi.eastmoney.com/*",
     "https://quotes.sina.cn/*",
     "https://hq.sinajs.cn/*",
-    "https://finance.sina.com.cn/*"
+    "https://finance.sina.com.cn/*",
+    "https://qt.gtimg.cn/*"
   ],
   "background": {
     "service_worker": "background/service_worker.js"

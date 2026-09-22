@@ -19,7 +19,7 @@
         local: {
           get: function (k, cb) {
             var box = {};
-            if ((Q.indexOf('del=') >= 0 || Q.indexOf('cat=') >= 0 || Q.indexOf('shot=') >= 0) && k === 'chanlens.watchlist.v1') box[k] = SEED;
+            if ((Q.indexOf('del=') >= 0 || Q.indexOf('cat=') >= 0 || Q.indexOf('shot=') >= 0 || Q.indexOf('pct=') >= 0) && k === 'chanlens.watchlist.v1') box[k] = SEED;
             if ((Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) && k === 'chanlens.watchcats.v1') {
               box[k] = [{ id: '', name: '未分类', closed: false },
                         { id: 'c1', name: '核心池', closed: false },
@@ -138,7 +138,44 @@
       setTimeout(function () {
         var pre = document.createElement('pre');
         pre.id = 'diag';
-        if (Q.indexOf('cat=') >= 0) {
+        if (Q.indexOf('pct=') >= 0) {
+          // 涨跌幅显示自测：先桩掉批量行情接口，再走真实渲染
+          (async function () {
+            try {
+              var L = [];
+              CLMarket.fetchQuotes = function (codes) {
+                L.push('fetchQuotes.codes=' + JSON.stringify(codes));
+                return Promise.resolve({
+                  '600519': { price: 1541.2, pct: 0.69 },
+                  '000001': { price: 11.50, pct: -1.24 },
+                  '601318': { price: 60.00, pct: 0 }
+                });
+              };
+              L.push('before.pcs=' + document.querySelectorAll('#watchlist .pc').length);
+              await window.ChanLensApp.refreshQuotes();
+              L.push('after.pcs=' + JSON.stringify([].map.call(
+                document.querySelectorAll('#watchlist li.item'),
+                function (li) {
+                  var pc = li.querySelector('.pc');
+                  var cd = li.querySelector('.cd').textContent;
+                  return cd + '=' + pc.textContent + '/' + (pc.className.split(' ')[1] || '');
+                })));
+              var row = document.querySelector('#watchlist li.item .row');
+              L.push('row.display=' + (row ? getComputedStyle(row).display : 'null'));
+              L.push('quotes.api=' + JSON.stringify(window.ChanLensApp.quotes()));
+              // 分类移动后渲染不丢 pct（无自定义分类时跳过）
+              if (window.ChanLensApp.categories().length > 1) {
+                var cid = window.ChanLensApp.categories()[1].id;
+                window.ChanLensApp.moveTo('600519', cid);
+              }
+              L.push('afterMove.pcs=' + document.querySelectorAll('#watchlist .pc').length);
+              pre.textContent = L.join('\n');
+            } catch (e) {
+              pre.textContent = 'TEST ERROR: ' + e.message + '\n' + (e.stack || '');
+            }
+            document.body.appendChild(pre);
+          })();
+        } else if (Q.indexOf('cat=') >= 0) {
           // 分类（文件夹）功能自测
           try {
             var L = [];

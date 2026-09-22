@@ -121,12 +121,75 @@
     return { code: d.f57, name: d.f58 || '', price: d.f43, pct: d.f170 };
   }
 
+  /* ----------------------------------------------------- 批量实时快照 */
+  var EM_QUOTE = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
+  var TX_QUOTE = 'https://qt.gtimg.cn/q=';
+
+  function _num(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v === 'string' && v !== '-' && v !== '' && isFinite(+v)) return +v;
+    return null;
+  }
+
+  /** 东财批量：一次几十只；部分网络对 push2 不可达，失败自动走腾讯 */
+  async function fetchQuotesEM(list) {
+    const out = {};
+    const CHUNK = 60;   // 控制 URL 长度
+    for (let i = 0; i < list.length; i += CHUNK) {
+      const url = EM_QUOTE +
+        '?secids=' + encodeURIComponent(list.slice(i, i + CHUNK).map(toSecid).join(',')) +
+        '&fields=f2,f3,f12&fltt=2&invt=2&ut=fa5fd1943c7b386f172d6893dbfba10b';
+      const res = await fetch(url, { headers: { 'Referer': 'https://quote.eastmoney.com/' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      const diff = (j && j.data && j.data.diff) || [];
+      diff.forEach(d => {
+        const code = String(d.f12 || '');
+        if (code) out[code] = { price: _num(d.f2), pct: _num(d.f3) };
+      });
+    }
+    if (!Object.keys(out).length) throw new Error('东财快照返回为空');
+    return out;
+  }
+
+  /** 腾讯批量兜底：GBK 编码但只取数字字段（f3=现价 f32=涨跌幅）；ACAO:* 任何页面可直连 */
+  async function fetchQuotesTX(list) {
+    const qs = list.map(c => (toSecid(c)[0] === '1' ? 'sh' : 'sz') + c).join(',');
+    const res = await fetch(TX_QUOTE + qs, { headers: { 'Referer': 'https://gu.qq.com/' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const out = {};
+    text.split(';').forEach(part => {
+      const m = part.match(/v_\w+="([^"]*)"/);
+      if (!m) return;
+      const f = m[1].split('~');
+      const code = String(f[2] || '');
+      if (/^\d{6}$/.test(code)) out[code] = { price: _num(f[3]), pct: _num(f[32]) };
+    });
+    if (!Object.keys(out).length) throw new Error('腾讯快照返回为空');
+    return out;
+  }
+
+  /**
+   * 批量取最新价/涨跌幅（一次请求拿全部自选）
+   * @returns {{[code]: {price:number|null, pct:number|null}}} pct 单位 %，停牌/异常为 null
+   */
+  async function fetchQuotes(codes) {
+    const list = (Array.isArray(codes) ? codes : [])
+      .map(c => String(c).trim()).filter(c => /^\d{6}$/.test(c));
+    if (!list.length) return {};
+    try { return await fetchQuotesEM(list); }
+    catch (e) { /* 东财不可达/限频 → 腾讯 */ }
+    return await fetchQuotesTX(list);
+  }
+
   g.CLMarket = {
     toSecid: toSecid,
     fetchKline: fetchKline,
     fetchEastmoney: fetchEastmoney,
     fetchSina: fetchSina,
     searchSuggest: searchSuggest,
-    fetchName: fetchName
+    fetchName: fetchName,
+    fetchQuotes: fetchQuotes
   };
 })(typeof self !== 'undefined' ? self : this);
