@@ -132,6 +132,28 @@ def _tx_symbol(stock_code: str) -> str:
     return f'sz{code}'
 
 
+def _tx_volume_to_lot(code: str, volume: float, amount: float,
+                      high: float, low: float) -> float:
+    """
+    腾讯成交量统一折算为「手」（与东财口径一致）。
+
+    实测（2026-09-23 全量 5556 只有效行情）：腾讯对**科创板 688/689 返回「股」**，
+    其余板块（00/30/60/92 等）返回「手」，617 只科创板零例外。
+    若直接按「手」落库，科创板成交量会放大 100 倍（作图比例失调）。
+
+    这里以前缀判定为主，并用「成交额反推均价须落在当日高低区间」做兜底自检，
+    以防腾讯日后调整口径。
+    """
+    if volume <= 0:
+        return volume
+    is_lot = not str(code).zfill(6).startswith(('688', '689'))
+    if amount > 0 and low > 0 and high > low:
+        # amount/volume 落在当日价格区间 -> volume 实为股数（需 /100）
+        if low <= amount / volume <= high:
+            is_lot = False
+    return volume if is_lot else volume / 100.0
+
+
 def _parse_tx_quote(line: str) -> Optional[dict]:
     """
     解析单行腾讯行情；停牌/退市/无效行返回 None。
@@ -151,6 +173,10 @@ def _parse_tx_quote(line: str) -> Optional[dict]:
     close = num(TX_FIELD['close'])
     if close <= 0:  # 停牌/退市：现价为 0，无当日行情
         return None
+    # 腾讯对已停更代码返回「占位行」：价=昨收，开/高/低/量/额全 0，行情时间固定 09:00:00。
+    # 实测北交所旧代码段 43/83/87（已迁至 920 段）全部是这种行，写库即为垃圾数据。
+    if num(TX_FIELD['open']) <= 0 and num(TX_FIELD['high']) <= 0 and num(TX_FIELD['low']) <= 0:
+        return None
 
     # 成交额优先取 detail 段的精确值（元），缺失时回退到 37 位的万元值
     detail = f[TX_FIELD['detail']].split('/') if len(f) > TX_FIELD['detail'] else []
@@ -158,14 +184,18 @@ def _parse_tx_quote(line: str) -> Optional[dict]:
     if amount is None or pd.isna(amount) or amount <= 0:
         amount = num(TX_FIELD['amount_wan'], 10000.0)
 
+    high, low = num(TX_FIELD['high']), num(TX_FIELD['low'])
+    volume = _tx_volume_to_lot(f[TX_FIELD['code']], num(TX_FIELD['volume']),
+                               float(amount), high, low)
+
     return {
         '代码': f[TX_FIELD['code']],
         '名称': f[TX_FIELD['name']],
         '今开': num(TX_FIELD['open']),
         '最新价': close,
-        '最高': num(TX_FIELD['high']),
-        '最低': num(TX_FIELD['low']),
-        '成交量': num(TX_FIELD['volume']),          # 手，与东财一致
+        '最高': high,
+        '最低': low,
+        '成交量': volume,                           # 手，与东财一致（科创板已由股折手）
         '成交额': float(amount),                    # 元，与东财一致
         '振幅': num(TX_FIELD['amplitude']),
         '涨跌幅': num(TX_FIELD['pct']),
