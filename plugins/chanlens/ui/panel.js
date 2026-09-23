@@ -84,6 +84,17 @@
         { key: 'pointsOnSegs', label: '买卖点基于线段', type: 'bool',
           help: '关掉则基于笔，更灵敏也更杂乱' }
       ]
+    },
+    {
+      group: '自选扫描', items: [
+        { key: 'scanPeriod', label: '扫描周期', type: 'select', options: [
+            { id: '15m', label: '15 分钟' },
+            { id: '30m', label: '30 分钟（默认）' },
+            { id: '60m', label: '60 分钟' },
+            { id: 'daily', label: '日线' },
+            { id: 'weekly', label: '周线' }],
+          help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' }
+      ]
     }
   ];
 
@@ -103,6 +114,7 @@
     var params = {};
     var D = global.ChanEngine.DEFAULTS;
     Object.keys(D).forEach(function (k) { params[k] = D[k]; });
+    params.scanPeriod = params.scanPeriod || '30m';   // 自选扫描专用（非引擎参数）
     return {
       params: params,
       layers: {

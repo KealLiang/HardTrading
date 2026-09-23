@@ -13,21 +13,44 @@
     ];
     if (Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) { SEED[0].cat = 'c1'; SEED[1].cat = 'c2'; }
     var saved = [];
+    var MEM = {};                                   // 真实持久化语义的存储（旧桩只读，测不出缓存）
+    var cp = o => JSON.parse(JSON.stringify(o));
+    if (Q.indexOf('sig=') >= 0) {                   // 预置一份扫描结果，便于看徽标样式（?shot=1&sig=1）
+      MEM['chanlens.scan.v1'] = {
+        meta: { at: Date.now(), period: '30m', limit: 200, adjust: 1, maxLag: 10 },
+        items: {
+          '600519': { level: 1, type: 1, note: '一买·底背驰', readyK: 187, markK: 186, price: 1250.1,
+                      confirmed: false, lag: 3, t: '2026-09-23 10:30', ratio: 0.55, ts: Date.now(), period: '30m' },
+          '000001': { level: 3, type: -1, note: '三卖·回抽不入中枢', readyK: 189, markK: 188, price: 11.52,
+                      confirmed: true, lag: 1, t: '2026-09-23 11:00', ratio: null, ts: Date.now(), period: '30m' }
+        }
+      };
+    }
     window.chrome = {
       storage: {
         sync: { get: function (k, cb) { cb({}); }, set: function () {} },
         local: {
           get: function (k, cb) {
             var box = {};
-            if ((Q.indexOf('del=') >= 0 || Q.indexOf('cat=') >= 0 || Q.indexOf('shot=') >= 0 || Q.indexOf('pct=') >= 0) && k === 'chanlens.watchlist.v1') box[k] = SEED;
-            if ((Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) && k === 'chanlens.watchcats.v1') {
-              box[k] = [{ id: '', name: '未分类', closed: false },
-                        { id: 'c1', name: '核心池', closed: false },
-                        { id: 'c2', name: '观察池', closed: true }];
+            if (k === 'chanlens.watchlist.v1') {
+              if (Q.indexOf("del=") >= 0 || Q.indexOf("cat=") >= 0 || Q.indexOf("shot=") >= 0 ||
+                  Q.indexOf("pct=") >= 0 || Q.indexOf("scan=") >= 0) box[k] = cp(SEED);
+              else if (MEM[k] !== undefined) box[k] = cp(MEM[k]);
             }
+            if (k === 'chanlens.watchcats.v1') {
+              if (Q.indexOf('cat=2') >= 0 || Q.indexOf('shot=') >= 0) {
+                box[k] = [{ id: '', name: '未分类', closed: false },
+                          { id: 'c1', name: '核心池', closed: false },
+                          { id: 'c2', name: '观察池', closed: true }];
+              } else if (MEM[k] !== undefined) box[k] = cp(MEM[k]);
+            }
+            if (MEM[k] !== undefined) box[k] = cp(MEM[k]);   // 其余 key（含扫描结果）走真实读
             cb(box);
           },
-          set: function (box) { saved.push(JSON.parse(JSON.stringify(box))); }
+          set: function (box) {
+            saved.push(cp(box));
+            Object.keys(box).forEach(function (k) { MEM[k] = cp(box[k]); });
+          }
         }
       },
       runtime: {
@@ -69,6 +92,7 @@
       <div class="app-side-head">
         <span>自选股</span>
         <span class="app-side-tools">
+          <span id="scanBtn" class="app-side-add" title="扫描自选列表最新缠论信号（Shift+点击强制重扫）">扫信号</span>
           <span id="catBtn" class="app-side-add" title="新建分类（文件夹）">+ 分类</span>
           <span id="delBtn" class="app-side-add danger" title="批量删除自选股">批量删除</span>
         </span>
@@ -130,6 +154,7 @@
   <script src="../core/market.js"></script>
   <script src="../chart/renderer.js"></script>
   <script src="../ui/panel.js"></script>
+  <script src="../core/scanner.js"></script>
   <script src="../content/datasource.js"></script>
   <script src="app.js"></script>
   <script>
@@ -138,7 +163,85 @@
       setTimeout(function () {
         var pre = document.createElement('pre');
         pre.id = 'diag';
-        if (Q.indexOf('pct=') >= 0) {
+        if (Q.indexOf('scan=') >= 0) {
+          // 信号扫描自测：桩掉取数与引擎，专测「扫描 → 缓存 → 徽标渲染」这条流水线
+          // （引擎本身的正确性由 tools/scan_probe.js 用真实数据验证）
+          (async function () {
+            var L = [];
+            var sleep = ms => new Promise(r => setTimeout(r, ms));
+            try {
+              var fetchCount = 0;
+              CLDataSource.getKlines = function (code, period, limit, adjust) {
+                fetchCount++;
+                var klines = [];
+                for (var i = 0; i < (limit || 200); i++) {
+                  klines.push({ t: '2026-01-01 10:00', o: 10, c: 10 + i % 3, h: 13, l: 9, v: 1000, a: 0, pct: 0, turn: 0 });
+                }
+                klines.code = code;   // 代码挂在数组属性上，避免并发时全局标记互相覆盖
+                return Promise.resolve({ code: code, name: 'T' + code, period: period, klines: klines, source: 'stub' });
+              };
+              ChanEngine.analyze = function (kl) {
+                var n = kl.length - 1;
+                if (kl.code === '601318') return { points: [], bis: [], segs: [], zhongshus: [], divergences: [], stats: {} };
+                return {
+                  points: [{
+                    level: kl.code === '000001' ? 3 : 2,
+                    type: kl.code === '300750' ? -1 : 1,
+                    _k: n - 3, readyK: n - 2, price: 12.3,
+                    note: '测试信号', confirmed: false, extra: { ratio: 0.62 }
+                  }],
+                  bis: [], segs: [], zhongshus: [], divergences: [], stats: {}
+                };
+              };
+
+              L.push('badges.before=' + document.querySelectorAll('#watchlist .sig').length);
+              document.getElementById('scanBtn').click();
+              for (var i = 0; i < 40 && document.querySelectorAll('#watchlist .sig').length < 2; i++) await sleep(100);
+              L.push('badges.after=' + JSON.stringify([].map.call(
+                document.querySelectorAll('#watchlist li.item'),
+                function (li) {
+                  var s = li.querySelector('.sig');
+                  return li.querySelector('.cd').textContent + '=' + (s ? s.textContent + '/' + s.className.replace('sig ', '') : 'none');
+                })));
+              L.push('fetchCount=' + fetchCount);
+              L.push('api.signals=' + JSON.stringify(window.ChanLensApp.signals()).slice(0, 200));
+              var saves = saved.filter(b => b['chanlens.scan.v1']);
+              L.push('storage.saved=' + saves.length +
+                     ' meta=' + (saves.length ? JSON.stringify(saves[saves.length - 1]['chanlens.scan.v1'].meta) : '-'));
+
+              document.getElementById('scanBtn').click();
+              await sleep(900);
+              L.push('fetchCount.afterRerun=' + fetchCount + '（应仍为 3：全部命中缓存）');
+              // Shift+点击 = 强制重扫，应再请求 3 次
+              document.getElementById('scanBtn').dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true }));
+              await sleep(900);
+              L.push('fetchCount.afterForce=' + fetchCount + '（应为 6：强制重扫）');
+              // 切到日线：只读该周期缓存（空），零请求；徽标应消失
+              var sel = document.getElementById('scanPeriod');
+              if (sel) { sel.value = 'daily'; sel.dispatchEvent(new Event('change')); }
+              else window.ChanLensApp.setScanPeriod('daily');
+              await sleep(400);
+              L.push('badges.daily=' + document.querySelectorAll('#watchlist .sig').length +
+                     ' fetchCount.afterSwitch=' + fetchCount + '（应为 6：零请求）');
+              // 切回 30m：徽标应从缓存恢复，仍零请求
+              if (sel) { sel.value = '30m'; sel.dispatchEvent(new Event('change')); }
+              else window.ChanLensApp.setScanPeriod('30m');
+              await sleep(400);
+              L.push('badges.backTo30m=' + document.querySelectorAll('#watchlist .sig').length +
+                     ' fetchCount.final=' + fetchCount + '（应为 6：缓存恢复）');
+              L.push('badges.final=' + JSON.stringify([].map.call(
+                document.querySelectorAll('#watchlist li.item'),
+                function (li) {
+                  var s = li.querySelector('.sig');
+                  return li.querySelector('.cd').textContent + '=' + (s ? s.textContent : 'none');
+                })));
+              pre.textContent = L.join('\n');
+            } catch (e) {
+              pre.textContent = 'TEST ERROR: ' + e.message + '\n' + (e.stack || '');
+            }
+            document.body.appendChild(pre);
+          })();
+        } else if (Q.indexOf('pct=') >= 0) {
           // 涨跌幅显示自测：先桩掉批量行情接口，再走真实渲染
           (async function () {
             try {

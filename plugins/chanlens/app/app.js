@@ -33,6 +33,8 @@
   var activeSuggest = -1;
   var quotes = {};            // code -> {price, pct}，自选列表右侧的涨跌幅
   var quoteTimer = null;
+  var signals = {};           // code -> 扫描信号（来自 CLScanner 持久化缓存）
+  var scanBusy = false;
 
   /** 状态栏输出：panel 在「同步回调」场景（如测试桩）下可能尚未赋值，统一在这里兜底 */
   function setStatus(msg, warn) { if (panel && panel.setStatus) panel.setStatus(msg, warn); }
@@ -159,6 +161,74 @@
   function fmtPct(p) {
     if (p == null || !isFinite(p)) return '—';
     return (p > 0 ? '+' : '') + p.toFixed(2) + '%';
+  }
+
+  /* ------------------------------------------------- 缠论信号扫描（周期可选） */
+  var SCAN = { period: '30m', limit: 200, maxLag: 10, freshMs: 30 * 60 * 1000 };
+  var LEVEL_CN = { 1: '一', 2: '二', 3: '三' };
+
+  var scanBtnEl = document.getElementById('scanBtn');
+
+  /** 扫描周期在设置面板「自选扫描」分组里改，这里是唯一同步点 */
+  function syncScanPeriod(params) {
+    var p = (params && params.scanPeriod) || null;
+    if (!p || p === SCAN.period) return;
+    SCAN.period = p;
+    if (scanBtnEl) scanBtnEl.title = '扫描自选列表最新 ' + (PERIOD_LABEL[p] || p) +
+                                    ' 缠论信号（Shift+点击强制重扫）';
+    loadScanCache();   // 只读该周期缓存，零请求
+  }
+
+  function loadScanCache() {
+    return CLScanner.loadFor(SCAN.period).then(function (items) {
+      signals = items || {};
+      renderWatchlist();
+      return signals;
+    }).catch(function () { return {}; });
+  }
+
+  /** force=true 忽略「30 分钟内已扫过」的缓存，全部重扫 */
+  function runScan(force) {
+    if (scanBusy) { setStatus('正在扫描中，稍等…'); return; }
+    var codes = watchlist.map(function (w) { return w.code; });
+    if (!codes.length) { setStatus('自选列表是空的，先加几只'); return; }
+    scanBusy = true;
+    if (scanBtnEl) { scanBtnEl.textContent = '扫描中…'; scanBtnEl.style.opacity = '.6'; }
+    var st = panel ? panel.getState() : {};
+    var done = 0, found = 0, skipped = 0;
+    CLScanner.scan(codes, {
+      period: SCAN.period, limit: SCAN.limit, maxLag: SCAN.maxLag, freshMs: SCAN.freshMs,
+      params: st.params || {}, adjust: st.adjust == null ? 1 : st.adjust,
+      concurrency: 3, force: !!force,
+      onResult: function (code, sig) {          // 出一个渲染一个，不等全部跑完
+        signals[code] = sig;
+        if (sig && !sig.none) found++;
+        renderWatchlist();
+      },
+      onProgress: function (d, total, skip) {
+        done = d; skipped = skip;
+        setStatus('扫描 ' + SCAN.period + ' 缠论信号：' + d + '/' + total +
+                  (skip ? '，缓存跳过 ' + skip + ' 只' : ''));
+      }
+    }).then(function (all) {
+      signals = all;
+      renderWatchlist();
+      var n = Object.keys(all).filter(function (c) { return all[c] && !all[c].none; }).length;
+      setStatus('扫描完成（' + SCAN.period + ' · 每只 ' + SCAN.limit + ' 根）：共 ' +
+                Object.keys(all).length + ' 只，其中 ' + n + ' 只有信号。' +
+                (skipped ? '（缓存跳过 ' + skipped + ' 只，Shift+点击可强制重扫）' : ''));
+    }).catch(function (e) {
+      setStatus('扫描失败：' + (e && e.message || e), true);
+    }).then(function () {
+      scanBusy = false;
+      if (scanBtnEl) { scanBtnEl.textContent = '扫信号'; scanBtnEl.style.opacity = ''; }
+    });
+  }
+
+  if (scanBtnEl) {
+    scanBtnEl.addEventListener('click', function (e) {
+      runScan(e && e.shiftKey);   // Shift+点击 = 忽略缓存强制重扫
+    });
   }
 
   /* ------------------------------------------------- 分类名输入弹层（新建/重命名） */
@@ -359,9 +429,25 @@
         var li = document.createElement('li');
         li.className = 'item' + (item.code === current.code ? ' active' : '');
         li.draggable = true;
+        var top = document.createElement('span');
+        top.className = 'top';
         var nm = document.createElement('span');
         nm.className = 'nm';
         nm.textContent = item.name || item.code;
+        top.appendChild(nm);
+
+        var sg = signals[item.code];
+        if (sg && !sg.none) {
+          var badge = document.createElement('span');
+          badge.className = 'sig ' + (sg.type > 0 ? 'buy' : 'sell') + (sg.confirmed ? '' : ' fresh');
+          badge.textContent = (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖');
+          badge.title = (PERIOD_LABEL[sg.period] || sg.period || '') + '：' + (sg.note || '') +
+                        '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根）' +
+                        (sg.ratio != null ? '\n背驰力度比：' + sg.ratio.toFixed(2) : '') +
+                        '\n标记价：' + sg.price + (sg.confirmed ? '' : '\n未确认：分型右侧可能修订');
+          top.appendChild(badge);
+        }
+
         var cd = document.createElement('span');
         cd.className = 'cd';
         cd.textContent = item.code;
@@ -375,7 +461,7 @@
         pc.textContent = fmtPct(pct);
         pc.title = '最新日K涨跌幅（打开时拉取，10 分钟兜底刷新；看图直接刷新页面）';
         row.appendChild(pc);
-        li.appendChild(nm); li.appendChild(row);
+        li.appendChild(top); li.appendChild(row);
         li.addEventListener('click', function () { setCurrent(item.code, item.name); });
         li.addEventListener('dragstart', function (e) {
           dragCode = item.code;
@@ -909,9 +995,11 @@
     onReady: function (state) {
       state.levels[0] = state.period;
       loadAll(function () {
+        syncScanPeriod(state && state.params);   // 恢复设置的扫描周期（纯读缓存）
         renderWatchlist();
         resolveMissingNames(40);   // 兼容旧数据：启动时自动补全缺失/退化为代码的名称
         refreshQuotes();           // 自选列表右侧涨跌幅
+        loadScanCache();           // 上次扫描结果（纯本地，不联网）
         quoteTimer = setInterval(function () {
           if (document.visibilityState === 'visible') refreshQuotes();  // 后台页不刷，省流量
         }, 600000);   // 10 分钟兜底刷新，日常看图直接刷新页面即可
@@ -928,7 +1016,7 @@
     },
     onPeriodChange: function () { datasets = {}; rebuild(); },
     onAdjustChange: function () { datasets = {}; rebuild(); },
-    onParamChange: function () { rebuild(); },
+    onParamChange: function (params) { syncScanPeriod(params); rebuild(); },
     onLayerChange: function (layers) { views.forEach(function (v) { v.setLayers(layers); v.draw(); }); },
     onLevelsChange: function () { rebuild(); },
     onAction: function (act) {
@@ -948,6 +1036,9 @@
     moveTo: moveTo,
     newCat: newCat,
     refreshQuotes: refreshQuotes,
-    quotes: function () { return JSON.parse(JSON.stringify(quotes)); }
+    setScanPeriod: function (p) { syncScanPeriod({ scanPeriod: p }); },   // 与设置面板同步用
+    quotes: function () { return JSON.parse(JSON.stringify(quotes)); },
+    runScan: runScan,
+    signals: function () { return JSON.parse(JSON.stringify(signals)); }
   };
 })();

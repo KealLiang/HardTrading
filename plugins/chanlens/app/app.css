@@ -84,7 +84,7 @@ body {
 .app-side-add:hover { background: #e3eefb; }
 .app-side-add.danger { color: #b02b2b; border-color: #f0d2d2; background: #fdf4f4; }
 .app-side-add.danger:hover { background: #f9e4e4; }
-.app-side-tools { display: flex; gap: 6px; font-weight: 400; width: 100%; justify-content: flex-end; margin-top: 3px; }
+.app-side-tools { display: flex; flex-wrap: wrap; gap: 4px 6px; font-weight: 400; width: 100%; justify-content: flex-end; margin-top: 3px; }
 .hidden { display: none !important; }
 
 /* 批量删除弹层：勾选列表 */
@@ -113,6 +113,23 @@ body {
 .app-list li:hover { background: #f4f8fc; }
 .app-list li.active { background: #e6f0fa; box-shadow: inset 3px 0 0 #2b6cb0; }
 .app-list .nm { font-weight: 500; }
+.app-list .top { display: flex; align-items: center; gap: 4px; }
+
+/* 信号徽标：涨跌幅上方，买红卖绿；虚线=尚未确认（分型右侧可能修订） */
+.app-list .sig {
+  margin-left: auto; flex: none;
+  font-size: 10px; line-height: 1.5; padding: 0 4px;
+  border-radius: 3px; border: 1px solid transparent; white-space: nowrap;
+}
+.app-list .sig.buy { background: #fdeaea; color: #c0392b; border-color: #f3c9c5; }
+.app-list .sig.sell { background: #e7f6ec; color: #17804a; border-color: #bfe3cd; }
+/* 未确认：虚线用文字本色（红/绿），浅色边框在浅底上几乎看不见 */
+.app-list .sig.fresh {
+  border: 1px dashed currentColor;
+  background: transparent;
+}
+.app-list .sig.fresh.buy { background: #fdf3f2; }
+.app-list .sig.fresh.sell { background: #f2faf5; }
 .app-list .cd { color: #888; font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
 .app-list .row { display: flex; align-items: baseline; gap: 4px; }
 .app-list .pc {
