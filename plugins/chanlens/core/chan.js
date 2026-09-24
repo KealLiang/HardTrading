@@ -56,7 +56,7 @@
     // —— 买卖点 ——
     showBuy: true,
     showSell: true,
-    pointsOnSegs: true           // true 买卖点基于线段；false 基于笔（更灵敏也更杂乱）
+    pointsOnSegs: false,         // true 买卖点基于线段（少而严）；false 基于笔（默认，灵敏也更杂）
   };
 
   function optsOf(user) {
@@ -714,23 +714,23 @@
     var bis = buildBi(fractals, opts);
     var segs = buildSegments(bis, opts);
 
-    var parts = opts.zsSource === 'bi' ? bis.map(function (b) {
-      return { dir: b.dir, startK: b.startK, endK: b.endK, high: b.high, low: b.low,
-               startPrice: b.startPrice, endPrice: b.endPrice };
-    }) : segs.map(function (s) {
-      return { dir: s.dir, startK: s.startK, endK: s.endK, high: s.high, low: s.low,
-               startPrice: s.startPrice, endPrice: s.endPrice };
-    });
+    /* 统一提取成「走势段」视图；中枢与背驰/买卖点各取各的源，互不耦合 */
+    function toParts(arr) {
+      return arr.map(function (p) {
+        return { dir: p.dir, startK: p.startK, endK: p.endK, high: p.high, low: p.low,
+                 startPrice: p.startPrice, endPrice: p.endPrice };
+      });
+    }
+    var parts = opts.zsSource === 'seg' ? toParts(segs) : toParts(bis);   // 中枢的来源
 
     var zhongshus = buildZhongshu(parts, opts);
 
     var closes = klines.map(cl);
     var macd = IND.macd(closes, opts.macdFast, opts.macdSlow, opts.macdSignal);
 
-    var pointParts = opts.pointsOnSegs ? parts : bis.map(function (b) {
-      return { dir: b.dir, startK: b.startK, endK: b.endK, high: b.high, low: b.low,
-               startPrice: b.startPrice, endPrice: b.endPrice };
-    });
+    /* 背驰/买卖点的来源只看 pointsOnSegs，不再被 zsSource 牵着走
+       （旧实现写成 `pointsOnSegs ? parts : bis`，zsSource='bi' 时两个分支都落到笔上，开关形同虚设）*/
+    var pointParts = opts.pointsOnSegs ? toParts(segs) : toParts(bis);
     var divergences = detectDivergence(pointParts, zhongshus, macd.hist, klines, opts);
     var points = detectPoints(pointParts, zhongshus, divergences, opts);
 

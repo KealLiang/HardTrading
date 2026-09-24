@@ -31,6 +31,13 @@ body {
   background: #2b6cb0; color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; font-weight: 600;
+  cursor: pointer; user-select: none; flex: none;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.app-logo:hover {
+  background: #3b82c4;
+  transform: scale(1.08);
+  box-shadow: 0 0 0 3px rgba(91, 155, 213, .25);
 }
 .app-name { font-weight: 600; letter-spacing: .5px; }
 
@@ -243,3 +250,51 @@ body {
 .app-modal-foot .app-hint { margin-right: auto; }
 .cl-btn.cl-primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
 .cl-btn.cl-primary:hover { background: #1d4e8f; }
+
+/* ------------------------------------------------------- 缠论心法弹层 */
+.app-modal-box.app-mantra {
+  width: 660px; max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  padding: 14px 18px 12px;
+}
+.app-mantra-body {
+  overflow: auto; flex: 1 1 auto; min-height: 0;
+  font-size: 12.5px; line-height: 1.75; color: #333;
+  padding-right: 6px;
+}
+.app-mantra-body h3 {
+  margin: 14px 0 6px; font-size: 13.5px; color: #1d4e8f;
+  padding-left: 8px; border-left: 3px solid #2b6cb0;
+}
+.app-mantra-body .m-callout {
+  background: #eef4fb; border: 1px solid #d8e6f5; border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 4px; color: #2a3a4a;
+}
+.app-mantra-body .m-sub { margin: 2px 0 4px; color: #888; font-size: 12px; }
+.app-mantra-body .m-note {
+  margin: 6px 0 0; padding: 6px 10px;
+  background: #faf6ec; border: 1px solid #efe4c8; border-radius: 6px;
+  color: #6b5b2e; font-size: 12px;
+}
+.app-mantra-body ul, .app-mantra-body ol { margin: 4px 0; padding-left: 20px; }
+.app-mantra-body li { margin: 3px 0; }
+.app-mantra-body .m-blank {
+  display: inline-block; min-width: 44px;
+  border-bottom: 1px solid #b8c2cc; color: #b8c2cc;
+  text-align: center; font-size: 11px;
+}
+.app-mantra-body .m-table {
+  width: 100%; border-collapse: collapse; margin: 4px 0; font-size: 12px;
+}
+.app-mantra-body .m-table th, .app-mantra-body .m-table td {
+  border: 1px solid #e3e6ea; padding: 5px 8px; text-align: left; vertical-align: top;
+}
+.app-mantra-body .m-table th { background: #f4f7fa; color: #445; font-weight: 600; white-space: nowrap; }
+.app-mantra-body .m-table td:first-child { text-align: center; color: #2b6cb0; font-weight: 600; }
+.app-mantra-body .m-ban li { color: #8a2f2f; }
+.app-mantra-body .m-heart {
+  margin-top: 16px; padding: 12px 14px;
+  background: linear-gradient(135deg, #2b6cb0, #1d4e8f);
+  color: #fff; border-radius: 8px;
+  font-size: 14px; text-align: center; letter-spacing: .5px;
+}

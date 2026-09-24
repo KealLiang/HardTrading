@@ -58,6 +58,7 @@
     this.data = payload;                     // {klines, name, code, period}
     this.result = payload.result;            // ChanEngine.analyze 的结果
     this.klines = payload.klines;
+    this._mergedBars = !!payload.mergedBars; // 缠论K线：简洁区间柱画法
     if (!this.window && this.klines.length) {
       var defaultBars = Math.min(this.klines.length, this.options.defaultBars || 160);
       var s = this.klines.length - defaultBars;
@@ -229,6 +230,21 @@
   ChartView.prototype.drawKlines = function () {
     var ctx = this.ctx, L = this.layout(), r = this._range, ks = this.klines;
     var bw = this._barW;
+    /* 缠论 K 线（mergedBars）：只画高低点区间的简洁柱——无开收盘、无影线、无红绿，
+       因为合并后的开收盘是拼凑的，唯一有意义的信息就是 [low, high] 区间 */
+    if (this._mergedBars) {
+      for (var m = r.i0; m <= r.i1; m++) {
+        var km = ks[m];
+        var ytm = this.priceY(km.h), ybm = this.priceY(km.l);
+        ctx.fillStyle = 'rgba(100,130,170,0.28)';
+        ctx.strokeStyle = '#7a93b5';
+        var w = Math.max(1, bw);
+        ctx.fillRect(this.x(m) - w / 2, ytm, w, Math.max(1, ybm - ytm));
+        ctx.lineWidth = 1;
+        ctx.strokeRect(this.x(m) - w / 2, ytm, w, Math.max(1, ybm - ytm));
+      }
+      return;
+    }
     for (var i = r.i0; i <= r.i1; i++) {
       var k = ks[i];
       var up = k.c >= k.o;
@@ -264,7 +280,9 @@
     for (var j = r.i0; j <= r.i1; j++) {
       var k = ks[j];
       var hh = (L.volBottom - L.volTop) * (k.v / maxV);
-      ctx.fillStyle = k.c >= k.o ? this.theme.up : this.theme.down;
+      /* 缠论 K 线下开收盘无意义，量柱统一中性色 */
+      ctx.fillStyle = this._mergedBars ? 'rgba(100,130,170,0.45)'
+                                       : (k.c >= k.o ? this.theme.up : this.theme.down);
       ctx.fillRect(this.x(j) - bw / 2, L.volBottom - hh, Math.max(1, bw), hh);
     }
     ctx.strokeStyle = this.theme.grid;
@@ -472,7 +490,11 @@
     ctx.restore();
 
     // 浮动信息条
-    var lines = [
+    var lines = this._mergedBars ? [
+      fmtTime(k.t, this.data.period),
+      '缠论K线  区间 ' + fmtPrice(k.l) + ' ~ ' + fmtPrice(k.h),
+      '量 ' + fmtVol(k.v) + (k._n > 1 ? '  （合并 ' + k._n + ' 根原始K）' : '')
+    ] : [
       fmtTime(k.t, this.data.period),
       '开 ' + fmtPrice(k.o) + '  高 ' + fmtPrice(k.h),
       '低 ' + fmtPrice(k.l) + '  收 ' + fmtPrice(k.c),
@@ -540,14 +562,6 @@
     global.addEventListener('mouseup', function () {
       dragging = false;
       self.canvas.style.cursor = 'crosshair';
-    });
-    this.canvas.addEventListener('dblclick', function () {
-      if (!self.klines) return;
-      var n = Math.min(self.klines.length, self.options.defaultBars || 160);
-      var s = self.klines.length - n;
-      self.window = { t0: self.klines[s]._t, t1: self.maxT() };
-      if (self.options.onZoom) self.options.onZoom({ reset: n });
-      self.draw();
     });
     this.canvas.style.cursor = 'crosshair';
   };

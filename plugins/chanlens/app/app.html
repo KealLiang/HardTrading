@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="app-bar">
-    <span class="app-logo">缠</span>
+    <span id="logoBtn" class="app-logo" title="缠论实操速查（心法）· 点击查看">缠</span>
     <span class="app-name">ChanLens 缠论透镜</span>
 
     <div class="app-search">
@@ -90,10 +90,74 @@
 
   <div id="ctxMenu" class="app-ctx hidden"></div>
 
+  <div id="mantraModal" class="app-modal hidden">
+    <div class="app-modal-box app-mantra">
+      <div class="app-modal-head">缠论实操速查 · 心法</div>
+      <div class="app-mantra-body">
+        <div class="m-callout">
+          缠论是<b>分类语言 + 风控语言</b>，不是预测机器。<br>
+          它最大的作用：让你事先知道「错了怎么办」。<br>
+          规则的价值不在于每次都对，在于让你<b>不用每次都重新决定</b>。
+        </div>
+
+        <h3>一、开仓前必须写下三句话</h3>
+        <p class="m-sub">写完才许下单，没写清就不许买。</p>
+        <ol>
+          <li><b>我买的是哪个级别</b>：30 分钟 / 日线 / 周线</li>
+          <li><b>我错了的标记</b>：跌回中枢 <span class="m-blank">____</span> 元 / 跌破一买低点 <span class="m-blank">____</span> 元（<b>必须是一个具体数字</b>）</li>
+          <li><b>我打算怎么走</b>：<span class="m-blank">____</span> 级别出现 <span class="m-blank">____</span> 信号时出场</li>
+        </ol>
+        <p class="m-note">第 2 条只用来<b>开仓前算仓位</b>（最坏亏多少 → 敢买多少），<b>不是持有期的操作开关</b>。单笔仓位 ≤ 总资金 10% —— 这是下面所有纪律能执行的前提。</p>
+
+        <h3>二、级别纪律（背下来）</h3>
+        <ul>
+          <li><b>大级别定方向</b>（能不能继续持有），<b>小级别定时机</b>（什么时候动手、减仓）</li>
+          <li><b>买什么级别，就用什么级别的信号出</b>，不许乱跳</li>
+          <li><b>笔级别的卖点 =「要回调了」，不是「清仓」</b> → 它只配触发减 1/3</li>
+          <li>三买/二买要<b>下沉一个级别确认</b>（日线三买用 30 分钟确认，这是正常的，不是信号缺失）</li>
+          <li>提醒：插件默认<b>笔中枢 ≈ 比本级别低一级</b>，别拿它当「日线中枢」去读大趋势</li>
+        </ul>
+
+        <h3>三、出场四层</h3>
+        <table class="m-table">
+          <tr><th>优先级</th><th>触发条件</th><th>动作</th></tr>
+          <tr><td>1</td><td>买点失效：跌破一买低点 / 跌回中枢</td><td>无条件清仓。这是「买入理由没了」，不是止损</td></tr>
+          <tr><td>2</td><td>移动止盈被击破（前低 / 新中枢下沿）</td><td>清仓。<b>这是最常触发的正常出场</b></td></tr>
+          <tr><td>3</td><td>笔级别顶背驰出现</td><td><b>只减 1/3</b>，其余不动</td></tr>
+          <tr><td>4</td><td>操作级别出现背驰一卖</td><td>分批减仓兑现（别等二卖，二卖要多回吐一段）</td></tr>
+        </table>
+        <p class="m-note"><b>移动止盈是主力手段</b>：每个次级别回调低点就是跟踪位；形成新中枢就用新中枢下沿。<br><b>「跌回中枢」是兜底线</b> —— 轮到它触发，说明前面几层都失效了，那是极端情况，不是日常。</p>
+
+        <h3>四、特殊情况</h3>
+        <ul>
+          <li><b>横着不动</b>：时间到了就走。买入后超过该级别中枢平均时长 ×1.5 还没启动 → 退。理由是机会成本，不是亏钱。</li>
+          <li><b>出利空（加息 / 行业 / 大盘）</b>：浮盈 → 收紧止盈；刚买就浮亏 → 直接走；横盘中 → 减半。</li>
+          <li><b>想扛一下</b>：先问「我的失效位到了吗」。没到 → 规则没让你走，别动。到了 → 别找理由。</li>
+          <li><b>踏空了 / 卖飞了</b>：不许改规则。单次结果是噪音，改规则才是真亏。</li>
+        </ul>
+
+        <h3>五、四条禁令</h3>
+        <ol class="m-ban">
+          <li>不许用<b>低于买入级别</b>的信号清仓</li>
+          <li>不许开仓后<b>临时放宽</b>失效位</li>
+          <li>不许「再看看」—— 到了就执行，犹豫本身就是成本</li>
+          <li>不许用<b>一个样本</b>（某只深 V、某次踏空）推翻规则</li>
+        </ol>
+
+        <div class="m-heart">你不需要每次都对，你需要在每次都做<b>同一个决定</b>。</div>
+      </div>
+      <div class="app-modal-foot">
+        <span class="app-hint">时刻牢记 · 防犹豫内耗</span>
+        <button id="mantraClose" class="cl-btn cl-primary">知道了</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../core/indicators.js"></script>
   <script src="../core/chan.js"></script>
   <script src="../core/market.js"></script>
   <script src="../chart/renderer.js"></script>
+  <script src="../chart/mergedview.js"></script>
   <script src="../ui/panel.js"></script>
   <script src="../core/scanner.js"></script>
   <script src="../content/datasource.js"></script>

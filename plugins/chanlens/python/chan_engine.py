@@ -39,7 +39,7 @@ DEFAULTS: Dict[str, Any] = {
     'macd_signal': 9,
     'show_buy': True,
     'show_sell': True,
-    'points_on_segs': True,
+    'points_on_segs': False,     # True 买卖点基于线段（少而严）；False 基于笔（默认，灵敏也更杂）
 }
 
 
@@ -597,18 +597,17 @@ def analyze_klines(klines: List[Dict[str, float]],
                 'high': x.high, 'low': x.low,
                 'start_price': x.start_price, 'end_price': x.end_price}
 
+    # 中枢的来源由 zs_source 决定；背驰/买卖点的来源只看 points_on_segs，两者解耦
     parts = ([to_part(b) for b in bis] if opts['zs_source'] == 'bi'
              else [to_part(s) for s in segs])
     zss = build_zhongshu(parts, opts)
 
     closes = [float(k['c']) for k in klines]
     mac = macd(closes, opts['macd_fast'], opts['macd_slow'], opts['macd_signal'])
-    point_parts = parts if opts['points_on_segs'] else [
-        {'dir': b.direction, 'start_k': b.start_k, 'end_k': b.end_k,
-         'high': b.high, 'low': b.low,
-         'start_price': b.start_price, 'end_price': b.end_price} for b in bis]
+    point_parts = ([to_part(s) for s in segs] if opts['points_on_segs']
+                   else [to_part(b) for b in bis])
     divs = detect_divergence(point_parts, zss, mac['hist'], klines, opts)
-    pts = detect_points(parts, zss, divs, opts)
+    pts = detect_points(point_parts, zss, divs, opts)   # 用 point_parts，此前误用 parts
     last_k = len(klines) - 1
     for p in pts:
         p['confirmed'] = (last_k - p.get('ready_k', p['_k'])) >= 3

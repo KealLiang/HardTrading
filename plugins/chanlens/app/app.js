@@ -164,7 +164,7 @@
   }
 
   /* ------------------------------------------------- 缠论信号扫描（周期可选） */
-  var SCAN = { period: '30m', limit: 200, maxLag: 10, freshMs: 30 * 60 * 1000 };
+  var SCAN = { period: 'daily', limit: 200, maxLag: 10, freshMs: 30 * 60 * 1000 };
   var LEVEL_CN = { 1: '一', 2: '二', 3: '三' };
 
   var scanBtnEl = document.getElementById('scanBtn');
@@ -706,20 +706,24 @@
       for (var j = 0; j < loaded.length && j < canvases.length; j++) {
         var data = loaded[j];
         var res = ChanEngine.analyze(data.klines, st.params);
+        var shown = st.params.klineMode === 'merged'
+          ? CLMergedView.build(data.klines, res)      // 缠论K线（含包处理后），判定不变
+          : { klines: data.klines, result: res };
         var view = CLRenderer.create(canvases[j], {
           defaultBars: j === 0 ? 160 : 320,
           layers: st.layers,
           onZoom: onZoom,
           onPan: onPan
         });
-        view.setData({ klines: data.klines, period: data.period, code: data.code, name: data.name, result: res });
+        view.setData({ klines: shown.klines, period: data.period, code: data.code, name: data.name,
+                       result: shown.result, mergedBars: st.params.klineMode === 'merged' });
         view.draw();
         views.push(view);
         stats.push(PERIOD_LABEL[data.period] + ' 笔' + res.bis.length +
                    ' / 段' + res.segs.length + ' / 中枢' + res.zhongshus.length +
                    ' / 背驰' + res.divergences.length + ' / 点' + res.points.length);
       }
-      panel.setStatus(stats.join('　|　') + '\n滚轮缩放 · 拖拽平移 · 双击复位 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
+      panel.setStatus(stats.join('　|　') + '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
                       (loaded[0].source === 'sina' ? '新浪财经' : '东方财富'));
     } catch (e) {
       panel.setStatus('出错：' + (e && e.message || e), true);
@@ -936,6 +940,20 @@
     else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doImport(); }
   });
   modal.addEventListener('click', function (e) { if (e.target === modal) closeImport(); });
+
+  /* ------------------------------------------------------------------ 心法弹层（点左上角「缠」） */
+  var mantraModal = document.getElementById('mantraModal');
+  var logoBtn = document.getElementById('logoBtn');
+  if (mantraModal && logoBtn) {
+    var openMantra = function () { mantraModal.classList.remove('hidden'); };
+    var closeMantra = function () { mantraModal.classList.add('hidden'); };
+    logoBtn.addEventListener('click', openMantra);
+    document.getElementById('mantraClose').addEventListener('click', closeMantra);
+    mantraModal.addEventListener('click', function (e) { if (e.target === mantraModal) closeMantra(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !mantraModal.classList.contains('hidden')) closeMantra();
+    });
+  }
 
   /* 搜索框里粘贴一大段多写代码时，直接转成批量导入 */
   searchInput.addEventListener('paste', function (e) {

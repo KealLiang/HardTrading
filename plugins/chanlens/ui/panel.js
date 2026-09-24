@@ -32,6 +32,14 @@
   /* ------------------------------------------------------------ 参数表 */
   var PARAM_SCHEMA = [
     {
+      group: '显示', items: [
+        { key: 'klineMode', label: 'K 线形态', type: 'select', options: [
+            { id: 'raw', label: '普通 K 线（原始）' },
+            { id: 'merged', label: '缠论 K 线（含包处理后）' }],
+          help: '只影响画图：缠论 K 线把有包含关系的相邻 K 合并成一根（首根开盘+末根收盘，高低取合并后的区间）；分型/笔/线段/中枢/背驰的判定结果完全不变' }
+      ]
+    },
+    {
       group: '笔', items: [
         { key: 'minFxGap', label: '顶底最小间隔K线', type: 'range', min: 0, max: 6, step: 1,
           help: '0=最灵敏；旧笔规则建议 3' },
@@ -82,16 +90,16 @@
         { key: 'showBuy', label: '显示买点', type: 'bool' },
         { key: 'showSell', label: '显示卖点', type: 'bool' },
         { key: 'pointsOnSegs', label: '买卖点基于线段', type: 'bool',
-          help: '关掉则基于笔，更灵敏也更杂乱' }
+          help: '默认关＝背驰/买卖点基于笔（灵敏也更杂）；打开＝基于线段（少而严谨）' }
       ]
     },
     {
       group: '自选扫描', items: [
         { key: 'scanPeriod', label: '扫描周期', type: 'select', options: [
             { id: '15m', label: '15 分钟' },
-            { id: '30m', label: '30 分钟（默认）' },
+            { id: '30m', label: '30 分钟' },
             { id: '60m', label: '60 分钟' },
-            { id: 'daily', label: '日线' },
+            { id: 'daily', label: '日线（默认）' },
             { id: 'weekly', label: '周线' }],
           help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' }
       ]
@@ -114,7 +122,8 @@
     var params = {};
     var D = global.ChanEngine.DEFAULTS;
     Object.keys(D).forEach(function (k) { params[k] = D[k]; });
-    params.scanPeriod = params.scanPeriod || '30m';   // 自选扫描专用（非引擎参数）
+    params.scanPeriod = params.scanPeriod || 'daily';   // 自选扫描专用（非引擎参数）
+    params.klineMode = params.klineMode || 'raw';     // 画图用哪种 K 线（非引擎参数）
     return {
       params: params,
       layers: {
@@ -137,6 +146,12 @@
         if (saved.period) base.period = saved.period;
         if (saved.adjust != null) base.adjust = saved.adjust;
         if (saved.levels) base.levels = saved.levels;
+        // 一次性迁移：扫描周期默认值由 30m 改为日线（只对未手动调整过的旧配置生效一次）
+        if (saved.params && saved.params.scanPeriod === '30m' && !saved._scanDailyDefault) {
+          base.params.scanPeriod = 'daily';
+          saved._scanDailyDefault = true;
+          try { var b = {}; b[STORE_KEY] = saved; chrome.storage.sync.set(b); } catch (e) { /* 忽略 */ }
+        }
       }
       cb(base);
     });
