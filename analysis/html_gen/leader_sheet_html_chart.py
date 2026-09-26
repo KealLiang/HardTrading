@@ -757,6 +757,8 @@ def generate_leader_sheet_html_charts(
         rows,
         page_title="龙头入选",
         favorite_scope="leader_sheet",
+        # 右上角复制按钮：以「龙头入选」标记为当日入选口径
+        entry_legend_groups=['leader_entry'],
     )
 
     html_filename = f"leader_sheet_all_{columns}cols.html"

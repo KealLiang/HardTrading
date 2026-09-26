@@ -493,6 +493,8 @@ def generate_momo_concept_group_html_charts(
         rows,
         page_title="默默上涨",
         favorite_scope="momo_concept_group",
+        # 右上角复制按钮：以「默默上涨入选」标记为当日入选口径
+        entry_legend_groups=['momo_entry'],
     )
 
     html_filename = f"momo_concept_group_all_{columns}cols.html"

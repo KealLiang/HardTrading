@@ -15,7 +15,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Sequence, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -1122,15 +1122,312 @@ def _create_single_chart_figure(
         return None
 
 
+_COPY_CONTROLS_CSS = """
+        /* COPY_CONTROLS_START */
+        .copy-sep {
+            width: 1px;
+            height: 16px;
+            background: #ddd;
+        }
+        .copy-date-select {
+            border: 1px solid #cfd8dc;
+            border-radius: 4px;
+            background: #fff;
+            color: #333;
+            font-size: 12px;
+            line-height: 1;
+            padding: 4px 6px;
+            cursor: pointer;
+            max-width: 140px;
+        }
+        .copy-date-select:hover {
+            border-color: #1976d2;
+            color: #1976d2;
+        }
+        .copy-btn {
+            border: 1px solid #cfd8dc;
+            border-radius: 4px;
+            background: #fff;
+            color: #333;
+            font-size: 12px;
+            line-height: 1;
+            padding: 5px 8px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .copy-btn:hover {
+            border-color: #1976d2;
+            color: #1976d2;
+            background: #f2f8ff;
+        }
+        .copy-btn.is-copied {
+            border-color: #2e7d32;
+            color: #2e7d32;
+            background: #eefaf0;
+        }
+        .copy-btn[disabled] {
+            color: #aaa;
+            border-color: #e0e0e0;
+            cursor: not-allowed;
+            background: #fafafa;
+        }
+        .copy-toast {
+            position: fixed;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            background: rgba(0, 0, 0, 0.78);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 4px;
+            font-size: 13px;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+            pointer-events: none;
+        }
+        .copy-toast.is-visible {
+            opacity: 1;
+        }
+        /* COPY_CONTROLS_END */
+"""
+
+_COPY_CONTROLS_HTML = """
+            <!-- COPY_CONTROLS_START -->
+            <span class="copy-sep"></span>
+            <select id="copy-date-select" class="copy-date-select" title="选择入选日期（默认最新一日）"></select>
+            <button type="button" class="copy-btn" id="copy-day-codes-btn" title="复制所选入选日的股票代码">复制当日入选</button>
+            <button type="button" class="copy-btn" id="copy-all-codes-btn" title="复制本页全部股票代码">复制全部</button>
+            <!-- COPY_CONTROLS_END -->
+"""
+
+_COPY_CONTROLS_JS = """
+        // COPY_CONTROLS_START
+        const ENTRY_LEGEND_GROUPS = __ENTRY_GROUPS__;
+        const COPY_MAX_DATE_OPTIONS = 60;
+        const COPY_ENTRY_INDEX = { keys: [], byKey: {}, dates: [], latestDate: '' };
+
+        function buildCopyEntryIndex() {
+            COPY_ENTRY_INDEX.keys = [];
+            COPY_ENTRY_INDEX.byKey = {};
+            const containers = Array.from(document.querySelectorAll('.chart-container[data-chart-key]'));
+            const chartData = window.__chartDataCache || [];
+            containers.forEach((container, index) => {
+                const key = String(container.dataset.chartKey || '');
+                COPY_ENTRY_INDEX.keys.push(key);
+                const dates = [];
+                const traces = (chartData[index] && chartData[index].data) || [];
+                traces.forEach((trace) => {
+                    if (!trace || ENTRY_LEGEND_GROUPS.indexOf(trace.legendgroup) < 0) return;
+                    (trace.x || []).forEach((value) => {
+                        if (value === null || value === undefined) return;
+                        const day = String(value).slice(0, 10);
+                        if (day) dates.push(day);
+                    });
+                });
+                if (key) {
+                    COPY_ENTRY_INDEX.byKey[key] = Array.from(new Set(dates)).sort();
+                }
+            });
+            const allDates = [];
+            let latest = '';
+            Object.keys(COPY_ENTRY_INDEX.byKey).forEach((key) => {
+                COPY_ENTRY_INDEX.byKey[key].forEach((day) => {
+                    if (day > latest) latest = day;
+                    if (allDates.indexOf(day) < 0) allDates.push(day);
+                });
+            });
+            COPY_ENTRY_INDEX.dates = allDates.sort().reverse().slice(0, COPY_MAX_DATE_OPTIONS);
+            COPY_ENTRY_INDEX.latestDate = latest;
+        }
+
+        function collectCodesOfDate(date) {
+            if (!date) return [];
+            return COPY_ENTRY_INDEX.keys.filter((key) => {
+                const dates = COPY_ENTRY_INDEX.byKey[key] || [];
+                return dates.indexOf(date) >= 0;
+            });
+        }
+
+        function selectedCopyDate() {
+            const select = document.getElementById('copy-date-select');
+            if (select && select.value) return select.value;
+            return COPY_ENTRY_INDEX.latestDate;
+        }
+
+        function populateCopyDateSelect() {
+            const select = document.getElementById('copy-date-select');
+            if (!select) return;
+            const previous = select.value;
+            select.innerHTML = '';
+            COPY_ENTRY_INDEX.dates.forEach((day) => {
+                const count = collectCodesOfDate(day).length;
+                const option = document.createElement('option');
+                option.value = day;
+                option.textContent = day + ' (' + count + ')';
+                select.appendChild(option);
+            });
+            // 默认选中最新入选日；用户已手动选过则尽量保持
+            const preferred = (previous && COPY_ENTRY_INDEX.dates.indexOf(previous) >= 0)
+                ? previous
+                : COPY_ENTRY_INDEX.latestDate;
+            if (preferred) select.value = preferred;
+        }
+
+        function copyTextToClipboard(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).catch(function () {
+                    fallbackCopyText(text);
+                });
+            } else {
+                fallbackCopyText(text);
+            }
+        }
+
+        function fallbackCopyText(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } catch (err) {
+                console.error('复制失败（兼容模式）:', err);
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function showCopyToast(message) {
+            let toast = document.getElementById('copy-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'copy-toast';
+                toast.className = 'copy-toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = message;
+            toast.classList.add('is-visible');
+            clearTimeout(toast.__copyTimer);
+            toast.__copyTimer = setTimeout(function () {
+                toast.classList.remove('is-visible');
+            }, 1800);
+        }
+
+        function flashCopyButton(button) {
+            if (!button) return;
+            button.classList.add('is-copied');
+            clearTimeout(button.__copyTimer);
+            button.__copyTimer = setTimeout(function () {
+                button.classList.remove('is-copied');
+            }, 900);
+        }
+
+        function refreshCopyButtons() {
+            const dayBtn = document.getElementById('copy-day-codes-btn');
+            const allBtn = document.getElementById('copy-all-codes-btn');
+            const total = COPY_ENTRY_INDEX.keys.filter(Boolean).length;
+            const selected = selectedCopyDate();
+            const dayCodes = collectCodesOfDate(selected);
+
+            if (dayBtn) {
+                if (selected && dayCodes.length > 0) {
+                    dayBtn.disabled = false;
+                    dayBtn.textContent = '复制当日入选 ' + selected.slice(5) + ' (' + dayCodes.length + ')';
+                    dayBtn.title = '复制 ' + selected + ' 入选的 ' + dayCodes.length + ' 只股票代码';
+                } else if (selected) {
+                    dayBtn.disabled = true;
+                    dayBtn.textContent = '复制当日入选 ' + selected.slice(5) + ' (0)';
+                    dayBtn.title = selected + ' 无入选股票';
+                } else {
+                    dayBtn.disabled = true;
+                    dayBtn.textContent = '复制当日入选 (无)';
+                    dayBtn.title = '未解析到入选日期标记';
+                }
+            }
+            if (allBtn) {
+                allBtn.disabled = total === 0;
+                allBtn.textContent = '复制全部 (' + total + ')';
+            }
+        }
+
+        function bindCopyControls() {
+            buildCopyEntryIndex();
+            populateCopyDateSelect();
+            refreshCopyButtons();
+
+            const dateSelect = document.getElementById('copy-date-select');
+            if (dateSelect) {
+                dateSelect.addEventListener('change', function () {
+                    refreshCopyButtons();
+                });
+            }
+
+            const dayBtn = document.getElementById('copy-day-codes-btn');
+            if (dayBtn) {
+                dayBtn.addEventListener('click', function () {
+                    const date = selectedCopyDate();
+                    const codes = collectCodesOfDate(date);
+                    if (!codes.length) {
+                        showCopyToast((date || '所选日期') + ' 无入选股票');
+                        return;
+                    }
+                    copyTextToClipboard(codes.join('\\n'));
+                    flashCopyButton(dayBtn);
+                    showCopyToast('已复制 ' + date + ' 入选 ' + codes.length + ' 只股票代码');
+                });
+            }
+
+            const allBtn = document.getElementById('copy-all-codes-btn');
+            if (allBtn) {
+                allBtn.addEventListener('click', function () {
+                    const codes = COPY_ENTRY_INDEX.keys.filter(Boolean);
+                    if (!codes.length) {
+                        showCopyToast('本页无股票代码');
+                        return;
+                    }
+                    copyTextToClipboard(codes.join('\\n'));
+                    flashCopyButton(allBtn);
+                    showCopyToast('已复制全部 ' + codes.length + ' 只股票代码');
+                });
+            }
+        }
+        // COPY_CONTROLS_END
+"""
+
+
+def _build_copy_controls(entry_legend_groups: Sequence[str]) -> Tuple[str, str, str]:
+    """
+    构造「复制当日入选 / 复制全部」按钮的三段片段：(CSS, 按钮HTML, JS)。
+
+    entry_legend_groups: 视为“入选”标记的 Plotly legendgroup 列表
+    （如 ['leader_entry'] 龙头入选 / ['momo_entry'] 默默上涨入选）。
+    """
+    import json
+
+    groups_json = json.dumps(list(entry_legend_groups), ensure_ascii=False)
+    return (
+        _COPY_CONTROLS_CSS,
+        _COPY_CONTROLS_HTML,
+        _COPY_CONTROLS_JS.replace('__ENTRY_GROUPS__', groups_json),
+    )
+
+
 def _create_combined_html(figures: List[go.Figure], titles: List[str],
                           columns: int, rows: int, page_title: str = "策略扫描结果",
                           chart_keys: Optional[List[str]] = None,
                           enable_favorites: bool = False,
-                          favorite_storage_key: str = "trading.chart.favorites.v1") -> str:
+                          favorite_storage_key: str = "trading.chart.favorites.v1",
+                          entry_legend_groups: Optional[Sequence[str]] = None) -> str:
     """创建包含所有图表的单个HTML文件，使用多个Plotly CDN备用源"""
     import json
 
     chart_keys = chart_keys or ["" for _ in figures]
+    copy_css, copy_buttons_html, copy_js = (
+        _build_copy_controls(entry_legend_groups) if entry_legend_groups else ("", "", "")
+    )
+    copy_enabled = bool(copy_js)
     favorite_enabled = enable_favorites and len(chart_keys) == len(figures)
     favorite_storage_key_json = json.dumps(favorite_storage_key, ensure_ascii=False)
     favorites_css = """
@@ -1281,6 +1578,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             border-left: 1px dashed rgba(120, 120, 120, 0.5);
             z-index: 15;
         }}
+{copy_css}
     </style>
 </head>
 <body>
@@ -1289,7 +1587,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
             <label for="toggle-attention-marker">
                 <input type="checkbox" id="toggle-attention-marker" checked />
                 关注度入榜
-            </label>
+            </label>{copy_buttons_html}
         </div>
         <h1>{page_title}</h1>
         <p>共 {len(figures)} 只股票</p>
@@ -1324,7 +1622,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
         const ATTENTION_LEGEND_GROUP = 'attention_rank';
         const FAVORITES_ENABLED = """ + json.dumps(favorite_enabled) + """;
         const FAVORITE_STORAGE_KEY = """ + favorite_storage_key_json + """;
-
+""" + copy_js + """
         function bindVerticalHoverGuide(chartEl, guideEl) {
             if (!chartEl || !guideEl || chartEl.__verticalGuideBound) return;
             chartEl.__verticalGuideBound = true;
@@ -1465,7 +1763,7 @@ def _create_combined_html(figures: List[go.Figure], titles: List[str],
                 bindVerticalHoverGuide(chartEl, guideEl);
             });
             bindHeaderControls();
-            bindFavoriteControls();
+""" + ("            bindCopyControls();\n" if copy_enabled else "") + """            bindFavoriteControls();
         }
         
         // 页面加载完成后初始化图表
@@ -1489,6 +1787,7 @@ def _create_stock_favorite_combined_html(
         rows: int,
         page_title: str,
         favorite_scope: str,
+        entry_legend_groups: Optional[Sequence[str]] = None,
 ) -> str:
     """创建支持按股票代码收藏置顶的组合HTML。"""
     return _create_combined_html(
@@ -1500,6 +1799,7 @@ def _create_stock_favorite_combined_html(
         chart_keys=stock_codes,
         enable_favorites=True,
         favorite_storage_key=f"trading.{favorite_scope}.favorites.v1",
+        entry_legend_groups=entry_legend_groups,
     )
 
 
