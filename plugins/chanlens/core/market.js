@@ -82,13 +82,99 @@
     return { source: 'sina', name: '', code: String(code), period: period, adjust: 1, klines: klines };
   }
 
-  /* 主源失败自动切备用源 */
+  /* ------------------------------------------------------- 腾讯（备用源） */
+  const TX_KLINE = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get';   // 日/周/月，支持前复权
+  const TX_MKLINE = 'https://ifzq.gtimg.cn/appstock/app/kline/mkline';     // 分钟线（不带 web. 前缀才通）
+  const TX_PERIOD = {
+    '1m': 'm1', '5m': 'm5', '15m': 'm15', '30m': 'm30', '60m': 'm60',
+    'daily': 'day', 'weekly': 'week', 'monthly': 'month'
+  };
+  const TX_BIG = { daily: 1, weekly: 1, monthly: 1 };   // 走 fqkline（带复权）的那几档
+
+  function txSymbol(code) {
+    const c = String(code).trim();
+    if (/^(sh|sz|bj)/i.test(c)) return c.toLowerCase();
+    const parts = toSecid(c).split('.');
+    return (parts[0] === '1' ? 'sh' : 'sz') + parts[1];
+  }
+
+  /** 腾讯时间戳 -> 与其它源一致的字符串。
+   *  注意两个接口格式不同：fqkline（日/周/月）给的是 'YYYY-MM-DD'，
+   *  mkline（分钟）给的是紧凑的 'YYYYMMDDhhmm'。别一律按紧凑切。 */
+  function txTime(raw, isBig) {
+    const s = String(raw);
+    if (isBig || s.indexOf('-') >= 0) return s.slice(0, 10);
+    return s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8) +
+           ' ' + s.slice(8, 10) + ':' + s.slice(10, 12) + ':00';
+  }
+
+  async function fetchTencent(code, period, limit) {
+    const sym = txSymbol(code);
+    const key = TX_PERIOD[period] || 'day';
+    const big = !!TX_BIG[period];
+    const n = limit || 800;
+    const url = big
+      ? TX_KLINE + '?param=' + sym + ',' + key + ',,,' + n + ',qfq'
+      : TX_MKLINE + '?param=' + sym + ',' + key + ',,' + n;
+    const res = await fetch(url, { headers: { 'Referer': 'https://gu.qq.com/' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const d = json && json.data && json.data[sym];
+    if (!d) throw new Error('腾讯返回结构异常');
+    const rows = d[(big ? 'qfq' : '') + key] || d[key];
+    if (!rows || !rows.length) throw new Error('腾讯返回空数据');
+
+    const klines = rows.map(r => ({
+      t: txTime(r[0], big),
+      o: +r[1], c: +r[2], h: +r[3], l: +r[4], v: +r[5],
+      a: 0, pct: 0, turn: 0
+    }));
+    return {
+      source: 'tencent', name: '', code: String(code),
+      period: period, adjust: big ? 1 : 0, klines: klines
+    };
+  }
+
+  /* ------------------------------------------------------- 数据源注册表
+   * auto = 原来的行为：东财优先，挂了切新浪（顺序不变，备用源不参与自动选）。
+   * 手动指定某个源时，它是首选，失败仍会自动往 auto 链里降级 —— 宁可给出
+   * 数据并把真实来源显示在状态栏，也不要因为一个源抖动就整个打不开图。
+   */
+  const SOURCES = [
+    { id: 'eastmoney', label: '东方财富', fetch: fetchEastmoney },
+    { id: 'sina', label: '新浪财经', fetch: fetchSina },
+    { id: 'tencent', label: '腾讯财经', fetch: fetchTencent }
+  ];
+  const AUTO_CHAIN = ['eastmoney', 'sina'];
+  let prefSource = 'auto';
+
+  function setSource(id) {
+    prefSource = SOURCES.some(s => s.id === id) ? id : 'auto';
+    return prefSource;
+  }
+  function getSource() { return prefSource; }
+  function sourceLabel(id) {
+    const s = SOURCES.find(x => x.id === id);
+    return s ? s.label : '未知来源';
+  }
+  /** 供设置面板生成选项，避免两端各写一份列表 */
+  function sourceOptions() {
+    return [{ id: 'auto', label: '自动（东财优先，失败切新浪）' }]
+      .concat(SOURCES.map(s => ({ id: s.id, label: s.label })));
+  }
+
+  /* 按选中源取数；未指定时保持历史行为（东财 -> 新浪） */
   async function fetchKline(code, period, limit, adjust) {
-    let errs = [];
-    try { return await fetchEastmoney(code, period, limit, adjust); }
-    catch (e) { errs.push('eastmoney: ' + e.message); }
-    try { return await fetchSina(code, period, limit); }
-    catch (e) { errs.push('sina: ' + e.message); }
+    const order = prefSource === 'auto'
+      ? AUTO_CHAIN.slice()
+      : [prefSource].concat(AUTO_CHAIN.filter(id => id !== prefSource));
+    const errs = [];
+    for (const id of order) {
+      const s = SOURCES.find(x => x.id === id);
+      if (!s) continue;
+      try { return await s.fetch(code, period, limit, adjust); }
+      catch (e) { errs.push(s.id + ': ' + e.message); }
+    }
     throw new Error(errs.join(' / '));
   }
 
@@ -188,6 +274,11 @@
     fetchKline: fetchKline,
     fetchEastmoney: fetchEastmoney,
     fetchSina: fetchSina,
+    fetchTencent: fetchTencent,
+    setSource: setSource,
+    getSource: getSource,
+    sourceLabel: sourceLabel,
+    sourceOptions: sourceOptions,
     searchSuggest: searchSuggest,
     fetchName: fetchName,
     fetchQuotes: fetchQuotes

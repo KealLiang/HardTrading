@@ -179,6 +179,15 @@
     loadScanCache();   // 只读该周期缓存，零请求
   }
 
+  /** 数据源在设置面板「数据」分组里改，这里是唯一同步点 */
+  function syncDataSource(params) {
+    if (!CLMarket.setSource) return false;
+    var want = (params && params.dataSource) || 'auto';
+    if (want === CLMarket.getSource()) return false;
+    CLMarket.setSource(want);
+    return true;                       // 变了 → 需要丢掉缓存重新取数
+  }
+
   function loadScanCache() {
     return CLScanner.loadFor(SCAN.period).then(function (items) {
       signals = items || {};
@@ -724,7 +733,8 @@
                    ' / 背驰' + res.divergences.length + ' / 点' + res.points.length);
       }
       panel.setStatus(stats.join('　|　') + '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
-                      (loaded[0].source === 'sina' ? '新浪财经' : '东方财富'));
+                      (CLMarket.sourceLabel ? CLMarket.sourceLabel(loaded[0].source)
+                                            : (loaded[0].source === 'sina' ? '新浪财经' : '东方财富')));
     } catch (e) {
       panel.setStatus('出错：' + (e && e.message || e), true);
     }
@@ -1012,6 +1022,7 @@
     chartHeights: chartHeights(),
     onReady: function (state) {
       state.levels[0] = state.period;
+      syncDataSource(state && state.params);   // 必须在首次取数之前生效
       loadAll(function () {
         syncScanPeriod(state && state.params);   // 恢复设置的扫描周期（纯读缓存）
         renderWatchlist();
@@ -1034,7 +1045,11 @@
     },
     onPeriodChange: function () { datasets = {}; rebuild(); },
     onAdjustChange: function () { datasets = {}; rebuild(); },
-    onParamChange: function (params) { syncScanPeriod(params); rebuild(); },
+    onParamChange: function (params) {
+      syncScanPeriod(params);
+      if (syncDataSource(params)) datasets = {};   // 换源 → 旧缓存作废，必须重取
+      rebuild();
+    },
     onLayerChange: function (layers) { views.forEach(function (v) { v.setLayers(layers); v.draw(); }); },
     onLevelsChange: function () { rebuild(); },
     onAction: function (act) {
@@ -1042,7 +1057,16 @@
       if (act === 'recalc') { datasets = {}; rebuild(); }
       else if (act === 'export') exportJSON();
       else if (act === 'shot') saveShot();
-      else if (act === 'reset') { panel.resetState(); datasets = {}; rebuild(); }
+      else if (act === 'reset') {
+        panel.resetState();
+        // 重置会把参数写回默认值，这里必须像 onParamChange 那样重新应用一遍：
+        // 否则「数据源/扫描周期」这类不在引擎里的开关还停在被重置前的状态
+        var rstParams = (panel.getState() || {}).params;
+        syncScanPeriod(rstParams);
+        syncDataSource(rstParams);
+        datasets = {};
+        rebuild();
+      }
     }
   });
 

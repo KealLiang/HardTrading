@@ -103,8 +103,29 @@
             { id: 'weekly', label: '周线' }],
           help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' }
       ]
+    },
+    {
+      // 放在最后：改它要重取全部数据，不是调参那种随手切的开关
+      group: '数据', items: [
+        { key: 'dataSource', label: '数据源', type: 'select', options: sourceOptions(),
+          help: '自动＝东财优先、失败切新浪（原行为）。手动选中某源时它以优先，仍失败会自动降级，' +
+                '状态栏「来源」显示的是实际拿到数据的源' }
+      ]
     }
   ];
+
+  /** 选项列表由行情层提供，避免两端各写一份；拿不到时退回硬编码 */
+  function sourceOptions() {
+    if (global.CLMarket && typeof global.CLMarket.sourceOptions === 'function') {
+      return global.CLMarket.sourceOptions();
+    }
+    return [
+      { id: 'auto', label: '自动（东财优先，失败切新浪）' },
+      { id: 'eastmoney', label: '东方财富' },
+      { id: 'sina', label: '新浪财经' },
+      { id: 'tencent', label: '腾讯财经' }
+    ];
+  }
 
   var LAYERS = [
     { id: 'zhongshu', label: '中枢' },
@@ -124,6 +145,7 @@
     Object.keys(D).forEach(function (k) { params[k] = D[k]; });
     params.scanPeriod = params.scanPeriod || 'daily';   // 自选扫描专用（非引擎参数）
     params.klineMode = params.klineMode || 'raw';     // 画图用哪种 K 线（非引擎参数）
+    params.dataSource = params.dataSource || 'auto';  // 行情源（非引擎参数）
     return {
       params: params,
       layers: {
@@ -399,7 +421,10 @@
       resetState: function () {
         state = defaultState();
         saveState(state);
-        buildTabs(); buildSide(); rebuildCharts(3);
+        buildTabs(); buildSide();
+        // 这里必须跟着 chartCount 走：宿主（如安卓壳）可以把图数配成 1，
+        // 写死 3 会让「重置参数」把多出来的空图一起建出来（画面上突然多两张图）。
+        rebuildCharts(options.chartCount || 3);
         return state;
       },
       activeCanvases: function () {

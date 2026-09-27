@@ -48,13 +48,17 @@
    * @param adjust 复权 0=不复权 1=前复权 2=后复权
    */
   async function getKlines(code, period, limit, adjust) {
-    const key = [code, period, limit, adjust].join('|');
+    // 缓存键里带上当前数据源：手动换源后必须立刻重取，
+    // 否则 45 秒内还会拿到上一个源的数据（图上「来源」与实际内容不符）
+    const src = (global.CLMarket && global.CLMarket.getSource) ? global.CLMarket.getSource() : 'auto';
+    const key = [code, period, limit, adjust, src].join('|');
     const hit = localCache.get(key);
     if (hit && Date.now() - hit.at < LOCAL_TTL) return hit.data;
 
     const req = {
       type: 'CL_FETCH_KLINE', code: code, period: period,
-      limit: limit || 800, adjust: adjust == null ? 1 : adjust
+      limit: limit || 800, adjust: adjust == null ? 1 : adjust,
+      source: src                    // 后台模块是另一个实例，选源要显式带过去
     };
 
     let data = null, lastErr = null;

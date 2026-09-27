@@ -489,6 +489,19 @@
     ctx.beginPath(); ctx.moveTo(L.left, this.cross.y); ctx.lineTo(L.right, this.cross.y); ctx.stroke();
     ctx.restore();
 
+    // 横线的纵坐标读数：直接贴在右侧价格轴上（盖住被指到的那格刻度）。
+    // 信息条给的是「那根 K 线」的开高低收，而手指的 y 未必落在 K 线实体上，
+    // 所以要单独把这个价位标出来 —— 用户看的就是「我指的这个高度值多少钱」。
+    ctx.font = '11px system-ui, "Microsoft YaHei", sans-serif';
+    var pTag = fmtPrice(this.yPrice(this.cross.y));
+    var pTagW = Math.min(this.padding.right - 4, ctx.measureText(pTag).width + 8);
+    var pTagY = Math.min(L.priceBottom - 15, Math.max(L.priceTop, this.cross.y - 7.5));
+    ctx.fillStyle = '#2b6cb0';
+    ctx.fillRect(L.right + 2, pTagY, pTagW, 15);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.fillText(pTag, L.right + 6, pTagY + 11.5);
+
     // 浮动信息条
     var lines = this._mergedBars ? [
       fmtTime(k.t, this.data.period),

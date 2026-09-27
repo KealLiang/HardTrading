@@ -20,7 +20,9 @@ const cache = new Map();
 /* ------------------------------------------------------------------ 入口 */
 async function handleKline(msg) {
   const adjust = msg.adjust == null ? 1 : msg.adjust;
-  const key = [msg.code, msg.period, msg.limit, adjust].join('|');
+  // service worker 里的 CLMarket 是独立实例，页面上改的「数据源」不会自动同步过来
+  if (msg.source && CLMarket.setSource) CLMarket.setSource(msg.source);
+  const key = [msg.code, msg.period, msg.limit, adjust, msg.source || 'auto'].join('|');
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_TTL) return Object.assign({ cached: true }, hit.data);
 
