@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- 开发用：真实网络冒烟 fetchQuotes 批量行情接口。勿发布。 -->
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>quote smoke</title></head>
+<body>
+<pre id="out">running…</pre>
+<script src="../core/market.js"></script>
+<script>
+  CLMarket.fetchQuotes(['600519', '512880', '159995', '300750', '002491', '999999'])
+    .then(function (r) { document.getElementById('out').textContent = 'OK ' + JSON.stringify(r); })
+    .catch(function (e) { document.getElementById('out').textContent = 'FAIL ' + (e && e.message); });
+</script>
+</body>
+</html>
