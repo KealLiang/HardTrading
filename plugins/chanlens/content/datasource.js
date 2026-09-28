@@ -115,10 +115,18 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
+  /**
+   * 清掉 45 秒本地缓存（强制刷新用）
+   * 「重算」只清 app.js 的 datasets，取数仍会命中这里；盘中要真联网重取
+   * 就得先清掉。缓存本身是为了避免同一只票短时间内重复请求，主动清即按需。
+   */
+  function clearCache() { localCache.clear(); }
+
   global.CLDataSource = {
     getKlines: getKlines,
     withTimestamps: withTimestamps,
     parseTime: parseTime,
-    downloadJSON: downloadJSON
+    downloadJSON: downloadJSON,
+    clearCache: clearCache
   };
 })(typeof window !== 'undefined' ? window : this);
