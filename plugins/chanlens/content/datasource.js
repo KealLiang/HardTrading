@@ -11,6 +11,16 @@
   var localCache = new Map();
   var LOCAL_TTL = 45 * 1000;
 
+  /* 末端兜底的抑制表：code|period -> 上次「别的源也没有」的时间戳。
+     节假日/停牌时每次取数都会判定落后，靠它避免反复白发请求。
+     追加成功不记（那种情况主源一直落后，每次都得补）；
+     clearCache()（长按强制重算）会连它一起清。 */
+  var fixGuard = {};
+  var FIX_GUARD_MS = 10 * 60 * 1000;
+  /* 追加的那根相对当前末根的最大允许跳变：超过就怀疑复权基准/精度对不上，
+     宁可不补。25% 放得下 20cm 涨停，但拦得住除权级别的断层。 */
+  var FIX_JUMP_MAX = 0.25;
+
   /**
    * MV3 中 background 的 sendResponse 回包通过 sendMessage 的 Promise 返回，
    * 不是一条新的广播消息。这里同时兼容 Promise 与 callback 两种 API 形态。
@@ -79,6 +89,46 @@
     }
     if (!data) throw new Error((lastErr && lastErr.message) || '未知错误');
 
+    /* 末端兜底：日/周/月各源落地时间不一致，主源可能还没出当前这根
+       （用户看到的「30 分钟图正常、日线图还是昨天的形态」）。末端落后时
+       去别的源找更晚的，**只把那几根追加到尾部**，历史不动。
+       只有别的源确实更晚才追加，所以周末/节假日/停牌不会误改数据。 */
+    var MK = global.CLMarket;
+    if (MK && MK.isStale && MK.isStale(data.klines, period)) {
+      var gk = code + '|' + period;
+      // 上次试过但别的源也没有（节假日/停牌就是这样），10 分钟内不再空跑；
+      // 追加成功则不抑制 —— 那种情况主源一直落后，每次都得补。
+      // clearCache()（长按强制重算）会连这张表一起清，保证「强制」即时生效。
+      if (Date.now() - (fixGuard[gk] || 0) > FIX_GUARD_MS) {
+        try {
+          const fix = await MK.fetchFresherTail(
+            code, period, limit || 800, adjust == null ? 1 : adjust,
+            data.source || src, data.klines);
+          if (fix && fix.tail && fix.tail.length) {
+            // 连续性校验：追加的第一根相对当前末根跳变过大，多半是复权基准
+            // 或报价精度对不上（新浪不复权 vs 腾讯 qfq），宁可不补也别造假跳空
+            var prev = data.klines[data.klines.length - 1];
+            var prevC = Number(prev.c), nextC = Number(fix.tail[0].c);
+            var jump = prevC > 0 ? Math.abs(nextC - prevC) / prevC : 0;
+            var note = { from: data.source || src, to: fix.from, n: fix.tail.length };
+            if (jump > FIX_JUMP_MAX) {
+              note.rejected = true;
+            } else {
+              data.klines = data.klines.concat(fix.tail);
+            }
+            data.tailFix = note;
+          } else if (fix && fix.gap) {
+            // 缺口 ≥ 探测窗口：多半是长期停牌/很久没打开。不再为它拉第二次
+            // 全量，交给用户长按「重算」（会清掉这张抑制表，立刻生效）
+            data.tailFix = { from: data.source || src, to: fix.from, gap: true };
+            fixGuard[gk] = Date.now();
+          } else {
+            fixGuard[gk] = Date.now();      // 别的源也没有 → 抑制一会儿
+          }
+        } catch (e) { /* 兜底失败不影响主流程，图上顶多还是旧的那根 */ }
+      }
+    }
+
     localCache.set(key, { at: Date.now(), data: data });
     if (localCache.size > 30) localCache.delete(localCache.keys().next().value);
     return data;
@@ -120,7 +170,9 @@
    * 「重算」只清 app.js 的 datasets，取数仍会命中这里；盘中要真联网重取
    * 就得先清掉。缓存本身是为了避免同一只票短时间内重复请求，主动清即按需。
    */
-  function clearCache() { localCache.clear(); }
+  /** 长按「重算」= 强制：清 K 线缓存，也清末端兜底的抑制表，
+   *  保证「强制」当下一定真的去别的源问一次，不被 10 分钟抑制挡住。 */
+  function clearCache() { localCache.clear(); fixGuard = {}; }
 
   global.CLDataSource = {
     getKlines: getKlines,

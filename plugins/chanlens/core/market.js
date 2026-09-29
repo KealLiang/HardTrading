@@ -178,6 +178,105 @@
     throw new Error(errs.join(' / '));
   }
 
+  /* -------------------------------------------- 日/周/月「末端缺失」兜底
+   * 各源日线当日数据的落地时间不一致：东财 push2his 盘中就给实时当日，
+   * 腾讯 fqkline 也较早；而新浪 getKLineData(scale=240) 收盘后有一段合成
+   * 空窗 —— 同一时刻它的分钟线（scale=30）已经是当日，日线却还停在昨天。
+   * 表现就是用户看到的「30 分钟图正常、日线图还是昨天的形态」，
+   * 而且这时候不管怎么重算都刷不出来，因为源那边确实没有这根。
+   *
+   * 这里只做一件事：末端明显落后时，去别的源看看谁更新，**把更晚的那几根
+   * 追加到尾部**，历史一个字不动。不整份替换 —— 各源的复权基准（新浪压根
+   * 不支持复权，腾讯日/周/月是 qfq）和报价精度（腾讯 ETF 只到分）都不一样，
+   * 整份换会把历史的笔/段/中枢一起改掉。
+   *
+   * 判据是「别的源有没有更晚的」而不是「等于今天」—— 周末、节假日、停牌
+   * 这些情况所有源都停在同一天，追加 0 根，保持原样，不会误判成数据缺失。
+   */
+  var nowFn = function () { return Date.now(); };   // 单测/冒烟可注入时间基准
+  function setNowFn(fn) {
+    nowFn = typeof fn === 'function' ? fn : function () { return Date.now(); };
+  }
+
+  function fmtDate(d) {
+    var m = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' +
+           (dd < 10 ? '0' : '') + dd;
+  }
+
+  /** 当前周期「应有的最新一根」的日期下限：末端日期 >= 它，就算已更新。
+   *  不查节假日日历 —— 反正真正决定是否追加的是「别的源有没有更晚的」，
+   *  多试一次无害（外层还有 10 分钟抑制，不会反复浪费请求）。
+   *
+   *  周/月线不猜「这根该标周几」（各源标周首/周末不一致），只要求它落在
+   *  当前周期内：周线扯到本周一、月线扯到 1 号，末端在里面就算新。 */
+  function expectLastDate(period, nowMs) {
+    var d = new Date(nowMs == null ? nowFn() : nowMs);
+    if (period === 'weekly') {
+      var wd = d.getDay();                       // 0=周日 .. 6=周六
+      d.setDate(d.getDate() - ((wd + 6) % 7));   // 周一退 0 天，周日退 6 天
+    } else if (period === 'monthly') {
+      d.setDate(1);
+    } else {
+      // 日线：09:30 前算上一交易日，周末回退周五
+      if (d.getHours() * 60 + d.getMinutes() < 9 * 60 + 30) d.setDate(d.getDate() - 1);
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    }
+    return fmtDate(d);
+  }
+
+  /** 日线专用入口（老调用兼容） */
+  function expectTradingDate(nowMs) { return expectLastDate('daily', nowMs); }
+
+  function lastDateOf(klines) {
+    if (!klines || !klines.length) return '';
+    var t = String(klines[klines.length - 1].t || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : '';
+  }
+  function dateOf(k) { return String((k && k.t) || '').slice(0, 10); }
+
+  /** 末端是否落后（只给日/周/月用；分钟线各源都是实时聚合，不参与） */
+  var FIX_PERIODS = { daily: 1, weekly: 1, monthly: 1 };
+  function isStale(klines, period, nowMs) {
+    if (!FIX_PERIODS[period]) return false;
+    var last = lastDateOf(klines);
+    return !!last && last < expectLastDate(period, nowMs);
+  }
+  function isStaleDaily(klines, nowMs) { return isStale(klines, 'daily', nowMs); }
+
+  /** 末端落后时依次试其它源：腾讯（当日落地最早）-> 东财 -> 新浪。
+   *  只把「晚于当前末端的那几根」交回来，历史一个字不动 —— 各源根数、
+   *  复权基准、报价精度都不一样，整份替换会把笔/段/中枢一起改掉。
+   *
+   *  探测只用小窗口：要补的通常就 1~2 根，不值得为它拉满 800 根。源只能按
+   *  「最近 N 根」取，所以 30 根的末根和 800 根的末根是同一根 —— 不存在
+   *  「窗口小就没拉到当日」这回事，探测没更新就是源真的没更新。
+   *
+   *  整个窗口都比当前末端新 = 缺口 ≥ 窗口：这是长期停牌/很久没打开的信号，
+   *  **不再为它拉第二次全量**，交回 gap 标记让用户长按强制重算。 */
+  const DAILY_FIX_ORDER = ['tencent', 'eastmoney', 'sina'];
+  const TAIL_PROBE_N = 30;
+  async function fetchFresherTail(code, period, limit, adjust, curSrc, curKlines) {
+    const cur = lastDateOf(curKlines);
+    if (!cur) return null;
+    for (const id of DAILY_FIX_ORDER) {
+      if (id === curSrc) continue;
+      const s = SOURCES.find(x => x.id === id);
+      if (!s) continue;
+      try {
+        const d = await s.fetch(code, period, Math.min(TAIL_PROBE_N, limit || TAIL_PROBE_N), adjust);
+        const ks = (d && d.klines) || [];
+        if (!ks.length) continue;
+        const tail = ks.filter(k => dateOf(k) > cur);
+        if (tail.length === ks.length && dateOf(ks[0]) > cur) {
+          return { tail: [], from: id, gap: true };
+        }
+        if (tail.length) return { tail: tail, from: id };
+      } catch (e) { /* 这个源不通/没数据，换下一个 */ }
+    }
+    return null;
+  }
+
   /* ----------------------------------------------------- 搜索与名称反查 */
   async function searchSuggest(text) {
     const url = 'https://searchapi.eastmoney.com/api/suggest/get?input=' +
@@ -281,6 +380,14 @@
     sourceOptions: sourceOptions,
     searchSuggest: searchSuggest,
     fetchName: fetchName,
-    fetchQuotes: fetchQuotes
+    fetchQuotes: fetchQuotes,
+    /* 日/周/月末端缺失兜底（供 content/datasource.js 调用；单测直接测纯函数） */
+    isStale: isStale,
+    isStaleDaily: isStaleDaily,
+    expectLastDate: expectLastDate,
+    expectTradingDate: expectTradingDate,
+    fetchFresherTail: fetchFresherTail,
+    TAIL_PROBE_N: TAIL_PROBE_N,
+    setNowFn: setNowFn
   };
 })(typeof self !== 'undefined' ? self : this);

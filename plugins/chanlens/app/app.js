@@ -732,9 +732,21 @@
                    ' / 段' + res.segs.length + ' / 中枢' + res.zhongshus.length +
                    ' / 背驰' + res.divergences.length + ' / 点' + res.points.length);
       }
+      var srcName = CLMarket.sourceLabel ? CLMarket.sourceLabel(loaded[0].source)
+                                         : (loaded[0].source === 'sina' ? '新浪财经' : '东方财富');
+      // 末端从别的源补过时要说出来：否则用户看到「多出一根」会以为是乱跳
+      var fix = loaded[0].tailFix;
+      var fixNote = '';
+      if (fix) {
+        var nm = function (id) { return CLMarket.sourceLabel ? CLMarket.sourceLabel(id) : id; };
+        fixNote = fix.rejected
+          ? '（' + nm(fix.from) + ' 末尾落后，但 ' + nm(fix.to) + ' 数据基准对不上，未追加）'
+          : fix.gap
+          ? '（缺口超过 ' + (CLMarket.TAIL_PROBE_N || 30) + ' 根，未自动补；长按「重算」强刷）'
+          : '（' + nm(fix.from) + ' 未更新，已从 ' + nm(fix.to) + ' 补 ' + fix.n + ' 根）';
+      }
       panel.setStatus(stats.join('　|　') + '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
-                      (CLMarket.sourceLabel ? CLMarket.sourceLabel(loaded[0].source)
-                                            : (loaded[0].source === 'sina' ? '新浪财经' : '东方财富')));
+                      srcName + fixNote);
     } catch (e) {
       panel.setStatus('出错：' + (e && e.message || e), true);
     }
