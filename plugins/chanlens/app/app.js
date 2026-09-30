@@ -529,10 +529,49 @@
       lab.appendChild(ck); lab.appendChild(nm); lab.appendChild(ct); lab.appendChild(cd);
       delListEl.appendChild(lab);
     });
+    buildDelCats();
     syncDelStat();
     delModalEl.classList.remove('hidden');
     var first = delListEl.querySelector('input');
     if (first) first.focus();
+  }
+
+  /** 「按分类快选」：点分类 chip = 只勾该类（再点同一个恢复全选）。
+   *  只动勾选，确认删除仍走 doDelete —— 删的是自选，cats 本身一个不动，
+   *  删空了的分类保留（删除分类是「分类管理」里的独立功能）。 */
+  function buildDelCats() {
+    var row = document.getElementById('delCatRow');
+    if (!row) return;
+    row.innerHTML = '';
+    var setChecked = function (fn) {
+      delListEl.querySelectorAll('input[type=checkbox]').forEach(function (ck) {
+        ck.checked = !!fn(ck.value);
+      });
+      syncDelStat();
+    };
+    var add = function (label, pickFn, onFn) {
+      var s = document.createElement('span');
+      s.className = 'app-dcat';
+      s.textContent = label;
+      s.addEventListener('click', function () {
+        var already = onFn && onFn();
+        setChecked(already ? function () { return true; } : pickFn);
+      });
+      row.appendChild(s);
+    };
+    add('全部', function () { return true; });
+    cats.forEach(function (c) {
+      var items = itemsOf(c.id);
+      if (!items.length) return;           // 空分类没有可删的，不显示
+      var codes = {}; items.forEach(function (w) { codes[w.code] = 1; });
+      add(c.name + ' ' + items.length,
+          function (code) { return !!codes[code]; },
+          function () {
+            var picked = pickedCodes();
+            return picked.length === items.length &&
+                   picked.every(function (code) { return codes[code]; });
+          });
+    });
   }
 
   function closeDel() { delModalEl.classList.add('hidden'); }
