@@ -35,6 +35,9 @@
   var quoteTimer = null;
   var signals = {};           // code -> 扫描信号（来自 CLScanner 持久化缓存）
   var scanBusy = false;
+  var trackMap = {};          // code -> 追踪记录（CLTrack 持久化，1.6.0 缠论追踪）
+  var extraOn = true;         // 「额外」显隐：追踪价位线 + 图上短文案
+  var EXTRA_KEY = 'chanlens.extra.v1';
 
   /** 状态栏输出：panel 在「同步回调」场景（如测试桩）下可能尚未赋值，统一在这里兜底 */
   function setStatus(msg, warn) { if (panel && panel.setStatus) panel.setStatus(msg, warn); }
@@ -153,7 +156,7 @@
         return Promise.all(all).then(function () { return out; });
       })
       .then(function (m) {
-        if (m && Object.keys(m).length) { quotes = m; renderWatchlist(); }
+        if (m && Object.keys(m).length) { quotes = m; renderWatchlist(); checkTrackAlerts(); }
       })
       .catch(function () { /* 静默：涨跌幅拿不到不影响主功能 */ });
   }
@@ -163,9 +166,23 @@
     return (p > 0 ? '+' : '') + p.toFixed(2) + '%';
   }
 
+  /* 价格格式化：≥100 两位小数（股票），<100 三位（ETF 常见毫级精度） */
+  function fmtPrice(v) {
+    if (v == null || !isFinite(v)) return '—';
+    return v >= 100 ? v.toFixed(2) : v.toFixed(3);
+  }
+
+  /* 轻提示：安卓壳走原生 Toast，PC 落状态栏 */
+  function toast(msg) {
+    if (window.CLMobile && window.CLMobile.toast) window.CLMobile.toast(msg);
+    else setStatus(msg);
+  }
+
   /* ------------------------------------------------- 缠论信号扫描（周期可选） */
   var SCAN = { period: 'daily', limit: 200, maxLag: 10, freshMs: 30 * 60 * 1000 };
   var LEVEL_CN = { 1: '一', 2: '二', 3: '三' };
+  var TRACK_LIMIT = 800;    // 追踪现算时的取数根数：与看图一致，笔/中枢才对得上
+  var sigCache = {};        // '<period>|<code>' -> 追踪现算出来的信号（不污染扫描缓存）
 
   var scanBtnEl = document.getElementById('scanBtn');
 
@@ -457,6 +474,18 @@
           top.appendChild(badge);
         }
 
+        // 追踪徽标（1.6.0）：长按列表项可查看计划/取消
+        var tr = trackMap[item.code];
+        if (tr) {
+          var tb = document.createElement('span');
+          tb.className = 'sig track';
+          tb.textContent = tr.dir > 0 ? '追多' : '追空';
+          tb.title = (tr.dir > 0 ? '做多 ▲' : '做空 ▼') + ' · ' +
+                     (CLTrack.PERIOD_CN[tr.period] || tr.period) + '\n' +
+                     (tr.lines || []).join('\n');
+          top.appendChild(tb);
+        }
+
         var cd = document.createElement('span');
         cd.className = 'cd';
         cd.textContent = item.code;
@@ -478,17 +507,12 @@
           if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.code); }
         });
         li.addEventListener('dragend', function () { dragCode = null; li.classList.remove('dragging'); });
+
+        // 手机长按 = 右键：mobile/cats.js 已把列表项长按合成为 contextmenu，
+        // 这里只管菜单内容（追踪条目置顶，分类/删除沿用），两端一份逻辑。
         li.addEventListener('contextmenu', function (e) {
           e.preventDefault();
-          var ents = [];
-          cats.forEach(function (t) {
-            if (t.id === (item.cat || UNCAT)) return;
-            ents.push({ label: '移动到「' + t.name + '」', fn: function () { moveTo(item.code, t.id); } });
-          });
-          ents.push({ label: '新建分类并移入…', fn: function () { newCat(function (id) { moveTo(item.code, id); }); } });
-          ents.push({ sep: true });
-          ents.push({ label: '从自选中删除', danger: true, fn: function () { delOne(item.code); } });
-          showCtx(e, ents);
+          openItemMenu(item, e.clientX, e.clientY);
         });
         listEl.appendChild(li);
       });
@@ -765,6 +789,8 @@
         });
         view.setData({ klines: shown.klines, period: data.period, code: data.code, name: data.name,
                        result: shown.result, mergedBars: st.params.klineMode === 'merged' });
+        advanceTrackTrail(data, res);           // 动盈/目标随新数据推进（只朝有利方向）
+        applyTrackToView(view);                 // 追踪价位线/短文案（额外）
         view.draw();
         views.push(view);
         stats.push(PERIOD_LABEL[data.period] + ' 笔' + res.bis.length +
@@ -784,12 +810,352 @@
           ? '（缺口超过 ' + (CLMarket.TAIL_PROBE_N || 30) + ' 根，未自动补；长按「重算」强刷）'
           : '（' + nm(fix.from) + ' 未更新，已从 ' + nm(fix.to) + ' 补 ' + fix.n + ' 根）';
       }
-      panel.setStatus(stats.join('　|　') + '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
+      /* 追踪是按「建卡时的级别」算的：切到别的级别时价位线不会再画，
+         不明说的话用户会以为追踪丢了 —— 状态栏念一句它属于哪个级别。 */
+      var tp = trackMap[current.code];
+      var trackNote = (tp && tp.period !== periods[0])
+        ? '　|　追踪：' + (PERIOD_LABEL[tp.period] || tp.period) +
+          '级别（切回去看价位线，改追别的级别要先取消）' : '';
+      panel.setStatus(stats.join('　|　') + trackNote +
+                      '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
                       srcName + fixNote);
+      // 追踪动态盯梢：图表重算后顺手核对一次（列表侧由行情刷新触发）
+      var lastKs = loaded[0].klines;
+      if (lastKs && lastKs.length) checkTrackAlerts(lastKs[lastKs.length - 1].c);
     } catch (e) {
       panel.setStatus('出错：' + (e && e.message || e), true);
     }
   }
+
+  /* ------------------------------------------------------------ 缠论追踪（1.6.0 / 1.7.0）
+   * 追踪记录 trackMap[code] → { dir, period, level/type/note, entry, stop,
+   * stopRule, target, trail, lines, createdAt, alertedStop, alertedTarget, alertedTrail }。
+   * 图上的价位线（目标/参考/失效/动盈）+ 短文案都属「额外」，extraOn 控制。
+   *
+   * 1.7.1：把「止盈」拆成两件事 —— 目标（上方前高，到价减 1/3）与动盈（跟踪止损，
+   *   在价格下方，只上移不下移）。动盈只在跑出浮盈后才存在，信号刚出时 rec.trail
+   *   为 null，图上就不画这条线（那时它贴着失效位，画出来只会误导）。
+   *
+   * 1.7.0 两条硬性规则：
+   *   ① 级别 = 追踪时主图的级别（切到 30 分就按 30 分追），不是「扫描周期」；
+   *      换级别后旧价位线只在该级别可见，状态栏会提示它属于哪个级别。
+   *   ② 方向 = 信号自带（买点做多 / 卖点做空），不再让用户选看多还是看空。 */
+
+  /** 当前主图级别：参数和面板的 period 可能不同步，一律以 levels[0] 为准 */
+  function curPeriod() {
+    var st = panel && panel.getState ? panel.getState() : null;
+    var p = st && st.levels && st.levels[0];
+    return p || (st && st.period) || SCAN.period;
+  }
+
+  /** 同步取该级别下的信号。优先级：
+   *   ① 当前已加载的图数据（零请求，和画面上画的笔/中枢完全一套）
+   *   ② 本次会话现算过的（ensureSignal 缓存）
+   *   ③ 扫描缓存 —— 只在还新鲜（freshMs 内）时用，过期的不拿来凑数
+   *   都没有 → null，交给 ensureSignal 现拉一次。 */
+  function signalOf(code, period) {
+    var d = datasets[period];
+    if (d && d.code === code && d.klines && d.klines.length) {
+      var st = panel.getState();
+      var res = ChanEngine.analyze(d.klines, st.params);
+      var fromChart = CLScanner.pickSignal(d.klines, res, { maxLag: SCAN.maxLag });
+      if (fromChart) return fromChart;
+    }
+    var c = sigCache[period + '|' + code];
+    if (c) return c.none ? null : c;
+    var s = signals[code];
+    if (s && !s.none && s.period === period && s.ts && (Date.now() - s.ts) < SCAN.freshMs) return s;
+    return null;
+  }
+
+  /** 取不到就现拉一次（与看图同根数，保证笔/中枢和画面一致），并缓存住。
+   *  取数失败返回 { failed: true } —— 必须跟「这个级别真没信号」区分开，
+   *  否则用户点「追踪」只看到一句「暂无买卖点」，会当成功能坏了。 */
+  function ensureSignal(code, period) {
+    var s = signalOf(code, period);
+    if (s) return Promise.resolve(s);
+    var st = panel.getState();
+    return CLDataSource.getKlines(code, period, TRACK_LIMIT, st.adjust)
+      .then(function (d) {
+        CLDataSource.withTimestamps(d);
+        var ks = (d && d.klines) || [];
+        if (!ks.length) return { failed: true, empty: true };
+        var res = ChanEngine.analyze(ks, st.params);
+        var sig = CLScanner.pickSignal(ks, res, { maxLag: SCAN.maxLag });
+        if (sig) { sig.ts = Date.now(); sig.period = period; }
+        sigCache[period + '|' + code] = sig || { none: true, period: period };
+        return sig;
+      })
+      .catch(function (e) { return { failed: true, err: (e && e.message) || String(e) }; });
+  }
+
+  function applyTrackToView(view) {
+    view.planLines = null;
+    view.planNote = null;
+    if (!extraOn) return;
+    var rec = trackMap[current.code];
+    if (!rec || !view.data || view.data.period !== rec.period) return;
+    var lines = [];
+    /* 目标在有利方向的上/下方，到价减 1/3 —— 这才是「止盈」 */
+    if (rec.target != null)
+      lines.push({ price: rec.target, color: '#a8631f', label: '目标' });
+    /* 参考（入场价）只在作战卡里写，图上不画：它冻在建卡那一刻，画出来只是多一条线 */
+    if (rec.stop != null)
+      lines.push({ price: rec.stop, color: '#b02b2b', label: '失效' });
+    /* 动盈 = 跟踪止损，在价格下方（空头在上方），只有跑出浮盈后才会出现 */
+    if (rec.trail != null)
+      lines.push({ price: rec.trail, color: '#1e6e3c', label: '动盈' });
+    if (lines.length) view.planLines = lines;
+    /* 短文案要一屏放得下：级别+信号类型缩写，不塞完整 note */
+    view.planNote = (rec.dir > 0 ? '▲多 ' : '▼空 ') +
+      (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' +
+      (LEVEL_CN[rec.level] || rec.level) + (rec.type > 0 ? '买' : '卖') +
+      (rec.stop != null ? ' ｜ 失效 ' + fmtPrice(rec.stop) : '');
+  }
+
+  function applyTrackToViews() {
+    views.forEach(function (v) { applyTrackToView(v); v.draw(); });
+  }
+
+  /** 动盈推进：每次重算后，用刚画出来的这份数据重算动盈/目标并回写记录。
+   *  纯结构计算，不发新请求。动盈只朝有利方向走（CLTrack.advanceTrail 内部保证），
+   *  所以信号刚出、还没跑出浮盈时它一直是 null —— 图上就不画这条线。 */
+  function advanceTrackTrail(data, res) {
+    var rec = trackMap[data.code];
+    if (!rec || rec.period !== data.period) return;
+    var sig = CLScanner.pickSignal(data.klines, res, { maxLag: SCAN.maxLag });
+    if (!sig || !sig.refs) return;
+    var next = rec.dir > 0 ? sig.refs.trailLow : sig.refs.trailHigh;
+    var changed = CLTrack.advanceTrail(rec, next);
+    // 目标：前高被突破后上方就没参照了 → 置空（线消失），别留着旧目标误导
+    var tgt = rec.dir > 0 ? sig.refs.targetHigh : sig.refs.targetLow;
+    if (CLTrack.refreshTarget(rec, tgt)) changed = true;
+    if (changed) CLTrack.save(trackMap);
+  }
+
+  /** 动态盯梢：现价触碰失效位/止盈位时提醒。priceOfCurrent 优先（实时 K 线收盘），
+   *  其余追踪标的用行情快照价。hit 只报一次，标记写回记录。 */
+  function checkTrackAlerts(priceOfCurrent) {
+    var changed = false;
+    Object.keys(trackMap).forEach(function (code) {
+      var rec = trackMap[code];
+      var px = (code === current.code && priceOfCurrent != null) ? priceOfCurrent
+             : (quotes[code] && quotes[code].price != null ? quotes[code].price : null);
+      if (px == null) return;
+      var r = CLTrack.check(rec, px);
+      if (r.hit) {
+        if (r.hit === 'stop') rec.alertedStop = true;
+        else if (r.hit === 'target') rec.alertedTarget = true;
+        else rec.alertedTrail = true;
+        changed = true;
+        toast((rec.name || code) + '：' + r.text);
+      }
+    });
+    if (changed) CLTrack.save(trackMap);
+  }
+
+  /** 取消追踪 */
+  function cancelTrack(code) {
+    var rec = trackMap[code];
+    CLTrack.del(trackMap, code);
+    applyTrackToViews();
+    renderWatchlist();
+    setStatus(rec ? '已取消' + (CLTrack.PERIOD_CN[rec.period] || rec.period) +
+                    '追踪，现在可以按别的级别重新追踪' : '已取消追踪');
+  }
+
+  /* ---- 菜单：长按/右键共用。追踪条目置顶，分类/删除沿用原有条目 ---- */
+  function openItemMenu(item, x, y) {
+    var ents = [];
+    var rec = trackMap[item.code];
+    var per = curPeriod();
+    /* 1.7.3：一只标的同一时间只追一个级别。跨级别时不再给「追踪」入口 ——
+       否则点一下就把记录悄悄换成别的级别，既覆盖掉了原来的计划，
+       又因为记录已换级别而看不到原来那张作战卡。要换就显式「先取消再追」。 */
+    var switching = !!rec && rec.period !== per;
+    if (rec) {
+      ents.push({ label: '追踪中：' + (rec.dir > 0 ? '做多 ▲' : '做空 ▼') + ' ' +
+        (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' + rec.note, disabled: true });
+      ents.push({ label: '取消追踪', danger: true, fn: function () { cancelTrack(item.code); } });
+      ents.push({ sep: true });
+    }
+    if (switching) {
+      ents.push({ label: '改追' + (PERIOD_LABEL[per] || per) + '（先取消' +
+        (CLTrack.PERIOD_CN[rec.period] || rec.period) + '追踪）',
+        fn: function () { cancelTrack(item.code); openTrackCard(item, false); } });
+    } else {
+      /* 追踪按「当前主图级别」走，菜单上的标签也得是这个级别的信号；
+         该级别还没算过就只写级别名，点进去再现算（可能提示该级别无信号）。
+         已追踪的同级别标的，这个入口就是「查看/重算计划」，不叫「追踪」。 */
+      var sg = signalOf(item.code, per);
+      var cached = sigCache[per + '|' + item.code];
+      var tag = (PERIOD_LABEL[per] || per) +
+        (sg && !sg.none ? ' · ' + (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖')
+                        : ((cached && cached.none) ? ' · 无信号' : ''));
+      ents.push({ label: (rec ? '查看计划（' : '追踪（') + tag + '）',
+                  fn: function () { openTrackCard(item, false); } });
+    }
+    ents.push({ sep: true });
+    cats.forEach(function (t) {
+      if (t.id === (item.cat || UNCAT)) return;
+      ents.push({ label: '移动到「' + t.name + '」', fn: function () { moveTo(item.code, t.id); } });
+    });
+    ents.push({ label: '新建分类并移入…', fn: function () { newCat(function (id) { moveTo(item.code, id); }); } });
+    ents.push({ sep: true });
+    ents.push({ label: '从自选中删除', danger: true, fn: function () { delOne(item.code); } });
+    showCtx({ clientX: x, clientY: y, preventDefault: function () {} }, ents);
+  }
+
+  /* ---- 作战卡弹层 ---- */
+  var trackModalEl = document.getElementById('trackModal');
+  var trackHeadEl = document.getElementById('trackHead');
+  var trackBodyEl = document.getElementById('trackBody');
+  var trackDirRow = document.getElementById('trackDirRow');
+  var trackOkBtn = document.getElementById('trackOk');
+  var trackCtx = null;   // { item, viewMode, sig, period, plan }
+
+  /**
+   * 打开作战卡。签名兼容旧调用 openTrackCard(item, dir, viewMode)：
+   * 第二个参数是布尔就是新的（只带 viewMode），数字则是旧的（方向已废弃）。
+   * 非视图态要先按「当前主图级别」拿到信号（可能联网现算一次），所以是异步。
+   * 1.7.2：该级别算不出信号、但标的已在追踪中 → 回退展示已存计划（只读），
+   *        这样切了级别也还能看到自己记的东西，不会「点开没反应」。
+   */
+  function openTrackCard(item, a, b) {
+    var viewMode = (typeof a === 'boolean') ? a : !!b;
+    var rec = trackMap[item.code];
+    if (viewMode && !rec) return Promise.resolve(null);
+    if (viewMode) {
+      trackCtx = { item: item, viewMode: true, sig: null, period: rec.period, plan: null };
+      showTrackModal();
+      return Promise.resolve(rec);
+    }
+    var per = curPeriod();
+    var nm = item.name || item.code;
+    /* 1.7.3 一只标的只追一个级别：跨级别一律拒绝，不给隐式覆盖的机会
+       （正常路径里菜单会先「取消追踪」再进来，这里是兜底，防别的调用点） */
+    var exist = trackMap[item.code];
+    if (exist && exist.period !== per) {
+      var msgX = '「' + nm + '」已在' + (CLTrack.PERIOD_CN[exist.period] || exist.period) +
+                 '追踪中：一只标的只追一个级别，先取消追踪，或切回该级别查看计划';
+      setStatus(msgX, true);
+      toast(msgX);
+      return Promise.resolve(null);
+    }
+    setStatus('正在按' + (PERIOD_LABEL[per] || per) + '计算「' + nm + '」的追踪计划…');
+    return ensureSignal(item.code, per).then(function (sig) {
+      if (sig && sig.failed) {
+        // 取数失败 ≠ 没信号，必须说清楚，否则用户只会觉得「点了没反应」
+        var msg = sig.empty ? '没取到' + nm + '的' + (PERIOD_LABEL[per] || per) + '数据'
+                            : '取数失败：' + (sig.err || '网络或数据源异常');
+        setStatus(msg + '，稍后重试', true);
+        toast('「' + nm + '」' + msg);
+        return null;
+      }
+      if (!sig || sig.none) {
+        var rec0 = trackMap[item.code];
+        if (rec0) {
+          // 已追踪但当前级别没信号 → 展示存下来的计划（只读），别让人干瞪眼
+          var msgR = '「' + nm + '」在' + (PERIOD_LABEL[per] || per) +
+                     '级别暂无买卖点，下面显示的是' + (CLTrack.PERIOD_CN[rec0.period] || rec0.period) +
+                     '级别的已存计划';
+          setStatus(msgR);
+          trackCtx = { item: item, viewMode: true, sig: null, period: rec0.period, plan: null };
+          showTrackModal();
+          return rec0;
+        }
+        var msg2 = '「' + nm + '」在' + (PERIOD_LABEL[per] || per) +
+                   '级别暂无买卖点，换级别或等信号出现再追';
+        setStatus(msg2, true);
+        toast(msg2);
+        return null;
+      }
+      trackCtx = { item: item, viewMode: false, sig: sig, period: sig.period || per, plan: null };
+      showTrackModal();
+      return sig;
+    });
+  }
+
+  function showTrackModal() {
+    if (!trackCtx) return;
+    var ctx = trackCtx;
+    ctx.plan = null;
+    if (trackDirRow) trackDirRow.style.display = 'none';   // 1.7.0：方向由信号决定，不再选
+    trackOkBtn.style.display = ctx.viewMode ? 'none' : '';
+    document.getElementById('trackCancel').textContent = ctx.viewMode ? '关闭' : '取 消';
+    renderTrackCard();
+    trackModalEl.classList.remove('hidden');
+  }
+
+  function renderTrackCard() {
+    var ctx = trackCtx;
+    if (!ctx) return;
+    var meta, items, warn = '';
+    if (ctx.viewMode) {
+      var rec = trackMap[ctx.item.code];
+      var kv = [];
+      if (rec.entry != null) kv.push('参考 ' + fmtPrice(rec.entry));
+      if (rec.target != null) kv.push('目标 ' + fmtPrice(rec.target));
+      if (rec.stop != null) kv.push('失效 ' + fmtPrice(rec.stop));
+      if (rec.trail != null) kv.push('动盈 ' + fmtPrice(rec.trail));
+      trackHeadEl.textContent = '缠论追踪 · 计划';
+      meta = '<b class="' + (rec.dir > 0 ? 'up' : 'dn') + '">' + (rec.dir > 0 ? '做多 ▲' : '做空 ▼') + '</b> · ' +
+        (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' + rec.note +
+        ' · ' + new Date(rec.createdAt).toLocaleDateString() +
+        (rec.confirmed ? '' : ' · <b>未定型</b>') +
+        (kv.length ? '<br>当前计划位：' + kv.join(' ｜ ') : '');
+      items = (rec.lines || []).map(function (s) { return '<li>' + s + '</li>'; }).join('');
+    } else {
+      var sig = ctx.sig;
+      ctx.period = sig.period || ctx.period;
+      ctx.plan = CLTrack.buildPlan(sig, null, ctx.period, { fmtPrice: fmtPrice });
+      ctx.dir = ctx.plan.dir;
+      trackHeadEl.textContent = '缠论追踪 · 作战卡';
+      meta = '<b class="' + (ctx.plan.dir > 0 ? 'up' : 'dn') + '">' +
+        (ctx.plan.dir > 0 ? '做多 ▲' : '做空 ▼') + '</b>（方向由' +
+        (sig.type > 0 ? '买点' : '卖点') + '决定） · ' +
+        (ctx.item.name || ctx.item.code) + ' ' + ctx.item.code + ' · ' +
+        (PERIOD_LABEL[ctx.period] || ctx.period || '') + ' ' + sig.note +
+        '<br>参考入场（现价口径）：<b>' + fmtPrice(ctx.plan.entry) + '</b>' +
+        (sig.ratio != null ? ' · 背驰力度比 ' + sig.ratio.toFixed(2) : '');
+      items = ctx.plan.lines.map(function (s) { return '<li>' + s + '</li>'; }).join('');
+      if (!sig.confirmed)
+        warn = '<div class="tk-warn">⚠ 信号未定型：分型右侧可能修订，确认前等 readyK+1 根走完。</div>';
+    }
+    trackBodyEl.innerHTML = '<div class="tk-meta">' + meta + '</div><ol>' + items + '</ol>' + warn;
+  }
+
+  trackOkBtn.addEventListener('click', function () {
+    var ctx = trackCtx;
+    if (!ctx || ctx.viewMode || !ctx.plan) return;
+    var sig = ctx.sig, plan = ctx.plan;
+    var rec = {
+      code: ctx.item.code, name: ctx.item.name || ctx.item.code,
+      dir: plan.dir, period: ctx.period,
+      level: sig.level, type: sig.type, note: sig.note, confirmed: !!sig.confirmed,
+      entry: plan.entry, stop: plan.stop, stopRule: plan.stopRule,
+      target: plan.target, trail: plan.trail,
+      lines: plan.lines, createdAt: Date.now(),
+      alertedStop: false,
+      // 建卡时价格已在目标位/动盈位的另一侧 → 立刻提醒没有意义，直接标记已报
+      alertedTarget: plan.target != null && plan.entry != null &&
+        (plan.dir > 0 ? plan.entry >= plan.target : plan.entry <= plan.target),
+      alertedTrail: plan.trail != null && plan.entry != null &&
+        (plan.dir > 0 ? plan.entry <= plan.trail : plan.entry >= plan.trail)
+    };
+    CLTrack.set(trackMap, ctx.item.code, rec);
+    applyTrackToViews();
+    renderWatchlist();
+    trackModalEl.classList.add('hidden');
+    toast('已进入追踪：' + rec.name + ' ' + (rec.dir > 0 ? '做多 ▲（' : '做空 ▼（') +
+          (CLTrack.PERIOD_CN[rec.period] || rec.period) + '）');
+  });
+  document.getElementById('trackCancel').addEventListener('click', function () {
+    trackModalEl.classList.add('hidden');
+  });
+  /* 1.7.0：方向 pill 已移除（方向由信号类型决定），这行只保留一个显式说明：
+     万一还有旧页面/旧测试点进来，不做事也不报错。 */
+  if (trackDirRow) trackDirRow.style.display = 'none';
 
   /**
    * 多图联动：同步「缩放倍数」而不是绝对时间窗口。
@@ -1080,6 +1446,14 @@
         resolveMissingNames(40);   // 兼容旧数据：启动时自动补全缺失/退化为代码的名称
         refreshQuotes();           // 自选列表右侧涨跌幅
         loadScanCache();           // 上次扫描结果（纯本地，不联网）
+        CLTrack.load().then(function (m) {   // 追踪记录（纯本地）
+          trackMap = m || {};
+          renderWatchlist();
+          applyTrackToViews();
+        });
+        chrome.storage.local.get(EXTRA_KEY, function (o) {   // 额外显隐记忆
+          if (o && o[EXTRA_KEY] === false) { extraOn = false; applyTrackToViews(); }
+        });
         quoteTimer = setInterval(function () {
           if (document.visibilityState === 'visible') refreshQuotes();  // 后台页不刷，省流量
         }, 600000);   // 10 分钟兜底刷新，日常看图直接刷新页面即可
@@ -1108,6 +1482,13 @@
       if (act === 'recalc') { datasets = {}; rebuild(); }
       else if (act === 'export') exportJSON();
       else if (act === 'shot') saveShot();
+      else if (act === 'extra') {
+        extraOn = !extraOn;
+        var o = {}; o[EXTRA_KEY] = extraOn;
+        chrome.storage.local.set(o);
+        applyTrackToViews();
+        setStatus('额外（追踪价位线 / 图上短文案）已' + (extraOn ? '显示' : '隐藏'));
+      }
       else if (act === 'reset') {
         panel.resetState();
         // 重置会把参数写回默认值，这里必须像 onParamChange 那样重新应用一遍：
@@ -1130,8 +1511,19 @@
     newCat: newCat,
     refreshQuotes: refreshQuotes,
     setScanPeriod: function (p) { syncScanPeriod({ scanPeriod: p }); },   // 与设置面板同步用
+    reloadScanCache: loadScanCache,   // 测试/调试：注入扫描缓存后手动重载
     quotes: function () { return JSON.parse(JSON.stringify(quotes)); },
     runScan: runScan,
-    signals: function () { return JSON.parse(JSON.stringify(signals)); }
+    signals: function () { return JSON.parse(JSON.stringify(signals)); },
+    /* 追踪模式（1.6.0）：供测试与调试 */
+    track: function () { return JSON.parse(JSON.stringify(trackMap)); },
+    cancelTrack: cancelTrack,
+    openTrackCard: openTrackCard,
+    openItemMenu: openItemMenu,
+    setExtra: function (on) { extraOn = !!on; applyTrackToViews(); },
+    curPeriod: curPeriod, signalOf: signalOf,
+    clearSigCache: function () { sigCache = {}; },   // 测试/调试：追踪现算缓存
+    applyTrackToViews: applyTrackToViews,
+    checkTrackAlerts: checkTrackAlerts
   };
 })();

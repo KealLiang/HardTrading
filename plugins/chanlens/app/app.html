@@ -154,6 +154,22 @@
     </div>
   </div>
 
+  <!-- 1.6.0 缠论追踪 · 作战卡：长按自选列表项 → 追踪 → 三句话。
+       1.7.0：方向由信号自带（买点做多 / 卖点做空），trackDirRow 不再放方向
+       pill，app.js 会把它整行隐藏；留着这个 id 是为了不让老页面报错。 -->
+  <div id="trackModal" class="app-modal hidden">
+    <div class="app-modal-box app-track">
+      <div class="app-modal-head" id="trackHead">缠论追踪 · 作战卡</div>
+      <div id="trackDirRow" class="app-track-dir"></div>
+      <div id="trackBody" class="app-track-body"></div>
+      <div class="app-modal-foot">
+        <span class="app-hint">写下才许下单 · 参考非指令</span>
+        <button id="trackCancel" class="cl-btn">关闭</button>
+        <button id="trackOk" class="cl-btn cl-primary">确认追踪</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../core/indicators.js"></script>
   <script src="../core/chan.js"></script>
   <script src="../core/market.js"></script>
@@ -161,6 +177,7 @@
   <script src="../chart/mergedview.js"></script>
   <script src="../ui/panel.js"></script>
   <script src="../core/scanner.js"></script>
+  <script src="../core/track.js"></script>
   <script src="../content/datasource.js"></script>
   <script src="app.js"></script>
 </body>

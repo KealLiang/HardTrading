@@ -656,9 +656,9 @@
         if (parts[j].dir === dir) continue;
         var pp = parts[j];
         if (dir > 0 && opts.showBuy && pp.low > zs.ZG) {
-          add(3, 1, pp.endK, pp.low, '三买·回抽不入中枢', { zs: z });
+          add(3, 1, pp.endK, pp.low, '三买·回抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
         } else if (dir < 0 && opts.showSell && pp.high < zs.ZD) {
-          add(3, -1, pp.endK, pp.high, '三卖·反抽不入中枢', { zs: z });
+          add(3, -1, pp.endK, pp.high, '三卖·反抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
         }
         break;
       }
@@ -677,9 +677,9 @@
         if (parts[t].dir !== refDir) continue;       // 跳过反向的第一笔（那是反弹本身）
         var cand = parts[t];
         if (isBuy && cand.low > d.targetPrice) {
-          add(2, 1, cand.endK, cand.low, '二买·回抽不破前低', { fromDiv: q });
+          add(2, 1, cand.endK, cand.low, '二买·回抽不破前低', { fromDiv: q, b1: d.targetPrice });
         } else if (!isBuy && cand.high < d.targetPrice) {
-          add(2, -1, cand.endK, cand.high, '二卖·反抽不破前高', { fromDiv: q });
+          add(2, -1, cand.endK, cand.high, '二卖·反抽不破前高', { fromDiv: q, b1: d.targetPrice });
         }
         break;                                        // 只看紧邻的第一次回抽
       }

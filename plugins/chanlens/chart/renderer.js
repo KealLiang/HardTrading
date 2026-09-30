@@ -182,6 +182,7 @@
     if (this.layers.fractal) this.drawFractals();
     if (this.layers.divergence) this.drawDivergences();
     if (this.layers.points) this.drawPoints();
+    if (this.planLines && this.planLines.length) this.drawPlanLines();
     this.drawPriceAxis();
     this.drawTimeAxis();
     this.drawCrosshair();
@@ -197,7 +198,18 @@
     }
     if (!isFinite(min)) { min = 0; max = 1; }
     var pad = (max - min) * 0.08 || 1;
-    return { min: min - pad, max: max + pad };
+    min -= pad; max += pad;
+    /* 追踪模式的价位线（失效/止盈）通常就在价格附近，纳入量程才能看见；
+       但只最多把量程向外扩 25%，防止远端历史价位把图压扁 */
+    var lines = this.planLines || [];
+    for (var j = 0; j < lines.length; j++) {
+      var p = lines[j] && lines[j].price;
+      if (p == null || !isFinite(p)) continue;
+      var span = max - min;
+      if (p < min && p > min - span * 0.25) min = p;
+      if (p > max && p < max + span * 0.25) max = p;
+    }
+    return { min: min, max: max };
   };
 
   ChartView.prototype.drawBackground = function () {
@@ -461,6 +473,94 @@
 
   /* --------------------------------------------------------------- 坐标轴 */
   ChartView.prototype.drawPriceAxis = function () { /* 已在 drawGrid 中绘制 */ };
+
+  /* ------------------------------------------------ 1.6.0 追踪价位线（额外）
+   * this.planLines: [{price, color, label}]，由 app.js 按追踪记录注入；
+   * this.planNote: 图上短文案（追踪摘要）。跟随「额外」开关显隐。
+   *
+   * 1.7.0：目标/参考/失效/动盈四条线经常挤在 1% 以内（一买低点和动盈起步常是
+   * 同一笔的两端），缩到全览时它们压在同一个像素上、后画的标签把前面的盖掉，
+   * 看上去就只剩一条线。这里做两件事：① 像素级同价的合并成一个标签
+   * （「失效/止盈 1450.00」）；② 标签纵向强制错开 15px，各条都读得到。 */
+  ChartView.prototype.drawPlanLines = function () {
+    var ctx = this.ctx, L = this.layout(), P = this._price;
+    var lines = this.planLines || [];
+    var vis = [];
+    var i, ln;
+
+    /* ① 画虚线本身（各用自己的颜色） */
+    for (i = 0; i < lines.length; i++) {
+      ln = lines[i];
+      if (!ln || ln.price == null || !isFinite(ln.price)) continue;
+      if (ln.price < P.min || ln.price > P.max) continue;
+      var y = this.priceY(ln.price);
+      ctx.save();
+      ctx.strokeStyle = ln.color || '#2b6cb0';
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(L.left, y);
+      ctx.lineTo(L.right, y);
+      ctx.stroke();
+      ctx.restore();
+      vis.push({ y: y, label: ln.label || '', price: ln.price, color: ln.color || '#2b6cb0' });
+    }
+
+    /* ② 标签：按 y 排序，几乎同价的合并，剩下的纵向错开 */
+    vis.sort(function (a, b) { return a.y - b.y; });
+    var groups = [];
+    for (i = 0; i < vis.length; i++) {
+      var last = groups[groups.length - 1];
+      if (last && Math.abs(vis[i].y - last.y) < 3) {
+        if (vis[i].label && last.labels.indexOf(vis[i].label) < 0) last.labels.push(vis[i].label);
+        continue;
+      }
+      groups.push({ y: vis[i].y, price: vis[i].price, color: vis[i].color,
+                    labels: vis[i].label ? [vis[i].label] : [] });
+    }
+
+    var lastBottom = -1e9;
+    for (i = 0; i < groups.length; i++) {
+      var gp = groups[i];
+      var text = (gp.labels.length ? gp.labels.join('/') + ' ' : '') + gp.price;
+      var by = gp.y - 16;
+      if (by < L.priceTop + 2) by = gp.y + 4;
+      if (by < lastBottom) by = lastBottom;        // 与上一个标签不重叠
+      lastBottom = by + 15;
+      ctx.save();
+      // 右端标签：底色块 + 白字。textAlign 必须显式设置 —— 前面的时间轴把
+      // 'center' 留在上下文里，长文本会以中点定位、头部画出画布外
+      ctx.setLineDash([]);
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      var tw = ctx.measureText(text).width;
+      // 标签放左端：右端是最新的那几根 K 线，标签压上去会挡住最该看的地方
+      var bx = L.left + 6;
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = gp.color;
+      ctx.fillRect(bx - 4, by, tw + 8, 15);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, bx, by + 11);
+      ctx.restore();
+    }
+    if (this.planNote) {
+      ctx.save();
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      var nw = ctx.measureText(this.planNote).width;
+      ctx.globalAlpha = 0.82;
+      ctx.fillStyle = '#2b3a4a';
+      ctx.fillRect(L.left + 6, L.priceTop + 6, nw + 12, 18);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(this.planNote, L.left + 12, L.priceTop + 19);
+      ctx.restore();
+    }
+  };
+
 
   ChartView.prototype.drawTimeAxis = function () {
     var ctx = this.ctx, L = this.layout(), r = this._range, ks = this.klines;

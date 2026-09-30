@@ -359,6 +359,7 @@
         ['重算', function () { options.onAction && options.onAction('recalc'); }],
         ['导出JSON', function () { options.onAction && options.onAction('export'); }],
         ['保存截图', function () { options.onAction && options.onAction('shot'); }],
+        ['额外', function () { options.onAction && options.onAction('extra'); }],
         ['重置参数', function () { options.onAction && options.onAction('reset'); }]
       ].forEach(function (pair) {
         var b = el('button', 'cl-btn', pair[0]);
