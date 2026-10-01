@@ -200,10 +200,45 @@
     return { hit: true, text: '30 分时机：' + rec.timing.note };
   }
 
+  /* ------------------------------------------------- 30 分时机失效（1.8.1）
+   * 时机已到（rec.timing 非空）之后 30 分出了**反向**信号 → 这个时机窗口
+   * 走坏了：清空 timing 回到「在等」，记 rec.timingFail 供卡里回看，报一次。
+   * 报完即清 timing —— 同一个反向信号反复算出时 timing 已是空，天然去重；
+   * 下一个新时机成立后再遇反向，允许再次报（对新的时机窗口语义正确）。
+   * 纯函数：返回 { hit, text }，调用方负责存盘与 toast。
+   */
+  function failTiming(rec, sig) {
+    if (!rec || !rec.timing) return { hit: false, text: '' };
+    var want = rec.dir > 0 ? 1 : -1;
+    if (!sig || sig.none || sig.type === want) return { hit: false, text: '' };
+    rec.timingFail = { note: sig.note || '', ts: Date.now(), from: rec.timing.note };
+    rec.timing = null;
+    return { hit: true, text: '30 分时机失效（' + rec.timingFail.note + '），回「在等」' };
+  }
+
+  /* ------------------------------------------------- 日线反向信号（1.8.1）
+   * 多头持仓后日线出一卖 / 空头持仓后日线出一买 —— 三句话里「本级别出现
+   * 一卖（一买）再减」的主动提醒版。跟踪推进（refsFor）只认方向、不认信号，
+   * 是为了跟踪线不冻结；但反向信号本身对持仓者是重要信息，这里补上报。
+   * rec.reverse 保留最近一次反向信号：同向信号/信号消失都不清除（防横跳），
+   * key=level|note 去重，换新的反向信号才再报。纯函数，同上。
+   */
+  function updateReverse(rec, sig) {
+    if (!rec) return { hit: false, text: '' };
+    var want = rec.dir > 0 ? -1 : 1;     // 反向：多头怕卖点、空头怕买点
+    var ok = sig && !sig.none && sig.type === want;
+    if (!ok) return { hit: false, text: '' };
+    var key = (sig.level == null ? '?' : sig.level) + '|' + (sig.note || '');
+    if (rec.reverse && rec.reverse.key === key) return { hit: false, text: '' };
+    rec.reverse = { key: key, level: sig.level, note: sig.note || '', ts: Date.now() };
+    return { hit: true, text: '日线反向信号：' + rec.reverse.note };
+  }
+
   g.CLTrack = {
     KEY: KEY, load: load, save: save,
     buildPlan: buildPlan, set: set, del: del, check: check,
-    advanceTrail: advanceTrail, refreshTarget: refreshTarget, updateTiming: updateTiming,
+    advanceTrail: advanceTrail, refreshTarget: refreshTarget,
+    updateTiming: updateTiming, failTiming: failTiming, updateReverse: updateReverse,
     LEVEL_CN: LEVEL_CN, PERIOD_CN: PERIOD_CN
   };
 })(typeof self !== 'undefined' ? self : this);

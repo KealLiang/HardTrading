@@ -234,6 +234,55 @@ check('空头对称：30 分卖点才是时机',
       CLTrack.updateTiming(sRec, { type: -1, note: '一卖·顶背驰' }).hit === true &&
       CLTrack.updateTiming(sRec, { type: 1, note: '二买·回抽不破前低' }).hit === false, sRec);
 
+group('failTiming —— 30 分时机失效（1.8.1：时机已到后 30 分走坏）');
+const fRec = { dir: 1, timing: { key: '2|二买·回抽不破前低', level: 2, note: '二买·回抽不破前低', ts: 1 } };
+let rf = CLTrack.failTiming(fRec, null);
+check('30 分无信号 → 不动（时机保留）', rf.hit === false && !!fRec.timing, rf);
+rf = CLTrack.failTiming(fRec, { type: 1, note: '一买·底背驰' });
+check('同向信号 → 不算失效', rf.hit === false && !!fRec.timing, rf);
+rf = CLTrack.failTiming(fRec, { type: -1, note: '一卖·顶背驰' });
+check('反向信号 → 时机失效，报一次', rf.hit === true && /时机失效/.test(rf.text), rf);
+check('timing 清空回「在等」，timingFail 记录失效详情',
+      fRec.timing === null && fRec.timingFail && /一卖/.test(fRec.timingFail.note) &&
+      fRec.timingFail.from === '二买·回抽不破前低', fRec);
+rf = CLTrack.failTiming(fRec, { type: -1, note: '一卖·顶背驰' });
+check('同一个反向信号反复算出 → 不重报（timing 已清，天然去重）', rf.hit === false, rf);
+rf = CLTrack.failTiming(fRec, { type: -1, note: '二卖·反抽不破前高' });
+check('时机已撤（timing 空）→ 后续反向一律不报', rf.hit === false, rf);
+const fRec2 = { dir: 1, timing: { key: '1|一买·底背驰', level: 1, note: '一买·底背驰', ts: 2 } };
+CLTrack.failTiming(fRec2, { type: -1, note: '一卖·顶背驰' });
+const fRec3 = { dir: 1, timing: { key: '2|二买·回抽不破前低', level: 2, note: '二买·回抽不破前低', ts: 3 } };
+const rf3 = CLTrack.failTiming(fRec3, { type: -1, note: '一卖·顶背驰' });
+check('新时机成立后再遇同一反向信号 → 允许再报（对新的时机窗口语义正确）',
+      rf3.hit === true, rf3);
+const sfRec = { dir: -1, timing: { key: '1|一卖·顶背驰', level: 1, note: '一卖·顶背驰', ts: 4 } };
+check('空头对称：30 分出买点 → 时机失效',
+      CLTrack.failTiming(sfRec, { type: 1, note: '二买·回抽不破前低' }).hit === true &&
+      sfRec.timing === null, sfRec);
+
+group('updateReverse —— 日线反向信号（1.8.1：多头怕卖点、空头怕买点）');
+const vRec = { dir: 1 };
+let rv = CLTrack.updateReverse(vRec, null);
+check('日线无信号 → 不动', rv.hit === false && vRec.reverse === undefined, rv);
+rv = CLTrack.updateReverse(vRec, { type: 1, level: 1, note: '一买·底背驰' });
+check('同向信号（买点对多头）→ 不算反向', rv.hit === false, rv);
+rv = CLTrack.updateReverse(vRec, { type: -1, level: 1, note: '一卖·顶背驰' });
+check('反向信号 → 提醒一次', rv.hit === true && /一卖·顶背驰/.test(rv.text), rv);
+check('reverse 落进记录（key/note/ts）',
+      vRec.reverse && vRec.reverse.key === '1|一卖·顶背驰' && vRec.reverse.ts > 0, vRec.reverse);
+rv = CLTrack.updateReverse(vRec, { type: -1, level: 1, note: '一卖·顶背驰' });
+check('同一个反向信号反复算出 → 不重复提醒', rv.hit === false, rv);
+rv = CLTrack.updateReverse(vRec, { type: 1, level: 2, note: '二买·回抽不破前低' });
+check('同向新信号出现 → 不清除反向存档、不提醒', rv.hit === false &&
+      vRec.reverse.key === '1|一卖·顶背驰', vRec.reverse);
+rv = CLTrack.updateReverse(vRec, { type: -1, level: 2, note: '二卖·反抽不破前高' });
+check('换成新的反向信号 → 再提醒一次', rv.hit === true && /二卖/.test(rv.text), rv);
+check('key 换成新反向信号的', vRec.reverse.key === '2|二卖·反抽不破前高', vRec.reverse);
+const svRec = { dir: -1 };
+check('空头对称：日线出买点才是反向',
+      CLTrack.updateReverse(svRec, { type: 1, note: '一买·底背驰' }).hit === true &&
+      CLTrack.updateReverse(svRec, { type: -1, note: '一卖·顶背驰' }).hit === false, svRec);
+
 console.log('\n==============================================================');
 console.log('结果：' + passed + ' 通过，' + failed + ' 失败');
 console.log('==============================================================');

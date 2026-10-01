@@ -942,17 +942,28 @@
     if (changed) CLTrack.save(trackMap);
   }
 
-  /* ------------------------------------------------- 30 分时机检查（1.8.0）
-   * 心法：日线定方向、30 分定时机。对每只追踪中的标的定时拉 30 分数据现算，
-   * 出现与方向一致的信号 → 记入 rec.timing 并提醒一次；同一个信号反复算出来
-   * 不重复报（updateTiming 按 key 去重），换成新信号才再报。拉 30 分失败静默
-   * 跳过（下一轮再试），不打扰。force=true 忽略间隔抑制（测试/手动刷新）。 */
+  /* ------------------------------------------------- 30 分时机 + 日线反向（1.8.0→1.8.1）
+   * 心法：日线定方向、30 分定时机。对每只追踪中的标的定时做两件事：
+   *   ① 拉 30 分数据现算：同向信号 → 记 rec.timing 提醒「时机到」（key 去重，
+   *      同一信号反复算出不重报）；时机已到后又出**反向**信号 → 时机失效
+   *      （failTiming 清 timing 回「在等」，报一次，自动去重）。
+   *   ② 日线反向信号：多头持仓后日线出一卖（空头出一买）→ 提醒（updateReverse，
+   *      key 去重；rec.reverse 保留最近一次，不随信号消失/同向清除，防横跳）。
+   * 拉数失败静默跳过（下一轮再试）。force=true 忽略间隔抑制（测试/手动刷新）。 */
   function checkTimingAll(force) {
     var st = panel.getState();
     Object.keys(trackMap).forEach(function (code) {
       var rec = trackMap[code];
       if (!force && rec.timingCheckedAt && Date.now() - rec.timingCheckedAt < TIMING_FRESH_MS) return;
       rec.timingCheckedAt = Date.now();
+      var onHit = function (r) {
+        if (!r || !r.hit) return;
+        CLTrack.save(trackMap);
+        applyTrackToViews();   // 图上左上角的「时机」状态随手刷新
+        toast((rec.name || code) + '：' + r.text);
+        renderWatchlist();
+      };
+      /* ① 30 分时机 / 时机失效 */
       CLDataSource.getKlines(code, TIMING_PERIOD, 200, st.adjust).then(function (d) {
         CLDataSource.withTimestamps(d);
         var ks = (d && d.klines) || [];
@@ -960,13 +971,14 @@
         var res = ChanEngine.analyze(ks, st.params);
         var sig = CLScanner.pickSignal(ks, res, { maxLag: SCAN.maxLag });
         var r = CLTrack.updateTiming(rec, sig);
-        if (r.hit) {
-          CLTrack.save(trackMap);
-          applyTrackToViews();   // 图上左上角的「时机」状态随手刷新
-          toast((rec.name || code) + '：' + r.text);
-          renderWatchlist();
-        }
+        if (!r.hit) r = CLTrack.failTiming(rec, sig);
+        onHit(r);
       }).catch(function () { /* 取数失败下一轮再试，时机检查不该打扰人 */ });
+      /* ② 日线反向信号（走 ensureSignal：主图已加载零请求，否则现拉带缓存） */
+      ensureSignal(code, TRACK_PERIOD).then(function (sig) {
+        if (!sig || sig.failed || sig.none) return;
+        onHit(CLTrack.updateReverse(rec, sig));
+      }).catch(function () {});
     });
   }
 
@@ -1128,6 +1140,9 @@
     var h = '<div><b>已定</b>：' + (long ? '做多 ▲' : '做空 ▼') + ' · ' +
       (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' + (d.note || '') +
       (fixed.length ? ' ｜ ' + fixed.join(' ｜ ') : '') + '</div>';
+    /* 反向：最近一次日线反向信号（不随消失/同向清除，是「最后一次走坏」的存档） */
+    if (d.reverse)
+      h += '<div><b>反向</b>：日线 ' + d.reverse.note + '（' + fmtTs(d.reverse.ts) + '）</div>';
     var waits = [];
     waits.push(d.timing
       ? '<b>30分时机已到</b>：' + d.timing.note + '（' + fmtTs(d.timing.ts) + '）'
@@ -1141,6 +1156,7 @@
     /* 已报：盯梢提醒是「只报一次」的，报过之后卡里得有处可查，不然用户不知道
        是没触发还是触发过没看见 */
     var hits = [];
+    if (d.timingFail) hits.push('30分时机失效（' + d.timingFail.note + ' ' + fmtTs(d.timingFail.ts) + '）');
     if (d.alertedTarget) hits.push('已到目标');
     if (d.alertedStop) hits.push('已破失效位');
     if (d.alertedTrail) hits.push('已触发动盈');
