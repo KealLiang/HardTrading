@@ -545,18 +545,34 @@
       ctx.fillText(text, bx, by + 11);
       ctx.restore();
     }
-    if (this.planNote) {
+    /* 追踪摘要（1.8.1 起两行）：planNote = 方向·级别·信号·参考价；
+       planNote2 = 动态状态行（30 分时机 / 动盈启动与否），由 app.js 注入。
+       整块区域记进 _noteRect，点击（鼠标 click / 触摸 tap）直接开作战卡 ——
+       免去长按列表项找菜单。跟随「额外」开关显隐。 */
+    this._noteRect = null;
+    var notes = [];
+    if (this.planNote) notes.push(this.planNote);
+    if (this.planNote2) notes.push(this.planNote2);
+    if (notes.length) {
       ctx.save();
-      ctx.font = '11px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
-      var nw = ctx.measureText(this.planNote).width;
-      ctx.globalAlpha = 0.82;
-      ctx.fillStyle = '#2b3a4a';
-      ctx.fillRect(L.left + 6, L.priceTop + 6, nw + 12, 18);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#fff';
-      ctx.fillText(this.planNote, L.left + 12, L.priceTop + 19);
+      var nx = L.left + 6, ny = L.priceTop + 6, maxW = 0;
+      for (var ni = 0; ni < notes.length; ni++) {
+        ctx.font = ni === 0 ? '11px sans-serif' : '10px sans-serif';
+        var tw2 = ctx.measureText(notes[ni]).width;
+        if (tw2 > maxW) maxW = tw2;
+        var bh = ni === 0 ? 18 : 16;
+        ctx.globalAlpha = ni === 0 ? 0.82 : 0.68;
+        ctx.fillStyle = '#2b3a4a';
+        ctx.fillRect(nx, ny, tw2 + 12, bh);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.fillText(notes[ni], nx + 6, ny + (ni === 0 ? 13 : 12));
+        ny += bh + 2;
+      }
+      this._noteRect = { x: L.left + 6, y: L.priceTop + 6,
+                         w: maxW + 12, h: ny - (L.priceTop + 6) - 2 };
       ctx.restore();
     }
   };
@@ -633,6 +649,7 @@
   ChartView.prototype.bindEvents = function () {
     var self = this;
     var dragging = false, lastX = 0;
+    var downX = 0, downY = 0;      // mousedown 落点：区分「点击」和「拖拽松手」
 
     this.canvas.addEventListener('wheel', function (e) {
       if (!self.klines) return;
@@ -651,6 +668,7 @@
 
     this.canvas.addEventListener('mousedown', function (e) {
       dragging = true; lastX = e.offsetX;
+      downX = e.offsetX; downY = e.offsetY;
       self.canvas.style.cursor = 'grabbing';
     });
     this.canvas.addEventListener('mousemove', function (e) {
@@ -665,6 +683,11 @@
           self.panBy(dFrac);
         }
       }
+      // 悬停在左上角摘要上给个「可点」的暗示
+      var nr = self._noteRect;
+      var overNote = nr && e.offsetX >= nr.x && e.offsetX <= nr.x + nr.w &&
+                     e.offsetY >= nr.y && e.offsetY <= nr.y + nr.h;
+      self.canvas.style.cursor = dragging ? 'grabbing' : (overNote ? 'pointer' : 'crosshair');
       self.draw();
     });
     this.canvas.addEventListener('mouseleave', function () {
@@ -675,6 +698,17 @@
     global.addEventListener('mouseup', function () {
       dragging = false;
       self.canvas.style.cursor = 'crosshair';
+    });
+    /* 点左上角追踪摘要 → 开作战卡（桌面鼠标路径；触摸路径在 mobile/touch.js）。
+       click 在拖拽松手时也会触发，用位移阈值排除掉。 */
+    this.canvas.addEventListener('click', function (e) {
+      var nr = self._noteRect;
+      if (!nr || !self.options.onNoteTap) return;
+      if (Math.abs(e.offsetX - downX) > 6 || Math.abs(e.offsetY - downY) > 6) return;
+      if (e.offsetX >= nr.x && e.offsetX <= nr.x + nr.w &&
+          e.offsetY >= nr.y && e.offsetY <= nr.y + nr.h) {
+        self.options.onNoteTap();
+      }
     });
     this.canvas.style.cursor = 'crosshair';
   };

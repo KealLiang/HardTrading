@@ -101,6 +101,48 @@
   }
 
   /**
+   * 按方向算「动盈 + 目标」的参照（1.8.0，从 pickSignal 里抽出来）。
+   * 跟踪中的标的要**持续**推进这两条线，而 pickSignal 挑的是「当前最佳信号」——
+   * 行情走好后日线会转出反向信号（多头持仓后出现顶背驰），pickSignal 一换靶子，
+   * 跟踪线就冻结了。所以推进必须走本函数：只认方向，不认信号。
+   *   多头 trailLow  = max{ 回调笔低点 | 低点 > 入场 }   —— 只上移（回撤时取 max 不动）
+   *   多头 targetHigh = 最近一根已完成向下笔的高点（= 最近前高）；已收在其上 → null
+   *                    （前高被突破，上方没有结构参照，目标就该消失而不是挂在远处）
+   *   空头对称。entry 缺省取最新收盘；**entry 只过滤动盈**（建卡后传 rec.entry 固定值），
+   *   目标的突破判定永远用最新收盘。全部来自已定型笔，无未来函数。
+   */
+  function refsFor(klines, res, dir, entry, markK) {
+    var ks = klines || [];
+    if (!ks.length) return { trailLow: null, trailHigh: null, targetHigh: null, targetLow: null };
+    if (entry == null) entry = ks[ks.length - 1].c;
+    var last = ks[ks.length - 1].c;                  // 目标是否被突破按**现价**判
+    var long = dir > 0;
+    var trailLow = null, trailHigh = null;
+    var bis = (res && res.bis) || [];
+    for (var i = 0; i < bis.length; i++) {
+      var b = bis[i];
+      /* markK（信号标记位）之后才形成的反向笔才作数 —— 买点前的高位回撤笔
+         低点也可能高于入场价，但那是几个月前的结构，不是本单的跟踪位 */
+      var after = (markK == null || (b.startK != null && b.startK >= markK));
+      if (b.dir < 0 && after && b.low > entry) trailLow = (trailLow == null) ? b.low : Math.max(trailLow, b.low);
+      if (b.dir > 0 && after && b.high < entry) trailHigh = (trailHigh == null) ? b.high : Math.min(trailHigh, b.high);
+    }
+    var targetHigh = null, targetLow = null;
+    for (var j = bis.length - 1; j >= 0; j--) {              // 从最新往回找第一根反向已完成笔
+      var bb = bis[j];
+      if (long && bb.dir < 0) {
+        if (last < bb.high) targetHigh = bb.high;            // 已收在其上 → 上方无参照
+        break;
+      }
+      if (!long && bb.dir > 0) {
+        if (last > bb.low) targetLow = bb.low;
+        break;
+      }
+    }
+    return { trailLow: trailLow, trailHigh: trailHigh, targetHigh: targetHigh, targetLow: targetLow };
+  }
+
+  /**
    * 从单只标的的分析结果里挑「正在形成」的那个信号。
    * 判据：信号成立位 readyK 距最后一根 K 的滞后 <= maxLag，取其中最新的一个。
    * readyK 是以前做可得性审计时引入的字段，用它判定可以避免“信号还没成立就画出来”。
@@ -138,29 +180,9 @@
     var stopBuy = pBuy ? anchorOf(pBuy) : null;
     var stopSell = pSell ? anchorOf(pSell) : null;
 
-    /* —— 动盈 + 目标（1.7.1）——
-     * 动盈只认「信号之后」才形成的反向笔，并且必须优于入场价，否则不画：
-     * 买点出现在下跌末端，若不过滤就会取到造出这个买点的那根下跌笔低点，
-     * 算出一个比失效位还低的「止盈」，既触发不到也看不懂。
-     * 取 max/min 让动盈天然只朝有利方向移动（价格回撤时线停在原位），
-     * 于是它是个纯函数 —— 不用存上一轮的值，可测。 */
-    var markK = best._k == null ? lastK : best._k;
+    /* —— 动盈 + 目标（1.8.0 起走 refsFor：与跟踪推进同一套算法，口径不漂移）—— */
     var entry = klines[lastK].c;
-    var trailLow = null, trailHigh = null;
-    var targetHigh = null, targetLow = null;
-    var bis = (res && res.bis) || [];
-    for (var i = 0; i < bis.length; i++) {
-      var b = bis[i];
-      if (b.startK != null && b.startK >= markK) {          // 信号之后才形成的笔
-        if (b.dir < 0 && b.low > entry) trailLow = (trailLow == null) ? b.low : Math.max(trailLow, b.low);
-        if (b.dir > 0 && b.high < entry) trailHigh = (trailHigh == null) ? b.high : Math.min(trailHigh, b.high);
-      }
-    }
-    for (var j = bis.length - 1; j >= 0; j--) {             // 目标：有利方向上最近的笔极值
-      var bb = bis[j];
-      if (targetHigh == null && bb.dir > 0 && bb.high > entry) targetHigh = bb.high;
-      if (targetLow == null && bb.dir < 0 && bb.low < entry) targetLow = bb.low;
-    }
+    var rr = refsFor(klines, res, best.type > 0 ? 1 : -1, entry, best._k);
 
     return {
       level: best.level, type: best.type, note: best.note,
@@ -172,8 +194,8 @@
       refs: {
         stopBuy: stopBuy != null ? stopBuy : null,
         stopSell: stopSell != null ? stopSell : null,
-        trailLow: trailLow, trailHigh: trailHigh,
-        targetHigh: targetHigh, targetLow: targetLow,
+        trailLow: rr.trailLow, trailHigh: rr.trailHigh,
+        targetHigh: rr.targetHigh, targetLow: rr.targetLow,
         lastClose: entry,
         /* 方向来自信号本身（买点=多、卖点=空）。1.7.0 起不再让用户反着选，
            但把方向记下来，作战卡/徽标/盯梢都读它 */
@@ -258,7 +280,7 @@
 
   g.CLScanner = {
     KEY: KEY, load: load, loadFor: loadFor, save: save, clear: clear,
-    scan: scan, pickSignal: pickSignal,
+    scan: scan, pickSignal: pickSignal, refsFor: refsFor,
     anchorOf: anchorOf, lastPointOf: lastPointOf   // 供单测/调试直接验证失效位规则
   };
 })(typeof self !== 'undefined' ? self : this);

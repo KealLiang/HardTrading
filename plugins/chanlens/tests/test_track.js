@@ -144,7 +144,7 @@ group('pickSignal.refs —— 1.7.1：动盈只认「信号之后 + 优于入场
    → 1.7.0 会把它当成「移动止盈」，算出一个比失效位还低的止盈（用户报的怪现象） */
 check('信号之后的回调低点才作数：此时没有 → trailLow = null',
       sig.refs.trailLow === null, sig.refs);
-check('目标 = 上方最近的已完成笔高点', near(sig.refs.targetHigh, 10.5), sig.refs);
+check('目标 = 最近前高（最近完成向下笔的高点，未突破）', near(sig.refs.targetHigh, 11), sig.refs);
 
 /* 信号之后走出一段：先涨到 11.4（向上笔），回调到 10.9（向下笔，仍高于入场 10.2） */
 const resAfter = {
@@ -183,7 +183,7 @@ const resSell = {
 };
 const sigS = CLScanner.pickSignal(ks, resSell, { maxLag: 10 });
 check('空头动补 = 信号之后、低于入场的反抽高点', near(sigS.refs.trailHigh, 9.6), sigS.refs);
-check('空头目标 = 下方最近的笔低点', near(sigS.refs.targetLow, 9.0), sigS.refs);
+check('空头目标 = 最近反抽笔的起点低点（未升破）', near(sigS.refs.targetLow, 9.2), sigS.refs);
 check('空头目标必须在现价下方（≥ 入场就不算目标）',
       sigS.refs.targetLow < sigS.refs.lastClose, sigS.refs);
 fakeRes.points[0] = { level: 3, type: 1, note: '三买·回抽不入中枢', _k: 795, readyK: 797,
@@ -213,6 +213,26 @@ check('同一张作战卡：买点 → 做多、跌破 9.80',
 const planBs = CLTrack.buildPlan(sigB, -1, 'daily', { fmtPrice: v => v.toFixed(2) });
 check('同一张作战卡：反手做空 → 升破 12.80',
   planBs.dir === -1 && /升破一卖高点 12\.80/.test(planBs.lines[1]), planBs.lines);
+
+group('updateTiming —— 30 分时机状态机（1.8.0：日线定方向、30 分定时机）');
+const tRec = { dir: 1 };
+let rt = CLTrack.updateTiming(tRec, null);
+check('30 分无信号 → 不动', rt.hit === false && tRec.timing === undefined, tRec);
+rt = CLTrack.updateTiming(tRec, { type: -1, level: 1, note: '一卖·顶背驰' });
+check('反向信号（30 分卖点对多头）不算时机', rt.hit === false, rt);
+rt = CLTrack.updateTiming(tRec, { type: 1, level: 2, note: '二买·回抽不破前低' });
+check('同向信号 → 时机到，提醒一次', rt.hit === true && /二买/.test(rt.text), rt);
+check('timing 落进记录（key/note/ts）',
+      tRec.timing && tRec.timing.key === '2|二买·回抽不破前低' && tRec.timing.ts > 0, tRec.timing);
+rt = CLTrack.updateTiming(tRec, { type: 1, level: 2, note: '二买·回抽不破前低' });
+check('同一个 30 分信号反复算出来 → 不重复提醒', rt.hit === false, rt);
+rt = CLTrack.updateTiming(tRec, { type: 1, level: 1, note: '一买·底背驰' });
+check('换成新信号 → 再提醒一次', rt.hit === true, rt);
+check('key 换成新信号的', tRec.timing.key === '1|一买·底背驰', tRec.timing);
+const sRec = { dir: -1 };
+check('空头对称：30 分卖点才是时机',
+      CLTrack.updateTiming(sRec, { type: -1, note: '一卖·顶背驰' }).hit === true &&
+      CLTrack.updateTiming(sRec, { type: 1, note: '二买·回抽不破前低' }).hit === false, sRec);
 
 console.log('\n==============================================================');
 console.log('结果：' + passed + ' 通过，' + failed + ' 失败');

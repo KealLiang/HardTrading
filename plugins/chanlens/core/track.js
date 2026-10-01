@@ -183,10 +183,27 @@
     return true;
   }
 
+  /* ------------------------------------------------- 30 分时机（1.8.0）
+   * 心法：日线定方向、30 分钟定时机。rec.timing 记录最近一次「与方向一致的
+   * 30 分信号」；从无到有、或换成了新信号（key 不同）才提醒一次——同一个
+   * 30 分买点在多根 K 线里反复被算出来，不能每次都报。
+   * 纯函数：只动 rec.timing，返回 { hit, text }，调用方负责存盘与 toast。
+   */
+  function updateTiming(rec, sig) {
+    if (!rec) return { hit: false, text: '' };
+    var want = rec.dir > 0 ? 1 : -1;
+    var ok = sig && !sig.none && sig.type === want;
+    if (!ok) return { hit: false, text: '' };
+    var key = (sig.level == null ? '?' : sig.level) + '|' + (sig.note || '');
+    if (rec.timing && rec.timing.key === key) return { hit: false, text: '' };
+    rec.timing = { key: key, level: sig.level, note: sig.note || '', ts: Date.now() };
+    return { hit: true, text: '30 分时机：' + rec.timing.note };
+  }
+
   g.CLTrack = {
     KEY: KEY, load: load, save: save,
     buildPlan: buildPlan, set: set, del: del, check: check,
-    advanceTrail: advanceTrail, refreshTarget: refreshTarget,
+    advanceTrail: advanceTrail, refreshTarget: refreshTarget, updateTiming: updateTiming,
     LEVEL_CN: LEVEL_CN, PERIOD_CN: PERIOD_CN
   };
 })(typeof self !== 'undefined' ? self : this);
