@@ -369,6 +369,10 @@
       sideCol.appendChild(actRow);
       sideCol.appendChild(el('div', 'cl-help',
         '参数自动保存到浏览器同步存储，下次打开保持。改动引擎请直接编辑 core/chan.js。'));
+      /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
+         一句话说清这版动了什么——手机上没有别的地方能看版本 */
+      sideCol.appendChild(el('div', 'cl-help',
+        'v1.8.1 · 日线定方向+30分定时机；新增反向信号与30分时机失效提醒；左上角摘要点按直开作战卡'));
     }
 
     function buildTabs() {

@@ -645,22 +645,19 @@
     }
 
     // —— 三类：离开中枢后的第一次回抽，未重新落回中枢区间 ——
+    //    buildZhongshu 按“是否与区间相交”吸收笔，且笔方向交替：突破笔必然从
+    //    区间内出发（低点<ZG / 高点>ZD）而被吸收进中枢，所以第一根未被吸收的
+    //    笔恰是突破后的第一次回抽——它本身就是三类买卖点的候选。
+    //    （旧实现把这支笔误当“离开段”取 dir，再去下一笔上测反向条件，结构上
+    //      永假：26只ETF×14年 838个中枢 0 次触发。2026-10-01 修复。）
     for (var z = 0; z < zss.length; z++) {
       var zs = zss[z];
-      var leaveIdx = zs.endPart + 1;
-      if (leaveIdx >= parts.length) continue;
-      var dir = parts[leaveIdx].dir;
-
-      // 只看离开之后出现的第一次反向回抽
-      for (var j = leaveIdx + 1; j < parts.length; j++) {
-        if (parts[j].dir === dir) continue;
-        var pp = parts[j];
-        if (dir > 0 && opts.showBuy && pp.low > zs.ZG) {
-          add(3, 1, pp.endK, pp.low, '三买·回抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
-        } else if (dir < 0 && opts.showSell && pp.high < zs.ZD) {
-          add(3, -1, pp.endK, pp.high, '三卖·反抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
-        }
-        break;
+      var pp = parts[zs.endPart + 1];
+      if (!pp) continue;
+      if (pp.dir < 0 && opts.showBuy && pp.low > zs.ZG) {
+        add(3, 1, pp.endK, pp.low, '三买·回抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
+      } else if (pp.dir > 0 && opts.showSell && pp.high < zs.ZD) {
+        add(3, -1, pp.endK, pp.high, '三卖·反抽不入中枢', { zs: z, zsZG: zs.ZG, zsZD: zs.ZD });
       }
     }
 
