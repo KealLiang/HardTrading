@@ -470,9 +470,14 @@
         var sg = signals[item.code];
         if (sg && !sg.none) {
           var badge = document.createElement('span');
-          badge.className = 'sig ' + (sg.type > 0 ? 'buy' : 'sell') + (sg.confirmed ? '' : ' fresh');
+          /* 1.9.0：三买=回测唯一有统计优势的信号 → prime 高亮；一/二买 title 标注「参考」 */
+          var prime = sg.level === 3 && sg.type > 0;
+          badge.className = 'sig ' + (sg.type > 0 ? 'buy' : 'sell') +
+            (sg.confirmed ? '' : ' fresh') + (prime ? ' prime' : '');
           badge.textContent = (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖');
           badge.title = (PERIOD_LABEL[sg.period] || sg.period || '') + '：' + (sg.note || '') +
+                        (prime ? '\n★ 回测验证：唯一有统计优势的信号（ETF 日线 10d +0.76%，t=2.54）'
+                               : (sg.type > 0 ? '\n参考：回测无可测优势，作结构参照' : '')) +
                         '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根）' +
                         (sg.ratio != null ? '\n背驰力度比：' + sg.ratio.toFixed(2) : '') +
                         '\n标记价：' + sg.price + (sg.confirmed ? '' : '\n未确认：分型右侧可能修订');
@@ -1140,9 +1145,11 @@
     var h = '<div><b>已定</b>：' + (long ? '做多 ▲' : '做空 ▼') + ' · ' +
       (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' + (d.note || '') +
       (fixed.length ? ' ｜ ' + fixed.join(' ｜ ') : '') + '</div>';
-    /* 反向：最近一次日线反向信号（不随消失/同向清除，是「最后一次走坏」的存档） */
+    /* 反向：最近一次日线反向信号（不随消失/同向清除，是「最后一次走坏」的存档）。
+       1.9.0 降级为纯提示：回测证明翻转清仓是价值毁灭者，离场只看失效位/动盈 */
     if (d.reverse)
-      h += '<div><b>反向</b>：日线 ' + d.reverse.note + '（' + fmtTs(d.reverse.ts) + '）</div>';
+      h += '<div><b>反向</b>：日线 ' + d.reverse.note + '（' + fmtTs(d.reverse.ts) +
+           '）· 仅提示，离场看失效/动盈</div>';
     var waits = [];
     waits.push(d.timing
       ? '<b>30分时机已到</b>：' + d.timing.note + '（' + fmtTs(d.timing.ts) + '）'
@@ -1164,6 +1171,14 @@
     return h;
   }
 
+  /* 1.9.0：信号价值标注（回测 26 只 ETF 日线全历史）——三买唯一有统计优势，
+     一/二买无可测优势只作结构参照。只在 UI 层标注，不动引擎口径。 */
+  function sigTag(level, type) {
+    if (level === 3 && type > 0) return '（回测验证）';
+    if (level < 3 && type > 0) return '（参考）';
+    return '';
+  }
+
   function renderTrackCard() {
     var ctx = trackCtx;
     if (!ctx) return;
@@ -1173,6 +1188,7 @@
       trackHeadEl.textContent = '缠论追踪 · 计划';
       meta = '<b class="' + (rec.dir > 0 ? 'up' : 'dn') + '">' + (rec.dir > 0 ? '做多 ▲' : '做空 ▼') + '</b> · ' +
         (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' + rec.note +
+        sigTag(rec.level, rec.type) +
         ' · ' + new Date(rec.createdAt).toLocaleDateString() +
         (rec.confirmed ? '' : ' · <b>未定型</b>');
       status = trackStatusHtml(rec);
@@ -1188,6 +1204,7 @@
         (sig.type > 0 ? '买点' : '卖点') + '决定） · ' +
         (ctx.item.name || ctx.item.code) + ' ' + ctx.item.code + ' · ' +
         (PERIOD_LABEL[ctx.period] || ctx.period || '') + ' ' + sig.note +
+        sigTag(sig.level, sig.type) +
         '<br>参考入场（现价口径）：<b>' + fmtPrice(ctx.plan.entry) + '</b>' +
         (sig.ratio != null ? ' · 背驰力度比 ' + sig.ratio.toFixed(2) : '');
       status = trackStatusHtml({ dir: ctx.plan.dir, period: ctx.period, note: sig.note,
@@ -1606,6 +1623,7 @@
     },
     signalOf: signalOf,
     clearSigCache: function () { sigCache = {}; },   // 测试/调试：追踪现算缓存
+    reloadData: function () { datasets = {}; return rebuild(); },   // 测试/调试：强制重拉行情（动态模拟切换切片用）
     applyTrackToViews: applyTrackToViews,
     checkTrackAlerts: checkTrackAlerts,
     checkTiming: checkTimingAll   // 测试/调试：force=true 忽略间隔抑制

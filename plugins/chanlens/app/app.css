@@ -147,6 +147,11 @@ body {
 }
 .app-list .sig.fresh.buy { background: #fdf3f2; }
 .app-list .sig.fresh.sell { background: #f2faf5; }
+/* 三买=回测唯一有统计优势的信号（1.9.0）：琥珀金高亮，压过 buy 底色 */
+.app-list .sig.prime {
+  background: #fff4d6; color: #9a5b0f; border-color: #e5c26a;
+  font-weight: 700;
+}
 .app-list .cd { color: #888; font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
 .app-list .row { display: flex; align-items: baseline; gap: 4px; }
 .app-list .pc {

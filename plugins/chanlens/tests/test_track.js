@@ -282,6 +282,48 @@ const svRec = { dir: -1 };
 check('空头对称：日线出买点才是反向',
       CLTrack.updateReverse(svRec, { type: 1, note: '一买·底背驰' }).hit === true &&
       CLTrack.updateReverse(svRec, { type: -1, note: '一卖·顶背驰' }).hit === false, svRec);
+const rvTxt = CLTrack.updateReverse({ dir: 1 }, { type: -1, level: 1, note: '一卖·顶背驰' });
+check('1.9.0 文案降级：多头方向词「转空」+ 仅提示 + 离场仍看结构线',
+      /转空/.test(rvTxt.text) && /仅提示/.test(rvTxt.text) && /失效位\/动盈/.test(rvTxt.text), rvTxt.text);
+const rvTxt2 = CLTrack.updateReverse({ dir: -1 }, { type: 1, level: 1, note: '一买·底背驰' });
+check('1.9.0 文案对称：空头方向词「转多」', /转多/.test(rvTxt2.text), rvTxt2.text);
+
+group('pickSignal —— 1.9.0：同 K 并列信号三类优先（三买排最前）');
+/* 一买与三买同一根 K 成立：回测三买唯一有优势 → 选三买 */
+const resTie = {
+  bis: [{ dir: 1, low: 9.0, high: 12.8 }, { dir: -1, low: 10.05, high: 11.0 }],
+  points: [
+    { level: 1, type: 1, note: '一买·底背驰', _k: 795, readyK: 797, price: 9.8,
+      confirmed: true, extra: {} },
+    { level: 3, type: 1, note: '三买·回抽不入中枢', _k: 795, readyK: 797, price: 10.9,
+      confirmed: true, extra: { zs: 0, zsZG: 10.6, zsZD: 10.2 } }
+  ]
+};
+const sigTie = CLScanner.pickSignal(ks, resTie, { maxLag: 10 });
+check('同 K 一买+三买并列 → 挑三买', sigTie.level === 3 && sigTie.type === 1, sigTie);
+const resTieSell = {
+  bis: resTie.bis,
+  points: [
+    { level: 3, type: 1, note: '三买·回抽不入中枢', _k: 795, readyK: 797, price: 10.9,
+      confirmed: true, extra: { zs: 0, zsZG: 10.6, zsZD: 10.2 } },
+    { level: 1, type: 1, note: '一买·底背驰', _k: 795, readyK: 797, price: 9.8,
+      confirmed: true, extra: {} }
+  ]
+};
+check('并列与顺序无关（数组顺序不影响）',
+      CLScanner.pickSignal(ks, resTieSell, { maxLag: 10 }).level === 3);
+/* 不同 K 仍按最新优先，三类优先只在同 K 并列时生效 */
+const resNewer = {
+  bis: resTie.bis,
+  points: [
+    { level: 3, type: 1, note: '三买·回抽不入中枢', _k: 794, readyK: 796, price: 10.9,
+      confirmed: true, extra: { zs: 0, zsZG: 10.6, zsZD: 10.2 } },
+    { level: 2, type: 1, note: '二买·回抽不破前低', _k: 796, readyK: 798, price: 10.12,
+      confirmed: true, extra: { fromDiv: 0, b1: 9.8 } }
+  ]
+};
+check('不同 K：更新的二买仍优先于更旧的三买',
+      CLScanner.pickSignal(ks, resNewer, { maxLag: 10 }).level === 2);
 
 console.log('\n==============================================================');
 console.log('结果：' + passed + ' 通过，' + failed + ' 失败');

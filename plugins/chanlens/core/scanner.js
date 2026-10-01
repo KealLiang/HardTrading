@@ -170,7 +170,12 @@
     pts.forEach(function (p) {
       var rk = (p.readyK == null ? p._k : p.readyK);
       if (rk > lastK || lastK - rk > maxLag) return;   // 太旧 or 数据还没走到
-      if (rk > bestKey) { bestKey = rk; best = p; }
+      /* 1.9.0：同一根 K 上多类信号并列时三类优先 —— 回测（26 只 ETF 日线全历史）
+         三买是唯一有统计优势的信号（10d +0.76%，t=2.54），一/二买无可测优势 */
+      if (rk > bestKey ||
+          (rk === bestKey && p.level === 3 && best && best.level !== 3)) {
+        bestKey = rk; best = p;
+      }
     });
     if (!best) return null;
     var k = klines[best._k] || null;
