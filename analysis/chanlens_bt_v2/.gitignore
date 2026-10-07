@@ -1,0 +1,8 @@
+# 运行输出与中间数据（不入库）
+tmp/
+*.log
+*.err
+
+# 回测产物（体积大，可由 bt.js + report.js 重新生成）
+# 若需保留某次结果快照，请显式解除注释
+# analysis/chanlens_bt_v2/tmp/bt_v2.json

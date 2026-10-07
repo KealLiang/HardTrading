@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>缠论买点回测 v2 · 逐日无未来函数</title><style>
+:root{--bg:#f7f8fa;--card:#fff;--bd:#e3e6ec;--fg:#1a1d23;--mu:#6b7280;--up:#c62828;--dn:#2e7d32;--ac:#1565c0;--warn:#ef6c00}
+*{box-sizing:border-box}body{margin:0;padding:20px 16px 60px;background:var(--bg);color:var(--fg);
+font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 6px}h2{font-size:17px;margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--bd)}
+.sub{color:var(--mu);font-size:13px;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:18px;margin:14px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--bd);white-space:nowrap}
+th{background:#f0f2f5;font-weight:600}th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.pos{color:var(--up);font-weight:600}.neg{color:var(--dn);font-weight:600}.muted{color:var(--mu)}
+.note{font-size:13px;color:var(--mu);margin:10px 0 0}
+.box{border-left:4px solid var(--ac);background:#eef4fc;padding:12px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+.box.warn{border-color:var(--warn);background:#fff4e5}
+.box.ok{border-color:var(--dn);background:#eaf5ea}
+.box.bad{border-color:#c62828;background:#fdecec}
+code{background:#eceff3;padding:1px 5px;border-radius:4px;font-size:12px}
+ul{margin:8px 0;padding-left:22px}li{margin:5px 0}
+.kv{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0}
+.kv div{font-size:13px;color:var(--mu)}b{color:var(--fg)}
+</style></head><body><div class="wrap">
+<h1>缠论买点回测 v2</h1>
+<div class="sub">引擎 <code>chan.js</code> md5 <code>1e8a3e147656…</code>
+跑前跑后一致 ·
+24 只 ETF · 入场 <code>readyK+1</code> 开盘 · 双边费 0.1% · 耗时 4.97s</div>
+
+<div class="box">
+<b>框架纪律</b>
+<ul>
+<li><b>引擎只读</b>，md5 跑前跑后双向核对</li>
+<li><b>入场固定</b> <code>readyK+1</code> 开盘（引擎既定的 readyK 语义）</li>
+<li><b>双基准对照</b>：全区间随机 + 邻近窗口随机，后者控制局部行情环境</li>
+<li><b>零人为阈值</b>：信号身份判定只用引擎自身结果，不设容差</li>
+<li><b>所有结论必须过敏感性检验</b>，不稳健就明说不稳健</li>
+</ul>
+</div>
+
+<div class="box">
+<b>口径有效性</b><br>
+进入统计的1192 个信号<b>全部为 lag=1</b>（发现日 = <code>readyK</code>+1，即次日开盘即可成交），
+「用发现之前的入场价」的前视偏差样本数为<b>0</b>。此前的重构信号均因入场日超出数据范围而不进入统计。
+</div>
+
+<h2>一、信号 vs 随机买入基准</h2>
+<div class="card">
+<table><tr><th>买点</th><th>持有期</th><th>信号 n</th><th>信号收益</th><th>随机基准</th><th>超额</th><th>Welch t</th><th>95% 置信区间</th><th>判定</th></tr><tr><td>一买</td><td>10 日</td><td>458</td><td>1.00%</td><td>0.39%</td><td class="pos">+0.61pp</td><td>1.91</td><td class="muted">[-0.02pp, +1.23pp]</td><td>不显著</td></tr><tr><td>一买</td><td>20 日</td><td>458</td><td>1.89%</td><td>0.79%</td><td class="pos">+1.11pp</td><td>2.23</td><td class="muted">[+0.13pp, +2.08pp]</td><td>边缘</td></tr><tr><td>二买</td><td>10 日</td><td>248</td><td>1.22%</td><td>0.39%</td><td class="pos">+0.83pp</td><td>2.21</td><td class="muted">[+0.09pp, +1.57pp]</td><td>边缘</td></tr><tr><td>二买</td><td>20 日</td><td>248</td><td>1.85%</td><td>0.79%</td><td class="pos">+1.06pp</td><td>2.08</td><td class="muted">[+0.06pp, +2.05pp]</td><td>边缘</td></tr><tr><td>三买</td><td>10 日</td><td>486</td><td>0.94%</td><td>0.39%</td><td class="pos">+0.54pp</td><td>2.19</td><td class="muted">[+0.06pp, +1.03pp]</td><td>边缘</td></tr><tr><td>三买</td><td>20 日</td><td>486</td><td>1.41%</td><td>0.79%</td><td class="pos">+0.62pp</td><td>1.56</td><td class="muted">[-0.16pp, +1.41pp]</td><td>不显著</td></tr></table></div>
+
+<h2>二、稳健性：邻近窗口基准敏感性扫描</h2>
+<div class="card">
+<p class="note">邻近基准在信号前后 ±N 根内随机入场，控制局部行情环境。若换个窗口结论就变，说明原结论不稳健。</p>
+<table><tr><th>窗口</th><th>10 日超额</th><th>t</th><th>20 日超额</th><th>t</th></tr><tr><td>±5 根</td><td class="pos">+0.80pp</td><td>3.49</td><td class="pos">+0.94pp</td><td>2.63</td></tr><tr><td>±10 根</td><td class="pos">+0.85pp</td><td>4.01</td><td class="pos">+1.05pp</td><td>3.07</td></tr><tr><td>±20 根</td><td class="pos">+0.44pp</td><td>2.22</td><td class="pos">+0.77pp</td><td>2.45</td></tr><tr><td>±40 根</td><td class="pos">+0.67pp</td><td>3.55</td><td class="pos">+0.90pp</td><td>3.04</td></tr></table><p class="note">10 日：各窗口超额区间 <b>+0.44pp ~ +0.85pp</b>，全部为正 → 稳健</p><p class="note">20 日：各窗口超额区间 <b>+0.77pp ~ +1.05pp</b>，全部为正 → 稳健</p></div>
+
+<h2>三、一次性全序列口径 vs 逐日口径</h2>
+<div class="card">
+<table><tr><th>买点</th><th>持有期</th><th>一次口径 n</th><th>收益</th><th>逐日口径 n</th><th>收益</th><th>差</th></tr><tr><td>一买</td><td>10 日</td><td>295</td><td>2.66%</td><td>458</td><td>1.00%</td><td class="pos">+1.66pp</td></tr><tr><td>一买</td><td>20 日</td><td>295</td><td>3.57%</td><td>458</td><td>1.89%</td><td class="pos">+1.68pp</td></tr><tr><td>二买</td><td>10 日</td><td>166</td><td>2.46%</td><td>248</td><td>1.22%</td><td class="pos">+1.24pp</td></tr><tr><td>二买</td><td>20 日</td><td>166</td><td>2.96%</td><td>248</td><td>1.85%</td><td class="pos">+1.12pp</td></tr><tr><td>三买</td><td>10 日</td><td>318</td><td>2.17%</td><td>486</td><td>0.94%</td><td class="pos">+1.24pp</td></tr><tr><td>三买</td><td>20 日</td><td>318</td><td>2.87%</td><td>486</td><td>1.41%</td><td class="pos">+1.46pp</td></tr></table><p class="note">合计：一次性口径 779 个信号，逐日口径 1192 个，<b>逐日多 413 个</b>。</p></div>
+
+<h2>四、一次性口径漏掉了什么（零人为容差）</h2>
+<div class="card">
+<p class="note">把逐日发现的每个信号，逐个查它在<b>最终全序列结果</b>里还在不在——这就是"直接用 <code>res.points</code> 回测"会漏掉的部分。不设任何容差。</p>
+<table><tr><th>买点</th><th>留存 n</th><th>收益</th><th>t</th><th>漏掉 n</th><th>收益</th><th>t</th><th>差</th><th>Welch t</th></tr><tr><td>一买</td><td>295</td><td class="pos">3.57%</td><td>—</td><td>163</td><td class="neg">-1.14%</td><td>—</td><td class="pos"><b>+4.72pp</b></td><td>4.85</td></tr><tr><td>二买</td><td>166</td><td class="pos">2.96%</td><td>—</td><td>82</td><td class="neg">-0.42%</td><td>—</td><td class="pos"><b>+3.38pp</b></td><td>3.27</td></tr><tr><td>三买</td><td>318</td><td class="pos">2.87%</td><td>—</td><td>168</td><td class="neg">-1.34%</td><td>—</td><td class="pos"><b>+4.21pp</b></td><td>5.47</td></tr></table></div>
+
+<h2>五、自检</h2>
+<div class="card"><div class="kv">
+<div>引擎 md5 一致：<b>是</b></div>
+<div>ETF：<b>24</b> 只</div>
+<div>K 线根数：<b>982 ~ 3488</b></div>
+<div>坏 K 线：<b>0</b>（已标记不入场）</div>
+<div>可交易信号：<b>1192</b></div>
+</div>
+<p class="note">信号发现滞后(t − readyK)：1→1212  2→1  11→1  15→1  16→2　—滞后 1 根是正确行为（<code>readyK</code> 是结构确立的最后一根，次日才能交易）</p>
+</div>
+
+<h2>六、结论</h2>
+<div class="card"><table><tr><th>结论</th><th>状态</th><th>依据</th></tr><tr><td>三类买点相对随机买入有正超额</td>
+<td class="pos"><b>成立</b></td>
+<td class="muted">邻近基准 t=2.22~4.01 全部显著；全区间基准 95%CI 部分含 0</td></tr><tr><td>该结论对基准选择稳健</td>
+<td class="pos"><b>稳健</b></td>
+<td class="muted">邻近窗口 ±5~±40 全为正；10日 +0.44pp~+0.85pp，20日 +0.77pp~+1.05pp</td></tr><tr><td>一买/二买/三买存在优劣之分</td>
+<td class="muted"><b>无法区分</b></td>
+<td class="muted">超额极差：10日 +0.29pp，20日 +0.48pp — 三者互相重叠</td></tr><tr><td>一次性口径存在选择偏差（虚高）</td>
+<td class="pos"><b>成立</b></td>
+<td class="muted">留存组 vs 漏掉组差 +3.38pp ~ +4.72pp；漏掉的信号收益全为负</td></tr><tr><td>三类买点孰优孰劣</td><td class="muted"><b>本样本无法判定</b></td>
+<td class="muted">需更大样本或更长周期</td></tr></table></div><div class="box bad">
+<b>口径警告</b>：如果回测直接用最终 <code>res.points</code>（一次性全序列），收益会系统性高估。
+本样本中三类买点的虚高幅度约 +1.12pp ~ +1.68pp。
+逐日切片是唯一可信的口径。
+</div>
+
+<div class="box ok">
+<b>可复现</b>：<code>node bt.js</code>（随机基准固定种子，结果完全可复现）；<code>SMOKE=3 node bt.js</code> 冒烟自检。
+</div>
+
+</div></body></html>
