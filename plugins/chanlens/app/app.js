@@ -395,6 +395,7 @@
   }
 
   function renderWatchlist() {
+    updateAddBtn();           // 按钮 +/− 状态跟列表与当前标的走，空列表早退前也要刷
     listEl.innerHTML = '';
     if (!watchlist.length) {
       var empty = document.createElement('li');
@@ -1489,10 +1490,26 @@
     }
   });
 
+  /* +自选 / −自选 切换：当前标的已在自选 → 点击移出；不在 → 加入当前高亮分类。
+     按钮状态由 renderWatchlist 统一刷新（加入/删除/切换标的都会走它），
+     放在函数声明区靠文件头 hoist，renderWatchlist 首行就能调用。 */
+  function inWatchlist(code) {
+    for (var i = 0; i < watchlist.length; i++) if (watchlist[i].code === code) return true;
+    return false;
+  }
+  function updateAddBtn() {
+    var on = !!current.code && inWatchlist(current.code);
+    addBtn.textContent = on ? '− 自选' : '+ 自选';
+    addBtn.classList.toggle('on', on);
+  }
   addBtn.addEventListener('click', function () {
     if (!current.code) return;
-    addToWatchlist(current.code, current.name);
-    setStatus('已加入自选「' + catName(activeCat) + '」：' + (current.name || current.code));
+    if (inWatchlist(current.code)) {
+      delOne(current.code);
+    } else {
+      addToWatchlist(current.code, current.name);
+      setStatus('已加入自选「' + catName(activeCat) + '」：' + (current.name || current.code));
+    }
   });
 
   var catBtnEl = document.getElementById('catBtn');

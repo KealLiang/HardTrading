@@ -265,6 +265,8 @@ body {
 .app-modal-foot .app-hint { margin-right: auto; }
 .cl-btn.cl-primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
 .cl-btn.cl-primary:hover { background: #1d4e8f; }
+/* − 自选：当前标的已在列表里，按钮呈「可移出」态（灰底红字，视觉弱于新增） */
+.cl-btn.on { background: #f3f3f3; color: #a33; border-color: #e0cccc; }
 
 /* ------------------------------------------------------- 缠论心法弹层 */
 .app-modal-box.app-mantra {
