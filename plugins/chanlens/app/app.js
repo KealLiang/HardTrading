@@ -920,12 +920,30 @@
       (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' +
       (LEVEL_CN[rec.level] || rec.level) + (rec.type > 0 ? '买' : '卖') +
       (rec.entry != null ? ' ｜ 参考 ' + fmtPrice(rec.entry) : '');
-    /* 第二行 = 图上看不出来的动态状态：30 分时机到没到、动盈启动没有。
-       目标/动盈的数值本身有线和标签，这里只报「状态」不报数字，避免重复。 */
-    view.planNote2 = (rec.timing
-      ? '时机已到：' + rec.timing.note
-      : '时机：等30分同向' + (rec.dir > 0 ? '买' : '卖') + '点') +
-      ' ｜ ' + (rec.trail != null ? '动盈已启动' : '动盈未启动');
+    /* 第二行 = 状态行，所见即所做：主状态（取第一个命中，动词导向）+ 修饰（背景全拼）。
+       主状态优先级：破失效 > 破动盈 > 到目标 > 时机已到 > 等时机 —— 已破失效后
+       不再出现「等买点」这类矛盾提示。信号名一律取实际 note，不硬编码类型；
+       配色沿用现有样式，警示靠文案不靠颜色。 */
+    var main;
+    if (rec.alertedStop && rec.stop != null)
+      main = '已破失效 ' + fmtPrice(rec.stop) + ' · 离场';
+    else if (rec.alertedTrail && rec.trail != null)
+      main = '动盈位已破 · 清剩余';
+    else if (rec.alertedTarget && rec.target != null)
+      main = '已到目标 ' + fmtPrice(rec.target) + ' · 减1/3';
+    else if (rec.timing)
+      main = '时机已到：' + rec.timing.note + ' · 可进场';
+    else
+      main = '等30分同向' + (rec.dir > 0 ? '买' : '卖') + '点 · 不动手';
+    var sfx = [];
+    if (rec.reverse)
+      sfx.push((rec.dir > 0 ? '日线转空' : '日线转多') + '（' + rec.reverse.note + '）· 仅提示');
+    if (rec.timingFail)
+      sfx.push('30分' + (rec.dir > 0 ? '买' : '卖') + '点已失效 · 重新等');
+    if (rec.trail != null) sfx.push('动盈 ' + fmtPrice(rec.trail));
+    if (rec.target == null) sfx.push('目标：等新结构');
+    if (rec.confirmed === false) sfx.push('未定型');
+    view.planNote2 = main + (sfx.length ? ' ｜ ' + sfx.join(' ｜ ') : '');
   }
 
   function applyTrackToViews() {
@@ -1006,7 +1024,7 @@
         toast((rec.name || code) + '：' + r.text);
       }
     });
-    if (changed) CLTrack.save(trackMap);
+    if (changed) { CLTrack.save(trackMap); applyTrackToViews(); }  // 盯梢命中随手刷 HUD
   }
 
   /** 取消追踪 */
