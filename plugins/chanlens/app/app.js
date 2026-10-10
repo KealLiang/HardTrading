@@ -19,6 +19,14 @@
   var listEl = document.getElementById('watchlist');
   var curNameEl = document.getElementById('curName');
   var curCodeEl = document.getElementById('curCode');
+  /* 两个快捷区，各渲染各的，互不掺：
+     自选区 = 针对股票（+自选/批量导入/扫信号/+分类/批量删除，手机端搬进左抽屉）；
+     顶栏右侧 = 针对图表（全览/重算/切换… 平铺三个，其余收进「更多」）。
+     事件统一走 runAction(key, ev) —— 不再每个按钮各绑一份，避免行为漂移。 */
+  CLPanel.renderActions(document.querySelector('.app-side-tools'), runAction, 'watch');
+  CLPanel.renderActions(document.querySelector('.app-chart-tools'), runAction, 'chart',
+    { fold: true });
+
   var addBtn = document.getElementById('addBtn');
   var importBtn = document.getElementById('importBtn');
   var delBtnEl = document.getElementById('delBtn');
@@ -44,6 +52,13 @@
 
   var PERIOD_LABEL = {};
   CLPanel.PERIODS.forEach(function (p) { PERIOD_LABEL[p.id] = p.label; });
+  /* 各周期一个交易日的 K 线根数（A 股一日 4 小时）：信号徽标把 lag 根数换算成
+     「N 个交易日前」——日线 1 根=1 日，30分 8 根=1 日，以此类推。 */
+  var BARS_PER_DAY = { daily: 1, '30m': 8, '15m': 16, '5m': 48, '1m': 240 };
+  function lagToDays(sg) {
+    return (sg.lag == null || !BARS_PER_DAY[sg.period]) ? null
+      : Math.ceil(sg.lag / BARS_PER_DAY[sg.period]);
+  }
 
   /* ------------------------------------------------ 与 background 通信（兜底用） */
   function send(msg) {
@@ -256,11 +271,7 @@
     });
   }
 
-  if (scanBtnEl) {
-    scanBtnEl.addEventListener('click', function (e) {
-      runScan(e && e.shiftKey);   // Shift+点击 = 忽略缓存强制重扫
-    });
-  }
+  /* scanBtnEl 的点击走 runAction('scan')（自选区按钮由 WATCH_ACTIONS 表渲染） */
 
   /* ------------------------------------------------- 分类名输入弹层（新建/重命名） */
   var catModalEl = document.getElementById('catModal');
@@ -475,11 +486,16 @@
           var prime = sg.level === 3 && sg.type > 0;
           badge.className = 'sig ' + (sg.type > 0 ? 'buy' : 'sell') +
             (sg.confirmed ? '' : ' fresh') + (prime ? ' prime' : '');
-          badge.textContent = (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖');
+          /* 徽标尾缀数字 = 滞后交易日数（"三买5" = 5 个交易日前的三买），
+             一眼看出新旧；精确根数在 title 里 */
+          var lagDays = lagToDays(sg);
+          badge.textContent = (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖') +
+                              (lagDays != null ? lagDays : '');
           badge.title = (PERIOD_LABEL[sg.period] || sg.period || '') + '：' + (sg.note || '') +
                         (prime ? '\n★ 回测验证：唯一有统计优势的信号（ETF 日线 10d +0.76%，t=2.54）'
                                : (sg.type > 0 ? '\n参考：回测无可测优势，作结构参照' : '')) +
-                        '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根）' +
+                        '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根' +
+                        (lagDays != null && BARS_PER_DAY[sg.period] > 1 ? ' ≈ ' + lagDays + ' 个交易日' : '') + '）' +
                         (sg.ratio != null ? '\n背驰力度比：' + sg.ratio.toFixed(2) : '') +
                         '\n标记价：' + sg.price + (sg.confirmed ? '' : '\n未确认：分型右侧可能修订');
           top.appendChild(badge);
@@ -622,8 +638,8 @@
     panel.setStatus('已删除 ' + cnt + ' 只自选股');
   }
 
-  if (delBtnEl) {
-    delBtnEl.addEventListener('click', openDel);
+  {
+    /* delBtn 的点击走 runAction('del')，这里只绑弹层内的按钮 */
     document.getElementById('delCancel').addEventListener('click', closeDel);
     document.getElementById('delOk').addEventListener('click', doDelete);
     delToggleEl.addEventListener('click', function () {
@@ -1296,6 +1312,54 @@
     panel.setStatus('已全览：三图均显示完整数据区间');
   }
 
+  /* -------------------------------------------------------------------- 动作总入口
+   * 自选区（WATCH_ACTIONS）、顶栏右侧/图表右上角（CHART_ACTIONS）、参数面板
+   * 「操作」区、顶栏「全览」全部走这里。新增动作 = 对应那张表加一行 +
+   * 这里加一个分支，三个入口同时生效。
+   * ev 可选，用于 Shift+点（强制重扫）这类修饰判断。 */
+  function runAction(act, ev) {
+    if (act === 'full') { zoomFull(); return; }
+    if (act === 'recalc') { datasets = {}; rebuild(); }
+    else if (act === 'export') exportJSON();
+    else if (act === 'shot') saveShot();
+    else if (act === 'extra') {
+      extraOn = !extraOn;
+      var o = {}; o[EXTRA_KEY] = extraOn;
+      chrome.storage.local.set(o);
+      applyTrackToViews();
+      setStatus('额外（追踪价位线 / 图上短文案）已' + (extraOn ? '显示' : '隐藏'));
+    }
+    else if (act === 'kline') toggleKlineMode();
+    else if (act === 'add') {
+      if (!current.code) return;
+      if (inWatchlist(current.code)) delOne(current.code);
+      else {
+        addToWatchlist(current.code, current.name);
+        setStatus('已加入自选「' + catName(activeCat) + '」：' + (current.name || current.code));
+      }
+    }
+    else if (act === 'import') openImport();
+    else if (act === 'scan') runScan(ev && ev.shiftKey);   // Shift+点击 = 忽略缓存强制重扫
+    else if (act === 'cat') {
+      newCat(function (id) {
+        activeCat = id;
+        renderWatchlist();
+        setStatus('已新建分类「' + catName(id) + '」，新加入的自选会默认放这里');
+      });
+    }
+    else if (act === 'del') openDel();
+    else if (act === 'reset') {
+      panel.resetState();
+      // 重置会把参数写回默认值，这里必须像 onParamChange 那样重新应用一遍：
+      // 否则「数据源/扫描周期」这类不在引擎里的开关还停在被重置前的状态
+      var rstParams = (panel.getState() || {}).params;
+      syncScanPeriod(rstParams);
+      syncDataSource(rstParams);
+      datasets = {};
+      rebuild();
+    }
+  }
+
   /* -------------------------------------------------------------------- 导出 */
   function exportJSON() {
     var st = panel.getState();
@@ -1321,15 +1385,17 @@
         })
       };
     });
-    CLDataSource.downloadJSON('chanlens_' + current.code + '_' + Date.now() + '.json', payload);
-    panel.setStatus('已导出 JSON，可直接喂给 D:\\Trading 里的 Python 做回测');
+    /* 文件名不带时间戳：同标的重复导出就是同一个文件，手机上好找 */
+    CLDataSource.downloadJSON('chanlens_' + current.code + '.json', payload);
+    panel.setStatus('已导出 chanlens_' + current.code + '.json → 系统「下载」目录，' +
+                    '可直接喂给 D:\\Trading 里的 Python 做回测');
   }
 
   function saveShot() {
     if (!views.length) return;
     var a = document.createElement('a');
     a.href = views[0].canvas.toDataURL('image/png');
-    a.download = 'chanlens_' + current.code + '_' + Date.now() + '.png';
+    a.download = 'chanlens_' + current.code + '.png';
     document.body.appendChild(a); a.click(); a.remove();
     panel.setStatus('已保存主图截图');
   }
@@ -1472,7 +1538,15 @@
     }
   }
 
-  importBtn.addEventListener('click', openImport);
+  /* K 线形态切换（缠论K ↔ 普通K）：纯本地重算——datasets 缓存命中，不重新拉数据。
+     入口：参数面板「操作」区（右上角那一组）+ 快捷区「切换」，都走 runAction('kline')。 */
+  function toggleKlineMode() {
+    var st = panel.getState();
+    var next = st.params.klineMode === 'merged' ? 'raw' : 'merged';
+    panel.setParam('klineMode', next);      // 落盘 + 同步参数面板下拉框
+    rebuild();                              // 数据走缓存，只重算画图
+    setStatus('K 线形态：' + (next === 'merged' ? '缠论 K 线（含包处理后）' : '普通 K 线（原始）'));
+  }
   document.getElementById('importCancel').addEventListener('click', closeImport);
   document.getElementById('importOk').addEventListener('click', doImport);
   importText.addEventListener('input', paintImportPreview);
@@ -1520,24 +1594,8 @@
     addBtn.textContent = on ? '− 自选' : '+ 自选';
     addBtn.classList.toggle('on', on);
   }
-  addBtn.addEventListener('click', function () {
-    if (!current.code) return;
-    if (inWatchlist(current.code)) {
-      delOne(current.code);
-    } else {
-      addToWatchlist(current.code, current.name);
-      setStatus('已加入自选「' + catName(activeCat) + '」：' + (current.name || current.code));
-    }
-  });
-
-  var catBtnEl = document.getElementById('catBtn');
-  if (catBtnEl) catBtnEl.addEventListener('click', function () {
-    newCat(function (id) {
-      activeCat = id;
-      renderWatchlist();
-      setStatus('已新建分类「' + catName(id) + '」，新加入的自选会默认放这里');
-    });
-  });
+  /* addBtn / catBtn 的点击都走 runAction（'add' / 'cat'）：按钮由 WATCH_ACTIONS 渲染，
+     行为集中在 runAction，不再分散绑定 —— 少一个「加了入口忘了行为」的坑。 */
 
   /* Alt + ↑/↓ 在自选股之间快速切换（按分组顺序） */
   document.addEventListener('keydown', function (e) {
@@ -1607,29 +1665,7 @@
     },
     onLayerChange: function (layers) { views.forEach(function (v) { v.setLayers(layers); v.draw(); }); },
     onLevelsChange: function () { rebuild(); },
-    onAction: function (act) {
-      if (act === 'full') { zoomFull(); return; }
-      if (act === 'recalc') { datasets = {}; rebuild(); }
-      else if (act === 'export') exportJSON();
-      else if (act === 'shot') saveShot();
-      else if (act === 'extra') {
-        extraOn = !extraOn;
-        var o = {}; o[EXTRA_KEY] = extraOn;
-        chrome.storage.local.set(o);
-        applyTrackToViews();
-        setStatus('额外（追踪价位线 / 图上短文案）已' + (extraOn ? '显示' : '隐藏'));
-      }
-      else if (act === 'reset') {
-        panel.resetState();
-        // 重置会把参数写回默认值，这里必须像 onParamChange 那样重新应用一遍：
-        // 否则「数据源/扫描周期」这类不在引擎里的开关还停在被重置前的状态
-        var rstParams = (panel.getState() || {}).params;
-        syncScanPeriod(rstParams);
-        syncDataSource(rstParams);
-        datasets = {};
-        rebuild();
-      }
-    }
+    onAction: runAction   // 自选区 / 右上角 / 参数面板「操作」区共用同一个执行入口
   });
 
   window.ChanLensApp = {
@@ -1661,6 +1697,11 @@
     reloadData: function () { datasets = {}; return rebuild(); },   // 测试/调试：强制重拉行情（动态模拟切换切片用）
     applyTrackToViews: applyTrackToViews,
     checkTrackAlerts: checkTrackAlerts,
-    checkTiming: checkTimingAll   // 测试/调试：force=true 忽略间隔抑制
+    checkTiming: checkTimingAll,   // 测试/调试：force=true 忽略间隔抑制
+    /* 动作入口对外暴露（1.9.6）：手机端 FAB / 顶栏「全览」这类不在面板里的按钮，
+       以前是「按文案在参数面板里找到同名按钮再 click」——面板没渲染、按钮被隐藏、
+       或动作名没写进那张手抄的映射表（1.9.5 的「切换」就是这么坏的，点了没反应）
+       都会静默失效。现在直接调这个入口，不再经过 DOM。 */
+    runAction: runAction
   };
 })();

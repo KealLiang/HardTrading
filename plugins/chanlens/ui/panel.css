@@ -103,8 +103,22 @@
   gap: 8px;
   margin-bottom: 6px;
   flex-wrap: wrap;
+  row-gap: 6px;
+  flex-wrap: wrap;
 }
 .cl-label { color: #666; font-size: 12px; min-width: 52px; }
+
+/* 「操作」区下的两个分组块：自选（股票） / 右上角（图表）。两块并列但独立，
+   每个块自带小标题，避免被当成同一个功能的重复入口。 */
+.cl-act-block { margin-bottom: 8px; }
+.cl-act-title {
+  font-size: 12px; color: #55606b; margin: 0 0 4px;
+  border-left: 3px solid #cddbe9;
+  padding: 1px 0 1px 6px;
+  line-height: 1.4;
+}
+.cl-act-row { margin-bottom: 2px; }
+.cl-act-row .cl-btn { font-size: 12px; padding: 3px 7px; }
 
 .cl-pill {
   padding: 2px 8px;

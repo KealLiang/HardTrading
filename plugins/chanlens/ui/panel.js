@@ -29,6 +29,112 @@
     { id: 2, label: '后复权' }
   ];
 
+  /* ------------------------------------------------------------------ 动作表
+   * 两个快捷区各自一张表，互不掺：
+   *   WATCH_ACTIONS —— 「自选」区（针对股票：加减自选/导入/扫信号/分类/删除）
+   *   CHART_ACTIONS —— 「右上角」区（针对图表：全览/重算/导出/截图/额外/重置/切换）
+   * 参数面板的「操作」区把两块并列展示（同一入口、但分组独立）；手机上「自选」
+   * 那块搬进左抽屉，「右上角」那块是图表右上角的悬浮按钮（quickbar 配置）。
+   *
+   * 以前是 HTML 里写死一串 span + 手机端 ui.js 里另有一份 id 清单，漏一处就静默
+   * 失效（v1.9.3 的「切换」按钮就是这么丢的）。现在这两份都不存在了。
+   *   key    : 动作标识，交给 onAction(key, ev)
+   *   id     : DOM id（沿用历史 id 的保留原名，其余 act_<key>；面板里另加 pact_ 前缀）
+   *   label  : 按钮文案      title : 悬浮说明
+   *   pin    : true = 快捷区里常驻平铺（其余收进「更多」浮层）
+   *   danger : true = 危险操作（红色）
+   */
+  var WATCH_ACTIONS = [
+    { key: 'add',    id: 'addBtn',    label: '+ 自选', pin: true,
+      title: '加入/移出自选（点按切换，默认加到高亮分类）' },
+    { key: 'import', id: 'importBtn', label: '批量导入', pin: true,
+      title: '批量导入自选股（粘贴代码列表）' },
+    { key: 'scan',   id: 'scanBtn',   label: '扫信号', pin: true,
+      title: '扫描自选列表最新缠论信号（Shift+点击强制重扫）' },
+    { key: 'cat',    id: 'catBtn',    label: '+ 分类',
+      title: '新建分类（文件夹）' },
+    { key: 'del',    id: 'delBtn',    label: '批量删除', danger: true,
+      title: '批量删除自选股' }
+  ];
+
+  var CHART_ACTIONS = [
+    { key: 'full',   label: '全览', pin: true, title: '缩放到全部 K 线' },
+    { key: 'recalc', label: '重算', pin: true, title: '清缓存重算（长按/Shift 强制重取行情）' },
+    { key: 'export', label: '导出JSON', title: '导出当前标的缠论结构到系统「下载」目录' },
+    { key: 'shot',   label: '保存截图', title: '保存主图截图到系统「下载」目录' },
+    { key: 'extra',  label: '额外',     title: '显示/隐藏追踪价位线与图上短文案' },
+    { key: 'reset',  label: '重置参数', title: '恢复引擎默认参数' },
+    { key: 'kline',  id: 'klineBtn', label: '切换', pin: true,
+      title: '切换 缠论K/普通K（纯本地重算，不重新拉数据）' }
+  ];
+
+  var ACTIONS = WATCH_ACTIONS.concat(CHART_ACTIONS);
+
+  function actionId(a) { return a.id || ('act_' + a.key); }
+
+  function actionList(group) {
+    if (group === 'watch') return WATCH_ACTIONS;
+    if (group === 'chart') return CHART_ACTIONS;
+    return ACTIONS;
+  }
+
+  function mkActionEl(a, onAct, idPrefix) {
+    var e = document.createElement('span');
+    e.className = 'app-side-add' + (a.danger ? ' danger' : '');
+    e.id = (idPrefix || '') + actionId(a);
+    e.textContent = a.label;
+    e.title = a.title;
+    e.setAttribute('data-key', a.key);   // 测试/外部脚本按 key 定位，不依赖 id
+    if (a.pin) e.setAttribute('data-pin', '1');
+    e.addEventListener('click', function (ev) { onAct && onAct(a.key, ev); });
+    return e;
+  }
+
+  /** 往快捷区渲染一组动作：清空 host 后重建，返回 key -> 元素。
+   *  opts.fold = true 时只把 pin 项平铺，其余收进「更多」浮层（顶栏空间有限）。 */
+  function renderActions(host, onAct, group, opts) {
+    if (!host) return {};
+    opts = opts || {};
+    host.innerHTML = '';
+    var list = actionList(group);
+    var main = [], rest = [];
+    if (opts.fold) list.forEach(function (a) { (a.pin ? main : rest).push(a); });
+    else main = list;
+
+    var map = {};
+    main.forEach(function (a) {
+      map[a.key] = mkActionEl(a, onAct);
+      host.appendChild(map[a.key]);
+    });
+    if (!rest.length) return map;
+
+    var wrap = document.createElement('span');
+    wrap.className = 'app-more-wrap';
+    var more = document.createElement('span');
+    more.className = 'app-more';   // 它不是动作，别带 app-side-add（否则会被当成动作统计进去）
+    more.textContent = '更多';
+    more.title = '展开其余操作';
+    var drop = document.createElement('div');
+    drop.className = 'app-more-panel hidden';
+    rest.forEach(function (a) {
+      map[a.key] = mkActionEl(a, onAct);
+      drop.appendChild(map[a.key]);
+    });
+    var shut = function () { drop.classList.add('hidden'); };
+    more.addEventListener('click', function (e) {
+      e.stopPropagation();
+      drop.classList.toggle('hidden');
+    });
+    drop.addEventListener('click', shut);
+    document.addEventListener('click', function (e) {
+      if (!drop.classList.contains('hidden') && !wrap.contains(e.target)) shut();
+    });
+    wrap.appendChild(more);
+    wrap.appendChild(drop);
+    host.appendChild(wrap);
+    return map;
+  }
+
   /* ------------------------------------------------------------ 参数表 */
   var PARAM_SCHEMA = [
     {
@@ -280,6 +386,27 @@
       }
     }
 
+    /** 「操作」区里的一个分组块：小标题 + 一行按钮（cls 供 quickbar 按组显隐） */
+    function actionBlock(title, list, cls, help) {
+      var box = el('div', 'cl-act-block');
+      box.appendChild(el('div', 'cl-act-title', title));
+      var row = el('div', 'cl-row cl-act-row ' + cls);
+      list.forEach(function (a) {
+        var b = el('button', 'cl-btn', a.label);
+        b.id = 'pact_' + a.key;          // 快捷区用 act_/历史 id，这里加前缀避免重复
+        b.title = a.title;
+        // 外部（quickbar 的显隐维护、测试）按 key 定位，别按文案匹配文案会变
+        b.setAttribute('data-key', a.key);
+        b.addEventListener('click', function () {
+          options.onAction && options.onAction(a.key);
+        });
+        row.appendChild(b);
+      });
+      box.appendChild(row);
+      box.appendChild(el('div', 'cl-help', help));
+      return box;
+    }
+
     function buildSide() {
       sideCol.innerHTML = '';
 
@@ -352,27 +479,20 @@
         });
       });
 
+      /* 两个快捷区在这里并列，但仍是两块：上面是「自选」（针对股票），
+         下面是「右上角 / 图表」（针对图，手机上就是图表右上角那几个悬浮按钮）。
+         数据来源还是那两张表 —— 加动作只改表，三个地方一起出现。 */
       sideCol.appendChild(el('h4', null, '操作'));
-      var actRow = el('div', 'cl-row');
-      [
-        ['全览', function () { options.onAction && options.onAction('full'); }],
-        ['重算', function () { options.onAction && options.onAction('recalc'); }],
-        ['导出JSON', function () { options.onAction && options.onAction('export'); }],
-        ['保存截图', function () { options.onAction && options.onAction('shot'); }],
-        ['额外', function () { options.onAction && options.onAction('extra'); }],
-        ['重置参数', function () { options.onAction && options.onAction('reset'); }]
-      ].forEach(function (pair) {
-        var b = el('button', 'cl-btn', pair[0]);
-        b.addEventListener('click', pair[1]);
-        actRow.appendChild(b);
-      });
-      sideCol.appendChild(actRow);
+      sideCol.appendChild(actionBlock('自选 · 针对股票', WATCH_ACTIONS, 'cl-act-watch',
+        '手机端在左抽屉顶部'));
+      sideCol.appendChild(actionBlock('右上角 · 针对图表', CHART_ACTIONS, 'cl-act-chart',
+        '手机端是图表右上角的悬浮按钮（上方「右上角」里勾选后，从这里移走）'));
       sideCol.appendChild(el('div', 'cl-help',
         '参数自动保存到浏览器同步存储，下次打开保持。改动引擎请直接编辑 core/chan.js。'));
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v1.9.2 · HUD 状态行「所见即所做」：主状态5种（破失效/破动盈/到目标/时机/等）+修饰5种，盯梢命中即时刷新'));
+        'v1.9.6 · 修右上角「切换」点了没反应（手机端动作改直连执行入口，不再按按钮文案找按钮）；自选/右上角两块快捷区各管各的'));
     }
 
     function buildTabs() {
@@ -434,9 +554,20 @@
       },
       activeCanvases: function () {
         return chartHosts.filter(function (h) { return !!h.sel.value; });
+      },
+      /* 供宿主以动作方式改参数（如 K 线形态切换按钮）：落盘 + 重建参数 UI，
+         让下拉框显示与实际值一致。 */
+      setParam: function (key, value) {
+        state.params[key] = value;
+        saveState(state);
+        buildSide();
       }
     };
   }
 
-  global.CLPanel = { create: create, PERIODS: PERIODS, PARAM_SCHEMA: PARAM_SCHEMA, LAYERS: LAYERS };
+  global.CLPanel = {
+    create: create, PERIODS: PERIODS, PARAM_SCHEMA: PARAM_SCHEMA, LAYERS: LAYERS,
+    ACTIONS: ACTIONS, WATCH_ACTIONS: WATCH_ACTIONS, CHART_ACTIONS: CHART_ACTIONS,
+    actionList: actionList, renderActions: renderActions
+  };
 })(typeof window !== 'undefined' ? window : this);

@@ -69,6 +69,35 @@ body {
 
 .app-actions { display: flex; align-items: center; gap: 8px; }
 .app-hint { color: #9fb0c0; font-size: 12px; }
+/* 顶栏右侧的图表类快捷操作（全览/重算/切换…）：深色底上换个配色，
+   放不下的收进「更多」浮层 —— 手机上整块 .app-actions 是隐藏的，
+   那边的同一组操作在图表右上角悬浮按钮里。 */
+.app-chart-tools { display: flex; align-items: center; gap: 6px; }
+.app-chart-tools .app-side-add {
+  background: #2b3743; color: #e8edf2; border-color: #46586a; padding: 3px 7px;
+}
+.app-chart-tools .app-side-add:hover { background: #37485a; }
+.app-more-wrap { position: relative; display: inline-flex; }
+.app-more {
+  font-size: 11px; color: #2b6cb0; cursor: pointer; padding: 2px 6px;
+  border-radius: 4px; border: 1px solid #cfe0f2; background: #f2f7fd;
+  white-space: nowrap; user-select: none;
+}
+.app-chart-tools .app-more {
+  background: #2b3743; color: #e8edf2; border-color: #46586a; padding: 3px 7px;
+}
+.app-chart-tools .app-more:hover { background: #37485a; }
+.app-more-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+  display: flex; flex-direction: column; gap: 2px; min-width: 92px;
+  padding: 4px; background: #2b3743; border: 1px solid #46586a;
+  border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+}
+.app-more-panel.hidden { display: none; }
+.app-more-panel .app-side-add {
+  background: transparent; border-color: transparent; color: #e8edf2; text-align: left;
+}
+.app-more-panel .app-side-add:hover { background: #37485a; }
 
 /* ------------------------------------------------------------------ 主体 */
 .app-body { flex: 1; display: flex; min-height: 0; }
@@ -91,6 +120,9 @@ body {
 .app-side-add:hover { background: #e3eefb; }
 .app-side-add.danger { color: #b02b2b; border-color: #f0d2d2; background: #fdf4f4; }
 .app-side-add.danger:hover { background: #f9e4e4; }
+/* 「− 自选」态：已在自选里，点击是移出（动作表现在统一由 CLPanel.ACTIONS 渲染成 span） */
+.app-side-add.on { background: #f3f3f3; color: #a33; border-color: #e0cccc; }
+.app-side-add.on:hover { background: #ececec; }
 .app-side-tools { display: flex; flex-wrap: wrap; gap: 4px 6px; font-weight: 400; width: 100%; justify-content: flex-end; margin-top: 3px; }
 .hidden { display: none !important; }
 

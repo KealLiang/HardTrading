@@ -22,8 +22,8 @@
     </div>
 
     <div class="app-actions">
-      <button id="addBtn" class="cl-btn" title="加入/移出自选（点按切换，默认加到高亮分类）">+ 自选</button>
-      <button id="importBtn" class="cl-btn" title="批量粘贴多个代码">批量导入</button>
+      <!-- 图表类快捷操作（全览/重算/切换…）由 CLPanel.CHART_ACTIONS 渲染，见 app.js -->
+      <span class="app-chart-tools"></span>
       <span class="app-hint">Alt+↑/↓ 切换自选</span>
     </div>
   </header>
@@ -33,9 +33,7 @@
       <div class="app-side-head">
         <span>自选股</span>
         <span class="app-side-tools">
-          <span id="scanBtn" class="app-side-add" title="扫描自选列表最新缠论信号（Shift+点击强制重扫）">扫信号</span>
-          <span id="catBtn" class="app-side-add" title="新建分类（文件夹）">+ 分类</span>
-          <span id="delBtn" class="app-side-add danger" title="批量删除自选股">批量删除</span>
+          <!-- 动作按钮由 CLPanel.ACTIONS 渲染（见 app.js） -->
         </span>
       </div>
       <ul id="watchlist" class="app-list"></ul>
