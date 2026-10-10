@@ -782,8 +782,14 @@
     return data;
   }
 
-  async function rebuild() {
+  /** 重取数据 + 重算 + 重建视图。
+   *  opts.keepWindow: [{t0,t1}] —— 按第 j 张图恢复「切换前看到的那个时间窗」。
+   *  只用于 K 线形态切换（1.9.7）：缠论K 与 普通K 的根数不同（含包处理后更少），
+   *  所以记时间窗而不是第几根；renderer.setWindow 会夹进 minT/maxT 并保持跨度。
+   *  换股 / 改参数 / 重算不传 —— 那些是换了标的或换了算法，回默认窗口才合理。 */
+  async function rebuild(opts) {
     var st = panel.getState();
+    var keepWin = opts && opts.keepWindow;
     try {
       if (!current.code) { panel.setStatus('请在顶栏输入代码或从自选股里选一只', true); return; }
       panel.setStatus('正在获取行情…');
@@ -817,6 +823,14 @@
         });
         view.setData({ klines: shown.klines, period: data.period, code: data.code, name: data.name,
                        result: shown.result, mergedBars: st.params.klineMode === 'merged' });
+        // setData 里只在 window 为空时才给默认窗口（末尾 N 根），
+        // 所以恢复要放在它之后；setWindow 自己会 clamp 到 minT/maxT
+        if (keepWin && keepWin[j]) {
+          view.setWindow(keepWin[j]);
+          // 打标记：mark.js 的「标记不在窗口就自动挪过去」只该在换数据
+          // （切周期/换股）时生效；切 K 线形态是同一段行情换画法，别挪
+          view.__clKeepWindow = true;
+        }
         advanceTrackTrail(data, res);           // 动盈/目标随新数据推进（只朝有利方向）
         applyTrackToView(view);                 // 追踪价位线/短文案（额外）
         view.draw();
@@ -1540,11 +1554,17 @@
 
   /* K 线形态切换（缠论K ↔ 普通K）：纯本地重算——datasets 缓存命中，不重新拉数据。
      入口：参数面板「操作」区（右上角那一组）+ 快捷区「切换」，都走 runAction('kline')。 */
-  function toggleKlineMode() {
+  async function toggleKlineMode() {
     var st = panel.getState();
     var next = st.params.klineMode === 'merged' ? 'raw' : 'merged';
+    /* 保住当前看到的那段（1.9.7）：以前 rebuild 会重建视图对象，新视图 window
+       为空 -> 回默认「末尾 160 根」，正在看的那段被拉走。这里先按图记下时间窗，
+       重建后还回去。两种模式的 K 线根数不同，所以记时间窗而不是第几根。 */
+    var keep = views.map(function (v) {
+      return v && v.window ? { t0: v.window.t0, t1: v.window.t1 } : null;
+    });
     panel.setParam('klineMode', next);      // 落盘 + 同步参数面板下拉框
-    rebuild();                              // 数据走缓存，只重算画图
+    await rebuild({ keepWindow: keep });    // 数据走缓存，只重算画图
     setStatus('K 线形态：' + (next === 'merged' ? '缠论 K 线（含包处理后）' : '普通 K 线（原始）'));
   }
   document.getElementById('importCancel').addEventListener('click', closeImport);
