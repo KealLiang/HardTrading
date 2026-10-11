@@ -35,7 +35,28 @@
   var current = { code: null, name: '' };
   var panel = null;
   var views = [];
+  /* K 线数据缓存：'<code>|<period>' -> getKlines 的结果（1.9.9 起多槽 LRU）。
+     以前每周期只存当前一只股、换股就清空 —— 来回对比两只股每次都全量重拉+重算。
+     现在换股/切周期都保留其他槽，切回来直接用（分析结果连着数据一起省掉）。
+     容量 DATASET_MAX 槽，超限淘汰最久未写入的；「重算」/换源/改复权仍整体清空。 */
   var datasets = {};
+  var DATASET_MAX = 8;
+  function dsKey(code, period) { return code + '|' + period; }
+  function dsPut(code, period, data) {
+    data._at = Date.now();
+    datasets[dsKey(code, period)] = data;
+    var keys = Object.keys(datasets);
+    while (keys.length > DATASET_MAX) {
+      var oldest = null, ot = Infinity;
+      keys.forEach(function (k) {
+        var at = datasets[k]._at || 0;
+        if (at < ot) { ot = at; oldest = k; }
+      });
+      if (oldest == null) break;
+      delete datasets[oldest];
+      keys = Object.keys(datasets);
+    }
+  }
   var syncing = false;
   var suggestItems = [];
   var activeSuggest = -1;
@@ -52,9 +73,13 @@
 
   var PERIOD_LABEL = {};
   CLPanel.PERIODS.forEach(function (p) { PERIOD_LABEL[p.id] = p.label; });
-  /* 各周期一个交易日的 K 线根数（A 股一日 4 小时）：信号徽标把 lag 根数换算成
-     「N 个交易日前」——日线 1 根=1 日，30分 8 根=1 日，以此类推。 */
-  var BARS_PER_DAY = { daily: 1, '30m': 8, '15m': 16, '5m': 48, '1m': 240 };
+  /* 各周期一根 K = 多少个交易日（A 股一日 4 小时）：信号徽标把 lag 根数换算成
+     「N 个交易日前」——日线 1 根=1 日，60分 4 根=1 日，30分 8 根=1 日，以此类推。
+     周/月线按平均交易日数换算（周 5 日、月 21 日），是近似值。
+     ⚠ 必须覆盖 CLPanel.PERIODS 的全部周期 id——check_web 有断言盯着（漏了徽标
+     就会静默退化成不带数字，1.9.7 及之前 60m 就是这样）。 */
+  var BARS_PER_DAY = { '1m': 240, '5m': 48, '15m': 16, '30m': 8, '60m': 4,
+                       daily: 1, weekly: 1 / 5, monthly: 1 / 21 };
   function lagToDays(sg) {
     return (sg.lag == null || !BARS_PER_DAY[sg.period]) ? null
       : Math.ceil(sg.lag / BARS_PER_DAY[sg.period]);
@@ -239,6 +264,12 @@
     var codes = watchlist.map(function (w) { return w.code; });
     if (!codes.length) { setStatus('自选列表是空的，先加几只'); return; }
     scanBusy = true;
+    if (force) {
+      /* Shift+扫信号 = 强制：信号缓存（scan 内部）之外，请求缓存也一起作废，
+         非交易时段的长 TTL 缓存同样不豁免 —— 「强制」必须真的重新拉。 */
+      try { CLDataSource.clearCache(); } catch (e) { /* 预览环境没有该模块 */ }
+      setStatus('已清除行情缓存，正在强制重扫…');
+    }
     if (scanBtnEl) { scanBtnEl.textContent = '扫描中…'; scanBtnEl.style.opacity = '.6'; }
     var st = panel ? panel.getState() : {};
     var done = 0, found = 0, skipped = 0;
@@ -495,7 +526,7 @@
                         (prime ? '\n★ 回测验证：唯一有统计优势的信号（ETF 日线 10d +0.76%，t=2.54）'
                                : (sg.type > 0 ? '\n参考：回测无可测优势，作结构参照' : '')) +
                         '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根' +
-                        (lagDays != null && BARS_PER_DAY[sg.period] > 1 ? ' ≈ ' + lagDays + ' 个交易日' : '') + '）' +
+                        (lagDays != null && BARS_PER_DAY[sg.period] !== 1 ? ' ≈ ' + lagDays + ' 个交易日' : '') + '）' +
                         (sg.ratio != null ? '\n背驰力度比：' + sg.ratio.toFixed(2) : '') +
                         '\n标记价：' + sg.price + (sg.confirmed ? '' : '\n未确认：分型右侧可能修订');
           top.appendChild(badge);
@@ -749,7 +780,9 @@
     if (!/^\d{6}$/.test(code)) return;
     current.code = code;
     current.name = name || '';
-    datasets = {};
+    /* 1.9.9：不清 datasets —— 多槽按 code|period 键，换股不串数据，
+       切回来看过的股直接命中（这正是多槽缓存的目的）。
+       整体清空只留给「重算」/换源/改复权那些真正换数据的操作。 */
     renderWatchlist();
     updateHeader();
     if (!current.name) {
@@ -774,11 +807,12 @@
 
   async function loadPeriod(period) {
     if (!period) return null;
-    if (datasets[period] && datasets[period].code === current.code) return datasets[period];
+    var hit = datasets[dsKey(current.code, period)];
+    if (hit) return hit;                       // 多槽命中：换股/切周期切回来零请求零重算
     var st = panel.getState();
     var data = await CLDataSource.getKlines(current.code, period, 800, st.adjust);
     CLDataSource.withTimestamps(data);
-    datasets[period] = data;
+    dsPut(current.code, period, data);
     return data;
   }
 
@@ -849,7 +883,7 @@
         fixNote = fix.rejected
           ? '（' + nm(fix.from) + ' 末尾落后，但 ' + nm(fix.to) + ' 数据基准对不上，未追加）'
           : fix.gap
-          ? '（缺口超过 ' + (CLMarket.TAIL_PROBE_N || 30) + ' 根，未自动补；长按「重算」强刷）'
+          ? '（缺口超过 ' + (CLMarket.TAIL_PROBE_N || 30) + ' 根，未自动补；点「重算」强刷）'
           : '（' + nm(fix.from) + ' 未更新，已从 ' + nm(fix.to) + ' 补 ' + fix.n + ' 根）';
       }
       /* 1.8.0 追踪恒按日线（心法：日线定方向、30 分定时机）。切到别的级别看盘时
@@ -857,7 +891,8 @@
       var tp = trackMap[current.code];
       var trackNote = (tp && tp.period !== periods[0])
         ? '　|　追踪：日线级别（价位线在日线图）' : '';
-      panel.setStatus(stats.join('　|　') + trackNote +
+      var flushNote = (opts && opts.note) ? '　|　' + opts.note : '';
+      panel.setStatus(stats.join('　|　') + trackNote + flushNote +
                       '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
                       srcName + fixNote);
       // 追踪动态盯梢：图表重算后顺手核对一次（列表侧由行情刷新触发）
@@ -890,8 +925,8 @@
    *   ③ 扫描缓存 —— 只在还新鲜（freshMs 内）时用，过期的不拿来凑数
    *   都没有 → null，交给 ensureSignal 现拉一次。 */
   function signalOf(code, period) {
-    var d = datasets[period];
-    if (d && d.code === code && d.klines && d.klines.length) {
+    var d = datasets[dsKey(code, period)];
+    if (d && d.klines && d.klines.length) {
       var st = panel.getState();
       var res = ChanEngine.analyze(d.klines, st.params);
       var fromChart = CLScanner.pickSignal(d.klines, res, { maxLag: SCAN.maxLag });
@@ -1326,6 +1361,29 @@
     panel.setStatus('已全览：三图均显示完整数据区间');
   }
 
+  /** 「重算」= 强制作废全部缓存再重建（强制路径：长按/Shift+点）：
+   *  ① datasets（分析结果多槽缓存） ② sigCache（追踪现算）
+   *  ③ CLDataSource.clearCache()（content 请求缓存 + 末端兜底抑制表
+   *     + background 请求缓存 —— 后两层在非交易时段 TTL 拉长到开盘，
+   *     不显式清的话「重算」就名不副实了）。
+   *  清完先念一句，rebuild 完成后在统计行尾部带上「已清缓存重拉」结论。 */
+  function forceRecalc() {
+    datasets = {};
+    sigCache = {};
+    try { CLDataSource.clearCache(); } catch (e) { /* 预览环境没有该模块 */ }
+    panel.setStatus('已清除全部缓存（K线 / 信号 / 请求缓存），正在重新拉取行情…');
+    return rebuild({ note: '「重算」已清除全部缓存并重新拉取' });
+  }
+
+  /** 「重算」短按 = 防误触的普通重算：只清内存（datasets/sigCache）重建，
+   *  请求缓存不动 —— 1 分钟内连点是命中缓存的秒开，不会重复打行情接口。
+   *  强制清全部走 forceRecalc()（手机长按 / 桌面 Shift+点），两者各司其职。 */
+  function lightRecalc() {
+    datasets = {};
+    sigCache = {};
+    return rebuild({ note: '已重算（请求缓存未清；长按/Shift+点「重算」= 强制清全部）' });
+  }
+
   /* -------------------------------------------------------------------- 动作总入口
    * 自选区（WATCH_ACTIONS）、顶栏右侧/图表右上角（CHART_ACTIONS）、参数面板
    * 「操作」区、顶栏「全览」全部走这里。新增动作 = 对应那张表加一行 +
@@ -1333,7 +1391,7 @@
    * ev 可选，用于 Shift+点（强制重扫）这类修饰判断。 */
   function runAction(act, ev) {
     if (act === 'full') { zoomFull(); return; }
-    if (act === 'recalc') { datasets = {}; rebuild(); }
+    if (act === 'recalc') { (ev && ev.shiftKey) ? forceRecalc() : lightRecalc(); }
     else if (act === 'export') exportJSON();
     else if (act === 'shot') saveShot();
     else if (act === 'extra') {
@@ -1676,7 +1734,7 @@
         }
       });
     },
-    onPeriodChange: function () { datasets = {}; rebuild(); },
+    onPeriodChange: function () { rebuild(); },   // 周期键互不冲突，不必清（1.9.9 多槽）
     onAdjustChange: function () { datasets = {}; rebuild(); },
     onParamChange: function (params) {
       syncScanPeriod(params);
@@ -1714,6 +1772,8 @@
     },
     signalOf: signalOf,
     clearSigCache: function () { sigCache = {}; },   // 测试/调试：追踪现算缓存
+    dsKeys: function () { return Object.keys(datasets); },   // 测试/调试：多槽缓存现状（只读）
+    dsClear: function () { datasets = {}; },         // 测试/调试：只清多槽不重建（动态模拟 setup 用）
     reloadData: function () { datasets = {}; return rebuild(); },   // 测试/调试：强制重拉行情（动态模拟切换切片用）
     applyTrackToViews: applyTrackToViews,
     checkTrackAlerts: checkTrackAlerts,

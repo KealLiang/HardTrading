@@ -244,6 +244,43 @@
   }
   function isStaleDaily(klines, nowMs) { return isStale(klines, 'daily', nowMs); }
 
+  /* ------------------------------------------------- 交易时段与缓存 TTL（1.9.9）
+   * 两层请求缓存（content/datasource.js、background/service_worker.js）共用：
+   * 盘中 45~60s 短缓存防抖；非交易时段数据根本不会变，缓存一直活到下次开盘，
+   * 来回切股/切周期就是零请求 —— 「重算」「Shift+扫信号」负责显式作废。
+   * 节假日本地判定不了：照交易日算（短缓存），行为与 1.9.8 之前一致，只多拉不少拉。 */
+  function isTradeDay(d) { var w = d.getDay(); return w !== 0 && w !== 6; }
+
+  /** nowMs 是否在交易时段（含缓冲：9:15 竞价 ~ 11:35、12:55 ~ 15:05） */
+  function marketOpen(nowMs) {
+    var d = new Date(nowMs);
+    if (!isTradeDay(d)) return false;
+    var m = d.getHours() * 60 + d.getMinutes();
+    return (m >= 9 * 60 + 15 && m <= 11 * 60 + 35) ||
+           (m >= 12 * 60 + 55 && m <= 15 * 60 + 5);
+  }
+
+  /** 下一次开盘（9:15）的时刻；找不到（时钟异常）返回 0 */
+  function marketNextOpen(nowMs) {
+    var d = new Date(nowMs);
+    for (var i = 0; i < 10; i++) {
+      var c = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, 9, 15, 0, 0);
+      if (isTradeDay(c) && c.getTime() > nowMs) return c.getTime();
+    }
+    return 0;
+  }
+
+  /** 本刻写入的缓存该活多久：盘中=盘中TTL；非交易时段=到下次开盘为止。
+      跨周末 ~42h、长假更久都是真实需要的跨度；next 由日历算出（最多查 10 天），
+      天然有界，这里再防御性卡 10 天防时钟异常，算不出来退回盘中TTL。 */
+  function cacheTTLFor(nowMs, intradayMs) {
+    if (marketOpen(nowMs)) return intradayMs;
+    var next = marketNextOpen(nowMs);
+    if (!next || next <= nowMs) return intradayMs;
+    var ttl = next - nowMs;
+    return ttl > 10 * 24 * 3600 * 1000 ? intradayMs : ttl;
+  }
+
   /** 末端落后时依次试其它源：腾讯（当日落地最早）-> 东财 -> 新浪。
    *  只把「晚于当前末端的那几根」交回来，历史一个字不动 —— 各源根数、
    *  复权基准、报价精度都不一样，整份替换会把笔/段/中枢一起改掉。
@@ -388,6 +425,10 @@
     expectTradingDate: expectTradingDate,
     fetchFresherTail: fetchFresherTail,
     TAIL_PROBE_N: TAIL_PROBE_N,
-    setNowFn: setNowFn
+    setNowFn: setNowFn,
+    /* 交易时段与缓存 TTL（1.9.9：非交易时段缓存活到下次开盘） */
+    marketOpen: marketOpen,
+    marketNextOpen: marketNextOpen,
+    cacheTTLFor: cacheTTLFor
   };
 })(typeof self !== 'undefined' ? self : this);

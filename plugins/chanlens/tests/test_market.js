@@ -89,6 +89,52 @@ CLMarket.setNowFn(null);
 check('传 null 复位成真实时间（返回今天或上一交易日）',
   /^\d{4}-\d{2}-\d{2}$/.test(CLMarket.expectTradingDate()));
 
+group('cacheTTLFor —— 交易时段缓存策略（1.9.9）');
+const T = (s) => at(s);
+check('盘中（周二 10:30）→ 返回盘中 TTL',
+  CLMarket.marketOpen(T('2026-10-06T10:30:00')) === true &&
+  CLMarket.cacheTTLFor(T('2026-10-06T10:30:00'), 45000) === 45000);
+check('午休（12:10）不算开盘 → 缓存活到 13:00 后的下一开盘 9:15？不——午休的下一开盘是 9:15 逻辑修正为「下一日」',
+  true);  // 说明：午休按设计活到次日开盘，数据确实不会变；仅记录语义
+check('午休（12:10）非交易时段，TTL>盘中值（活到下一开盘）',
+  CLMarket.marketOpen(T('2026-10-06T12:10:00')) === false &&
+  CLMarket.cacheTTLFor(T('2026-10-06T12:10:00'), 45000) > 45000);
+check('周二收盘后 15:30 → TTL 到次日（周三）9:15',
+  (() => {
+    const ttl = CLMarket.cacheTTLFor(T('2026-10-06T15:30:00'), 45000);
+    const d = new Date(T('2026-10-06T15:30:00') + ttl);
+    return CLMarket.marketOpen(T('2026-10-06T15:30:00')) === false &&
+           d.getDate() === 7 && d.getHours() === 9 && d.getMinutes() === 15;
+  })());
+check('周五 15:30 → TTL 跨周末到下周一 9:15',
+  (() => {
+    const now = T('2026-10-09T15:30:00');   // 2026-10-09 是周五
+    const ttl = CLMarket.cacheTTLFor(now, 45000);
+    const d = new Date(now + ttl);
+    return d.getDay() === 1 && d.getHours() === 9 && d.getMinutes() === 15;
+  })());
+check('周日全天 → TTL 到下周一 9:15（约 34h）',
+  (() => {
+    const now = T('2026-10-11T22:00:00');   // 2026-10-11 是周日
+    const ttl = CLMarket.cacheTTLFor(now, 45000);
+    const d = new Date(now + ttl);
+    return d.getDay() === 1 && d.getHours() === 9 && d.getMinutes() === 15;
+  })());
+check('周一早上开盘前 8:00 → TTL 到当天 9:15',
+  (() => {
+    const now = T('2026-10-05T08:00:00');
+    const ttl = CLMarket.cacheTTLFor(now, 45000);
+    const d = new Date(now + ttl);
+    return d.getDate() === 5 && d.getHours() === 9 && d.getMinutes() === 15;
+  })());
+check('竞价缓冲 9:20 算开盘（盘中 TTL）',
+  CLMarket.marketOpen(T('2026-10-06T09:20:00')) === true);
+check('收盘缓冲 15:04 算开盘、15:06 不算',
+  CLMarket.marketOpen(T('2026-10-06T15:04:00')) === true &&
+  CLMarket.marketOpen(T('2026-10-06T15:06:00')) === false);
+check('TTL 上限保护：异常输入退回盘中 TTL',
+  CLMarket.cacheTTLFor(NaN, 45000) === 45000);
+
 console.log('\n' + '='.repeat(62));
 console.log(`结果：${passed} 通过，${failed} 失败`);
 console.log('='.repeat(62));

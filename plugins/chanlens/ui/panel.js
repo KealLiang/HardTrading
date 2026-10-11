@@ -59,7 +59,7 @@
 
   var CHART_ACTIONS = [
     { key: 'full',   label: '全览', pin: true, title: '缩放到全部 K 线' },
-    { key: 'recalc', label: '重算', pin: true, title: '清缓存重算（长按/Shift 强制重取行情）' },
+    { key: 'recalc', label: '重算', pin: true, title: '普通重算（不清请求缓存）；Shift+点 或 手机长按 = 强制清全部缓存重取' },
     { key: 'export', label: '导出JSON', title: '导出当前标的缠论结构到系统「下载」目录' },
     { key: 'shot',   label: '保存截图', title: '保存主图截图到系统「下载」目录' },
     { key: 'extra',  label: '额外',     title: '显示/隐藏追踪价位线与图上短文案' },
@@ -397,8 +397,9 @@
         b.title = a.title;
         // 外部（quickbar 的显隐维护、测试）按 key 定位，别按文案匹配文案会变
         b.setAttribute('data-key', a.key);
-        b.addEventListener('click', function () {
-          options.onAction && options.onAction(a.key);
+        b.addEventListener('click', function (e) {
+          // 把事件原样交出去：Shift+点这类修饰判断（如「重算」强制路径）要用
+          options.onAction && options.onAction(a.key, e);
         });
         row.appendChild(b);
       });
@@ -492,7 +493,7 @@
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v1.9.7 · 切换 缠论K/普通K 不再被拉回全览（保住当前放大的时间窗）；修右上角「切换」点了没反应'));
+        'v1.9.10 · 「重算」恢复分工：短按=普通重算（不清请求缓存），手机长按/桌面 Shift+点=强制清全部缓存重取'));
     }
 
     function buildTabs() {

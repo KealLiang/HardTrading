@@ -14,8 +14,16 @@
 
 importScripts('../core/market.js');
 
-const CACHE_TTL = 60 * 1000;          // 一分钟内的重复请求直接复用
+const CACHE_TTL = 60 * 1000;          // 盘中的重复请求防抖窗口
 const cache = new Map();
+
+/* TTL 按交易时段取（CLMarket.cacheTTLFor，与 content 层同一套规则）：
+   盘中 60s；非交易时段缓存活到下次开盘 —— 数据不会变，来回切股零请求。
+   TTL 写入时定死在条目上，读的时候不能按当下时段重算（那样开盘后
+   旧数据会被「盘中 60s」以外的新长 TTL 掩护着过不了期）。 */
+function ttlForNow() {
+  return (CLMarket && CLMarket.cacheTTLFor) ? CLMarket.cacheTTLFor(Date.now(), CACHE_TTL) : CACHE_TTL;
+}
 
 /* ------------------------------------------------------------------ 入口 */
 async function handleKline(msg) {
@@ -24,11 +32,11 @@ async function handleKline(msg) {
   if (msg.source && CLMarket.setSource) CLMarket.setSource(msg.source);
   const key = [msg.code, msg.period, msg.limit, adjust, msg.source || 'auto'].join('|');
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_TTL) return Object.assign({ cached: true }, hit.data);
+  if (hit && Date.now() - hit.at < hit.ttl) return Object.assign({ cached: true }, hit.data);
 
   const data = await CLMarket.fetchKline(msg.code, msg.period, msg.limit, adjust);
   data.fetchedAt = Date.now();
-  cache.set(key, { at: Date.now(), data: data });
+  cache.set(key, { at: Date.now(), ttl: ttlForNow(), data: data });
   if (cache.size > 40) cache.delete(cache.keys().next().value);
   return data;
 }
@@ -45,6 +53,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return undefined;
 
   if (msg.type === 'CL_FETCH_KLINE') { reply(handleKline(msg), sendResponse); return true; }
+
+  /* 「重算」/强制重扫 由 content 层发来：这层请求缓存（60s/非交易时段到开盘）
+     必须一起作废，否则强制重取 1 分钟内还是命中旧数据。 */
+  if (msg.type === 'CL_CLEAR_CACHE') { cache.clear(); sendResponse({ ok: true }); return undefined; }
 
   if (msg.type === 'CL_SEARCH') { reply(CLMarket.searchSuggest(msg.text || ''), sendResponse); return true; }
 

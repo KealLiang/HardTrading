@@ -10,6 +10,15 @@
 
   var localCache = new Map();
   var LOCAL_TTL = 45 * 1000;
+  /* 1.9.9：TTL 按交易时段取（CLMarket.cacheTTLFor）——盘中 45s 防抖；
+     非交易时段数据不会变，缓存一直活到下次开盘，来回切股/切周期零请求。
+     「重算」会显式清掉整层缓存，不受长 TTL 影响。
+     TTL 在**写入时**定死存在条目上（周五 15:10 写的活到下周一 9:15），
+     不能在读取时按当下时段算——那样周一开盘后旧数据会被新 TTL 掩护。 */
+  function ttlForNow() {
+    return (global.CLMarket && global.CLMarket.cacheTTLFor)
+      ? global.CLMarket.cacheTTLFor(Date.now(), LOCAL_TTL) : LOCAL_TTL;
+  }
 
   /* 末端兜底的抑制表：code|period -> 上次「别的源也没有」的时间戳。
      节假日/停牌时每次取数都会判定落后，靠它避免反复白发请求。
@@ -63,7 +72,7 @@
     const src = (global.CLMarket && global.CLMarket.getSource) ? global.CLMarket.getSource() : 'auto';
     const key = [code, period, limit, adjust, src].join('|');
     const hit = localCache.get(key);
-    if (hit && Date.now() - hit.at < LOCAL_TTL) return hit.data;
+    if (hit && Date.now() - hit.at < hit.ttl) return hit.data;
 
     const req = {
       type: 'CL_FETCH_KLINE', code: code, period: period,
@@ -129,7 +138,7 @@
       }
     }
 
-    localCache.set(key, { at: Date.now(), data: data });
+    localCache.set(key, { at: Date.now(), ttl: ttlForNow(), data: data });
     if (localCache.size > 30) localCache.delete(localCache.keys().next().value);
     return data;
   }
@@ -165,14 +174,19 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
-  /**
-   * 清掉 45 秒本地缓存（强制刷新用）
-   * 「重算」只清 app.js 的 datasets，取数仍会命中这里；盘中要真联网重取
-   * 就得先清掉。缓存本身是为了避免同一只票短时间内重复请求，主动清即按需。
-   */
-  /** 长按「重算」= 强制：清 K 线缓存，也清末端兜底的抑制表，
-   *  保证「强制」当下一定真的去别的源问一次，不被 10 分钟抑制挡住。 */
-  function clearCache() { localCache.clear(); fixGuard = {}; }
+  /** 清掉本层缓存（强制刷新用）。1.9.9 起「重算」无论哪个入口都走它，所以：
+   *  ① 非交易时段的长 TTL 缓存也要能被它作废（这正是强制语义）；
+   *  ② background 还有一层请求缓存（另一个 JS 实例，60s/非交易时段同样拉长），
+   *     必须发消息一起清 —— v1.9.9 之前它从没被清过，重算后 1 分钟内重取
+   *     仍会命中，这就是当初「45 秒内连点重算不联网」的另一半原因。 */
+  function clearCache() {
+    localCache.clear(); fixGuard = {};
+    try {
+      chrome.runtime.sendMessage({ type: 'CL_CLEAR_CACHE' }, function () {
+        void chrome.runtime.lastError;   // SW 睡着/预览环境没有 background：无所谓
+      });
+    } catch (e) { /* 同上，fire-and-forget */ }
+  }
 
   global.CLDataSource = {
     getKlines: getKlines,
