@@ -200,14 +200,21 @@
       ]
     },
     {
-      group: '自选扫描', items: [
+      group: '周期选择', items: [
         { key: 'scanPeriod', label: '扫描周期', type: 'select', options: [
             { id: '15m', label: '15 分钟' },
             { id: '30m', label: '30 分钟' },
             { id: '60m', label: '60 分钟' },
             { id: 'daily', label: '日线（默认）' },
             { id: 'weekly', label: '周线' }],
-          help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' }
+          help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' },
+        { key: 'trackPeriod', label: '追踪周期', type: 'select', options: [
+            { id: '15m', label: '15 分钟' },
+            { id: '30m', label: '30 分钟' },
+            { id: '60m', label: '60 分钟' },
+            { id: 'daily', label: '日线（默认）' },
+            { id: 'weekly', label: '周线' }],
+          help: '长按自选「追踪」建卡用的周期（1.9.12）。只对新追踪生效；已在追踪的股保持原级别，换级别重新追踪一次即可（覆盖式）' }
       ]
     },
     {
@@ -250,6 +257,7 @@
     var D = global.ChanEngine.DEFAULTS;
     Object.keys(D).forEach(function (k) { params[k] = D[k]; });
     params.scanPeriod = params.scanPeriod || 'daily';   // 自选扫描专用（非引擎参数）
+    params.trackPeriod = params.trackPeriod || 'daily'; // 追踪建卡专用（非引擎参数）
     params.klineMode = params.klineMode || 'raw';     // 画图用哪种 K 线（非引擎参数）
     params.dataSource = params.dataSource || 'auto';  // 行情源（非引擎参数）
     return {
@@ -488,12 +496,26 @@
         '手机端在左抽屉顶部'));
       sideCol.appendChild(actionBlock('右上角 · 针对图表', CHART_ACTIONS, 'cl-act-chart',
         '手机端是图表右上角的悬浮按钮（上方「右上角」里勾选后，从这里移走）'));
+      /* 测试块：不好自动验证的功能放个按钮手动点一遍（走的是真实链路，
+         不是模拟）——首个成员是通知（权限/渠道/横幅只能真机看）。 */
+      var testBox = el('div', 'cl-act-block');
+      testBox.appendChild(el('div', 'cl-act-title', '测试'));
+      var testRow = el('div', 'cl-row');
+      var notifyBtn = el('button', 'cl-btn', '通知');
+      notifyBtn.setAttribute('data-key', 'test_notify');   // 冒烟按这个定位，别按文案
+      notifyBtn.title = '走真实通知链路发一条系统通知（验证通知权限与渠道）';
+      notifyBtn.addEventListener('click', function () {
+        options.onTestNotify && options.onTestNotify();
+      });
+      testRow.appendChild(notifyBtn);
+      testBox.appendChild(testRow);
+      sideCol.appendChild(testBox);
       sideCol.appendChild(el('div', 'cl-help',
         '参数自动保存到浏览器同步存储，下次打开保持。改动引擎请直接编辑 core/chan.js。'));
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v1.9.10 · 「重算」恢复分工：短按=普通重算（不清请求缓存），手机长按/桌面 Shift+点=强制清全部缓存重取'));
+        'v1.9.14 · 清掉旧通知类别残留（不再有两条「追踪提醒」）；通知跳转后本地取名'));
     }
 
     function buildTabs() {

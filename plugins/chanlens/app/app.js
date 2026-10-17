@@ -223,7 +223,10 @@
   var LEVEL_CN = { 1: '一', 2: '二', 3: '三' };
   var TRACK_LIMIT = 800;    // 追踪现算时的取数根数：与看图一致，笔/中枢才对得上
   /* 1.8.0 心法定盘：日线定方向、30 分定时机。追踪不再跟随主图级别 ——
-     级别一跟人走，「换级别重追」「看不到原来的卡」这类问题全都是它派生的。 */
+     级别一跟人走，「换级别重追」「看不到原来的卡」这类问题全都是它派生的。
+     1.9.12：级别从「恒日线」放宽为「设置面板可选」，这里只是默认值，
+     实际值由「周期选择-追踪周期」驱动（syncTrackPeriod 是唯一同步点）。
+     已追踪的记录自带 rec.period，不受此设置影响 —— 覆盖式重追即可换级。 */
   var TRACK_PERIOD = 'daily';
   var TIMING_PERIOD = '30m';
   var TIMING_FRESH_MS = 2 * 60 * 1000;   // 30 分时机检查的间隔抑制（数据源另有 45s 缓存）
@@ -231,7 +234,7 @@
 
   var scanBtnEl = document.getElementById('scanBtn');
 
-  /** 扫描周期在设置面板「自选扫描」分组里改，这里是唯一同步点 */
+  /** 扫描周期在设置面板「周期选择」分组里改，这里是唯一同步点 */
   function syncScanPeriod(params) {
     var p = (params && params.scanPeriod) || null;
     if (!p || p === SCAN.period) return;
@@ -239,6 +242,14 @@
     if (scanBtnEl) scanBtnEl.title = '扫描自选列表最新 ' + (PERIOD_LABEL[p] || p) +
                                     ' 缠论信号（Shift+点击强制重扫）';
     loadScanCache();   // 只读该周期缓存，零请求
+  }
+
+  /** 追踪周期在设置面板「周期选择」分组里改，这里是唯一同步点。
+   *  只影响之后新建的追踪卡；已追踪的记录自带 rec.period，不回改。 */
+  function syncTrackPeriod(params) {
+    var p = (params && params.trackPeriod) || null;
+    if (!p || p === TRACK_PERIOD || !CLTrack.PERIOD_CN[p]) return;
+    TRACK_PERIOD = p;
   }
 
   /** 数据源在设置面板「数据」分组里改，这里是唯一同步点 */
@@ -786,6 +797,17 @@
     renderWatchlist();
     updateHeader();
     if (!current.name) {
+      /* 1.9.14：先查自选列表本地取名 —— 通知跳转/URL 直达的股大概率在自选里，
+         名字早已写回本地存储，零请求立即显示（网络取名在部分机器上会被拦） */
+      for (var i = 0; i < watchlist.length; i++) {
+        if (watchlist[i].code === code && watchlist[i].name) {
+          current.name = watchlist[i].name;
+          updateHeader();
+          break;
+        }
+      }
+    }
+    if (!current.name) {
       fetchName(code)
         .then(function (q) { if (q && q.name) { current.name = q.name; updateHeader(); renderWatchlist(); } })
         .catch(function () { updateHeader(); /* 名字拿不到不影响看图 */ });
@@ -886,11 +908,13 @@
           ? '（缺口超过 ' + (CLMarket.TAIL_PROBE_N || 30) + ' 根，未自动补；点「重算」强刷）'
           : '（' + nm(fix.from) + ' 未更新，已从 ' + nm(fix.to) + ' 补 ' + fix.n + ' 根）';
       }
-      /* 1.8.0 追踪恒按日线（心法：日线定方向、30 分定时机）。切到别的级别看盘时
-         价位线不画，不明说会以为追踪丢了 —— 状态栏念一句它属于日线。 */
+      /* 1.8.0 追踪不跟主图级别（1.9.12 起级别可选，但记录自持 rec.period）。
+         切到别的级别看盘时价位线不画，不明说会以为追踪丢了 ——
+         状态栏念一句它属于哪个级别。 */
       var tp = trackMap[current.code];
       var trackNote = (tp && tp.period !== periods[0])
-        ? '　|　追踪：日线级别（价位线在日线图）' : '';
+        ? '　|　追踪：' + (CLTrack.PERIOD_CN[tp.period] || tp.period) +
+          '级别（价位线在该级别图）' : '';
       var flushNote = (opts && opts.note) ? '　|　' + opts.note : '';
       panel.setStatus(stats.join('　|　') + trackNote + flushNote +
                       '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
@@ -999,10 +1023,13 @@
     else if (rec.timing)
       main = '时机已到：' + rec.timing.note + ' · 可进场';
     else
-      main = '等30分同向' + (rec.dir > 0 ? '买' : '卖') + '点 · 不动手';
+      main = (rec.period === '30m')
+        ? '持有中 · 等结构（30m 追踪无时机检查）'
+        : '等30分同向' + (rec.dir > 0 ? '买' : '卖') + '点 · 不动手';
     var sfx = [];
     if (rec.reverse)
-      sfx.push((rec.dir > 0 ? '日线转空' : '日线转多') + '（' + rec.reverse.note + '）· 仅提示');
+      sfx.push((CLTrack.PERIOD_CN[rec.period] || rec.period) +
+        (rec.dir > 0 ? '转空' : '转多') + '（' + rec.reverse.note + '）· 仅提示');
     if (rec.timingFail)
       sfx.push('30分' + (rec.dir > 0 ? '买' : '卖') + '点已失效 · 重新等');
     if (rec.trail != null) sfx.push('动盈 ' + fmtPrice(rec.trail));
@@ -1050,9 +1077,13 @@
         CLTrack.save(trackMap);
         applyTrackToViews();   // 图上左上角的「时机」状态随手刷新
         toast((rec.name || code) + '：' + r.text);
+        notifyNative((rec.name || code) + ' 追踪提醒', r.text, code);
         renderWatchlist();
       };
-      /* ① 30 分时机 / 时机失效 */
+      /* ① 30 分时机 / 时机失效 —— 仅当追踪级别高于 30m 时才有「时机」可言；
+         追踪周期本身是 30m 时方向与时机同级别（建卡的信号自己就会触发），跳过。
+         1.9.12：追踪级别从恒日线放宽为可选，此处随 rec.period 判断。 */
+      if (rec.period === '30m') return;
       CLDataSource.getKlines(code, TIMING_PERIOD, 200, st.adjust).then(function (d) {
         CLDataSource.withTimestamps(d);
         var ks = (d && d.klines) || [];
@@ -1063,12 +1094,28 @@
         if (!r.hit) r = CLTrack.failTiming(rec, sig);
         onHit(r);
       }).catch(function () { /* 取数失败下一轮再试，时机检查不该打扰人 */ });
-      /* ② 日线反向信号（走 ensureSignal：主图已加载零请求，否则现拉带缓存） */
-      ensureSignal(code, TRACK_PERIOD).then(function (sig) {
+      /* ② 本级别反向信号（走 ensureSignal：主图已加载零请求，否则现拉带缓存）。
+         1.9.12：反向检查跟随记录自身级别（rec.period），不再恒为日线。 */
+      ensureSignal(code, rec.period || TRACK_PERIOD).then(function (sig) {
         if (!sig || sig.failed || sig.none) return;
         onHit(CLTrack.updateReverse(rec, sig));
       }).catch(function () {});
     });
+  }
+
+  /** 系统通知（安卓壳有 CLAndroid 时）：追踪状态跃迁的第二个出口。
+   *  code 用来做「点通知跳到该股」：原生塞进 Intent extra，MainActivity 收到后
+   *  evaluate ChanLensApp.open(code)（1.9.13）。桌面 Chrome 插件没有原生桥，
+   *  返回 false，界面 toast 即全部。 */
+  function notifyNative(title, body, code) {
+    try {
+      if (window.CLAndroid && typeof window.CLAndroid.notify === 'function') {
+        window.CLAndroid.notify(String(title || 'ChanLens'), String(body || ''),
+                                String(code || ''));
+        return true;
+      }
+    } catch (e) { /* 原生桥异常时不影响 toast 兜底 */ }
+    return false;
   }
 
   /** 动态盯梢：现价触碰失效位/止盈位时提醒。priceOfCurrent 优先（实时 K 线收盘），
@@ -1087,9 +1134,25 @@
         else rec.alertedTrail = true;
         changed = true;
         toast((rec.name || code) + '：' + r.text);
+        notifyNative((rec.name || code) + ' 追踪提醒', r.text, code);
       }
     });
     if (changed) { CLTrack.save(trackMap); applyTrackToViews(); }  // 盯梢命中随手刷 HUD
+  }
+
+  /** 切回 app（onResume）时只拉追踪股的行情做一次检查 —— 防误触老规矩：
+   *  一次批量请求只含追踪的几只，自选列表的行情仍走 10 分钟兜底节奏。
+   *  打开瞬间的跃迁（比如盘中破了失效位）直接进通知栏。 */
+  function refreshTracked() {
+    var codes = Object.keys(trackMap);
+    if (!codes.length) return Promise.resolve();
+    return CLMarket.fetchQuotes(codes).then(function (m) {
+      if (!m || !Object.keys(m).length) return;
+      Object.keys(m).forEach(function (c) {
+        if (m[c] && m[c].price != null) quotes[c] = m[c];
+      });
+      checkTrackAlerts();
+    }).catch(function () { /* 拿不到就算了，10 分钟兜底会再查 */ });
   }
 
   /** 取消追踪 */
@@ -1119,16 +1182,16 @@
       ents.push({ label: '取消追踪', danger: true, fn: function () { cancelTrack(item.code); } });
       ents.push({ sep: true });
       /* 已追踪：这个入口就是「查看/重算计划」 */
-      ents.push({ label: '查看计划（日线）',
+      ents.push({ label: '查看计划（' + (CLTrack.PERIOD_CN[rec.period] || rec.period) + '）',
                   fn: function () { openTrackCard(item, false); } });
     } else {
-      /* 未追踪：恒按日线判方向（心法：日线定方向、30 分定时机）。
-         日线无信号直接在标签上写明，点进去也会明确提示。 */
+      /* 未追踪：按「周期选择-追踪周期」判方向（1.9.12 起可选，默认日线）。
+         该级别无信号直接在标签上写明，点进去也会明确提示。 */
       var sg = signalOf(item.code, TRACK_PERIOD);
       var cached = sigCache[TRACK_PERIOD + '|' + item.code];
       var tag = (sg && !sg.none) ? ' · ' + (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖')
                                  : ((cached && cached.none) ? ' · 无信号' : '');
-      ents.push({ label: '追踪（日线' + tag + '）',
+      ents.push({ label: '追踪（' + (PERIOD_LABEL[TRACK_PERIOD] || TRACK_PERIOD) + tag + '）',
                   fn: function () { openTrackCard(item, false); } });
     }
     ents.push({ sep: true });
@@ -1153,8 +1216,8 @@
   /**
    * 打开作战卡。签名兼容旧调用 openTrackCard(item, dir, viewMode)：
    * 第二个参数是布尔就是新的（只带 viewMode），数字则是旧的（方向已废弃）。
-   * 1.8.0：追踪恒按**日线**（心法：日线定方向、30 分定时机），不再跟随主图级别。
-   * 日线算不出信号、但标的已在追踪中 → 回退展示已存计划（只读）。
+   * 1.8.0：追踪不再跟随主图级别；1.9.12：级别由「周期选择-追踪周期」决定（默认日线）。
+   * 该级别算不出信号、但标的已在追踪中 → 回退展示已存计划（只读）。
    */
   function openTrackCard(item, a, b) {
     var viewMode = (typeof a === 'boolean') ? a : !!b;
@@ -1167,7 +1230,8 @@
     }
     var per = TRACK_PERIOD;
     var nm = item.name || item.code;
-    setStatus('正在按日线计算「' + nm + '」的追踪计划…');
+    var perCN = PERIOD_LABEL[per] || per;
+    setStatus('正在按' + perCN + '计算「' + nm + '」的追踪计划…');
     return ensureSignal(item.code, per).then(function (sig) {
       if (sig && sig.failed) {
         // 取数失败 ≠ 没信号，必须说清楚，否则用户只会觉得「点了没反应」
@@ -1180,14 +1244,15 @@
       if (!sig || sig.none) {
         var rec0 = trackMap[item.code];
         if (rec0) {
-          // 已追踪但日线现算不出信号（信号走完离开 maxLag 等）→ 展示存下来的计划
-          var msgR = '「' + nm + '」日线暂无买卖点，下面显示的是已存的追踪计划';
+          // 已追踪但该级别现算不出信号（信号走完离开 maxLag 等）→ 展示存下来的计划
+          var msgR = '「' + nm + '」' + (PERIOD_LABEL[rec0.period] || rec0.period) +
+                     '暂无买卖点，下面显示的是已存的追踪计划';
           setStatus(msgR);
           trackCtx = { item: item, viewMode: true, sig: null, period: rec0.period, plan: null };
           showTrackModal();
           return rec0;
         }
-        var msg2 = '「' + nm + '」日线暂无买卖点，等信号出现再追';
+        var msg2 = '「' + nm + '」' + perCN + '暂无买卖点，等信号出现再追';
         setStatus(msg2, true);
         toast(msg2);
         return null;
@@ -1229,17 +1294,21 @@
     var h = '<div><b>已定</b>：' + (long ? '做多 ▲' : '做空 ▼') + ' · ' +
       (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' + (d.note || '') +
       (fixed.length ? ' ｜ ' + fixed.join(' ｜ ') : '') + '</div>';
-    /* 反向：最近一次日线反向信号（不随消失/同向清除，是「最后一次走坏」的存档）。
+    /* 反向：最近一次本级别反向信号（不随消失/同向清除，是「最后一次走坏」的存档）。
        1.9.0 降级为纯提示：回测证明翻转清仓是价值毁灭者，离场只看失效位/动盈 */
     if (d.reverse)
-      h += '<div><b>反向</b>：日线 ' + d.reverse.note + '（' + fmtTs(d.reverse.ts) +
+      h += '<div><b>反向</b>：' + (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' +
+           d.reverse.note + '（' + fmtTs(d.reverse.ts) +
            '）· 仅提示，离场看失效/动盈</div>';
     var waits = [];
-    waits.push(d.timing
+    /* 30 分时机只属于「方向级别高于 30m」的追踪；30m 追踪本身没有时机检查 */
+    var hasTiming = d.period !== '30m';
+    if (hasTiming) waits.push(d.timing
       ? '<b>30分时机已到</b>：' + d.timing.note + '（' + fmtTs(d.timing.ts) + '）'
       : '30分同向' + (long ? '买' : '卖') + '点（入场时机）');
     if (d.trail == null) waits.push('动盈启动（等首个优于入场的回调低点）');
-    h += '<div><b>' + (d.timing ? '时机' : '在等') + '</b>：' + waits.join('；') + '</div>';
+    if (waits.length)
+      h += '<div><b>' + (d.timing ? '时机' : '在等') + '</b>：' + waits.join('；') + '</div>';
     var dyn = [];
     dyn.push(d.target != null ? '目标 ' + fmtPrice(d.target) : '目标：前高已过，等新结构');
     dyn.push(d.trail != null ? '动盈 ' + fmtPrice(d.trail) + '（只朝有利方向移）' : '动盈：未启动');
@@ -1426,6 +1495,7 @@
       // 否则「数据源/扫描周期」这类不在引擎里的开关还停在被重置前的状态
       var rstParams = (panel.getState() || {}).params;
       syncScanPeriod(rstParams);
+      syncTrackPeriod(rstParams);
       syncDataSource(rstParams);
       datasets = {};
       rebuild();
@@ -1708,6 +1778,7 @@
       syncDataSource(state && state.params);   // 必须在首次取数之前生效
       loadAll(function () {
         syncScanPeriod(state && state.params);   // 恢复设置的扫描周期（纯读缓存）
+        syncTrackPeriod(state && state.params);  // 恢复设置的追踪周期
         renderWatchlist();
         resolveMissingNames(40);   // 兼容旧数据：启动时自动补全缺失/退化为代码的名称
         refreshQuotes();           // 自选列表右侧涨跌幅
@@ -1738,12 +1809,19 @@
     onAdjustChange: function () { datasets = {}; rebuild(); },
     onParamChange: function (params) {
       syncScanPeriod(params);
+      syncTrackPeriod(params);
       if (syncDataSource(params)) datasets = {};   // 换源 → 旧缓存作废，必须重取
       rebuild();
     },
     onLayerChange: function (layers) { views.forEach(function (v) { v.setLayers(layers); v.draw(); }); },
     onLevelsChange: function () { rebuild(); },
-    onAction: runAction   // 自选区 / 右上角 / 参数面板「操作」区共用同一个执行入口
+    onAction: runAction,  // 自选区 / 右上角 / 参数面板「操作」区共用同一个执行入口
+    onTestNotify: function () {           // 参数「测试-通知」：走真实通知链路
+      var ok = notifyNative('ChanLens 通知测试',
+        '链路正常（' + new Date().toLocaleTimeString() + '）：权限与渠道都通了');
+      setStatus(ok ? '已发系统通知，请看通知栏'
+                   : '当前环境没有原生通知（桌面插件只有 toast），请在手机上测');
+    }
   });
 
   window.ChanLensApp = {
@@ -1755,6 +1833,7 @@
     newCat: newCat,
     refreshQuotes: refreshQuotes,
     setScanPeriod: function (p) { syncScanPeriod({ scanPeriod: p }); },   // 与设置面板同步用
+    setTrackPeriod: function (p) { syncTrackPeriod({ trackPeriod: p }); },   // 测试/调试：切追踪周期
     reloadScanCache: loadScanCache,   // 测试/调试：注入扫描缓存后手动重载
     quotes: function () { return JSON.parse(JSON.stringify(quotes)); },
     runScan: runScan,
@@ -1775,6 +1854,11 @@
     dsKeys: function () { return Object.keys(datasets); },   // 测试/调试：多槽缓存现状（只读）
     dsClear: function () { datasets = {}; },         // 测试/调试：只清多槽不重建（动态模拟 setup 用）
     reloadData: function () { datasets = {}; return rebuild(); },   // 测试/调试：强制重拉行情（动态模拟切换切片用）
+    refreshTracked: refreshTracked,                  // onResume 链路；冒烟直接调它测「跃迁→通知」
+    trackSet: function (code, rec) {                 // 测试/调试：注入/移除一条追踪记录（通知冒烟用）
+      if (rec) trackMap[code] = rec; else delete trackMap[code];
+      CLTrack.save(trackMap);
+    },
     applyTrackToViews: applyTrackToViews,
     checkTrackAlerts: checkTrackAlerts,
     checkTiming: checkTimingAll,   // 测试/调试：force=true 忽略间隔抑制

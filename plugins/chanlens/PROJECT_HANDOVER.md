@@ -218,8 +218,8 @@ mobile/bridge.js → core/indicators → core/chan → core/market
 // app/app.js:182-189
 SCAN  = { period:'daily', limit:200, maxLag:10, freshMs: 30*60*1000 }
 TRACK_LIMIT = 800      // 追踪现算取数根数，与看图一致，笔/中枢才对得上
-TRACK_PERIOD = 'daily' // 追踪恒日线（1.8.0 起不再跟随主图级别）
-TIMING_PERIOD = '30m'
+TRACK_PERIOD = 'daily' // 追踪默认日线（1.8.0 不再跟主图；1.9.12 起由设置「周期选择-追踪周期」驱动，此为默认值/兜底）
+TIMING_PERIOD = '30m'  // 时机检查；rec.period==='30m' 的追踪跳过时机检查（同级别无意义）
 TIMING_FRESH_MS = 2*60*1000
 // content/datasource.js
 LOCAL_TTL = 45*1000        // 行情本地缓存

@@ -216,8 +216,8 @@
     return { hit: true, text: '30 分时机失效（' + rec.timingFail.note + '），回「在等」' };
   }
 
-  /* ------------------------------------------------- 日线反向信号（1.8.1，1.9.0 降级）
-   * 多头持仓后日线出一卖 / 空头持仓后日线出一买 —— 纯**信息提示**，不是离场建议。
+  /* ------------------------------------------------- 本级别反向信号（1.8.1，1.9.0 降级，1.9.12 随级别）
+   * 多头持仓后本级别出一卖 / 空头持仓后本级别出一买 —— 纯**信息提示**，不是离场建议。
    * 回测结论（26 只 ETF 日线全历史）：「日线翻转清仓」占 85% 换手、82% 离场后创新高，
    * 是价值毁灭者——离场只认两条结构线：失效位、动盈/移动止盈。
    * 跟踪推进（refsFor）只认方向、不认信号，是为了跟踪线不冻结；反向信号对持仓者
@@ -233,9 +233,10 @@
     var key = (sig.level == null ? '?' : sig.level) + '|' + (sig.note || '');
     if (rec.reverse && rec.reverse.key === key) return { hit: false, text: '' };
     rec.reverse = { key: key, level: sig.level, note: sig.note || '', ts: Date.now() };
+    var perCN = PERIOD_CN[rec.period] || rec.period || '本级别';
     return { hit: true,
-      text: '日线方向转' + (rec.dir > 0 ? '空' : '多') + '（' + rec.reverse.note +
-            '）· 仅提示，离场仍看失效位/动盈' };
+      text: perCN + '方向转' + (rec.dir > 0 ? '空' : '多') +
+            '（' + rec.reverse.note + '）· 仅提示，离场仍看失效位/动盈' };
   }
 
   g.CLTrack = {
