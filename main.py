@@ -1895,7 +1895,7 @@ if __name__ == '__main__':
     # analyze_advanced_on()
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
-    # get_hot_clouds('20251201')
+    # get_hot_clouds('20261020')
     # find_dragon()
     # find_similar_trends()
     # get_stock_concept_and_industry()
