@@ -10,6 +10,11 @@ from matplotlib.font_manager import FontProperties
 from wordcloud import WordCloud
 
 from config.holder import config
+from fetch.tonghuashun.hot_concept_rotation import (
+    build_rotation_chart,
+    extract_concept_counts,
+    save_concept_counts,
+)
 from fetch.tonghuashun.wencai_client import apply_pywencai_headers_patch
 from utils.date_util import get_current_or_prev_trading_day
 
@@ -19,6 +24,7 @@ apply_pywencai_headers_patch()
 font_path = 'fonts/微软雅黑.ttf'
 save_path = "images/wordcloud/hot/"  # 指定保存目录
 latest_save_path = "images/"  # 最新图片保存目录（每次更新覆盖）
+HISTORY_CLOUD_DIR = "images/wordcloud/history/"  # 旧词云图归档目录
 
 
 def pd_setting():
@@ -62,20 +68,55 @@ def hot_words_cloud(date: str = None, concept_only: bool = True):
         # 按照'连板数'列进行降序排序
         sorted_temp_df = jj_df.sort_values(by='连续涨停天数[' + date + ']', ascending=False)
 
+        # 落盘每日概念计数，供概念轮动图使用；数据足够时顺带刷新轮动图
+        try:
+            save_concept_counts(date, extract_concept_counts(date, sorted_temp_df))
+            build_rotation_chart()
+        except Exception as e:
+            print(f"概念轮动图/计数保存失败 {date}: {e}")
+
         # 根据开关生成对应的词云图
         if concept_only:
             generate_concept_cloud(date, sorted_temp_df)
         else:
             generate_combined_cloud(date, sorted_temp_df)
 
+        # hot 目录只保留最近 20 张，其余归档到 history
+        archive_old_wordclouds()
+
     except Exception as e:
         print(f"处理日期 {date} 时出错: {e}")
+
+
+def archive_old_wordclouds(keep: int = 20):
+    """
+    归档旧词云图：hot 目录只保留最近 keep 张，其余移入 history 目录。
+
+    Args:
+        keep: hot 目录保留的图片数量，默认 20
+    """
+    try:
+        os.makedirs(HISTORY_CLOUD_DIR, exist_ok=True)
+        # 文件名以 YYYYMMDD 开头，按名称排序即按日期排序
+        files = sorted(f for f in os.listdir(save_path) if f.endswith('.png'))
+        if len(files) <= keep:
+            return
+        old_files = files[:-keep]
+        for f in old_files:
+            src = os.path.join(save_path, f)
+            dst = os.path.join(HISTORY_CLOUD_DIR, f)
+            if os.path.exists(dst):
+                os.remove(dst)
+            shutil.move(src, dst)
+        print(f"已归档 {len(old_files)} 张旧词云图到 {HISTORY_CLOUD_DIR}")
+    except Exception as e:
+        print(f"词云图归档失败: {e}")
 
 
 def generate_concept_cloud(date, sorted_temp_df):
     """
     仅生成概念词云图
-    
+
     Args:
         date: 日期字符串
         sorted_temp_df: 排序后的股票数据

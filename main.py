@@ -564,6 +564,19 @@ def get_hot_clouds(date: str = None, concept_only: bool = True):
     hot_words_cloud(date, concept_only)
 
 
+# 生成热门概念轮动图
+def get_hot_concept_rotation(days: int = 7, top_n: int = 10):
+    """
+    生成热门概念河流轮动图（读取每日概念计数CSV，带宽=涨停家数）
+
+    Args:
+        days: 展示最近 N 个交易日，默认 7
+        top_n: 展示的概念数量（按窗口内累计涨停家数取 Top N），默认 10
+    """
+    from fetch.tonghuashun.hot_concept_rotation import build_rotation_chart
+    build_rotation_chart(days=days, top_n=top_n)
+
+
 def get_index_data():
     # 指定保存目录
     save_directory = "data/indexes"
@@ -680,6 +693,7 @@ def daily_routine():
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
+        (get_hot_concept_rotation, "生成热门概念轮动图"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
         # (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
         #  "爆量分歧转一致筛选"),  # 只有主线明确的情况才能使用，胜率和从天梯直接找差不多
@@ -1896,6 +1910,7 @@ if __name__ == '__main__':
     # stocks_time_sharing_price()
     # plot_stock_daily_prices()
     # get_hot_clouds('20261020')
+    # get_hot_concept_rotation()
     # find_dragon()
     # find_similar_trends()
     # get_stock_concept_and_industry()
