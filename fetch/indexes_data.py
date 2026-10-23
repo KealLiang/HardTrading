@@ -40,6 +40,42 @@ def fetch_and_save_index_data(symbol, save_path):
         print(f"Data for {symbol} saved to {save_path}")
 
 
+def fetch_and_save_index_amount(symbol, save_path):
+    """
+    获取指定指数的日成交额并保存为CSV文件（含表头：date,amount，单位：元）。
+    如果文件已存在，则从最新的日期处增量追加。
+    使用东方财富接口（自带成交额字段）。
+
+    :param symbol: 指数代码，如 'sh000001' 表示上证指数
+    :param save_path: 保存CSV文件的路径
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    all_data = ak.stock_zh_index_daily_em(symbol=symbol)
+    if 'amount' not in all_data.columns:
+        print(f"Amount field missing for {symbol}, skipped.")
+        return
+    amt = all_data[['date', 'amount']].copy()
+    amt['date'] = amt['date'].astype(str)
+
+    if os.path.exists(save_path):
+        existing = pd.read_csv(save_path, dtype={'date': str})
+        last_date = existing['date'].max()
+        new_data = amt[amt['date'] > last_date]
+        if not new_data.empty:
+            pd.concat([existing, new_data], ignore_index=True).to_csv(save_path, index=False)
+            print(f"Amount for {symbol} updated to {save_path}")
+        else:
+            print(f"No new amount for {symbol}.")
+    else:
+        amt.to_csv(save_path, index=False)
+        print(f"Amount for {symbol} saved to {save_path}")
+
+
+# 需要成交额的指数（用于市场强弱分布图右轴）
+AMOUNT_INDICES = ("sh000001", "sz399001")
+
+
 def fetch_indexes_data(save_dir):
     """
     主函数，用于获取上证、深证和创业板指数数据并保存。
@@ -63,6 +99,14 @@ def fetch_indexes_data(save_dir):
     # 获取并保存每个指数的数据
     for symbol, path in indices.items():
         fetch_and_save_index_data(symbol, path)
+
+    # 成交额数据（含表头，独立文件，不影响原有6列CSV）
+    for symbol in AMOUNT_INDICES:
+        path = os.path.join(save_dir, f"{symbol}_amount.csv")
+        try:
+            fetch_and_save_index_amount(symbol, path)
+        except Exception as e:
+            print(f"获取 {symbol} 成交额失败: {e}")
 
 
 if __name__ == "__main__":

@@ -62,29 +62,88 @@ def plot_market_overview(df, save_path):
     plt.close()
 
 
+# 成交额数据源：本地指数CSV（date,amount，单位元，由 fetch_indexes_data 每日更新）
+AMOUNT_INDEX_FILES = [
+    'sh000001_amount.csv',
+    'sz399001_amount.csv',
+]
+
+
+def load_index_amount(index_dir='./data/indexes'):
+    """
+    加载本地指数CSV的成交额并按日合计
+    Returns:
+        pd.Series: 索引为DatetimeIndex，单位换算为亿元；数据不可用时返回None
+    """
+    try:
+        total = None
+        for name in AMOUNT_INDEX_FILES:
+            path = os.path.join(index_dir, name)
+            if not os.path.exists(path):
+                print(f"成交额CSV不存在，跳过: {path}")
+                return None
+            adf = pd.read_csv(path, dtype={'date': str})
+            adf['date'] = pd.to_datetime(adf['date'])
+            adf = adf.drop_duplicates(subset='date').set_index('date')['amount']
+            total = adf if total is None else total.add(adf, fill_value=0)
+        if total is None or total.empty:
+            return None
+        return total / 1e8  # 元 → 亿元
+    except Exception as e:
+        print(f"加载指数成交额失败，跳过成交额折线: {e}")
+        return None
+
+
 def plot_market_strength(df, save_path):
     """绘制市场强弱分布图"""
     plt.figure(figsize=(15, 8))
+    ax1 = plt.gca()
     x = np.arange(len(df))
     width = 0.35
 
     # 上半部分（涨幅）- 三个档次的红色深度
-    plt.bar(x, df['涨幅超过5%家数'], width, color='#ffcccc', alpha=0.8, label='涨幅>5%')
-    plt.bar(x, df['涨幅超过7%家数'], width, color='#ff6666', alpha=0.8, label='涨幅>7%')
-    plt.bar(x, df['涨幅超过9%家数'], width, color='#cc0000', alpha=0.8, label='涨幅>9%')
+    ax1.bar(x, df['涨幅超过5%家数'], width, color='#ffcccc', alpha=0.8, label='涨幅>5%')
+    ax1.bar(x, df['涨幅超过7%家数'], width, color='#ff6666', alpha=0.8, label='涨幅>7%')
+    ax1.bar(x, df['涨幅超过9%家数'], width, color='#cc0000', alpha=0.8, label='涨幅>9%')
 
     # 下半部分（跌幅）- 三个档次的绿色深度
-    plt.bar(x, -df['跌幅超过5%家数'], width, color='#ccffcc', alpha=0.8, label='跌幅>5%')
-    plt.bar(x, -df['跌幅超过7%家数'], width, color='#66ff66', alpha=0.8, label='跌幅>7%')
-    plt.bar(x, -df['跌幅超过9%家数'], width, color='#00cc00', alpha=0.8, label='跌幅>9%')
+    ax1.bar(x, -df['跌幅超过5%家数'], width, color='#ccffcc', alpha=0.8, label='跌幅>5%')
+    ax1.bar(x, -df['跌幅超过7%家数'], width, color='#66ff66', alpha=0.8, label='跌幅>7%')
+    ax1.bar(x, -df['跌幅超过9%家数'], width, color='#00cc00', alpha=0.8, label='跌幅>9%')
 
-    plt.xlabel('日期')
-    plt.ylabel('家数')
-    plt.title('市场强弱分布', fontsize=14)
-    plt.xticks(x, [d.strftime('%Y%m%d') if isinstance(d, pd.Timestamp) else d for d in df.index],
-               rotation=45, ha='right')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    ax1.set_xlabel('日期')
+    ax1.set_ylabel('家数')
+
+    # 右轴：两市成交额合计（灰蓝色细折线），数据不可用时保持原图
+    amt = load_index_amount()
+    if amt is not None and not amt.empty:
+        try:
+            amt_aligned = amt.reindex(pd.to_datetime(df.index))
+            vals = amt_aligned.values.astype(float)
+            ax2 = ax1.twinx()
+            ax2.plot(x, vals, color='#4a7ebb', linewidth=1.2, alpha=0.8, label='成交额(亿元)')
+            ax2.set_ylabel('成交额(亿元)', color='#4a7ebb')
+            ax2.tick_params(axis='y', labelcolor='#4a7ebb')
+            # 垂直居中：以数据区间为中心，上下对称各留半个波动幅度的空白
+            amin, amax = np.nanmin(vals), np.nanmax(vals)
+            pad = (amax - amin) * 0.5
+            if pad <= 0:
+                pad = amax * 0.1
+            ax2.set_ylim(amin - pad, amax + pad)
+            handles1, labels1 = ax1.get_legend_handles_labels()
+            handles2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(handles1 + handles2, labels1 + labels2, loc='lower left')
+        except Exception as e:
+            print(f"绘制成交额折线失败，仅保留强弱分布: {e}")
+            ax1.legend(loc='lower left')
+    else:
+        ax1.legend(loc='lower left')
+
+    ax1.set_title('市场强弱分布', fontsize=14)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([d.strftime('%Y%m%d') if isinstance(d, pd.Timestamp) else d for d in df.index],
+                        rotation=45, ha='right')
+    ax1.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f'{save_path}_strength.png')
     plt.close()
