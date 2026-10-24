@@ -32,4 +32,6 @@ data/**/*.csv
 !excel/daily_history/**/*.txt
 *.jks
 *.keystore
-android/keystore/
+android/keystore/# 回测中间产物（pack/切片/日志），体积大且可重生成
+analysis/chanlens_strict/tmp/
+analysis/chanlens_strict/out/
