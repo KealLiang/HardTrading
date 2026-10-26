@@ -503,7 +503,8 @@
       ctx.lineTo(L.right, y);
       ctx.stroke();
       ctx.restore();
-      vis.push({ y: y, label: ln.label || '', price: ln.price, color: ln.color || '#2b6cb0' });
+      vis.push({ y: y, label: ln.label || '', price: ln.price, color: ln.color || '#2b6cb0',
+                 priceText: ln.priceText || null });
     }
 
     /* ② 标签：按 y 排序，几乎同价的合并，剩下的纵向错开 */
@@ -516,13 +517,15 @@
         continue;
       }
       groups.push({ y: vis[i].y, price: vis[i].price, color: vis[i].color,
+                    priceText: vis[i].priceText,
                     labels: vis[i].label ? [vis[i].label] : [] });
     }
 
     var lastBottom = -1e9;
     for (i = 0; i < groups.length; i++) {
       var gp = groups[i];
-      var text = (gp.labels.length ? gp.labels.join('/') + ' ' : '') + gp.price;
+      var text = (gp.labels.length ? gp.labels.join('/') + ' ' : '') +
+        (gp.priceText != null ? gp.priceText : fmtPrice(gp.price));
       var by = gp.y - 16;
       if (by < L.priceTop + 2) by = gp.y + 4;
       if (by < lastBottom) by = lastBottom;        // 与上一个标签不重叠

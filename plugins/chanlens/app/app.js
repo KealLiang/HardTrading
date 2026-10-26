@@ -212,6 +212,12 @@
     return v >= 100 ? v.toFixed(2) : v.toFixed(3);
   }
 
+  /* 条件单价格：固定 2 位（2.0.0）。ATR 缓冲算出来的第 3、4 位挂不进单，
+     显示和判定统一按 2 位 —— 口径唯一来源是 CLTrack.fmt2 / round2。 */
+  function fmtCond(v) {
+    return CLTrack.fmt2(v);
+  }
+
   /* 轻提示：安卓壳走原生 Toast，PC 落状态栏 */
   function toast(msg) {
     if (window.CLMobile && window.CLMobile.toast) window.CLMobile.toast(msg);
@@ -234,10 +240,13 @@
 
   var scanBtnEl = document.getElementById('scanBtn');
 
+  /* 2026-10-24 手册：级别只认 日线/60分/30分（旧的 15m/周线 不再可选） */
+  var TRADE_PERIODS = { '30m': 1, '60m': 1, 'daily': 1 };
+
   /** 扫描周期在设置面板「周期选择」分组里改，这里是唯一同步点 */
   function syncScanPeriod(params) {
     var p = (params && params.scanPeriod) || null;
-    if (!p || p === SCAN.period) return;
+    if (!p || !TRADE_PERIODS[p] || p === SCAN.period) return;
     SCAN.period = p;
     if (scanBtnEl) scanBtnEl.title = '扫描自选列表最新 ' + (PERIOD_LABEL[p] || p) +
                                     ' 缠论信号（Shift+点击强制重扫）';
@@ -248,7 +257,7 @@
    *  只影响之后新建的追踪卡；已追踪的记录自带 rec.period，不回改。 */
   function syncTrackPeriod(params) {
     var p = (params && params.trackPeriod) || null;
-    if (!p || p === TRACK_PERIOD || !CLTrack.PERIOD_CN[p]) return;
+    if (!p || !TRADE_PERIODS[p] || p === TRACK_PERIOD) return;
     TRACK_PERIOD = p;
   }
 
@@ -524,7 +533,8 @@
         var sg = signals[item.code];
         if (sg && !sg.none) {
           var badge = document.createElement('span');
-          /* 1.9.0：三买=回测唯一有统计优势的信号 → prime 高亮；一/二买 title 标注「参考」 */
+          /* 2026-10-24 手册：信号没有预测力；三买止损距离最大（5.9%），看着安全其实风险最大。
+             prime 高亮保留（三买仍是合用户打法的参照），但文案不再说「有统计优势」。 */
           var prime = sg.level === 3 && sg.type > 0;
           badge.className = 'sig ' + (sg.type > 0 ? 'buy' : 'sell') +
             (sg.confirmed ? '' : ' fresh') + (prime ? ' prime' : '');
@@ -534,8 +544,8 @@
           badge.textContent = (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖') +
                               (lagDays != null ? lagDays : '');
           badge.title = (PERIOD_LABEL[sg.period] || sg.period || '') + '：' + (sg.note || '') +
-                        (prime ? '\n★ 回测验证：唯一有统计优势的信号（ETF 日线 10d +0.76%，t=2.54）'
-                               : (sg.type > 0 ? '\n参考：回测无可测优势，作结构参照' : '')) +
+                        (prime ? '\n★ 三买：止损距离中位 5.9%（一二买 3.0%/4.2%），别因离中枢近加仓'
+                               : (sg.type > 0 ? '\n参考：信号无预测力，只作结构参照' : '')) +
                         '\n信号成立 K：' + (sg.t || sg.readyK) + '（滞后 ' + sg.lag + ' 根' +
                         (lagDays != null && BARS_PER_DAY[sg.period] !== 1 ? ' ≈ ' + lagDays + ' 个交易日' : '') + '）' +
                         (sg.ratio != null ? '\n背驰力度比：' + sg.ratio.toFixed(2) : '') +
@@ -887,7 +897,7 @@
           // （切周期/换股）时生效；切 K 线形态是同一段行情换画法，别挪
           view.__clKeepWindow = true;
         }
-        advanceTrackTrail(data, res);           // 动盈/目标随新数据推进（只朝有利方向）
+        advanceTrackState(data, res);           // 动盈/条件单/时间单随新数据推进
         applyTrackToView(view);                 // 追踪价位线/短文案（额外）
         view.draw();
         views.push(view);
@@ -928,33 +938,43 @@
     }
   }
 
-  /* ------------------------------------------------------------ 缠论追踪（1.6.0 → 1.8.0）
-   * 追踪记录 trackMap[code] → { dir, period, level/type/note, markK, entry, stop,
-   * stopRule, target, trail, lines, timing, createdAt, alerted*, timingCheckedAt }。
-   * 图上的价位线（目标/失效/动盈）+ 短文案都属「额外」，extraOn 控制。
+  /* ------------------------------------------------------------ 缠论追踪（1.6.0 → 2026-10-24）
+   * 追踪记录 trackMap[code] → { dir, period, level/type/note, markK, startK, entry,
+   * stop, stopRule, condStop, atr20, trail, timerN, bars, started, lines, timing,
+   * createdAt, alertedStop, alertedTimer, timingCheckedAt }。
+   * 图上的价位线（失效/动盈/条件单）+ 短文案都属「额外」，extraOn 控制。
    *
-   * 1.7.1：把「止盈」拆成两件事 —— 目标（前高，到价减 1/3）与动盈（跟踪止损，
-   *   在价格下方，只上移不下移）。动盈只在跑出浮盈后才存在，信号刚出时 rec.trail
-   *   为 null，图上就不画这条线（那时它贴着失效位，画出来只会误导）。
+   * 2026-10-24 手册重写后口径：
+   *   出场三层 = 条件单（失效位/动盈 ∓ 0.5×ATR20，唯一必做）/ 时间单（N 根未启动
+   *   减半，N=最近 3 中枢均长×1.5）/ 卖点信号（可选，仅提示）。目标位已移除。
    *
-   * 1.8.0 两条硬性规则（取代 1.7.0 的「级别跟主图走」）：
-   *   ① 级别恒为日线（心法：日线定方向、30 分定时机），30 分信号记入 rec.timing；
+   * 1.8.0 两条硬性规则仍有效：
+   *   ① 级别不跟主图（1.9.12 起由「周期选择-追踪周期」决定，默认日线），
+   *      30 分同向信号记入 rec.timing 只作参考；
    *   ② 方向 = 信号自带（买点做多 / 卖点做空），不再让用户选看多还是看空。
-   * 跟踪推进走 CLScanner.refsFor（只认方向），不再依赖 pickSignal —— 日线后来
-   * 转出反向信号时（多头持仓后出顶背驰），跟踪线照常推进，不会冻结。 */
+   * 跟踪推进走 CLScanner.refsFor（只认方向），不依赖 pickSignal —— 本级别转出
+   * 反向信号时（多头持仓后出顶背驰），跟踪线照常推进，不会冻结。 */
 
   /** 同步取该级别下的信号。优先级：
    *   ① 当前已加载的图数据（零请求，和画面上画的笔/中枢完全一套）
    *   ② 本次会话现算过的（ensureSignal 缓存）
    *   ③ 扫描缓存 —— 只在还新鲜（freshMs 内）时用，过期的不拿来凑数
    *   都没有 → null，交给 ensureSignal 现拉一次。 */
+  /** 给信号补 ATR20（条件单触发价用）。取不到就留空，文案会退化成口径说明。 */
+  function withAtr(sig, ks) {
+    if (sig && ks && ks.length && window.CLIndicators && window.CLIndicators.atr) {
+      try { sig.atr20 = window.CLIndicators.atr(ks, 20); } catch (e) { sig.atr20 = null; }
+    }
+    return sig;
+  }
+
   function signalOf(code, period) {
     var d = datasets[dsKey(code, period)];
     if (d && d.klines && d.klines.length) {
       var st = panel.getState();
       var res = ChanEngine.analyze(d.klines, st.params);
       var fromChart = CLScanner.pickSignal(d.klines, res, { maxLag: SCAN.maxLag });
-      if (fromChart) return fromChart;
+      if (fromChart) return withAtr(fromChart, d.klines);
     }
     var c = sigCache[period + '|' + code];
     if (c) return c.none ? null : c;
@@ -977,7 +997,7 @@
         if (!ks.length) return { failed: true, empty: true };
         var res = ChanEngine.analyze(ks, st.params);
         var sig = CLScanner.pickSignal(ks, res, { maxLag: SCAN.maxLag });
-        if (sig) { sig.ts = Date.now(); sig.period = period; }
+        if (sig) { sig.ts = Date.now(); sig.period = period; withAtr(sig, ks); }
         sigCache[period + '|' + code] = sig || { none: true, period: period };
         return sig;
       })
@@ -992,15 +1012,16 @@
     var rec = trackMap[current.code];
     if (!rec || !view.data || view.data.period !== rec.period) return;
     var lines = [];
-    /* 目标在有利方向的上/下方，到价减 1/3 —— 这才是「止盈」 */
-    if (rec.target != null)
-      lines.push({ price: rec.target, color: '#a8631f', label: '目标' });
-    /* 参考（入场价）只在作战卡里写，图上不画：它冻在建卡那一刻，画出来只是多一条线 */
+    /* 出场三层只剩两条价格线 + 失效的结构参照（手册 2026-10-24）：
+       条件单 = 动作线（触发即离场）；动盈 = 触发价的上移基准；失效 = 结构参照。
+       「目标 = 前高、到价减 1/3」已移除。 */
     if (rec.stop != null)
       lines.push({ price: rec.stop, color: '#b02b2b', label: '失效' });
-    /* 动盈 = 跟踪止损，在价格下方（空头在上方），只有跑出浮盈后才会出现 */
     if (rec.trail != null)
       lines.push({ price: rec.trail, color: '#1e6e3c', label: '动盈' });
+    if (rec.condStop != null)
+      lines.push({ price: rec.condStop, color: '#8a4b00', label: '条件单',
+                   priceText: fmtCond(rec.condStop) });
     if (lines.length) view.planLines = lines;
     /* 短文案要一屏放得下：级别+信号类型缩写，不塞完整 note。
        1.8.1：第一行写「参考」价（失效价图上已有红线，写出来是重复），
@@ -1009,31 +1030,25 @@
       (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' +
       (LEVEL_CN[rec.level] || rec.level) + (rec.type > 0 ? '买' : '卖') +
       (rec.entry != null ? ' ｜ 参考 ' + fmtPrice(rec.entry) : '');
-    /* 第二行 = 状态行，所见即所做：主状态（取第一个命中，动词导向）+ 修饰（背景全拼）。
-       主状态优先级：破失效 > 破动盈 > 到目标 > 时机已到 > 等时机 —— 已破失效后
-       不再出现「等买点」这类矛盾提示。信号名一律取实际 note，不硬编码类型；
-       配色沿用现有样式，警示靠文案不靠颜色。 */
+    /* 第二行 = 状态行，所见即所做：主状态（动词导向）+ 修饰。
+       2026-10-24 手册口径：离场只认条件单（失效位/动盈 ∓ 0.5×ATR20）；
+       30 分同向信号与反向信号都只是「参考/仅提示」，不再出现「可进场」。 */
+    var trig = rec.condStop != null ? rec.condStop : rec.stop;
     var main;
-    if (rec.alertedStop && rec.stop != null)
-      main = '已破失效 ' + fmtPrice(rec.stop) + ' · 离场';
-    else if (rec.alertedTrail && rec.trail != null)
-      main = '动盈位已破 · 清剩余';
-    else if (rec.alertedTarget && rec.target != null)
-      main = '已到目标 ' + fmtPrice(rec.target) + ' · 减1/3';
-    else if (rec.timing)
-      main = '时机已到：' + rec.timing.note + ' · 可进场';
+    if (rec.alertedStop && trig != null)
+      main = '条件单已触发 ' + fmtCond(trig) + ' · 离场';
+    else if (rec.alertedTimer)
+      main = '时间单到期 · 减半' + (rec.started === false ? '（未启动）' : '');
     else
-      main = (rec.period === '30m')
-        ? '持有中 · 等结构（30m 追踪无时机检查）'
-        : '等30分同向' + (rec.dir > 0 ? '买' : '卖') + '点 · 不动手';
+      main = '持有中 · 等条件单' + (trig != null ? ' ' + fmtCond(trig) : '（失效位待定）');
     var sfx = [];
     if (rec.reverse)
-      sfx.push((CLTrack.PERIOD_CN[rec.period] || rec.period) +
-        (rec.dir > 0 ? '转空' : '转多') + '（' + rec.reverse.note + '）· 仅提示');
-    if (rec.timingFail)
-      sfx.push('30分' + (rec.dir > 0 ? '买' : '卖') + '点已失效 · 重新等');
+      sfx.push((CLTrack.PERIOD_CN[rec.period] || rec.period) + rec.reverse.note + ' · 仅提示');
+    if (rec.timing) sfx.push('30分同向信号（参考）');
+    if (rec.timingFail) sfx.push('30分反向信号 · 仅提示');
     if (rec.trail != null) sfx.push('动盈 ' + fmtPrice(rec.trail));
-    if (rec.target == null) sfx.push('目标：等新结构');
+    if (rec.timerN != null && rec.bars != null)
+      sfx.push('时间单 ' + rec.bars + '/' + rec.timerN + (rec.started ? ' 已启动' : ' 未启动'));
     if (rec.confirmed === false) sfx.push('未定型');
     view.planNote2 = main + (sfx.length ? ' ｜ ' + sfx.join(' ｜ ') : '');
   }
@@ -1042,19 +1057,40 @@
     views.forEach(function (v) { applyTrackToView(v); v.draw(); });
   }
 
-  /** 动盈推进：每次重算后，用刚画出来的这份数据重算动盈/目标并回写记录。
-   *  纯结构计算，不发新请求。动盈只朝有利方向走（CLTrack.advanceTrail 内部保证），
-   *  所以信号刚出、还没跑出浮盈时它一直是 null —— 图上就不画这条线。 */
-  function advanceTrackTrail(data, res) {
+  /** 跟踪状态推进（2026-10-24 手册口径）：每次重算后用刚画出来的这份数据
+   *  ① 动盈（移动止盈）只朝有利方向推进
+   *  ② 条件单触发价 = (动盈已上移 ? 动盈 : 失效位) ∓ 0.5×ATR20
+   *  ③ 时间单：N = 最近 3 中枢持续根数均值×1.5；bars = 建卡点之后走了几根；
+   *     started = 之后是否朝有利方向走出 0.5×ATR20（走出即视为已启动）
+   *  纯结构计算，不发新请求。 */
+  function advanceTrackState(data, res) {
     var rec = trackMap[data.code];
     if (!rec || rec.period !== data.period) return;
-    /* 1.8.0：走 refsFor（只认方向、不认信号）。pickSignal 挑的是「当前最佳信号」，
-       行情走好后日线会转出反向信号（多头持仓后出顶背驰），跟着它换靶子，
-       跟踪线就冻结了。动盈的「优于入场」用建卡时的 rec.entry 判。 */
-    var rr = CLScanner.refsFor(data.klines, res, rec.dir,
+    var ks = data.klines || [];
+    var changed = false;
+    /* 动盈：refsFor 只认方向、不认信号 —— pickSignal 会随行情换靶子，
+       跟着它走跟踪线就冻结了。1.8.0 起的口径，保留。 */
+    var rr = CLScanner.refsFor(ks, res, rec.dir,
                                rec.entry != null ? rec.entry : null, rec.markK);
-    var changed = CLTrack.advanceTrail(rec, rec.dir > 0 ? rr.trailLow : rr.trailHigh);
-    if (CLTrack.refreshTarget(rec, rec.dir > 0 ? rr.targetHigh : rr.targetLow)) changed = true;
+    if (CLTrack.advanceTrail(rec, rec.dir > 0 ? rr.trailLow : rr.trailHigh)) changed = true;
+
+    var atr20 = (window.CLIndicators && window.CLIndicators.atr)
+      ? window.CLIndicators.atr(ks, 20) : null;
+    if (atr20) rec.atr20 = atr20;
+    if (CLTrack.advanceCond(rec, atr20)) changed = true;
+
+    var startK = rec.startK != null ? rec.startK : rec.markK;
+    var bars = startK != null ? Math.max(0, ks.length - 1 - startK) : null;
+    var started = false;
+    if (startK != null && rec.entry != null && atr20) {
+      var thr = rec.dir > 0 ? rec.entry + 0.5 * atr20 : rec.entry - 0.5 * atr20;
+      for (var i = Math.max(0, startK); i < ks.length; i++) {
+        var c = ks[i].c != null ? ks[i].c : ks[i].close;
+        if (rec.dir > 0 ? c >= thr : c <= thr) { started = true; break; }
+      }
+    }
+    if (CLTrack.advanceTimer(rec, { n: CLTrack.timerN(res.zhongshus), bars: bars, started: started }))
+      changed = true;
     if (changed) CLTrack.save(trackMap);
   }
 
@@ -1129,9 +1165,8 @@
       if (px == null) return;
       var r = CLTrack.check(rec, px);
       if (r.hit) {
-        if (r.hit === 'stop') rec.alertedStop = true;
-        else if (r.hit === 'target') rec.alertedTarget = true;
-        else rec.alertedTrail = true;
+        if (r.hit === 'cond') rec.alertedStop = true;
+        else if (r.hit === 'timer') rec.alertedTimer = true;
         changed = true;
         toast((rec.name || code) + '：' + r.text);
         notifyNative((rec.name || code) + ' 追踪提醒', r.text, code);
@@ -1166,7 +1201,7 @@
 
   /** 点图上左上角的追踪摘要 = 直接打开作战卡（1.8.1）。
    *  摘要只画在追踪记录所属级别（恒为日线）的那张图上，能点到就说明有计划可看；
-   *  viewMode 打开的是已存计划，动态状态（时机/动盈/目标）按当前记录实时渲染。 */
+   *  viewMode 打开的是已存计划，动态状态（条件单/时间单/反向）按当前记录实时渲染。 */
   function onNoteTap() {
     if (!current.code) return;
     openTrackCard({ code: current.code, name: current.name }, true);
@@ -1294,40 +1329,47 @@
     var h = '<div><b>已定</b>：' + (long ? '做多 ▲' : '做空 ▼') + ' · ' +
       (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' + (d.note || '') +
       (fixed.length ? ' ｜ ' + fixed.join(' ｜ ') : '') + '</div>';
+    /* 出场三层（2026-10-24 手册）：条件单（唯一必做）/ 时间单（盘后看）/ 卖点（可选）
+       —— 不再有「目标位」这一层。 */
+    var trig = d.condStop != null ? d.condStop : d.stop;
+    var exit = [];
+    if (trig != null)
+      exit.push('条件单触发 ' + fmtCond(trig) +
+        (d.atr20 != null ? '（' + (d.trail != null ? '动盈' : '失效') + ' ∓0.5×ATR20）' : ''));
+    if (d.trail != null) exit.push('动盈 ' + fmtPrice(d.trail) + '（只朝有利方向移）');
+    if (exit.length) h += '<div><b>出场</b>：' + exit.join(' ｜ ') + '</div>';
+    if (d.timerN != null) {
+      h += '<div><b>时间单</b>：' + (d.bars != null ? '已 ' + d.bars + ' 根 / ' : '') +
+        'N=' + d.timerN + ' 根' +
+        (d.started ? '（已启动，不减半）' : '（未启动 → 到 N 根减半）') + '</div>';
+    }
     /* 反向：最近一次本级别反向信号（不随消失/同向清除，是「最后一次走坏」的存档）。
-       1.9.0 降级为纯提示：回测证明翻转清仓是价值毁灭者，离场只看失效位/动盈 */
+       手册：笔级别卖点只提示，不清仓 —— 离场只看条件单。 */
     if (d.reverse)
       h += '<div><b>反向</b>：' + (CLTrack.PERIOD_CN[d.period] || d.period) + ' ' +
            d.reverse.note + '（' + fmtTs(d.reverse.ts) +
-           '）· 仅提示，离场看失效/动盈</div>';
+           '）· 仅提示，不清仓</div>';
     var waits = [];
-    /* 30 分时机只属于「方向级别高于 30m」的追踪；30m 追踪本身没有时机检查 */
+    /* 30 分同向信号只属于「方向级别高于 30m」的追踪；30m 追踪没有这一项。
+       手册：信号无预测力 → 只写「参考」，不写「可进场」。 */
     var hasTiming = d.period !== '30m';
     if (hasTiming) waits.push(d.timing
-      ? '<b>30分时机已到</b>：' + d.timing.note + '（' + fmtTs(d.timing.ts) + '）'
-      : '30分同向' + (long ? '买' : '卖') + '点（入场时机）');
-    if (d.trail == null) waits.push('动盈启动（等首个优于入场的回调低点）');
-    if (waits.length)
-      h += '<div><b>' + (d.timing ? '时机' : '在等') + '</b>：' + waits.join('；') + '</div>';
-    var dyn = [];
-    dyn.push(d.target != null ? '目标 ' + fmtPrice(d.target) : '目标：前高已过，等新结构');
-    dyn.push(d.trail != null ? '动盈 ' + fmtPrice(d.trail) + '（只朝有利方向移）' : '动盈：未启动');
-    h += '<div><b>动态</b>：' + dyn.join(' ｜ ') + '</div>';
-    /* 已报：盯梢提醒是「只报一次」的，报过之后卡里得有处可查，不然用户不知道
-       是没触发还是触发过没看见 */
+      ? '<b>30分同向信号</b>：' + d.timing.note + '（' + fmtTs(d.timing.ts) + '）· 参考'
+      : '30分同向' + (long ? '买' : '卖') + '点（参考，不构成进场依据）');
+    if (waits.length) h += '<div><b>参考</b>：' + waits.join('；') + '</div>';
+    /* 已报：盯梢提醒是「只报一次」的，报过之后卡里得有处可查 */
     var hits = [];
-    if (d.timingFail) hits.push('30分时机失效（' + d.timingFail.note + ' ' + fmtTs(d.timingFail.ts) + '）');
-    if (d.alertedTarget) hits.push('已到目标');
-    if (d.alertedStop) hits.push('已破失效位');
-    if (d.alertedTrail) hits.push('已触发动盈');
+    if (d.timingFail) hits.push('30分反向信号（' + d.timingFail.note + ' ' + fmtTs(d.timingFail.ts) + '）');
+    if (d.alertedStop) hits.push('条件单已触发');
+    if (d.alertedTimer) hits.push('时间单到期');
     if (hits.length) h += '<div><b>已报</b>：' + hits.join('；') + '（提醒过）</div>';
     return h;
   }
 
-  /* 1.9.0：信号价值标注（回测 26 只 ETF 日线全历史）——三买唯一有统计优势，
-     一/二买无可测优势只作结构参照。只在 UI 层标注，不动引擎口径。 */
+  /* 信号标注（2026-10-24 手册）：信号没有预测力，不再写「回测验证」；
+     三买止损距离中位 5.9%（一二买 3.0%/4.2%），看着安全其实风险最大。 */
   function sigTag(level, type) {
-    if (level === 3 && type > 0) return '（回测验证）';
+    if (level === 3 && type > 0) return '（止损距离中位 5.9%，别加仓）';
     if (level < 3 && type > 0) return '（参考）';
     return '';
   }
@@ -1349,7 +1391,8 @@
     } else {
       var sig = ctx.sig;
       ctx.period = sig.period || ctx.period;
-      ctx.plan = CLTrack.buildPlan(sig, null, ctx.period, { fmtPrice: fmtPrice });
+      ctx.plan = CLTrack.buildPlan(sig, null, ctx.period,
+        { fmtPrice: fmtPrice, fmtCond: fmtCond, atr20: sig.atr20 });
       ctx.dir = ctx.plan.dir;
       trackHeadEl.textContent = '缠论追踪 · 作战卡';
       meta = '<b class="' + (ctx.plan.dir > 0 ? 'up' : 'dn') + '">' +
@@ -1361,8 +1404,8 @@
         '<br>参考入场（现价口径）：<b>' + fmtPrice(ctx.plan.entry) + '</b>' +
         (sig.ratio != null ? ' · 背驰力度比 ' + sig.ratio.toFixed(2) : '');
       status = trackStatusHtml({ dir: ctx.plan.dir, period: ctx.period, note: sig.note,
-        entry: ctx.plan.entry, stop: ctx.plan.stop,
-        target: ctx.plan.target, trail: ctx.plan.trail, timing: null });
+        entry: ctx.plan.entry, stop: ctx.plan.stop, condStop: ctx.plan.condStop,
+        atr20: ctx.plan.atr20, trail: ctx.plan.trail, timing: null });
       items = ctx.plan.lines.map(function (s) { return '<li>' + s + '</li>'; }).join('');
       if (!sig.confirmed)
         warn = '<div class="tk-warn">⚠ 信号未定型：分型右侧可能修订，确认前等 readyK+1 根走完。</div>';
@@ -1381,15 +1424,15 @@
       dir: plan.dir, period: ctx.period,
       level: sig.level, type: sig.type, note: sig.note, confirmed: !!sig.confirmed,
       markK: sig.markK,       // 信号标记位：动盈只认这之后的回调笔（推进时要用）
+      startK: sig.markK,      // 时间单从信号那根开始数「几根未启动」
       entry: plan.entry, stop: plan.stop, stopRule: plan.stopRule,
-      target: plan.target, trail: plan.trail,
+      condStop: plan.condStop, atr20: plan.atr20,
+      trail: plan.trail,
       lines: plan.lines, createdAt: Date.now(),
-      alertedStop: false,
-      // 建卡时价格已在目标位/动盈位的另一侧 → 立刻提醒没有意义，直接标记已报
-      alertedTarget: plan.target != null && plan.entry != null &&
-        (plan.dir > 0 ? plan.entry >= plan.target : plan.entry <= plan.target),
-      alertedTrail: plan.trail != null && plan.entry != null &&
-        (plan.dir > 0 ? plan.entry <= plan.trail : plan.entry >= plan.trail)
+      /* 建卡时价格已在条件单触发价另一侧 → 立刻提醒没有意义，直接标记已报 */
+      alertedStop: plan.condStop != null && plan.entry != null &&
+        (plan.dir > 0 ? plan.entry <= plan.condStop : plan.entry >= plan.condStop),
+      alertedTimer: false, started: false, bars: 0
     };
     CLTrack.set(trackMap, ctx.item.code, rec);
     applyTrackToViews();

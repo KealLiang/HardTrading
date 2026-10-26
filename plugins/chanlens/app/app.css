@@ -341,10 +341,13 @@ body {
 .app-mantra-body .m-table th { background: #f4f7fa; color: #445; font-weight: 600; white-space: nowrap; }
 .app-mantra-body .m-table td:first-child { text-align: center; color: #2b6cb0; font-weight: 600; }
 .app-mantra-body .m-ban li { color: #8a2f2f; }
+/* 收尾金句：2.0.0 起改暖棕金调 —— 原来用 #2b6cb0 渐变，和底部「知道了」
+   主按钮（同色）撞在一起，看不出这是"金句"还是"另一个按钮"。 */
 .app-mantra-body .m-heart {
   margin-top: 16px; padding: 12px 14px;
-  background: linear-gradient(135deg, #2b6cb0, #1d4e8f);
-  color: #fff; border-radius: 8px;
+  background: linear-gradient(135deg, #3d3730, #241f1a);
+  border-left: 3px solid #c9a86a;
+  color: #f6efe3; border-radius: 8px;
   font-size: 14px; text-align: center; letter-spacing: .5px;
 }
 

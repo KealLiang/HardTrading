@@ -81,5 +81,35 @@
     return mode === 'perBar' ? sum / bars : sum;
   }
 
-  return { ema: ema, macd: macd, forceRange: forceRange };
+  /**
+   * ATR（真实波幅均值，Wilder 平滑）—— 条件单缓冲用：触发价 = 失效位 ± 0.5×ATR20
+   * @param klines [{h,l,c}]（兼容 high/low/close 字段）
+   * @param n      周期，默认 20
+   * @returns 最后一根的 ATR 值；数据不足返回 null
+   */
+  function atr(klines, n) {
+    n = n || 20;
+    if (!Array.isArray(klines) || klines.length <= n) return null;
+    const H = k => (k.h != null ? k.h : k.high);
+    const L = k => (k.l != null ? k.l : k.low);
+    const C = k => (k.c != null ? k.c : k.close);
+    let sum = 0;
+    for (let i = 1; i <= n; i++) {
+      const pc = C(klines[i - 1]);
+      sum += Math.max(H(klines[i]) - L(klines[i]),
+                      Math.abs(H(klines[i]) - pc),
+                      Math.abs(L(klines[i]) - pc));
+    }
+    let v = sum / n;
+    for (let i = n + 1; i < klines.length; i++) {
+      const pc = C(klines[i - 1]);
+      const tr = Math.max(H(klines[i]) - L(klines[i]),
+                          Math.abs(H(klines[i]) - pc),
+                          Math.abs(L(klines[i]) - pc));
+      v = (v * (n - 1) + tr) / n;
+    }
+    return isFinite(v) && v > 0 ? v : null;
+  }
+
+  return { ema: ema, macd: macd, forceRange: forceRange, atr: atr };
 });

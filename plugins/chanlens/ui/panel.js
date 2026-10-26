@@ -202,19 +202,16 @@
     {
       group: '周期选择', items: [
         { key: 'scanPeriod', label: '扫描周期', type: 'select', options: [
-            { id: '15m', label: '15 分钟' },
             { id: '30m', label: '30 分钟' },
             { id: '60m', label: '60 分钟' },
-            { id: 'daily', label: '日线（默认）' },
-            { id: 'weekly', label: '周线' }],
+            { id: 'daily', label: '日线（默认）' }],
           help: '自选列表右侧信号徽标用的周期；切换后自动显示该周期上次缓存，点「扫信号」才联网' },
         { key: 'trackPeriod', label: '追踪周期', type: 'select', options: [
-            { id: '15m', label: '15 分钟' },
             { id: '30m', label: '30 分钟' },
             { id: '60m', label: '60 分钟' },
-            { id: 'daily', label: '日线（默认）' },
-            { id: 'weekly', label: '周线' }],
-          help: '长按自选「追踪」建卡用的周期（1.9.12）。只对新追踪生效；已在追踪的股保持原级别，换级别重新追踪一次即可（覆盖式）' }
+            { id: 'daily', label: '日线（默认）' }],
+          help: '长按自选「追踪」建卡用的周期。手册只认 日线/60分/30分（2.0.0 起收窄）。' +
+                '只对新追踪生效；已在追踪的股保持原级别，换级别重新追踪一次即可（覆盖式）' }
       ]
     },
     {
@@ -287,6 +284,13 @@
           base.params.scanPeriod = 'daily';
           saved._scanDailyDefault = true;
           try { var b = {}; b[STORE_KEY] = saved; chrome.storage.sync.set(b); } catch (e) { /* 忽略 */ }
+        }
+        /* 2026-10-24 手册：级别只认 日线/60分/30分。旧配置里 15m/周线 等非法值落回日线，
+           否则下拉框会显示空值（options 里已没有那一项）。 */
+        var OK_PERIODS = { '30m': 1, '60m': 1, 'daily': 1 };
+        if (saved.params) {
+          if (!OK_PERIODS[base.params.scanPeriod]) base.params.scanPeriod = 'daily';
+          if (!OK_PERIODS[base.params.trackPeriod]) base.params.trackPeriod = 'daily';
         }
       }
       cb(base);
@@ -515,7 +519,7 @@
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v1.9.14 · 清掉旧通知类别残留（不再有两条「追踪提醒」）；通知跳转后本地取名'));
+        'v2.0.0 · 缠论口径按 2026-10-24 速查手册重写：出场三层（条件单∓0.5ATR / 时间单N根 / 卖点可选）、无目标位、周期只留 30m/60m/日线；条件单价格取 2 位小数'));
     }
 
     function buildTabs() {
