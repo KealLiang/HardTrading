@@ -153,8 +153,8 @@ LEADER_EXTRA_LONG_PERIOD_THRESHOLD = 100.0  # 大龙股长周期涨幅阈值（%
 
 # 【筛选策略】
 SELECT_LEADERS_FROM_ACTIVE_ONLY = True  # 是否只从活跃股中选择（True=只从未被折叠的股票中选，False=从全部符合条件的股票中选）
-# LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_HEAD_TAIL  # head_tail | bottom_to_high 【牛市使用head_tail模式】
-LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_BOTTOM_TO_HIGH  # 【震荡市使用bottom_to_high模式】
+LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_HEAD_TAIL  # head_tail | bottom_to_high 【牛市使用head_tail模式】
+# LEADER_MORPHOLOGY_MODE = LEADER_MORPHOLOGY_MODE_BOTTOM_TO_HIGH  # 【震荡市使用bottom_to_high模式】
 LEADER_EXCLUDE_CONCEPTS = ['默默上涨']  # 排除在龙头股筛选之外的特殊概念组（列表形式，方便扩展）
 
 # 【工作表管理】
