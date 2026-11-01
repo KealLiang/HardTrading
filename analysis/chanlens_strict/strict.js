@@ -240,7 +240,7 @@ for (const p of packAll.packs) {
 
   /* --- C / D（流式聚合，不落明细） --- */
   const pool = [];
-  for (let i = packAll.warmup + 1; i < p.n - 2; i++) if (!p.bad[i] && p.o[i] > 0) pool.push(i);
+  for (let i = (p.warmup || packAll.warmup) + 1; i < p.n - 2; i++) if (!p.bad[i] && p.o[i] > 0) pool.push(i);
   if (!pool.length) continue;
 
   for (let seed = 0; seed < NSEED; seed++) {

@@ -20,6 +20,16 @@ const TF = process.env.TF || 'daily';
 if (!['daily', '30', '60'].includes(TF)) { console.error('TF 只支持 daily|30|60'); process.exit(1); }
 const SMOKE = process.env.SMOKE === '1';
 const WARMUP = TF === 'daily' ? 500 : (TF === '30' ? 500 : 250);
+/* 短序列不再整只剔除：warmup 降级使用，但保底可交易 200 根、且 warmup 不低于 WU_FLOOR。
+ * 降级只影响「从第几根开始允许出信号」，不影响切片口径——每个 bar 仍然只用 [0..t] 的历史。 */
+const WU_FLOOR = TF === 'daily' ? 120 : 80;
+const MIN_USABLE = 100;            // 降级后仍需保留的最少可交易根数
+function warmupFor(n, code) {
+  if (n >= WARMUP + 200) return WARMUP;
+  const w = Math.max(WU_FLOOR, Math.min(WARMUP, n - 200));
+  log('  ' + code + ' 短序列 n=' + n + ' → warmup ' + WARMUP + ' 降为 ' + w + '（可交易 ' + (n - w) + ' 根）');
+  return w;
+}
 
 const tmpDir = path.join(__dirname, 'tmp');
 if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
@@ -91,25 +101,27 @@ function collect(res, typeWanted, seen, out, t) {
 }
 
 const codesAll = L.listCodes();
-const codes = SMOKE ? ['510300', '159915'] : codesAll;   // 冒烟取历史最长的两只
+const ONLY = (process.env.CODES || '').split(',').map(s => s.trim()).filter(Boolean);
+const codes = SMOKE ? ['510300', '159915'] : (ONLY.length ? ONLY : codesAll);   // 冒烟取历史最长的两只
 const packs = [];
 const lagHist = { buyBi: {}, sellBi: {}, buySeg: {}, sellSeg: {} };
 
 for (const code of codes) {
   let ks;
   try { ks = loadKs(code); } catch (e) { log('skip ' + code + ' ' + e.message); continue; }
-  if (ks.length < WARMUP + 200) { log('skip ' + code + ' 太短 ' + ks.length); continue; }
+  if (ks.length < WU_FLOOR + MIN_USABLE) { log('skip ' + code + ' 太短 ' + ks.length); continue; }
   if (TF !== 'daily') {
     const chk = scaleConsistent(code, ks);
     if (!chk.ok) { log('skip ' + code + ' ' + chk.why); continue; }
   }
 
   const n = ks.length;
+  const WU = warmupFor(n, code);
   const refZD = new Array(n).fill(null), refLow = new Array(n).fill(null), refHigh = new Array(n).fill(null);
   const buy = [], sell = [], sellSeg = [], buySeg = [];
   const seenB = new Set(), seenS = new Set(), seenBS = new Set(), seenSS = new Set();
 
-  for (let t = WARMUP; t < n; t++) {
+  for (let t = WU; t < n; t++) {
     const slice = ks.slice(0, t + 1);
     const res = Chan.analyze(slice, {});                      // 笔派生（主口径）
     const s = snapshot(res);
@@ -139,7 +151,7 @@ for (const code of codes) {
   for (const p of sellSeg) bump(lagHist.sellSeg, p);
 
   packs.push({
-    code, tf: TF, n,
+    code, tf: TF, n, warmup: WU,
     dates: ks.map(k => k.date), o: ks.map(k => k.o), c: ks.map(k => k.c),
     h: ks.map(k => k.h), l: ks.map(k => k.l), bad: ks.map(k => !!k.bad),
     atr: L.atrSeries(ks, 14),
