@@ -2,7 +2,7 @@
  * scan.js —— 逐 bar 切片扫描，导出结构包
  *
  * 用法：TF=daily|30|60 node scan.js        （SMOKE=1 只跑前 2 只，用于冒烟）
- * 产物：tmp/pack_<tf>.json
+ * 产物：tmp/pack_<tf>.json（STOCKS=1 时 tmp/pack_daily_stock.json）
  *
  * 纪律：
  *   1. 只取「首次发现」的买卖点（key = type:level:readyK），发现时刻 discT 一并记录；
@@ -19,6 +19,14 @@ const Chan = require('D:/Trading/plugins/chanlens/core/chan.js');
 const TF = process.env.TF || 'daily';
 if (!['daily', '30', '60'].includes(TF)) { console.error('TF 只支持 daily|30|60'); process.exit(1); }
 const SMOKE = process.env.SMOKE === '1';
+/* STOCKS=1：改用个股目录（data/stocks），只支持日线。产物与 ETF 分开命名 */
+const STOCKS = process.env.STOCKS === '1';
+if (STOCKS && TF !== 'daily') { console.error('STOCKS=1 只支持 TF=daily'); process.exit(1); }
+const SRC = STOCKS ? L.DIR_S : L.DIR_D;
+/* 个股从 2005 起用：1990s 无涨跌停/T+0、股改复牌跳空（000002 1991、000538 1995 等）
+ * 与当下的市场结构差异太大，留着只会给引擎喂噪音。 */
+const MIN_DATE = STOCKS ? '2005-01-01' : '0000-00-00';
+const TAG = STOCKS ? '_stock' : '';
 const WARMUP = TF === 'daily' ? 500 : (TF === '30' ? 500 : 250);
 /* 短序列不再整只剔除：warmup 降级使用，但保底可交易 200 根、且 warmup 不低于 WU_FLOOR。
  * 降级只影响「从第几根开始允许出信号」，不影响切片口径——每个 bar 仍然只用 [0..t] 的历史。 */
@@ -38,7 +46,11 @@ const log = m => process.stderr.write(m + '\n');
 /* 数据源：TF=60 优先用真实 60m（新浪源已前复权）；缺文件或 SYNTH60=1 时退回 30m 合成 */
 const SYNTH60 = process.env.SYNTH60 === '1';
 function loadKs(code) {
-  if (TF === 'daily') return L.loadDaily(code);
+  if (TF === 'daily') {
+    let ks = L.loadDaily(code, SRC);
+    if (MIN_DATE !== '0000-00-00') ks = ks.filter(k => k.date >= MIN_DATE);
+    return ks;
+  }
   if (TF === '30') return L.load30(code);
   if (!SYNTH60) {
     const k60 = L.load60(code);
@@ -100,9 +112,9 @@ function collect(res, typeWanted, seen, out, t) {
   }
 }
 
-const codesAll = L.listCodes();
+const codesAll = L.listCodes(SRC);
 const ONLY = (process.env.CODES || '').split(',').map(s => s.trim()).filter(Boolean);
-const codes = SMOKE ? ['510300', '159915'] : (ONLY.length ? ONLY : codesAll);   // 冒烟取历史最长的两只
+const codes = SMOKE ? codesAll.slice(0, 2) : (ONLY.length ? ONLY : codesAll);   // 冒烟取历史最长的两只
 const packs = [];
 const lagHist = { buyBi: {}, sellBi: {}, buySeg: {}, sellSeg: {} };
 
@@ -162,7 +174,7 @@ for (const code of codes) {
       ' | 线段派生 买' + buySeg.length + ' 卖' + sellSeg.length);
 }
 
-const outFile = path.join(tmpDir, 'pack_' + TF + '.json');
+const outFile = path.join(tmpDir, 'pack_' + TF + TAG + '.json');
 fs.writeFileSync(outFile, JSON.stringify({
   tf: TF, warmup: WARMUP, generatedAt: new Date().toISOString(),
   lagHist, packs

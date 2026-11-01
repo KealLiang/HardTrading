@@ -14,12 +14,16 @@ const path = require('path');
 const L = require('./lib.js');
 const Chan = require('D:/Trading/plugins/chanlens/core/chan.js');
 
-const packFile = path.join(__dirname, 'tmp', 'pack_daily.json');
+const STOCKS = process.env.STOCKS === '1';
+const TAG = STOCKS ? '_stock' : '';
+const SRC = STOCKS ? L.DIR_S : L.DIR_D;
+const MIN_DATE = STOCKS ? '2005-01-01' : '0000-00-00';
+const packFile = path.join(__dirname, 'tmp', 'pack_daily' + TAG + '.json');
 if (!fs.existsSync(packFile)) { console.error('缺 ' + packFile + '，先跑 TF=daily node scan.js'); process.exit(1); }
 const pack = JSON.parse(fs.readFileSync(packFile, 'utf8'));
 const KS = 6;                       // 往后看几根
 const cache = {};
-const getKs = code => cache[code] || (cache[code] = L.loadDaily(code));
+const getKs = code => cache[code] || (cache[code] = L.loadDaily(code, SRC).filter(k => k.date >= MIN_DATE));
 
 const stat = {};                    // stat[k] = { tot, alive }
 for (let k = 1; k <= KS; k++) stat[k] = { tot: 0, alive: 0 };
@@ -61,7 +65,7 @@ for (const ty of ['L1', 'L2', 'L3']) {
   console.log(ty + '  ' + row.join('  '));
 }
 
-fs.writeFileSync(path.join(__dirname, 'out', 'stability.json'), JSON.stringify({
+fs.writeFileSync(path.join(__dirname, 'out', 'stability' + TAG + '.json'), JSON.stringify({
   generatedAt: new Date().toISOString(), ks: KS, nSig, stat, byType
 }, null, 1));
 console.log('\n产物：out/stability.json');

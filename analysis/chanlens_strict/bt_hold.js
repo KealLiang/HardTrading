@@ -21,8 +21,25 @@ const path = require('path');
 const FEE = 0.001;                 // 双边合计
 const XS = [3, 5, 7, 10, 20, 60];
 
+/* 标的池：STOCKS=1 跑个股（data/stocks），否则跑 ETF（data/etfs） */
+const STOCKS = process.env.STOCKS === '1';
+const STOCK_GROUP = {
+  '金融': ['600036', '601318', '600030', '601166'],
+  '消费': ['600519', '000858', '000333', '000651', '600887', '600600'],
+  '医药': ['600276', '000538', '600196', '000963'],
+  '科技': ['002415', '000725', '000063', '600584', '002049', '002230'],
+  '新能源': ['002594', '601012', '002460', '600438', '300750'],
+  '周期': ['601899', '601088', '600019', '600585'],
+  '军工': ['600760', '600893'],
+  '地产建筑': ['000002', '601668', '600048'],
+  '公用': ['600900', '600011'],
+  '农业': ['002714', '000876'],
+  '传媒': ['300059', '002027'],
+  '汽车机械': ['600104', '600031', '601766']
+};
+
 /* 品种分组：判断一买超额是否跨类别稳健（组内样本少时只作方向参考） */
-const GROUP = {
+const GROUP = STOCKS ? STOCK_GROUP : {
   '宽基': ['510300', '510500', '512100', '159949', '588000'],
   '科技': ['159819', '159995', '512480', '515880', '512980', '159869', '562500', '159857', '515700', '516160'],
   '消费': ['159928', '159825', '512690', '159996', '159865'],
@@ -40,9 +57,31 @@ const PCT_BAND = 0.10;             // B3 的分位带宽
 const PCT_BAND4 = 0.15;            // B4 的分位带宽
 const B4_MIN = 8;                  // B4 最少对照样本
 
-const packFile = path.join(__dirname, 'tmp', 'pack_daily.json');
-if (!fs.existsSync(packFile)) { console.error('缺 ' + packFile + '，先跑 TF=daily node scan.js'); process.exit(1); }
+const TAG = STOCKS ? '_stock' : '';
+const packFile = path.join(__dirname, 'tmp', 'pack_daily' + TAG + '.json');
+if (!fs.existsSync(packFile)) {
+  console.error('缺 ' + packFile + '，先跑 ' + (STOCKS ? 'STOCKS=1 ' : '') + 'TF=daily node scan.js');
+  process.exit(1);
+}
 const pack = JSON.parse(fs.readFileSync(packFile, 'utf8'));
+const MD_OUT = path.join(__dirname, 'report_hold' + TAG + '.md');
+const JSON_OUT = path.join(__dirname, 'out', 'bt_hold' + TAG + '.json');
+
+/* 个股才需要的入场可行性过滤（ETF 无涨跌停、极少停牌，不启用）：
+ *   1) 入场日一字涨停（开=高=低 且涨幅 >4.5%）→ 实盘买不进
+ *   2) 入场日与前一交易日间隔 >15 自然日 → 长期停牌后复牌，不可视为正常次日
+ * 只影响入场可行性，不改变信号本身的判定。 */
+let dropLimit = 0, dropHalt = 0;
+function tradableMask(p) {
+  const n = p.c.length, ok = new Array(n).fill(true);
+  if (!STOCKS) return ok;
+  for (let i = 1; i < n; i++) {
+    if (p.h[i] === p.l[i] && p.o[i] > p.c[i - 1] * 1.045) { ok[i] = false; dropLimit++; continue; }
+    const gap = (Date.parse(p.dates[i]) - Date.parse(p.dates[i - 1])) / 86400000;
+    if (gap > 15) { ok[i] = false; dropHalt++; }
+  }
+  return ok;
+}
 
 const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 function sd(a) {
@@ -77,6 +116,8 @@ function pctSeries(p) {
 
 const byX = {};                    // byX[x][type] = { rows:[{ex2, ex3, ...}] }
 const perCode = {};                // perCode[x][code][type] = [ex2...]
+const perCode4 = {};               // perCode4[x][code][type] = [ex4...]（与正文同口径）
+const l3dist = {};                 // l3dist[x] = [{d, ex4}] 三买入场价距中枢上沿
 const sigDates = [];               // 信号日期分布
 let lagDrop = 0, noRoom = 0;
 
@@ -90,16 +131,19 @@ for (const p of pack.packs) for (const b of p.buy) {
 for (const p of pack.packs) {
   const n = p.c.length, o = p.o;
   const pq = pctSeries(p);
+  const trad = tradableMask(p);   // 个股：一字涨停 / 停牌复牌日不可入场（ETF 全 true）
   const months = p.dates.map(d => d.slice(0, 7));
   const quarters = months.map(m => m.slice(0, 4) + 'Q' + (Math.floor((+m.slice(5, 7) - 1) / 3) + 1));
 
   for (const x of XS) {
     byX[x] = byX[x] || {};
     perCode[x] = perCode[x] || {};
+    perCode4[x] = perCode4[x] || {};
 
     /* 该标的在每个可入场日的 x 日收益（全部扣费） */
     const all = [], byMonth = {}, byQ = {};
     for (let t = p.warmup; t + x <= n - 1; t++) {
+      if (!trad[t]) continue;
       const r = o[t + x] / o[t] - 1 - FEE;
       all.push(r);
       const m = months[t];
@@ -112,6 +156,7 @@ for (const p of pack.packs) {
       if (b.discT - b.readyK !== 1) continue;
       const e = b.discT + 1;
       if (e + x > n - 1) continue;
+      if (!trad[e]) continue;
       const r = o[e + x] / o[e] - 1 - FEE;
 
       /* B2 同月 */
@@ -148,6 +193,11 @@ for (const p of pack.packs) {
       for (const ty of [rec.type, 'ALL']) {
         (byX[x][ty] = byX[x][ty] || []).push(rec);
         ((perCode[x][p.code] = perCode[x][p.code] || {})[ty] = perCode[x][p.code][ty] || []).push(rec.ex2);
+        if (rec.ex4 != null) ((perCode4[x][p.code] = perCode4[x][p.code] || {})[ty] = perCode4[x][p.code][ty] || []).push(rec.ex4);
+      }
+      /* 三买：入场价离中枢上沿多远——用来切"贴近平台"与"追高"两档 */
+      if (b.level === 3 && b.zsZG > 0 && rec.ex4 != null) {
+        (l3dist[x] = l3dist[x] || []).push({ d: p.o[e] / b.zsZG - 1, ex4: rec.ex4, r, date: p.dates[e] });
       }
     }
   }
@@ -219,15 +269,15 @@ out('\n=== 持仓重叠率（同标的连续信号，本笔入场早于上笔出
 out(XS.map(x => 'x=' + x + '：' + pct(overlapShare(byX[x].ALL || [], x))).join('   ') +
   '　重叠会让 t 值偏大');
 
-/* 分段稳健性：信号收益是否只来自某一段行情 */
-out('\n=== 分段稳健性（超额 vs 同月，按入场年份切两段）===');
-out('x     类型   2012-2019（n/超额/t）              2020-2026（n/超额/t）');
+/* 分段稳健性：信号收益是否只来自某一段行情（口径与正文一致：同季同价位） */
+out('\n=== 分段稳健性（超额 vs 同季同价位，按入场年份切两段）===');
+out('x     类型   2020 年前（n/超额/t）              2020 年后（n/超额/t）');
 const segOut = {};
 for (const x of XS) {
   for (const ty of ['L1', 'ALL']) {
     const rows = (byX[x][ty] || []);
-    const a = rows.filter(z => z.date < '2020-01-01').map(z => z.ex2);
-    const b = rows.filter(z => z.date >= '2020-01-01').map(z => z.ex2);
+    const a = rows.filter(z => z.date < '2020-01-01' && z.ex4 != null).map(z => z.ex4);
+    const b = rows.filter(z => z.date >= '2020-01-01' && z.ex4 != null).map(z => z.ex4);
     if (a.length < 5 && b.length < 5) continue;
     out(String(x).padStart(2) + '  ' + TY[ty].padEnd(5) +
       (String(a.length).padStart(4) + ' / ' + pp(mean(a)).padStart(8) + ' / ' + f2(tStat(a)).padStart(6)).padEnd(38) +
@@ -255,6 +305,27 @@ for (const x of XS) {
   }
 }
 
+/* 同一件事换成「同季同价位」口径再算一遍：与正文第 1 节同基准，才能互相印证 */
+const agg4Out = {};
+for (const x of XS) {
+  for (const ty of ['L1', 'L2', 'L3']) {
+    const arr = [];
+    for (const code of Object.keys(perCode4[x] || {})) {
+      const v = perCode4[x][code][ty];
+      if (v && v.length >= 5) arr.push(mean(v));
+    }
+    if (arr.length < 5) continue;
+    agg4Out[x + ty] = { nCodes: arr.length, ex4: mean(arr), t: tStat(arr), posShare: arr.filter(v => v > 0).length / arr.length };
+  }
+}
+out('\n=== 跨标的聚合（同季同价位口径，与正文同基准）===')
+for (const ty of ['L1', 'L2', 'L3']) {
+  out(TY[ty].padEnd(5) + XS.map(x => {
+    const o = agg4Out[x + ty];
+    return 'x=' + x + ' ' + (o ? pp(o.ex4) + '(' + f2(o.t) + ') 正' + pct(o.posShare) : '—');
+  }).join('  '));
+}
+
 /* 不同标的是否有不同最优 x */
 out('\n=== 每只标的最优 x（按超额2）===');
 const bestDist = {};
@@ -276,7 +347,7 @@ out('（若最优 x 在各标的间随机分布，说明不存在通用持有期
 /* 只写结论，不写推理过程；推理放对话里讲。 */
 
 let vh = null;
-try { vh = JSON.parse(fs.readFileSync(path.join(__dirname, 'out', 'verify_hold.json'), 'utf8')); } catch (e) { }
+try { vh = JSON.parse(fs.readFileSync(path.join(__dirname, 'out', 'verify_hold' + TAG + '.json'), 'utf8')); } catch (e) { }
 
 const M = [];
 const P = s => M.push(s);
@@ -295,21 +366,54 @@ const cell = (x, ty, key, fmt, withT) => {
 };
 
 /* ---------- 抬头 ---------- */
-P('# 日线买点：信号到底有没有超额收益\n');
-P('> ' + pack.packs.length + ' 只 ETF｜' + firstDay + ' ~ ' + lastDay +
+P('# 日线买点' + (STOCKS ? '（个股）' : '') + '：信号到底有没有超额收益\n');
+P('> ' + pack.packs.length + (STOCKS ? ' 只个股｜' : ' 只 ETF｜') + firstDay + ' ~ ' + lastDay +
   '｜一买 ' + nTxt('L1') + '、二买 ' + nTxt('L2') + '、三买 ' + nTxt('L3') + ' 个信号');
 P('> 买点收盘确认 → 次日开盘买 → 持有 x 个交易日 → 开盘卖，扣双边 0.1%｜生成 ' + genAt + '\n');
 
 /* ---------- 结论 ---------- */
 P('## 结论\n');
-P('**一买有超额。二买测不出。三买没有。**\n');
+/* 判定按 t 值自动生成，别写死——ETF 和个股的显著性结构不一样 */
+/* 两道关：1) 逐笔 t4（同季同价位，配对、样本大，但会被同标的连续信号放大）
+   2) 跨标的 t（每只先求均值，抗重叠；同一基准 agg4Out）
+   只有两道关方向一致才算成立，否则说明显著性来自信号扎堆，不是真的占优 */
+function alignOf(ty) {
+  const per = XS.map(x => tableOut[x + ty]).filter(Boolean);
+  const pos = per.filter(o => o.t4 >= 2).length, neg = per.filter(o => o.t4 <= -2).length;
+  const ag = XS.map(x => agg4Out[x + ty]).filter(Boolean);
+  if (!ag.length) return { pos, neg, n: per.length, agOK: false, agPos: 0, agNeg: 0 };
+  const agPos = ag.filter(o => o.t >= 2).length, agNeg = ag.filter(o => o.t <= -2).length;
+  const agOK = pos > neg ? ag.filter(o => o.t > 0).length >= ag.length - 1
+                         : ag.filter(o => o.t < 0).length >= ag.length - 1;
+  return { pos, neg, n: per.length, agOK, agPos, agNeg, agT: ag.map(o => o.t) };
+}
+function verdict(ty) {
+  const s = alignOf(ty), n = s.n;
+  if (s.neg === n && s.agOK) return '**全段负超额**（' + n + ' 个持有期全部显著为负）';
+  if (s.pos === n && s.agOK) return '**全段有超额**（' + n + ' 个持有期全部显著为正）';
+  if (s.pos > 0 && s.agOK) return '**部分成立**（' + s.pos + '/' + n + ' 个持有期显著为正）';
+  if (s.neg > 0 && s.agOK) return '**负超额**（' + s.neg + '/' + n + ' 个持有期显著为负）';
+  if (s.pos > 0 || s.neg > 0) return '**站不住**（逐笔有 ' + Math.max(s.pos, s.neg) + '/' + n + ' 个显著，按标的聚合就归零）';
+  const agBest = Math.max(s.agPos, s.agNeg);
+  return agBest > 0
+    ? '测不出（逐笔 ' + n + ' 个都不显著，按标的聚合也只有 ' + agBest + '/' + n + ' 个过线）'
+    : '测不出（两种口径都不显著）';
+}
+/* 宽基准（同月，不锁价位）与严格基准（同季同价位）方向是否一致 */
+function sameDir(ty) {
+  const st = XS.map(x => agg4Out[x + ty]).filter(Boolean), wd = XS.map(x => aggOut[x + ty]).filter(Boolean);
+  if (!st.length || !wd.length) return true;
+  return (mean(st.map(o => o.ex4)) > 0) === (mean(wd.map(o => o.ex2)) > 0);
+}
+const POSNAME = ['偏低', '中间', '偏高'];
+P('**' + ['一买', '二买', '三买'].map((n, i) => n + '：' + verdict('L' + (i + 1)).replace(/\*\*/g, '').replace(/（.*$/, '')).join('；') + '**\n');
 P('| 类型 | 信号数 | 进场位置 | 判定 |');
 P('|---|---|---|---|');
-P('| 一买 | ' + nTxt('L1') + ' | 250 日分位 ' + pct(tableOut['20L1'].pctMed) + '（偏低） | **有超额**，持有 3~60 天全部成立 |');
-P('| 二买 | ' + nTxt('L2') + ' | 250 日分位 ' + pct(tableOut['20L2'].pctMed) + '（中间） | 测不出（方向为正但不显著） |');
-P('| 三买 | ' + nTxt('L3') + ' | 250 日分位 ' + pct(tableOut['20L3'].pctMed) + '（偏高） | **无正超额**，拿 60 天为负 |');
+['L1', 'L2', 'L3'].forEach((ty, i) => {
+  P('| ' + TY[ty] + ' | ' + nTxt(ty) + ' | 250 日分位 ' + pct(tableOut['20' + ty].pctMed) + '（' + POSNAME[i] + '） | ' + verdict(ty) + ' |');
+});
 P('');
-P('**超额**（单位 pp = 百分点）＝ 这笔实际赚的钱 −「同一只基金、同一个季度、价格分位 ±0.15 的普通交易日」赚的钱。' +
+P('**超额**（单位 pp = 百分点）＝ 这笔实际赚的钱 −「同一只标的、同一个季度、价格分位 ±0.15 的普通交易日」赚的钱。' +
   '把「那阵子大盘在涨」和「买得便宜」都扣掉，剩下的才算买点自己的本事。\n');
 const c3 = tableOut['20L3'];
 P('> 三买拿 20 天单笔赚 ' + pct(c3.sig4) + '，但同期同价位的普通交易日能赚 ' + pct(c3.B4p) + '。**它赚的是行情，不是买点。**\n');
@@ -329,7 +433,8 @@ for (const x of XS) {
 P('');
 P('左边是这笔实际到手（单笔平均，已扣 0.1% 费用），右边是扣掉「同期同价位随便买」之后剩下的。' +
   '**粗体 = 统计上站得住（t ≥ 2）**，完整 t 值在附录 A。');
-P('一买 6 个持有期超额全为正、全部显著；二买全不显著；三买全为负，其中 7/10/60 天显著。\n');
+const sigLine = ['L1','L2','L3'].map(ty => { const g = XS.map(x => tableOut[x+ty]); const p = g.filter(o => o.t4 >= 2).length, n = g.filter(o => o.t4 <= -2).length; return TY[ty] + ' ' + p + '/' + g.length + ' 个显著为正' + (n ? '、' + n + ' 个显著为负' : ''); }).join('；');
+P(sigLine + '。\n');
 
 /* ---------- §2 基准 ---------- */
 P('## 2 基准：同期同价位随便买能赚多少\n');
@@ -341,7 +446,7 @@ for (const x of XS) {
   P(line);
 }
 P('');
-P('基准 = 同一只基金、同一个季度、过去 250 日价格分位 ±0.15 的所有交易日，各买一次拿同样的 x 天，取平均。');
+P('基准 = 同一只标的、同一个季度、过去 250 日价格分位 ±0.15 的所有交易日，各买一次拿同样的 x 天，取平均。');
 P('**一买的基准是负的**：在「跌了很久、位置很低」的时点随便买，3~20 天平均亏 ' +
   pct(tableOut['3L1'].B4p) + ' ~ ' + pct(tableOut['20L1'].B4p) + '（60 天转正 ' + pct(tableOut['60L1'].B4p) +
   '，因为这段时间本身有反弹），而一买还能赚 ' + pct(tableOut['3L1'].sig4) + ' ~ ' + pct(tableOut['20L1'].sig4) + '。这才叫超额。');
@@ -351,28 +456,37 @@ P('**三买反过来**：那个位置本来就容易涨（' + pct(tableOut['3L3'
 /* ---------- 费率 ---------- */
 const a = tableOut['20L1'];
 const fee3 = tableOut['3L1'].sig4, fee20 = tableOut['20L1'].sig4;
-P('一买 3 天到手只有 ' + pct(fee3) + '：毛收益约 ' + pct(fee3 + FEE) + '，0.1% 的费用吃掉一半以上。' +
-  '拿 20 天是 ' + pct(fee20) + '，费用只占 ' + (100 * FEE / (fee20 + FEE)).toFixed(0) + '%。**短线在 ETF 上被费率拖死。**\n');
+P('一买 3 天到手只有 ' + pct(fee3) + '：毛收益约 ' + pct(fee3 + FEE) + '，0.1% 的费用占掉 ' +
+  (100 * FEE / (fee3 + FEE)).toFixed(0) + '%。拿 20 天是 ' + pct(fee20) + '，费用只占 ' +
+  (100 * FEE / (fee20 + FEE)).toFixed(0) + '%。**短线被费率吃掉利润。**\n');
 
 /* ---------- §3 怎么用 ---------- */
 P('## 3 怎么用\n');
 P('1. **做一买，拿 20 天。** 超额最高（' + pp(a.ex4) + '）、最稳（t=' + f2(a.t4) + '）、单笔 ' + pct(a.sig4) + '。');
-P('2. **别做 3 天。** 超额有，但单笔 ' + pct(fee3) + '，费用吃掉一半。');
-P('3. **二买不单独开仓。** 6 个持有期没一个显著。');
+P('2. **别做 3 天。** 超额有，但单笔 ' + pct(fee3) + '，0.1% 的费用占掉 ' + (100 * FEE / (fee3 + FEE)).toFixed(0) + '%。');
+{ const s2 = alignOf('L2');
+  if (s2.pos >= 3 && s2.agOK) P('3. **二买只能当辅助。** ' + s2.pos + '/' + XS.length + ' 个持有期显著，超额大约是一买的一半' +
+    (sameDir('L2') ? '。' : '；而且只在同价位对照下成立，对当月平均行情没有优势。'));
+  else if (s2.pos > 0) P('3. **二买不单独开仓。** 逐笔 ' + s2.pos + '/' + XS.length + ' 显著，但按标的聚合就归零。');
+  else {
+    const agBest2 = Math.max(s2.agPos, s2.agNeg);
+    P('3. **二买不单独开仓。** 逐笔 ' + XS.length + ' 个持有期都不显著' +
+      (agBest2 > 0 ? '，按标的聚合也只有 ' + agBest2 + '/' + XS.length + ' 个过线' : '') + '。');
+  } }
 P('4. **三买不当入场信号。** 它的用处只在趋势确认（说明中枢被突破且回踩成功），收益上体现不出来。\n');
 
 /* ---------- §4 可信度 ---------- */
-const posMin = Math.min(...XS.map(x => aggOut[x + 'L1'] ? aggOut[x + 'L1'].posShare : 1));
-const posMax = Math.max(...XS.map(x => aggOut[x + 'L1'] ? aggOut[x + 'L1'].posShare : 0));
-const a20 = aggOut['20L1'], s5 = segOut['5L1'];
+const posMin = Math.min(...XS.map(x => agg4Out[x + 'L1'] ? agg4Out[x + 'L1'].posShare : 1));
+const posMax = Math.max(...XS.map(x => agg4Out[x + 'L1'] ? agg4Out[x + 'L1'].posShare : 0));
+const a20 = agg4Out['20L1'], s5 = segOut['5L1'];
 P('## 4 这个结论有多可信\n');
 P('| 质疑 | 检验结果 |');
 P('|---|---|');
-P('| 是不是某一只基金的运气 | 一买在 ' + (a20 ? a20.nCodes : '—') + ' 只有效标的中 ' + pct(posMin) + '~' + pct(posMax) + ' 为正，9 个品种组全为正 |');
-P('| 是不是被重叠信号撑大了 t | 每只基金先算一个均值再检验：x=20 一买 ' + (a20 ? pp(a20.ex2) : '—') +
+P('| 是不是某一只的运气 | 一买在 ' + (a20 ? a20.nCodes : '—') + ' 只有效标的中，' + pct(posMin) + '~' + pct(posMax) + ' 为正 |');
+P('| 是不是被重叠信号撑大了 t | 每只标的先算一个均值再检验：x=20 一买 ' + (a20 ? pp(a20.ex4) : '—') +
   '（t=' + (a20 ? f2(a20.t) : '—') + '），' + (a20 ? pct(a20.posShare) : '—') + ' 标的为正 |');
-P('| 是不是只靠某一段行情 | 2020 年后 ' + (s5 ? s5.b.n + ' 个信号、' + pp(s5.b.ex) + '（t=' + f2(s5.b.t) + '）' : '—') +
-  '；2012-2019 只有 ' + (s5 ? s5.a.n : '—') + ' 个，测不出 |');
+P('| 是不是只靠某一段行情 | 2020 年前 ' + (s5 ? s5.a.n + ' 笔、' + pp(s5.a.ex) + '（t=' + f2(s5.a.t) + '）' : '—') +
+  '；2020 年后 ' + (s5 ? s5.b.n + ' 笔、' + pp(s5.b.ex) + '（t=' + f2(s5.b.t) + '）' : '—') + ' |');
 P('| 有没有偷看未来 | 确认日收盘后才知道信号，次日开盘才买；独立脚本重算原始 CSV：入场违规 ' +
   (vh ? vh.err.notNext : '—') + '、价格不一致 ' + (vh ? vh.err.priceMismatch : '—') + ' |');
 P('');
@@ -395,26 +509,40 @@ for (const x of XS) {
 P('');
 P('「vs 同季同价位」要求同一季度里价格分位 ±0.15 至少有 ' + B4_MIN + ' 个对照日，凑不够的笔不进这一列' +
   '（x=5 时一买 ' + tableOut['5L1'].n + '→' + tableOut['5L1'].n4 + ' 笔、三买 ' + tableOut['5L3'].n + '→' + tableOut['5L3'].n4 + ' 笔）。');
-P('本表「单笔」是全样本均值；正文第 1 节用的是「同季同价位可比子集」的均值（与超额严格同一批笔），两者最多差 0.07pp。\n');
+/* 正文与附录的「单笔」差多少：算出来，别写死 */
+const maxDiff = Math.max(...XS.flatMap(x => ['L1', 'L2', 'L3'].map(ty => {
+  const o = tableOut[x + ty]; return o && o.sig4 != null ? Math.abs(o.sig - o.sig4) * 100 : 0;
+})));
+P('本表「单笔」是全样本均值；正文第 1 节用的是「同季同价位可比子集」的均值（与超额严格同一批笔），两者最多差 ' + maxDiff.toFixed(2) + 'pp。\n');
 
 P('## 附录 B 按标的聚合\n');
-P('每只基金先算均值，再看是否多数基金方向一致（避免同标的连续信号把 t 撑大）：\n');
+P('每只标的先算均值，再看是否多数标的方向一致（避免同标的连续信号把 t 撑大）。口径与正文第 1 节完全相同：\n');
 P('| 类型 | x=3 | x=5 | x=7 | x=10 | x=20 | x=60 |');
 P('|---|---|---|---|---|---|---|');
 for (const ty of ['L1', 'L2', 'L3']) {
   let line = '| ' + TY[ty] + ' |';
   for (const x of XS) {
-    const o = aggOut[x + ty];
-    line += o ? ' ' + pp(o.ex2) + '（t=' + f2(o.t) + '，正 ' + pct(o.posShare) + '） |' : ' — |';
+    const o = agg4Out[x + ty];
+    line += o ? ' ' + pp(o.ex4) + '（t=' + f2(o.t) + '，正 ' + pct(o.posShare) + '） |' : ' — |';
   }
   P(line);
 }
 const shortPk = pack.packs.filter(p => p.warmup < pack.warmup);
-const aggN5 = aggOut['5L1'] ? aggOut['5L1'].nCodes : null;
+const aggN5 = agg4Out['5L1'] ? agg4Out['5L1'].nCodes : null;
 P('');
-P('口径为 vs 同月。这里故意用较弱的基准：同季同价位的对照日门槛会砍掉部分标的的样本，跨标的检验要样本尽量全。方向与主表一致。' +
-  (aggN5 && aggN5 < pack.packs.length
-  ? pack.packs.length + ' 只里 ' + aggN5 + ' 只入表（单只信号 < 5 个的不进；' + shortPk.length + ' 只上市太晚）。' : '') + '\n');
+if (aggN5 && aggN5 < pack.packs.length) P(pack.packs.length + ' 只里 ' + aggN5 + ' 只入表（单只信号 < 5 个的不进）。\n');
+/* 两种口径是否同向：不同向必须说出来，否则等于替结论挑基准 */
+{
+  const bad = ['L1', 'L2', 'L3'].filter(ty => !sameDir(ty));
+  const good = ['L1', 'L2', 'L3'].filter(ty => sameDir(ty));
+  if (bad.length) {
+    P('换成「同月」宽基准（只锁时间、不锁价位）再按标的聚合：' + bad.map(ty => TY[ty]).join('、') +
+      '方向会反过来。含义是——' + bad.map(ty => TY[ty]).join('、') +
+      '对「同价位」的交易日是占优的，对整个月的平均行情没有优势' +
+      (good.length ? '。' + good.map(ty => TY[ty]).join('、') + '两种基准同向。' : '。'));
+    P('');
+  }
+}
 
 /* 按品种组再切一刀，看一买超额是不是集中在某一类资产 */
 const grp = [];
@@ -431,8 +559,8 @@ if (grp.length) {
 }
 
 P('## 附录 C 分段、重叠、局限\n');
-P('一买超额按入场年份切两段（vs 同月）：\n');
-P('| x | 2012-2019 | 2020-2026 |');
+P('一买超额按入场年份切两段（vs 同季同价位）：\n');
+P('| x | 2020 年前 | 2020 年后 |');
 P('|---|---|---|');
 for (const x of XS) {
   const s = segOut[x + 'L1']; if (!s) continue;
@@ -440,25 +568,35 @@ for (const x of XS) {
     s.b.n + ' 笔 ' + pp(s.b.ex) + '（t=' + f2(s.b.t) + '） |');
 }
 P('');
-P('- **证据全在 2020 年后。** 准确的说法是「2020 年后有效」，不是「一直有效」。');
+if (s5 && Math.abs(s5.a.t) >= 2) P('- **两段都成立**：2020 年前 ' + pp(s5.a.ex) + '（t=' + f2(s5.a.t) + '）、2020 年后 ' + pp(s5.b.ex) + '（t=' + f2(s5.b.t) + '），不是在某一波行情里凑出来的。');
+else P('- **证据全在 2020 年后。** 2020 年前只有 ' + s5.a.n + ' 笔，测不出来，准确说法是「2020 年后有效」，不是「一直有效」。');
 P('- **持仓重叠**：同标的连续信号叠加率 ' + XS.map(x => 'x=' + x + ' ' + pct(overlapShare(byX[x].ALL || [], x))).join('、') +
   '。重叠会让逐笔 t 偏大，所以以附录 B 的跨标的 t 为准。');
 P('- **无单仓约束**：假设每个信号都有钱买。实际多个买点同时出现只能选一个，且可能没钱。');
-P('- **成交价与滑点**：一律按开盘价成交、费用双边 0.1%。ETF 免印花税、实际佣金约万 0.5~2，费用这块是**高估**（偏保守）；' +
-  '但完全没算滑点——大 ETF 开盘价差 0.02~0.05%，冷门 ETF 可能 0.1~0.3%，会吃掉一部分超额。');
+P(STOCKS
+  ? '- **成交价与滑点**：一律按开盘价成交、费用双边 0.1%（佣金万 0.5~2 + 卖出印花税 0.05%，合计约 0.06~0.1%，与假设接近）。滑点没算——大盘股开盘价差 0.02~0.05%，情绪股可能 0.2~0.5%，会吃掉一部分超额。'
+  : '- **成交价与滑点**：一律按开盘价成交、费用双边 0.1%。ETF 免印花税、实际佣金约万 0.5~2，费用这块是**高估**（偏保守）；但完全没算滑点——大 ETF 开盘价差 0.02~0.05%，冷门 ETF 可能 0.1~0.3%，会吃掉一部分超额。');
 P('- **x=20 是从这批数据里挑出来的最优**，不是在实盘前就定好的。好在一买 3~60 天全部显著为正，换个持有期不至于翻盘。');
-P('- **只测 ETF**，不外推到个股（个股有业绩驱动、涨跌停、停牌，分布不同）。');
-P('- 部分标的 2021 年后才上市，可用窗口只有 2~3 年，信号集中在 2023-2026 一段行情。\n');
+if (STOCKS) P('- **入场可行性**：一字涨停（开=高=低且涨 >4.5%）的日子买不进，已从信号与基线池同时剔除，合计 ' + dropLimit + ' 个交易日；长期停牌（与前一交易日间隔 >15 自然日）剔除 ' + dropHalt + ' 个。');
+ else P('- **只测 ETF**，不外推到个股（个股有业绩驱动、涨跌停、停牌，分布不同）。');
+/* 只列「可用窗口不到样本期一半」的标的，并把清单截短 */
+const spanDays = (Date.parse(lastDay) - Date.parse(firstDay)) / 86400000;
+const late = pack.packs.filter(p => (Date.parse(lastDay) - Date.parse(p.dates[0])) / 86400000 < spanDays * 0.5)
+  .sort((x1, x2) => x2.dates[0].localeCompare(x1.dates[0]));
+if (late.length) P('- ' + late.length + ' 只可用窗口不到样本期一半（最新上市：' +
+  late.slice(0, 6).map(p => p.code + ' ' + p.dates[0].slice(0, 4)).join('、') + '），信号集中在近年。');
+P('');
 
 P('## 附录 D 复现、可执行性、复核\n');
-P('**信号不是事后回填的**：`scan.js` 对每只基金逐根回放——第 t 根收盘时只用 `ks.slice(0, t+1)` 重跑一遍引擎，' +
+P('**信号不是事后回填的**：`scan.js` 对每只标的逐根回放——第 t 根收盘时只用 `ks.slice(0, t+1)` 重跑一遍引擎，' +
   '买点是那一刻引擎真的报出来的，记下首次发现时间 discT，买入 = discT + 1 的开盘价。价格分位也只用过去 250 根。\n');
 P('```bash');
 P('cd D:/Trading/analysis/chanlens_strict');
-P('TF=daily node scan.js   # → tmp/pack_daily.json');
-P('node bt_hold.js          # → report_hold.md + out/bt_hold.json');
-P('node verify_hold.js      # 独立复核');
-P('node stability.js        # 信号发现后会不会消失');
+const ENV = STOCKS ? 'STOCKS=1 ' : '';
+P(ENV + 'TF=daily node scan.js   # → tmp/pack_daily' + TAG + '.json');
+P(ENV + 'node bt_hold.js          # → report_hold' + TAG + '.md + out/bt_hold' + TAG + '.json');
+P(ENV + 'node verify_hold.js      # 独立复核');
+P(ENV + 'node stability.js        # 信号发现后会不会消失');
 P('```\n');
 if (vh) {
   P('`verify_hold.js` 直接读原始 CSV 重算，不复用 bt_hold.js 的任何算价函数：\n');
@@ -466,17 +604,17 @@ if (vh) {
   P('|---|---|');
   P('| 入场日 = 确认日 + 1（逐笔对 CSV 相邻行） | 违规 ' + vh.err.notNext + ' |');
   P('| 卖出日 = 入场日 + x，开盘价逐笔一致 | 不一致 ' + vh.err.priceMismatch + ' |');
-  P('| 只用 lag = 1 的信号 | 剔除 ' + vh.err.lagNot1 + '（脚本记 ' + lagDrop + '）|');
+  P('| 只用 lag = 1 的信号 | 剔除 ' + vh.err.lagNot1 + '（脚本记 ' + lagDrop + '） |');
   P('| 确认日之后没有下一根 K 线（不成交） | 剔除 ' + vh.err.tailEdge + ' 笔 |');
   P('| 18 个格子（6 个 x × 3 类）的 n / 均值 / 胜率逐位比对 | ' + (vh.badCells === 0 ? '全部一致' : vh.badCells + ' 格不符') + ' |');
-  P('| 「同季同价位」基线用 CSV 独立重算 | 差异 < 0.01pp |');
+  P('| 「同季同价位」基线用 CSV 独立重算 | ' + (vh.b4diff == null ? '—' : '差异 ' + (vh.b4diff * 100).toFixed(3) + 'pp（' + vh.sampleB4 + ' 笔）') + ' |');
 } else {
   P('尚未运行 `node verify_hold.js`。');
 }
 
 /* 信号稳定性：发现之后新 K 线进来，笔/中枢可能重划，买点在事后视图里可能消失 */
 let st = null;
-try { st = JSON.parse(fs.readFileSync(path.join(__dirname, 'out', 'stability.json'), 'utf8')); } catch (e) { }
+try { st = JSON.parse(fs.readFileSync(path.join(__dirname, 'out', 'stability' + TAG + '.json'), 'utf8')); } catch (e) { }
 if (st) {
   const sh = k => st.stat[k] ? pct(st.stat[k].alive / st.stat[k].tot) : '—';
   P('');
@@ -489,15 +627,44 @@ if (st) {
     '6 根后剩 ' + sh(6) + '。**这不影响下单时点，但意味着事后复盘看到的图与当时不完全一样。**\n');
 }
 
+/* ---------- 附录 E 三买分层 ---------- */
+{
+  const xE = 20, arr = l3dist[xE] || [];
+  if (arr.length >= 100) {
+    const BK = [[-9, 0.05, '≤5%'], [0.05, 0.10, '5~10%'], [0.10, 0.20, '10~20%'], [0.20, 9, '>20%']];
+    P('## 附录 E 三买亏在哪一档\n');
+    P('按「入场价距中枢上沿」切开（x=' + xE + ' 天，其余口径同正文）。中枢上沿 = 那个中枢的 ZG；' +
+      '回踩不落回 ZG 才算三买，所以这个距离约等于「突破那一段已经走掉多少」：\n');
+    P('| 距中枢上沿 | n | 单笔 | vs 同价位（t） |');
+    P('|---|---|---|---|');
+    for (const [lo, hi, lab] of BK) {
+      const s = arr.filter(z => z.d > lo && z.d <= hi);
+      if (s.length < 20) continue;
+      const e = s.map(z => z.ex4);
+      P('| ' + lab + ' | ' + s.length + ' | ' + pct(mean(s.map(z => z.r))) + ' | ' + B(pp(mean(e)), tStat(e)) + ' |');
+    }
+    const near = arr.filter(z => z.d <= 0.10), far = arr.filter(z => z.d > 0.10);
+    const eN = near.map(z => z.ex4), eF = far.map(z => z.ex4);
+    if (near.length && far.length) {
+      P('');
+      P('**' + pct(near.length / arr.length) + ' 的三买入场价在中枢上沿 10% 以内**，这一档 ' + pp(mean(eN)) +
+        '（t=' + f2(tStat(eN)) + '），等于打平；另外 ' + pct(far.length / arr.length) + ' 落在 10% 以外，' +
+        pp(mean(eF)) + '（t=' + f2(tStat(eF)) + '）——**亏损几乎全在「涨完了才回踩」这一档**。\n');
+      P('用法：给三买加一条「入场价 ≤ 中枢上沿 × 1.10」的过滤。这条阈值是回头切数据切出来的、不是先验，' +
+        '实盘要按当时能看到的 ZG 现算，并接受它可能只是这批样本的巧合。\n');
+    }
+  }
+}
+
 const md = M.join('\n') + '\n';
-fs.writeFileSync(path.join(__dirname, 'report_hold.md'), md);
-console.log('\n报告：report_hold.md（' + md.trimEnd().split('\n').length + ' 行）');
+fs.writeFileSync(MD_OUT, md);
+console.log('\n报告：' + path.basename(MD_OUT) + '（' + md.trimEnd().split('\n').length + ' 行）');
 
 /* 落盘 */
-fs.writeFileSync(path.join(__dirname, 'out', 'bt_hold.json'), JSON.stringify({
-  generatedAt: new Date().toISOString(), fee: FEE, xs: XS, lagDrop, noRoom,
-  table: tableOut, byCode: aggOut, seg: segOut, bestX: Object.fromEntries(XS.map(x => [x, (bestDist[x] || []).length]))
+fs.writeFileSync(JSON_OUT, JSON.stringify({
+  generatedAt: new Date().toISOString(), fee: FEE, xs: XS, lagDrop, noRoom, stocks: STOCKS, dropLimit, dropHalt,
+  table: tableOut, byCode: aggOut, byCode4: agg4Out, seg: segOut, bestX: Object.fromEntries(XS.map(x => [x, (bestDist[x] || []).length]))
 }, null, 1));
-fs.writeFileSync(path.join(__dirname, 'out', 'bt_hold.txt'), lines.join('\n'));
-console.log('\n产物：out/bt_hold.json, out/bt_hold.txt');
+fs.writeFileSync(path.join(__dirname, 'out', 'bt_hold' + TAG + '.txt'), lines.join('\n'));
+console.log('\n产物：out/bt_hold' + TAG + '.json, out/bt_hold' + TAG + '.txt');
 

@@ -13,8 +13,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const packFile = path.join(__dirname, 'tmp', 'pack_daily.json');
-const resFile = path.join(__dirname, 'out', 'bt_hold.json');
+const STOCKS = process.env.STOCKS === '1';
+const TAG = STOCKS ? '_stock' : '';
+const SRC = STOCKS ? 'D:/Trading/data/stocks' : 'D:/Trading/data/etfs';
+const MIN_DATE = STOCKS ? '2005-01-01' : '0000-00-00';   // 与 scan.js 的截断保持一致
+const packFile = path.join(__dirname, 'tmp', 'pack_daily' + TAG + '.json');
+const resFile = path.join(__dirname, 'out', 'bt_hold' + TAG + '.json');
 if (!fs.existsSync(packFile) || !fs.existsSync(resFile)) {
   console.error('缺 pack 或 bt_hold.json'); process.exit(1);
 }
@@ -29,17 +33,33 @@ const tStat = a => (a.length < 3 || !sd(a)) ? null : mean(a) / (sd(a) / Math.sqr
 
 /* --- 直接从 CSV 读，index 对齐 pack 的 dates --- */
 function loadCsv(code) {
-  const f = path.join('D:/Trading/data/etfs', code + '.csv');
+  const f = path.join(SRC, code + '.csv');
   const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(x => x.trim());
   const head = lines[0].split(',');
   const iD = head.findIndex(h => /日期|date/.test(h));
   const iO = head.findIndex(h => /开盘|open/.test(h));
   const iC = head.findIndex(h => /收盘|close/.test(h));
-  const rows = lines.slice(1).map(l => l.split(','));
-  return { date: rows.map(r => r[iD]), open: rows.map(r => +r[iO]), close: rows.map(r => +r[iC]) };
+  const iH = head.findIndex(h => /最高|high/.test(h));
+  const iL = head.findIndex(h => /最低|low/.test(h));
+  const rows = lines.slice(1).map(l => l.split(',')).filter(r => r[0] >= MIN_DATE);
+  return {
+    date: rows.map(r => r[iD]), open: rows.map(r => +r[iO]),
+    close: rows.map(r => +r[iC]), high: rows.map(r => +r[iH]), low: rows.map(r => +r[iL])
+  };
 }
 
-const err = { notNext: 0, badIdx: 0, lagNot1: 0, priceMismatch: 0, checked: 0, tailEdge: 0 };
+/* 与 bt_hold.js 同一套入场可行性规则（个股）：一字涨停买不进、长期停牌复牌日不算次日 */
+function tradable(csv) {
+  const ok = new Array(csv.open.length).fill(true);
+  if (!STOCKS) return ok;
+  for (let i = 1; i < csv.open.length; i++) {
+    if (csv.high[i] === csv.low[i] && csv.open[i] > csv.close[i - 1] * 1.045) { ok[i] = false; continue; }
+    if ((Date.parse(csv.date[i]) - Date.parse(csv.date[i - 1])) / 86400000 > 15) ok[i] = false;
+  }
+  return ok;
+}
+
+const err = { notNext: 0, badIdx: 0, lagNot1: 0, priceMismatch: 0, checked: 0, tailEdge: 0, blocked: 0 };
 const recomputed = {};   // type -> [ret...]
 
 for (const p of pack.packs) {
@@ -49,11 +69,13 @@ for (const p of pack.packs) {
     console.log('!! ' + p.code + ' CSV ' + csv.date.length + ' 行 vs pack ' + p.dates.length + ' 行，跳过');
     continue;
   }
+  const trad = tradable(csv);
   /* 每只标的每个 x 的「同月样本数」，用于复现 bt_hold 的过滤 */
   const monthCnt = {};
   for (const x of XS) {
     monthCnt[x] = {};
     for (let t = p.warmup; t + x <= p.c.length - 1; t++) {
+      if (!trad[t]) continue;
       const m = p.dates[t].slice(0, 7);
       monthCnt[x][m] = (monthCnt[x][m] || 0) + 1;
     }
@@ -62,6 +84,7 @@ for (const p of pack.packs) {
     if (b.discT - b.readyK !== 1) { err.lagNot1++; continue; }
     const e = b.discT + 1;
     if (e > p.dates.length - 1) { err.tailEdge++; continue; }   // 末端确认、次日无 bar
+    if (!trad[e]) { err.blocked++; continue; }                  // 一字涨停 / 停牌复牌日
     /* 1) 入场日必须紧跟确认日 */
     const dDisc = p.dates[b.discT], dEntry = p.dates[e];
     const iDisc = csv.date.indexOf(dDisc), iEntry = csv.date.indexOf(dEntry);
@@ -87,6 +110,7 @@ console.log('  入场 = 确认日 + 1（逐笔核对 CSV 相邻行）：违规 '
 console.log('  开盘价与 pack 不一致：' + err.priceMismatch + '（应为 0）');
 console.log('  lag ≠ 1 被排除：' + err.lagNot1 + '（bt_hold 记 ' + res.lagDrop + '）');
   console.log('  数据末端确认、次日无 bar：' + err.tailEdge);
+console.log('  一字涨停/停牌不可入场：' + err.blocked);
 console.log('  重算笔次：' + err.checked);
 
 console.log('\n=== 2) 用 CSV 重算 vs bt_hold.json ===');
@@ -128,14 +152,15 @@ for (const p of pack.packs) {
   const csv = loadCsv(p.code);
   if (csv.date.length !== p.dates.length) continue;
   const pq = pctSeries(p), n = p.o.length;
+  const tradB = tradable(csv);
   const qs = p.dates.map(d => d.slice(0, 4) + 'Q' + (Math.floor((+d.slice(5, 7) - 1) / 3) + 1));
   for (const b of p.buy) {
     if (b.discT - b.readyK !== 1 || b.level !== 1) continue;
     const e = b.discT + 1;
-    if (e + xB4 > n - 1 || pq[e] == null) continue;
+    if (e + xB4 > n - 1 || pq[e] == null || !tradB[e]) continue;
     const pool = [];
     for (let t = p.warmup; t + xB4 <= n - 1; t++) {
-      if (qs[t] !== qs[e] || pq[t] == null) continue;
+      if (qs[t] !== qs[e] || pq[t] == null || !tradB[t]) continue;
       if (Math.abs(pq[t] - pq[e]) <= PCT_BAND4) pool.push(csv.open[t + xB4] / csv.open[t] - 1 - FEE);
     }
     if (pool.length < B4_MIN) continue;
@@ -149,6 +174,6 @@ console.log('  可算 ' + b4n + ' 笔，重算基线均值 ' + (100 * mean(b4val
   (b4rep == null ? 'n/a' : (100 * b4rep).toFixed(3) + '%') + '　' +
   (b4rep != null && Math.abs(mean(b4vals) - b4rep) < 5e-5 ? 'ok' : '✗'));
 
-const summary = { err, badCells: bad, sampleB4: b4n };
-fs.writeFileSync(path.join(__dirname, 'out', 'verify_hold.json'), JSON.stringify(summary, null, 1));
+const summary = { err, badCells: bad, sampleB4: b4n, b4diff: b4rep == null ? null : Math.abs(mean(b4vals) - b4rep) };
+fs.writeFileSync(path.join(__dirname, 'out', 'verify_hold' + TAG + '.json'), JSON.stringify(summary, null, 1));
 console.log('\n' + (bad === 0 && err.notNext === 0 && err.priceMismatch === 0 ? '✅ 全部通过' : '❌ 有问题'));

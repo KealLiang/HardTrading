@@ -11,6 +11,7 @@ const DIR_30 = 'D:/Trading/data/etfs_bt_30m';           // 30m 原始（不复�
 const DIR_30_ADJ = 'D:/Trading/data/etfs_bt_30m_adj';   // 30m 前复权（对齐日线）
 const DIR_60 = 'D:/Trading/data/etfs_bt_60m_adj';   // 真实 60m（新浪源，前复权对齐日线）
 const DIR_60_RAW = 'D:/Trading/data/etfs_bt_60m';   // 真实 60m（原始不复权，仅排查用）
+const DIR_S = 'D:/Trading/data/stocks';             // 个股日线（前复权，腾讯源）
 
 /* ---------------------------------------------------------------- 随机 */
 function makeRng(seed) {
@@ -77,7 +78,7 @@ function parseCsv(file, dateCol) {
   for (const r of rows) if (!out.length || out[out.length - 1].t !== r.t) out.push(r);
   return out;
 }
-const loadDaily = code => parseCsv(path.join(DIR_D, code + '.csv'), '日期');
+const loadDaily = (code, dir) => parseCsv(path.join(dir || DIR_D, code + '.csv'), '日期');
 /** 30m：默认优先前复权版（与日线同口径）；RAW_MIN=1 时用原始不复权版 */
 const load30 = code => {
   const p = process.env.RAW_MIN === '1' ? path.join(DIR_30, code + '.csv') : path.join(DIR_30_ADJ, code + '.csv');
@@ -108,8 +109,8 @@ function to60(ks30) {
   return out;
 }
 
-function listCodes() {
-  return fs.readdirSync(DIR_D).filter(f => f.endsWith('.csv')).map(f => f.replace('.csv', '')).sort();
+function listCodes(dir) {
+  return fs.readdirSync(dir || DIR_D).filter(f => f.endsWith('.csv')).map(f => f.replace('.csv', '')).sort();
 }
 
 /** ATR(period)，返回与 ks 等长数组（前 period 根为 null） */
@@ -140,5 +141,5 @@ const f1 = x => (x == null || !isFinite(x)) ? 'n/a' : x.toFixed(1);
 module.exports = {
   makeRng, hashSeed, mean, sd, median, quantile, welchT, compact,
   loadDaily, load30, load60, to60, listCodes, atrSeries,
-  pc, pp, f2, f1, DIR_D, DIR_30, DIR_30_ADJ, DIR_60, DIR_60_RAW
+  pc, pp, f2, f1, DIR_D, DIR_30, DIR_30_ADJ, DIR_60, DIR_60_RAW, DIR_S
 };
