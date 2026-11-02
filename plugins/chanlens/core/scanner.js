@@ -209,6 +209,100 @@
     };
   }
 
+  /* --------------------------------------------------------------------------
+   * 回抽候选（2.2.0）：三买 / 二买 / 三卖 / 二卖「正在酝酿」的状态
+   *
+   * 和 pickSignal 的分界：
+   *   pickSignal 只认**已经成立**的买卖点 —— 回抽笔走完、低点已被分型确认；
+   *   本函数认的是**回抽进行中** —— 最后一笔还是突破笔/反弹笔，价格已从笔终点
+   *   回撤，作废线还没破。
+   *
+   * 为什么需要：三买的定义就是「回抽不入中枢」。等信号 = 等回抽笔走完，那时价格
+   * 已离 ZG 中位 4.15%（26 只 ETF、722 个三买样本），手册那句「回抽区挂 2 档限价」
+   * 实操上根本来不及。候选态给的是**结构价**（实时可判，不含任何预测）：
+   * 作废线 + 两档挂单参考，让限价单有机会挂进去。
+   *
+   * 它**不预测信号**：笔没走完，信号在定义上就不成立。它只是把「要么止跌成型、
+   * 要么破线作废」这个分叉提前摆出来 —— 两条路都不需要猜。
+   *
+   * 一买 / 一卖不在此列：背驰是整笔的 MACD 面积（路径积分），回抽途中算不准，
+   * 硬算就是编数字。
+   *
+   * 判据（买点方向；卖点对称）：
+   *   最后一笔是向上的（突破笔 / 一买后的反弹笔），价格已从它的高点回撤 ≥ minRetr，
+   *   且现价仍在作废线之上：
+   *     三类 → 中枢的 endPart 就是这最后一笔，作废线 = ZG
+   *     二类 → 一买之后的第一根反弹笔就是这最后一笔，作废线 = 一买低点
+   *   回抽笔一旦成笔（底分型确认），候选就变成真正的信号，由 pickSignal 接管。
+   *
+   * @returns [{ level, type, dir, invalid, invalidRule, refs:[近档, 远档],
+   *             retr, startK, endK }]，三类优先，最多两条。
+   * ------------------------------------------------------------------------ */
+  function candidates(klines, res, opts) {
+    opts = opts || {};
+    var out = [];
+    var ks = klines || [];
+    var bis = (res && res.bis) || [];
+    var zss = (res && res.zhongshus) || [];
+    var pts = (res && res.points) || [];
+    var o = (res && res.opts) || {};
+    if (!ks.length || bis.length < 3) return out;
+    /* 中枢/买卖点若来自线段，endPart 与 bis 的索引口径不同 —— 不做，宁可没有 */
+    if (o.zsSource === 'seg' || o.pointsOnSegs) return out;
+
+    var lastIdx = bis.length - 1;
+    var last = bis[lastIdx];
+    var close = ks[ks.length - 1].c;
+    if (!(close > 0) || !(last && last.endPrice > 0)) return out;
+
+    /* 必须已经从笔终点回撤，否则是还在往外走，谈不上「回抽中」 */
+    var retr = last.dir > 0
+      ? (last.endPrice - close) / last.endPrice
+      : (close - last.endPrice) / last.endPrice;
+    if (!(retr >= (opts.minRetr == null ? 0.005 : opts.minRetr))) return out;
+
+    var type = last.dir > 0 ? 1 : -1;          // 回撤方向的反向 = 候选的买卖方向
+    var near = opts.nearPct == null ? 0.02 : opts.nearPct;
+    var far = opts.farPct == null ? 0.03 : opts.farPct;
+
+    function mk(level, invalid, rule) {
+      var s = type > 0 ? 1 : -1;               // 买点在作废线上方挂，卖点在下方
+      return {
+        level: level, type: type, dir: s,
+        invalid: invalid, invalidRule: rule,
+        refs: [invalid * (1 + s * near), invalid * (1 + s * far)],
+        retr: retr, startK: last.startK, endK: ks.length - 1
+      };
+    }
+
+    /* —— 三类：中枢的离开笔就是这最后一笔 —— */
+    for (var z = zss.length - 1; z >= 0; z--) {
+      if (zss[z].endPart !== lastIdx) continue;
+      if (type > 0 && close > zss[z].ZG) out.push(mk(3, zss[z].ZG, '中枢上沿 ZG'));
+      else if (type < 0 && close < zss[z].ZD) out.push(mk(3, zss[z].ZD, '中枢下沿 ZD'));
+      break;
+    }
+
+    /* —— 二类：一买之后的第一根反弹笔就是这最后一笔 —— */
+    var d = null;
+    for (var i = 0; i < pts.length; i++) {
+      var p = pts[i];
+      if (p.level !== 1) continue;
+      if (type > 0 ? !(p.type > 0) : !(p.type < 0)) continue;
+      if (!d || p._k > d._k) d = p;
+    }
+    if (d) {
+      var refIdx = -1;
+      for (var j = 0; j < bis.length; j++) { if (bis[j].endK >= d._k) { refIdx = j; break; } }
+      if (refIdx >= 0 && refIdx + 1 === lastIdx) {
+        if (type > 0 && close > d.price) out.push(mk(2, d.price, '一买低点'));
+        else if (type < 0 && close < d.price) out.push(mk(2, d.price, '一卖高点'));
+      }
+    }
+
+    return out;
+  }
+
   function defaultFetcher() {
     if (g.CLDataSource && g.CLDataSource.getKlines) return g.CLDataSource.getKlines;
     if (g.CLMarket && g.CLMarket.fetchKline) return g.CLMarket.fetchKline;
@@ -285,7 +379,7 @@
 
   g.CLScanner = {
     KEY: KEY, load: load, loadFor: loadFor, save: save, clear: clear,
-    scan: scan, pickSignal: pickSignal, refsFor: refsFor,
+    scan: scan, pickSignal: pickSignal, candidates: candidates, refsFor: refsFor,
     anchorOf: anchorOf, lastPointOf: lastPointOf   // 供单测/调试直接验证失效位规则
   };
 })(typeof self !== 'undefined' ? self : this);

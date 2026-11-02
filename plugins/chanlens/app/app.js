@@ -553,15 +553,28 @@
           top.appendChild(badge);
         }
 
-        // 追踪徽标（1.6.0）：长按列表项可查看计划/取消
+        // 追踪徽标（1.6.0）：长按列表项可查看计划/取消；2.1.0 起含等待态
         var tr = trackMap[item.code];
+        var trCand = (tr && tr.cand && tr.cand.live) ? tr.cand : null;
         if (tr) {
           var tb = document.createElement('span');
-          tb.className = 'sig track';
-          tb.textContent = tr.dir > 0 ? '追多' : '追空';
-          tb.title = (tr.dir > 0 ? '做多 ▲' : '做空 ▼') + ' · ' +
-                     (CLTrack.PERIOD_CN[tr.period] || tr.period) + '\n' +
-                     (tr.lines || []).join('\n');
+          tb.className = 'sig track' + (tr.pending ? ' pending' : '') +
+                         (tr.pending && trCand ? ' cand' : '');
+          tb.textContent = tr.pending
+            ? (trCand ? '回抽中' : '待信号')
+            : (tr.dir > 0 ? '追多' : '追空');
+          tb.title = tr.pending
+            ? (trCand
+                ? '追踪中 · ' + (CLTrack.PERIOD_CN[tr.period] || tr.period) + ' 回抽中\n' +
+                  (LEVEL_CN[trCand.level] || trCand.level) + (trCand.type > 0 ? '买' : '卖') +
+                  '候选 · 作废线 ' + fmtPrice(trCand.invalid) +
+                  '（' + trCand.invalidRule + '）\n挂单参考 ' +
+                  fmtPrice(trCand.refs[0]) + ' / ' + fmtPrice(trCand.refs[1])
+                : '追踪中 · 等 ' + (CLTrack.PERIOD_CN[tr.period] || tr.period) +
+                  ' 买卖点\n出现后自动生成作战卡并推送通知')
+            : (tr.dir > 0 ? '做多 ▲' : '做空 ▼') + ' · ' +
+              (CLTrack.PERIOD_CN[tr.period] || tr.period) + '\n' +
+              (tr.lines || []).join('\n');
           top.appendChild(tb);
         }
 
@@ -888,7 +901,11 @@
           onNoteTap: onNoteTap
         });
         view.setData({ klines: shown.klines, period: data.period, code: data.code, name: data.name,
-                       result: shown.result, mergedBars: st.params.klineMode === 'merged' });
+                       result: shown.result, mergedBars: st.params.klineMode === 'merged',
+                       /* 纵轴常显最新价（2.3.0）：取原始 K 线的收盘/涨幅 ——
+                          缠K 视图的 klines 是合并后的，开收盘是拼的 */
+                       lastClose: data.klines.length ? data.klines[data.klines.length - 1].c : null,
+                       lastPct: data.klines.length ? data.klines[data.klines.length - 1].pct : null });
         // setData 里只在 window 为空时才给默认窗口（末尾 N 根），
         // 所以恢复要放在它之后；setWindow 自己会 clamp 到 minT/maxT
         if (keepWin && keepWin[j]) {
@@ -1008,9 +1025,40 @@
     view.planLines = null;
     view.planNote = null;
     view.planNote2 = null;
+    view.planNoteBg = null;    // 2.1.1：等标签底色（等待态紫、已建卡深蓝）
+    view.planNoteBg2 = null;
     if (!extraOn) return;
     var rec = trackMap[current.code];
     if (!rec || !view.data || view.data.period !== rec.period) return;
+    /* 等待卡（2.1.0）：没有数字可画，但标签要跟作战卡同构两行 ——
+       一行写「在追踪 / 等什么」，一行写「出现后会怎样」，
+       底色改紫，扫一眼就知道这只票在追踪、只是还没建卡。 */
+    if (rec.pending) {
+      var cnd = (rec.cand && rec.cand.live) ? rec.cand : null;
+      var pcn0 = CLTrack.PERIOD_CN[rec.period] || rec.period;
+      if (cnd) {
+        /* 回抽中（2.2.0）：和「纯等待」共用同一个两行标签结构，只换文案与底色。
+           这里出现的都是结构价，没有一个数字是估的。 */
+        var lv0 = LEVEL_CN[cnd.level] || cnd.level;
+        var kind0 = lv0 + (cnd.type > 0 ? '买' : '卖');
+        view.planNote = '⏳ 追踪中 ' + pcn0 + ' ｜ 回抽中 · ' + kind0 + '候选';
+        view.planNote2 = '作废 ' + fmtPrice(cnd.invalid) + ' ｜ 挂单 ' +
+                         fmtPrice(cnd.refs[0]) + ' / ' + fmtPrice(cnd.refs[1]);
+        view.planNoteBg = '#8a5a1f';
+        view.planNoteBg2 = '#a06a26';
+        view.planLines = [
+          { price: cnd.invalid, color: '#b02b2b', label: '作废' },
+          { price: cnd.refs[0], color: '#8a4b00', label: '挂单1' },
+          { price: cnd.refs[1], color: '#8a4b00', label: '挂单2' }
+        ];
+        return;
+      }
+      view.planNote = '⏳ 追踪中 ' + pcn0 + ' ｜ 等信号';
+      view.planNote2 = '买点做多 / 卖点做空 · 出现即提醒';
+      view.planNoteBg = '#5b3a8e';
+      view.planNoteBg2 = '#6f4fa8';
+      return;
+    }
     var lines = [];
     /* 出场三层只剩两条价格线 + 失效的结构参照（手册 2026-10-24）：
        条件单 = 动作线（触发即离场）；动盈 = 触发价的上移基准；失效 = 结构参照。
@@ -1066,6 +1114,7 @@
   function advanceTrackState(data, res) {
     var rec = trackMap[data.code];
     if (!rec || rec.period !== data.period) return;
+    if (rec.pending) return;   // 等待卡没有动盈/条件单可推进
     var ks = data.klines || [];
     var changed = false;
     /* 动盈：refsFor 只认方向、不认信号 —— pickSignal 会随行情换靶子，
@@ -1108,6 +1157,8 @@
       var rec = trackMap[code];
       if (!force && rec.timingCheckedAt && Date.now() - rec.timingCheckedAt < TIMING_FRESH_MS) return;
       rec.timingCheckedAt = Date.now();
+      /* 等待卡走自己的检查（2.1.0）：它没有条件单可盯，只等信号出现 */
+      if (rec.pending) { checkPendingUpgrade(code, rec, force); return; }
       var onHit = function (r) {
         if (!r || !r.hit) return;
         CLTrack.save(trackMap);
@@ -1137,6 +1188,150 @@
         onHit(CLTrack.updateReverse(rec, sig));
       }).catch(function () {});
     });
+  }
+
+  /* ------------------------------------------------- 等待卡 → 作战卡（2.1.0）
+   * 频率按级别分（用户拍板）：日线只在收盘后查一次 —— 日线信号本就收盘才定，
+   * 盘中拿未走完的 K 线判会闪；60m/30m 盘中每 5 分钟。
+   * 实际调度：搭在行情刷新上（`refreshQuotes` 每 10 分钟一轮，仅 app 可见时），
+   * `pendingDue` 的 5 分钟只是下限抑制 —— 卡片文案按**真实节奏（10 分钟）**写，
+   * 不为凑文案去加定时器。
+   * 一律 getKlines 现算，**不读 sigCache** —— 那里的「无信号」是永久缓存，
+   * 读它就永远等不到信号。
+   */
+  var PEND_MS = 5 * 60 * 1000;
+
+  function pendingDue(rec, now) {
+    var t = now || Date.now();
+    var d = new Date(t);
+    var wd = d.getDay();
+    if (wd === 0 || wd === 6) return false;                  // 周末不查
+    var hm = d.getHours() * 60 + d.getMinutes();
+    if (rec.period === 'daily') {
+      if (hm < 15 * 60 + 5) return false;                    // 收盘后才有确定的日线
+      var stamp = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+      return rec.lastDailyCheck !== stamp;                   // 一天一次
+    }
+    if (hm < 9 * 60 + 25 || hm > 15 * 60 + 5) return false;  // 分钟级只在盘中
+    return !rec.lastPendCheck || (t - rec.lastPendCheck) >= PEND_MS;
+  }
+
+  function checkPendingUpgrade(code, rec, force) {
+    var now = Date.now();
+    if (!force && !pendingDue(rec, now)) return;
+    /* 时间戳只在**真拿到 K 线之后**才盖（2.3.2）：日线一天只有收盘后这一次机会，
+       原先在发请求前就盖，取数失败/返回空会让这张卡当天再也不查 —— 第二天才发现
+       昨天该出的信号。失败就留空，下一轮（行情刷新的 10 分钟）自然重试。 */
+    var st = panel.getState();
+    CLDataSource.getKlines(code, rec.period, TRACK_LIMIT, st.adjust).then(function (d) {
+      CLDataSource.withTimestamps(d);
+      var ks = (d && d.klines) || [];
+      if (!ks.length) { CLTrack.save(trackMap); return; }
+      var got = Date.now();
+      rec.lastPendCheck = got;
+      if (rec.period === 'daily') {
+        var d0 = new Date(got);
+        rec.lastDailyCheck = d0.getFullYear() + '-' + (d0.getMonth() + 1) + '-' + d0.getDate();
+      }
+      var res = ChanEngine.analyze(ks, st.params);
+      var sig = CLScanner.pickSignal(ks, res, { maxLag: SCAN.maxLag });
+      if (!sig) {                       // 还没有信号 → 看看是不是「回抽中」（2.2.0）
+        touchCandidate(code, rec, ks, res);
+        CLTrack.save(trackMap);
+        return;                         // 检查时间戳要落盘，否则每轮重拉
+      }
+      sig.period = rec.period;
+      withAtr(sig, ks);
+      var plan = CLTrack.buildPlan(sig, null, rec.period,
+        { fmtPrice: fmtPrice, fmtCond: fmtCond, atr20: sig.atr20 });
+      if (!CLTrack.upgrade(rec, sig, plan)) return;
+      delete rec.cand;                  // 信号已接管，候选态功成身退
+      sig.ts = Date.now();
+      sigCache[rec.period + '|' + code] = sig;        // 列表徽标/菜单文案立刻同步
+      CLTrack.save(trackMap);
+      applyTrackToViews();
+      renderWatchlist();
+      var perCN = CLTrack.PERIOD_CN[rec.period] || rec.period;
+      var txt = perCN + '出现' + (sig.note || (sig.type > 0 ? '买点' : '卖点')) +
+                '，已生成作战卡' +
+                (plan.condStop != null ? '（条件单 ' + fmtCond(plan.condStop) + '）' : '');
+      toast((rec.name || code) + '：' + txt);
+      notifyNative((rec.name || code) + ' 信号出现', txt, code);
+    }).catch(function () { /* 取数失败下一轮再试 */ });
+  }
+
+  /** 回抽候选（2.2.0）：等待卡在信号出现**之前**就给出作废线与两档挂单价。
+   *  只对等待中的追踪股算，搭在 checkPendingUpgrade 已有的那一次 getKlines 上，
+   *  **不新增任何请求**。
+   *
+   *  去重（实测 225 个候选片段：56% 十根内成信号、33% 破线、11% 既没成信号也没破线
+   *  就消散 —— 候选本来就会闪）：
+   *    key = 类别|作废线，**同一条候选只提醒一次**（出现一次 + 作废一次）。
+   *    候选暂时消失（回抽笔被延长、中枢重组）只把 live 置 false，不回退记录，
+   *    重新出现时静默恢复 —— 否则贴线抖动会把通知刷爆（每 10 分钟查一次，不防抖
+   *    一天能推几十条）。
+   *    2.3.0：去掉「按天重置」—— 回抽拖几天时每天重推一条一模一样的「回抽中」
+   *    是纯噪音，卡上琥珀态一直可见；作废线变了（key 变）才按新候选再报。
+   */
+  function touchCandidate(code, rec, ks, res) {
+    var list = CLScanner.candidates(ks, res, {});
+    var cur = list.length ? list[0] : null;
+    var close = ks.length ? ks[ks.length - 1].c : null;
+    var nm = rec.name || code;
+    var perCN = CLTrack.PERIOD_CN[rec.period] || rec.period;
+    var lvCN = function (v) { return LEVEL_CN[v] || v; };
+    var prev = rec.cand || null;
+    var dirty = false;
+
+    if (cur) {
+      var key = cur.level + '|' + cur.invalid.toFixed(4);
+      if (!prev || prev.key !== key) {
+        prev = rec.cand = { key: key, level: cur.level, type: cur.type,
+                            invalid: cur.invalid, invalidRule: cur.invalidRule,
+                            refs: cur.refs.slice(), retr: cur.retr,
+                            live: true, dead: false };
+      } else {
+        prev.live = true; prev.dead = false;
+        prev.refs = cur.refs.slice(); prev.retr = cur.retr;
+      }
+      dirty = true;
+      /* 提醒：同一条候选只报一次「出现」，不管中间闪了几次 */
+      var seen = rec.candSeen;
+      if (!seen || seen.key !== key) {
+        rec.candSeen = { key: key };
+        var body = perCN + '回抽中，作废线 ' + fmtPrice(cur.invalid) +
+                   '（' + cur.invalidRule + '），挂单参考 ' +
+                   fmtPrice(cur.refs[0]) + ' / ' + fmtPrice(cur.refs[1]) +
+                   '，跌破作废线撤单';
+        toast(nm + '：' + body);
+        notifyNative(nm + ' 回抽中 · ' + lvCN(cur.level) +
+                     (cur.type > 0 ? '买' : '卖') + '候选', body, code);
+      }
+      CLTrack.save(trackMap);
+      applyTrackToViews(); renderWatchlist();
+      return;
+    }
+
+    if (!prev) return;
+    /* 候选没了：跌破作废线 → 「作废、撤单」；结构自己走没了 → 只把显示关掉，不回退记录 */
+    var broke = prev.live && close != null &&
+      (prev.type > 0 ? close < prev.invalid : close > prev.invalid);
+    if (prev.live) { prev.live = false; dirty = true; }
+    if (broke) {
+      prev.dead = true;
+      var dseen = rec.candDead;
+      if (!dseen || dseen.key !== prev.key) {
+        rec.candDead = { key: prev.key };
+        var b2 = perCN + '回抽跌破 ' + fmtPrice(prev.invalid) + '（' + prev.invalidRule +
+                 '），' + lvCN(prev.level) + (prev.type > 0 ? '买' : '卖') + '候选作废，撤单';
+        toast(nm + '：' + b2);
+        notifyNative(nm + ' 候选作废', b2, code);
+      }
+    }
+    if (dirty) {
+      CLTrack.save(trackMap);
+      applyTrackToViews(); renderWatchlist();
+    }
   }
 
   /** 系统通知（安卓壳有 CLAndroid 时）：追踪状态跃迁的第二个出口。
@@ -1190,13 +1385,14 @@
     }).catch(function () { /* 拿不到就算了，10 分钟兜底会再查 */ });
   }
 
-  /** 取消追踪 */
+  /** 取消追踪 / 取消等待 */
   function cancelTrack(code) {
     var rec = trackMap[code];
     CLTrack.del(trackMap, code);
     applyTrackToViews();
     renderWatchlist();
-    setStatus(rec ? '已取消' + (CLTrack.PERIOD_CN[rec.period] || rec.period) + '追踪' : '已取消追踪');
+    setStatus(rec ? '已取消' + (CLTrack.PERIOD_CN[rec.period] || rec.period) +
+                    (rec.pending ? '等待' : '追踪') : '已取消追踪');
   }
 
   /** 点图上左上角的追踪摘要 = 直接打开作战卡（1.8.1）。
@@ -1212,20 +1408,22 @@
     var ents = [];
     var rec = trackMap[item.code];
     if (rec) {
-      ents.push({ label: '追踪中：' + (rec.dir > 0 ? '做多 ▲' : '做空 ▼') + ' ' +
-        (CLTrack.PERIOD_CN[rec.period] || rec.period) + ' ' + rec.note, disabled: true });
-      ents.push({ label: '取消追踪', danger: true, fn: function () { cancelTrack(item.code); } });
+      var rcn = CLTrack.PERIOD_CN[rec.period] || rec.period;
+      ents.push({ label: rec.pending ? ('等待中：' + rcn + ' 买卖点')
+                                     : ('追踪中：' + (rec.dir > 0 ? '做多 ▲' : '做空 ▼') + ' ' + rcn + ' ' + rec.note),
+                  disabled: true });
+      ents.push({ label: rec.pending ? '取消等待' : '取消追踪', danger: true,
+                  fn: function () { cancelTrack(item.code); } });
       ents.push({ sep: true });
-      /* 已追踪：这个入口就是「查看/重算计划」 */
-      ents.push({ label: '查看计划（' + (CLTrack.PERIOD_CN[rec.period] || rec.period) + '）',
+      /* 已追踪：这个入口就是「查看/重算计划」；等待卡打开的是只读等待视图 */
+      ents.push({ label: rec.pending ? '查看（等待卡）' : '查看计划（' + rcn + '）',
                   fn: function () { openTrackCard(item, false); } });
     } else {
       /* 未追踪：按「周期选择-追踪周期」判方向（1.9.12 起可选，默认日线）。
-         该级别无信号直接在标签上写明，点进去也会明确提示。 */
+         有信号 → 标签写类别；无信号 → 标「等信号」，点进去建等待卡（2.1.0）。 */
       var sg = signalOf(item.code, TRACK_PERIOD);
-      var cached = sigCache[TRACK_PERIOD + '|' + item.code];
       var tag = (sg && !sg.none) ? ' · ' + (LEVEL_CN[sg.level] || sg.level) + (sg.type > 0 ? '买' : '卖')
-                                 : ((cached && cached.none) ? ' · 无信号' : '');
+                                 : ' · 等信号';
       ents.push({ label: '追踪（' + (PERIOD_LABEL[TRACK_PERIOD] || TRACK_PERIOD) + tag + '）',
                   fn: function () { openTrackCard(item, false); } });
     }
@@ -1281,15 +1479,20 @@
         if (rec0) {
           // 已追踪但该级别现算不出信号（信号走完离开 maxLag 等）→ 展示存下来的计划
           var msgR = '「' + nm + '」' + (PERIOD_LABEL[rec0.period] || rec0.period) +
-                     '暂无买卖点，下面显示的是已存的追踪计划';
+                     (rec0.pending ? '暂无买卖点，已登记等待（出现即提醒）'
+                                   : '暂无买卖点，下面显示的是已存的追踪计划');
           setStatus(msgR);
           trackCtx = { item: item, viewMode: true, sig: null, period: rec0.period, plan: null };
           showTrackModal();
           return rec0;
         }
-        var msg2 = '「' + nm + '」' + perCN + '暂无买卖点，等信号出现再追';
-        setStatus(msg2, true);
-        toast(msg2);
+        var msg2 = '「' + nm + '」' + perCN + '暂无买卖点 → 可先登记等待，出现即提醒';
+        setStatus(msg2);
+        /* 2.1.0：无信号也能预设。候选池是提前选好的，等看见信号才建卡等于只能追高；
+           这里开一张「等待卡」——只登记代码/级别，不编任何价格，
+           该级别一出现买卖点就自动补全成作战卡（checkPendingUpgrade）。 */
+        trackCtx = { item: item, viewMode: false, sig: null, period: per, plan: null, pending: true };
+        showTrackModal();
         return null;
       }
       trackCtx = { item: item, viewMode: false, sig: sig, period: sig.period || per, plan: null };
@@ -1304,6 +1507,7 @@
     ctx.plan = null;
     if (trackDirRow) trackDirRow.style.display = 'none';   // 1.7.0：方向由信号决定，不再选
     trackOkBtn.style.display = ctx.viewMode ? 'none' : '';
+    trackOkBtn.textContent = ctx.pending ? '开始等待' : '确认追踪';
     document.getElementById('trackCancel').textContent = ctx.viewMode ? '关闭' : '取 消';
     renderTrackCard();
     trackModalEl.classList.remove('hidden');
@@ -1322,6 +1526,10 @@
    */
   function trackStatusHtml(d) {
     if (!d) return '';
+    /* 等待卡（2.1.0）：还没有结构，能说的只有「在等什么」 */
+    if (d.pending)
+      return '<div><b>等待中</b>：' + (CLTrack.PERIOD_CN[d.period] || d.period) +
+             '级别出现买卖点后自动生成作战卡并提醒</div>';
     var long = d.dir > 0;
     var fixed = [];
     if (d.entry != null) fixed.push('参考 ' + fmtPrice(d.entry));
@@ -1377,6 +1585,49 @@
   function renderTrackCard() {
     var ctx = trackCtx;
     if (!ctx) return;
+    /* 等待卡（2.1.0）：只讲「等什么、什么时候查、出现后怎样」，不写价格。
+       2.1.1：删掉实现细节（maxLag 窗口）与自我解释，换成按级别的检查节奏。 */
+    var pendRec = ctx.viewMode ? trackMap[ctx.item.code] : null;
+    if (ctx.pending || (pendRec && pendRec.pending)) {
+      var pr = pendRec || ctx;
+      var pcn = CLTrack.PERIOD_CN[pr.period] || pr.period;
+      var chk = pr.period === 'daily'
+        ? '每天收盘后查一次（app 当时开着才查得上；日线信号收盘才定，盘中判会闪）'
+        : 'app 开着时每 10 分钟查一次（切后台、锁屏即停）';
+      trackHeadEl.textContent = '缠论追踪 · 等待信号';
+      var cnd2 = (pr.cand && pr.cand.live) ? pr.cand : null;
+      var candBlock = '';
+      if (cnd2) {
+        var cdir = cnd2.type > 0 ? 1 : -1;
+        candBlock =
+          '<div class="tk-meta">' +
+            '<div><b>当前</b>：' + pcn + '回抽进行中 · ' +
+              (LEVEL_CN[cnd2.level] || cnd2.level) + (cnd2.type > 0 ? '买' : '卖') + '候选' +
+              '（自最高点已回撤 ' + (cnd2.retr * 100).toFixed(1) + '%）</div>' +
+            '<div><b>作废线</b>：' + fmtPrice(cnd2.invalid) + '（' + cnd2.invalidRule +
+              (cdir > 0 ? '，跌破即候选作废' : '，升破即候选作废') + '）</div>' +
+            '<div><b>挂单参考</b>：' + fmtPrice(cnd2.refs[0]) + ' ／ ' + fmtPrice(cnd2.refs[1]) +
+              '（距作废线 ' + (cdir > 0 ? '+' : '-') + '2% / ' +
+              (cdir > 0 ? '+' : '-') + '3%，近档便宜但更难成交）</div>' +
+            '<div><b>说明</b>：回抽笔还没走完，所以这里给的是价位不是信号；' +
+              '止跌成笔才会生成作战卡，破线就撤单</div>' +
+          '</div>' +
+          '<div class="tk-warn">跌破作废线会再推一条「候选作废」提醒</div>';
+      }
+      trackBodyEl.innerHTML =
+        '<div class="tk-meta"><b>等待</b> · ' + (ctx.item.name || ctx.item.code) + ' ' +
+          ctx.item.code + ' · ' + pcn + '级别' +
+          (pendRec ? ' · 登记于 ' + fmtTs(pendRec.createdAt) : '') + '</div>' +
+        (candBlock ||
+          ('<div class="tk-meta">' +
+            '<div><b>在等</b>：' + pcn + '出现买点或卖点</div>' +
+            '<div><b>方向</b>：买点做多、卖点做空（由信号决定，现在不预设）</div>' +
+            '<div><b>检查</b>：' + chk + '</div>' +
+            '<div><b>出现后</b>：自动算出失效位 / 条件单 / 时间单，并推送通知（点通知直接看卡）</div>' +
+          '</div>' +
+          '<div class="tk-warn">取消：长按列表项 → 取消等待</div>'));
+      return;
+    }
     var meta, status = '', items, warn = '';
     if (ctx.viewMode) {
       var rec = trackMap[ctx.item.code];
@@ -1417,7 +1668,19 @@
 
   trackOkBtn.addEventListener('click', function () {
     var ctx = trackCtx;
-    if (!ctx || ctx.viewMode || !ctx.plan) return;
+    if (!ctx || ctx.viewMode) return;
+    /* 等待卡：只登记代码 + 级别，不写任何价格（信号出现后由 checkPendingUpgrade 补全） */
+    if (ctx.pending) {
+      var p = CLTrack.makePending(ctx.item.code, ctx.item.name, ctx.period);
+      CLTrack.set(trackMap, ctx.item.code, p);
+      applyTrackToViews();
+      renderWatchlist();
+      trackModalEl.classList.add('hidden');
+      toast('已开始等待：' + (p.name || p.code) + ' ' +
+            (CLTrack.PERIOD_CN[p.period] || p.period) + ' 买卖点，出现即提醒');
+      return;
+    }
+    if (!ctx.plan) return;
     var sig = ctx.sig, plan = ctx.plan;
     var rec = {
       code: ctx.item.code, name: ctx.item.name || ctx.item.code,
@@ -1905,6 +2168,21 @@
     applyTrackToViews: applyTrackToViews,
     checkTrackAlerts: checkTrackAlerts,
     checkTiming: checkTimingAll,   // 测试/调试：force=true 忽略间隔抑制
+    /* 测试/调试：只跑等待卡检查，force 跳过时间门（周末/盘中限制） */
+    checkPending: function (force) {
+      Object.keys(trackMap).forEach(function (c) {
+        var r = trackMap[c];
+        if (r && r.pending) checkPendingUpgrade(c, r, force !== false);
+      });
+    },
+    pendingDue: pendingDue,
+    /* 测试/调试：给某只等待卡跑一次回抽候选判定（ks/res 由测试注入，不发请求） */
+    candCheck: function (code, ks, res) {
+      var r = trackMap[code];
+      if (!r) return null;
+      touchCandidate(code, r, ks, res);
+      return r.cand || null;
+    },
     /* 动作入口对外暴露（1.9.6）：手机端 FAB / 顶栏「全览」这类不在面板里的按钮，
        以前是「按文案在参数面板里找到同名按钮再 click」——面板没渲染、按钮被隐藏、
        或动作名没写进那张手抄的映射表（1.9.5 的「切换」就是这么坏的，点了没反应）

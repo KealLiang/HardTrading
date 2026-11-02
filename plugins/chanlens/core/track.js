@@ -154,6 +154,49 @@
     delete map[code]; save(map); return map;
   }
 
+  /* ------------------------------------------------- 等待卡（2.1.0）
+   * 用户的候选池是提前选好的，等信号出现才让建卡等于只能追高：
+   * 无信号时先登记一张「等待卡」（只有代码/级别，没有任何数字），
+   * 该级别一出现买卖点就由 upgrade() 补全成完整作战卡。
+   * 没有结构就没有失效位 —— 等待卡阶段**不编任何价格**，这是底线。
+   */
+  function makePending(code, name, period) {
+    return {
+      code: code, name: name || code, period: period,
+      pending: true, note: '', lines: [],
+      createdAt: Date.now(), lastPendCheck: 0
+    };
+  }
+
+  /** 等待卡 → 作战卡：把刚算出的信号与计划填进去（字段口径与建卡完全一致）。 */
+  function upgrade(rec, sig, plan) {
+    if (!rec || !rec.pending || !sig || !plan) return false;
+    rec.pending = false;
+    rec.dir = plan.dir;
+    rec.level = sig.level;
+    rec.type = sig.type;
+    rec.note = sig.note || '';
+    rec.confirmed = !!sig.confirmed;
+    rec.markK = sig.markK;
+    rec.startK = sig.markK;
+    rec.entry = plan.entry;
+    rec.stop = plan.stop;
+    rec.stopRule = plan.stopRule;
+    rec.condStop = plan.condStop;
+    rec.atr20 = plan.atr20;
+    rec.trail = plan.trail;
+    rec.lines = plan.lines;
+    rec.upgradedAt = Date.now();
+    /* 信号若已经走到条件单另一侧（比如刚确立就跳空跌破）→ 直接标已报，
+       否则下一轮会立刻推一条「已触发」，看起来像刚发生的事。 */
+    rec.alertedStop = plan.condStop != null && plan.entry != null &&
+      (plan.dir > 0 ? plan.entry <= plan.condStop : plan.entry >= plan.condStop);
+    rec.alertedTimer = false;
+    rec.started = false;
+    rec.bars = 0;
+    return true;
+  }
+
   /* ------------------------------------------------------------ 动态盯梢
    * 返回 { hit: 'cond'|'timer'|null, text } —— hit 只在新触发时非空，
    * 由调用方负责把 alerted 写回记录去重（同一状态只报一次）。
@@ -282,6 +325,7 @@
   g.CLTrack = {
     KEY: KEY, load: load, save: save,
     buildPlan: buildPlan, set: set, del: del, check: check,
+    makePending: makePending, upgrade: upgrade,
     advanceTrail: advanceTrail, advanceCond: advanceCond,
     timerN: timerN, advanceTimer: advanceTimer,
     updateTiming: updateTiming, failTiming: failTiming, updateReverse: updateReverse,

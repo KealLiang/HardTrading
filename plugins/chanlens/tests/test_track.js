@@ -107,6 +107,37 @@ check('check 的提醒文案价格 2 位',
         { dir: 1, stop: 10, condStop: 9.82, timerN: 0, bars: 0, started: false }, 9.80).text),
       CLTrack.check({ dir: 1, stop: 10, condStop: 9.82, timerN: 0, bars: 0, started: false }, 9.80));
 
+group('等待卡 → 作战卡（2.1.0）');
+/* 用户候选池是提前选好的：无信号先登记等待，出现买卖点再自动补全成作战卡。
+   等待阶段绝不编价格 —— 没有结构就没有失效位。 */
+const pend = CLTrack.makePending('600519', '贵州茅台', 'daily');
+check('等待卡只有代码/名字/级别，没有任何方向或价格',
+      pend.pending === true && pend.dir === undefined && pend.stop === undefined &&
+      pend.condStop === undefined && pend.lines.length === 0, pend);
+const sigP = { level: 3, type: 1, note: '三买·回抽不入中枢', confirmed: true, price: 11.2, markK: 88,
+               refs: { stopBuy: 10.6, stopSell: 10.2, dir: 1, trailLow: 10.9, trailHigh: null, lastClose: 11.2 } };
+const planP = CLTrack.buildPlan(sigP, null, 'daily', { fmtPrice: v => v.toFixed(3), fmtCond: CLTrack.fmt2, atr20: 0.4 });
+check('upgrade 成功：pending 清掉，方向/失效/条件单/四句话全部就位',
+      CLTrack.upgrade(pend, sigP, planP) === true && pend.pending === false &&
+      pend.dir === 1 && near(pend.stop, 10.6) && near(pend.condStop, 10.4) &&
+      pend.lines.length === 4, pend);
+check('markK/startK 跟信号标记位走（时间单从这里数根）',
+      pend.markK === 88 && pend.startK === 88, [pend.markK, pend.startK]);
+check('升级后盯梢从零开始（未报过、未启动、bars=0）',
+      pend.alertedStop === false && pend.alertedTimer === false &&
+      pend.started === false && pend.bars === 0, pend);
+check('入场已在条件单另一侧（跳空跌破）→ 直接标已报，不再补一条迟到的「已触发」',
+      (function () {
+        var p2p = CLTrack.makePending('000001', '平安银行', 'daily');
+        var sigQ = { level: 1, type: 1, note: '一买·底背驰', confirmed: true, markK: 30,
+                     refs: { stopBuy: 10, stopSell: null, dir: 1, trailLow: null, trailHigh: null, lastClose: 9.0 } };
+        var planQ = CLTrack.buildPlan(sigQ, null, 'daily', { fmtPrice: v => v.toFixed(3), fmtCond: CLTrack.fmt2, atr20: 0.4 });
+        CLTrack.upgrade(p2p, sigQ, planQ);
+        return p2p.alertedStop === true;      // 9.0 <= 9.8（条件单）
+      })());
+check('非等待记录不会被 upgrade 改写（防误调用）',
+      CLTrack.upgrade({ dir: 1 }, sigP, planP) === false);
+
 group('advanceTrail —— 动盈只朝有利方向推进（无状态，纯靠结构重算）');
 const at1 = { dir: 1, trail: null };
 check('从无到有：第一次算出就写上', CLTrack.advanceTrail(at1, 10.9) === true && near(at1.trail, 10.9), at1);

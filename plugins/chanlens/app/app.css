@@ -368,3 +368,7 @@ body {
 .app-track-body .tk-empty { font-size: 13px; color: #8a6d3b; background: #fdf6e8; border-radius: 6px; padding: 10px 12px; line-height: 1.6; }
 /* 1.6.0 追踪徽标：与信号徽标同排，紫色调区分「追踪」与「信号」 */
 .sig.track { background: #efe9f7; color: #5b3a8e; border: 1px solid #c9b3e8; }
+/* 2.1.0 等待卡徽标：还没有方向，用虚线中性色，避免看成「已建卡」 */
+.sig.track.pending { background: #f2f0f5; color: #6b6478; border: 1px dashed #c3bccd; }
+/* 2.2.0 回抽中：等待卡下位状态 —— 已有作废线与挂单价，是「有东西可做」的等待 */
+.sig.track.pending.cand { background: #fdf3e3; color: #8a5a1f; border: 1px dashed #dcb878; }

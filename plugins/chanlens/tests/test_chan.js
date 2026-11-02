@@ -204,6 +204,80 @@ group('[8] 指标层');
   check('力度恒为非负', fSame >= 0 && fAbs >= 0 && fPer >= 0, [fSame, fAbs, fPer]);
 }
 
+/* ============================================ 回抽候选（2.2.0，scanner.js） */
+/* 候选态只看三件事：最后一笔的方向、价格从这笔终点回撤了多少、作废线破没破。
+   造 4 根笔 + 1 个中枢的假 res，把六种情形钉死。 */
+const Scan = require(path.join(__dirname, '..', 'core', 'scanner.js')).CLScanner;
+function near(a, b) { return Math.abs(a - b) < 1e-9; }
+
+function mkBi(dir, sk, ek, sp, ep, conf) {
+  return { dir: dir, startK: sk, endK: ek, startPrice: sp, endPrice: ep,
+           high: Math.max(sp, ep), low: Math.min(sp, ep), confirmed: !!conf };
+}
+function mkKs(n, close) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ o: close, h: close, l: close, c: close, v: 0 });
+  return out;
+}
+
+group('candidates —— 三买/三卖候选（回抽中，作废线未破）');
+/* 最后一笔是向上突破笔（10.0 → 10.4），中枢把它吸收为自己的 endPart */
+const bisBuy = [mkBi(-1, 0, 8, 9.6, 9.4), mkBi(1, 8, 14, 9.4, 9.9),
+                mkBi(-1, 14, 20, 9.9, 9.5), mkBi(1, 20, 30, 9.5, 10.4)];
+const zsBuy = [{ ZG: 10.0, ZD: 9.2, startPart: 0, endPart: 3 }];
+const resBuy = { bis: bisBuy, parts: bisBuy, zhongshus: zsBuy, points: [], opts: {} };
+
+const c3 = Scan.candidates(mkKs(31, 10.2), resBuy, {});
+check('三买候选：最后一笔向上 + 回撤 1.9% + 现价在 ZG 上 → 给出候选',
+      c3.length === 1 && c3[0].level === 3 && c3[0].type === 1, c3);
+check('作废线 = 中枢上沿 ZG（结构价，不是猜的）',
+      c3.length === 1 && c3[0].invalid === 10.0 && c3[0].invalidRule === '中枢上沿 ZG', c3[0]);
+check('两档挂单参考在作废线上方 2% / 3%，近档更便宜',
+      c3.length === 1 && near(c3[0].refs[0], 10.2) && near(c3[0].refs[1], 10.3), c3[0] && c3[0].refs);
+
+const cNone1 = Scan.candidates(mkKs(31, 9.9), resBuy, {});
+check('现价已跌回 ZG 之下 → 没有三买候选（作废线破了就不是候选）', cNone1.length === 0, cNone1);
+const cNone2 = Scan.candidates(mkKs(31, 10.38), resBuy, {});
+check('回撤不足 0.5% → 不算回抽（还在往外走）', cNone2.length === 0, cNone2);
+const cNone3 = Scan.candidates(mkKs(31, 10.2), { bis: bisBuy, parts: bisBuy, zhongshus: [], points: [], opts: {} }, {});
+check('没有中枢也没有一买 → 空（不硬造候选）', cNone3.length === 0, cNone3);
+const cSeg = Scan.candidates(mkKs(31, 10.2),
+  { bis: bisBuy, parts: bisBuy, zhongshus: zsBuy, points: [], opts: { zsSource: 'seg' } }, {});
+check('中枢来自线段时索引口径不同 → 直接不给（宁可没有也不给错位数字）', cSeg.length === 0, cSeg);
+
+/* 卖点对称：最后一笔向下离开中枢（9.9 → 9.3），现价反抽到 ZD 之下 */
+const bisSell = [mkBi(1, 0, 8, 9.4, 9.9), mkBi(-1, 8, 14, 9.9, 9.4),
+                 mkBi(1, 14, 20, 9.4, 9.8), mkBi(-1, 20, 30, 9.8, 9.1)];
+const zsSell = [{ ZG: 9.9, ZD: 9.5, startPart: 0, endPart: 3 }];
+const cS = Scan.candidates(mkKs(31, 9.3),
+  { bis: bisSell, parts: bisSell, zhongshus: zsSell, points: [], opts: {} }, {});
+check('三卖候选：最后一笔向下 + 反抽 + 现价在 ZD 下 → 给出候选',
+      cS.length === 1 && cS[0].level === 3 && cS[0].type === -1, cS);
+check('三卖作废线 = 中枢下沿 ZD，挂单参考在下方',
+      cS.length === 1 && cS[0].invalid === 9.5 &&
+      near(cS[0].refs[0], 9.5 * 0.98) && near(cS[0].refs[1], 9.5 * 0.97), cS[0] && cS[0].refs);
+
+group('candidates —— 二买候选（一买之后的反弹笔正在被回抽）');
+const bis2 = [mkBi(-1, 0, 10, 10.4, 10.0), mkBi(1, 10, 20, 10.0, 10.6),
+              mkBi(-1, 20, 25, 10.6, 9.8), mkBi(1, 25, 30, 9.8, 10.5)];
+const p1 = [{ level: 1, type: 1, _k: 25, readyK: 25, price: 9.8, note: '一买·底背驰' }];
+const res2 = { bis: bis2, parts: bis2, zhongshus: [], points: p1, opts: {} };
+const c2 = Scan.candidates(mkKs(31, 10.0), res2, {});
+check('二买候选：一买低点 9.8 未破 + 反弹笔回撤 → 给出候选',
+      c2.length === 1 && c2[0].level === 2 && c2[0].type === 1, c2);
+check('二买作废线 = 一买低点（不是中枢边）',
+      c2.length === 1 && c2[0].invalid === 9.8 && c2[0].invalidRule === '一买低点', c2[0]);
+const c2b = Scan.candidates(mkKs(31, 9.7), res2, {});
+check('现价跌破一买低点 → 没有二买候选', c2b.length === 0, c2b);
+
+group('candidates —— 口径边界');
+check('参数可关：minRetr=0.05 时 1.9% 的回撤不算候选',
+      Scan.candidates(mkKs(31, 10.2), resBuy, { minRetr: 0.05 }).length === 0);
+check('refs 跟随 nearPct/farPct 参数',
+      near(Scan.candidates(mkKs(31, 10.2), resBuy, { nearPct: 0.01, farPct: 0.015 })[0].refs[0], 10.1));
+check('笔太少（<3）时不判 —— 结构还没成形', Scan.candidates(mkKs(31, 10.2),
+      { bis: bisBuy.slice(0, 2), parts: [], zhongshus: zsBuy, points: [], opts: {} }, {}).length === 0);
+
 /* ==================================================== 汇总 */
 console.log('\n' + '='.repeat(62));
 console.log(`结果：${passed} 通过，${failed} 失败`);

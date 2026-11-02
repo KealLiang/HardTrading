@@ -59,6 +59,11 @@
     this.result = payload.result;            // ChanEngine.analyze 的结果
     this.klines = payload.klines;
     this._mergedBars = !!payload.mergedBars; // 缠论K线：简洁区间柱画法
+    /* 最新价与当日涨跌幅由 app 按**原始**K 线注入：缠K 视图下 klines 是合并后的
+       （开收盘是拼的），拿它当现价会报一个不存在的数。 */
+    this.lastClose = payload.lastClose != null ? payload.lastClose
+      : (this.klines && this.klines.length ? this.klines[this.klines.length - 1].c : null);
+    this.lastPct = payload.lastPct != null ? payload.lastPct : null;
     if (!this.window && this.klines.length) {
       var defaultBars = Math.min(this.klines.length, this.options.defaultBars || 160);
       var s = this.klines.length - defaultBars;
@@ -182,7 +187,11 @@
     if (this.layers.fractal) this.drawFractals();
     if (this.layers.divergence) this.drawDivergences();
     if (this.layers.points) this.drawPoints();
-    if (this.planLines && this.planLines.length) this.drawPlanLines();
+    /* 追踪价位线和左上角短文案是同一个函数画的。2.1.1 的等待卡**没有价位线**
+       （没有结构就没有价格），只靠 planNote/planNote2 —— 若只按 planLines 判断，
+       等待卡的标签永远画不出来（2.3.1 修）。无条件调用：函数内部空转即返回，
+       顺带把 _noteRect 每帧重置（否则标签撤掉后旧点击区还在）。 */
+    this.drawPlanLines();
     this.drawPriceAxis();
     this.drawTimeAxis();
     this.drawCrosshair();
@@ -472,7 +481,47 @@
   };
 
   /* --------------------------------------------------------------- 坐标轴 */
-  ChartView.prototype.drawPriceAxis = function () { /* 已在 drawGrid 中绘制 */ };
+  /* 2.3.0：纵轴常显最新一根 K 的收盘价（刻度本身仍在 drawGrid 里画）。
+     底色用当日涨跌色（涨红/跌绿），与十字光标那个蓝底读数明确区分 ——
+     蓝色只代表「你现在指着的那个高度」，红/绿代表「最新价」。
+     视图平移到历史区间时不隐藏：标签贴边，横虚线只在量程内画。 */
+  ChartView.prototype.drawPriceAxis = function () {
+    this._lastTagY = null;
+    var ks = this.klines;
+    if (!ks || !ks.length) return;
+    var ctx = this.ctx, L = this.layout();
+    var c = this.lastClose;
+    if (c == null || !isFinite(c)) return;
+    var up = this.lastPct != null ? this.lastPct >= 0
+      : (ks.length > 1 ? c >= ks[ks.length - 2].c : true);
+    var bg = up ? this.theme.up : this.theme.down;
+    var text = fmtPrice(c);
+    ctx.save();
+    ctx.font = '11px system-ui, "Microsoft YaHei", sans-serif';
+    var tw = Math.min(this.padding.right - 6, ctx.measureText(text).width + 10);
+    var y = this.priceY(c);
+    var inRange = y >= L.priceTop && y <= L.priceBottom;
+    var ty = Math.min(L.priceBottom - 15, Math.max(L.priceTop, y - 7.5));
+    if (inRange) {
+      ctx.strokeStyle = bg;
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L.left, y); ctx.lineTo(L.right, y); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = bg;
+    ctx.fillRect(L.right + 2, ty, tw, 15);
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';     // 白描边：和临时读数区分
+    ctx.lineWidth = 1;
+    ctx.strokeRect(L.right + 2.5, ty + 0.5, tw - 1, 14);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.fillText(text, L.right + 6, ty + 11.5);
+    this._lastTagY = ty;                            // 供十字光标避让
+    ctx.restore();
+  };
 
   /* ------------------------------------------------ 1.6.0 追踪价位线（额外）
    * this.planLines: [{price, color, label}]，由 app.js 按追踪记录注入；
@@ -567,7 +616,10 @@
         if (tw2 > maxW) maxW = tw2;
         var bh = ni === 0 ? 18 : 16;
         ctx.globalAlpha = ni === 0 ? 0.82 : 0.68;
-        ctx.fillStyle = '#2b3a4a';
+        /* 2.1.1：底色可由 app.js 指定 —— 等待态用紫底（#5b3a8e），
+           和「已建卡」的深蓝 #2b3a4a 一眼分开。缺省仍是深蓝。 */
+        ctx.fillStyle = ni === 0 ? (this.planNoteBg || '#2b3a4a')
+                                 : (this.planNoteBg2 || '#2b3a4a');
         ctx.fillRect(nx, ny, tw2 + 12, bh);
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#fff';
@@ -615,6 +667,11 @@
     var pTag = fmtPrice(this.yPrice(this.cross.y));
     var pTagW = Math.min(this.padding.right - 4, ctx.measureText(pTag).width + 8);
     var pTagY = Math.min(L.priceBottom - 15, Math.max(L.priceTop, this.cross.y - 7.5));
+    /* 2.3.0：纵轴常显现价标签，手指正好指在现价附近时两者别叠在一起 */
+    if (this._lastTagY != null && Math.abs(pTagY - this._lastTagY) < 16) {
+      var alt = pTagY - 18;
+      pTagY = alt >= L.priceTop ? alt : Math.min(L.priceBottom - 15, pTagY + 18);
+    }
     ctx.fillStyle = '#2b6cb0';
     ctx.fillRect(L.right + 2, pTagY, pTagW, 15);
     ctx.fillStyle = '#ffffff';
