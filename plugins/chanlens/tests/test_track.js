@@ -35,9 +35,10 @@ check('第 2 句写明「跌破一买低点」+ 具体数字', /跌破一买低�
 check('第 1 句写明级别与信号', /日线级别.*二买·回抽不破前低/.test(p2.lines[0]), p2.lines[0]);
 check('第 1 句写明做多', /做多/.test(p2.lines[0]), p2.lines[0]);
 check('目标位已不再产出（手册出场三层无目标）', p2.target === undefined, p2);
-check('第 3 句 = 买多少：R ÷（买入价 − 失效价）+ 止损距离 + 封顶 10%',
-      /买多少.*R ÷.*10\.500.*9\.800/.test(p2.lines[2]) &&
-      /止损距离 6\.7%/.test(p2.lines[2]) && /封顶 10%/.test(p2.lines[2]), p2.lines[2]);
+check('第 3 句 = 做多少：公式 + 直接算成仓位%（止损 6.7% → 15.0% / 7.5%）+ 封顶 50%',
+      /做多少.*仓位 15\.0%（R 按 1%）\/ 7\.5%（按 0\.5%）/.test(p2.lines[2]) &&
+      /单笔封顶 50%/.test(p2.lines[2]) && /R ÷ 0\.700 = 可买股数/.test(p2.lines[2]) &&
+      /止损距离 6\.7%/.test(p2.lines[2]), p2.lines[2]);
 check('条件单 = 失效位 − 0.5×ATR20（多头）', near(p2.condStop, 9.6), p2.condStop);
 check('第 4 句 = 怎么挂：回抽 2 档限价 + 条件单触发价',
       /怎么挂.*2 档限价/.test(p2.lines[3]) && /触发价 9\.60/.test(p2.lines[3]) &&
@@ -65,7 +66,25 @@ const p1s = CLTrack.buildPlan(sig1s, null, 'daily', { fmtPrice: v => v.toFixed(3
 check('卖点信号 → 方向自动 = 做空', p1s.dir === -1, p1s.dir);
 check('做空失效位 = 升破一卖高点', /升破一卖高点 12\.800/.test(p1s.lines[1]), p1s.lines[1]);
 check('做空条件单 = 失效位 + 0.5×ATR20', near(p1s.condStop, 13.0), p1s.condStop);
-check('做空第 3 句同样写仓位公式', /买多少.*R ÷.*12\.300.*12\.800/.test(p1s.lines[2]), p1s.lines[2]);
+check('做空第 3 句同样写仓位（止损 4.1% → 24.6% / 12.3%）',
+      /做多少.*仓位 24\.6%（R 按 1%）\/ 12\.3%（按 0\.5%）/.test(p1s.lines[2]) &&
+      /R ÷ 0\.500 = 可买股数/.test(p1s.lines[2]), p1s.lines[2]);
+/* 止损极窄 → 两档都超过 50% 上限 → 合并成一句，不写两遍 50.0% */
+{
+  const tight = CLTrack.buildPlan({ level: 2, type: 1, note: '二买', confirmed: true, price: 10,
+    refs: { stopBuy: 9.99, stopSell: 10.01, dir: 1, trailLow: null, trailHigh: null, lastClose: 10 } },
+    null, 'daily', { fmtPrice: v => v.toFixed(3) });
+  check('止损极窄时两档都顶格 50%，合并成一句',
+        /仓位 50\.0%（R 取 1% 或 0\.5% 都顶格，单笔封顶 50%）/.test(tight.lines[2]), tight.lines[2]);
+}
+/* 止损宽（20%）→ 仓位不被封顶，两档数字不同 */
+{
+  const wide = CLTrack.buildPlan({ level: 2, type: 1, note: '二买', confirmed: true, price: 10,
+    refs: { stopBuy: 8, stopSell: 12, dir: 1, trailLow: null, trailHigh: null, lastClose: 10 } },
+    null, 'daily', { fmtPrice: v => v.toFixed(3) });
+  check('止损距离 20% 时仓位不被封顶：5.0%（R=1%）/ 2.5%（R=0.5%）',
+        /仓位 5\.0%（R 按 1%）\/ 2\.5%（按 0\.5%）/.test(wide.lines[2]), wide.lines[2]);
+}
 
 const p3s = CLTrack.buildPlan({ level: 3, type: -1, note: '三卖·反抽不入中枢', confirmed: true, price: 9.0,
   refs: { stopBuy: 10.6, stopSell: 10.2, dir: -1, trailLow: null, trailHigh: 9.6, lastClose: 9.1 } },

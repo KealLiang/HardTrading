@@ -3,7 +3,7 @@
  *
  * 用户在自选列表长按某只带信号的标的，选「追踪」后进入追踪：
  *   - 图上画虚线（失效 / 动盈 / 条件单），属于「额外」可显隐
- *   - 四句话（挂在哪一级 / 错了的价 / 买多少 / 怎么挂）生成文案，作为跟踪计划
+ *   - 四句话（挂在哪一级 / 错了的价 / 做多少 / 怎么挂）生成文案，作为跟踪计划
  *   - 动态盯梢：条件单触发、时间单到期时提醒
  *   - 覆盖式：同一标的再选一次以新的为准；手动取消才退出追踪
  *
@@ -102,16 +102,33 @@
 
     var confirmTxt = sig.confirmed ? '' : '⚠ 未定型（分型右侧可能修订），readyK+1 根才确立';
 
-    /* 第 3 句：买多少 —— 仓位是主观信心唯一该待的地方（手册一·3） */
+    /* 第 3 句：做多少 —— 仓位是主观信心唯一该待的地方（手册一·3）。
+       2.4.2：「买多少」改「做多少」—— 卖点（做空）那行原写「买多少」会读成
+       「卖掉多少持仓」，而它算的是这一笔新开仓占总资金的比例。 */
     var sizeLine;
     if (entry != null && stop != null) {
       var dist = Math.abs(entry - stop);
       var pct = entry ? (dist / entry * 100) : null;
-      sizeLine = '买多少：R ÷（' + fp(entry) + ' − ' + fp(stop) + '）= R ÷ ' + fp(dist) +
-        (pct != null ? '（止损距离 ' + pct.toFixed(1) + '%）' : '') +
-        '；R = 总资金 0.5~1%，结果封顶 10%';
+      /* 2.4.0：公式照给，但**结果直接算成仓位**（用户反馈光给公式太抽象）。
+         仓位% = R% ÷ 止损距离% —— 即 R ÷ dist 股 × entry ÷ 总资金；
+         单笔封顶上限于 CAP（2.4.1 由 10% 提到 50%），顶格时直接说明，不写两遍一样的数字。 */
+      var CAP = 50;                                                 // 单笔仓位上限（%）
+      var rawPct = dist > 0 ? (0.01 * entry / dist * 100) : null;   // R = 总资金 1%
+      var p1 = rawPct == null ? null : Math.min(CAP, rawPct);
+      var p05 = rawPct == null ? null : Math.min(CAP, rawPct / 2);
+      var sizeTxt;
+      if (p1 == null) {
+        sizeTxt = '仓位算不出（买入价与失效价相同）';
+      } else if (p1 >= CAP - 1e-9 && p05 >= CAP - 1e-9) {
+        sizeTxt = '仓位 ' + CAP.toFixed(1) + '%（R 取 1% 或 0.5% 都顶格，单笔封顶 ' + CAP + '%）';
+      } else {
+        sizeTxt = '仓位 ' + p1.toFixed(1) + '%（R 按 1%）/ ' + p05.toFixed(1) +
+          '%（按 0.5%），单笔封顶 ' + CAP + '%';
+      }
+      sizeLine = '做多少：' + sizeTxt + '；R ÷ ' + fp(dist) + ' = 可买股数' +
+        (pct != null ? '（止损距离 ' + pct.toFixed(1) + '%）' : '');
     } else {
-      sizeLine = '买多少：失效位写成具体数字才能算 —— R ÷（买入价 − 失效价）';
+      sizeLine = '做多少：失效位写成具体数字才能算 —— R ÷（买入价 − 失效价）';
     }
 
     /* 第 4 句：怎么挂 —— 入场 2 档限价、出场全部条件单（手册一·4 / 三·1） */

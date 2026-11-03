@@ -421,7 +421,33 @@
     }
 
     function buildSide() {
+      /* 重建会清空节点，滚动位置先记下来：手机上调参数常要滚到面板下方按保存，
+         保存完跳回顶部会让人找不到刚改的那一项。 */
+      var keepTop = sideCol.scrollTop || 0;
       sideCol.innerHTML = '';
+
+      /* 参数改动不立即生效（2.4.1）：控件只写草稿，点「保存参数」才落盘 + 重算。
+         原因：手机上滚参数区时很容易蹭到滑块/开关，改了自己都没发觉（甚至以为
+         自己没动过参数）。K 线形态不进草稿 —— 它是看图切换，不是算法调优，必须即时；
+         每次 buildSide 重新拷贝草稿 = 「不保存离开就作废」，这正是要的行为。 */
+      /* 这几个不是算法参数，是「设置」—— 切换时期望立刻生效，不走草稿：
+         K 线形态（只看画法）、数据源、扫描周期、追踪周期。 */
+      var LIVE_PARAM = { klineMode: 1, dataSource: 1, scanPeriod: 1, trackPeriod: 1 };
+      var draft = {};
+      Object.keys(state.params).forEach(function (k) {
+        if (!LIVE_PARAM[k]) draft[k] = state.params[k];
+      });
+      var dirty = {};
+      var saveBtn = null, undoBtn = null;
+      function refreshSaveRow() {
+        if (!saveBtn) return;
+        var n = Object.keys(dirty).length;
+        saveBtn.textContent = n ? '保存参数（' + n + ' 项已改）' : '保存参数';
+        saveBtn.disabled = !n;
+        saveBtn.className = 'cl-btn' + (n ? ' cl-primary' : '');
+        if (undoBtn) undoBtn.disabled = !n;
+      }
+      function markDirty(key) { dirty[key] = 1; refreshSaveRow(); }
 
       sideCol.appendChild(el('h4', null, '显示图层'));
       var layerRow = el('div', 'cl-row');
@@ -447,19 +473,23 @@
           headRow.appendChild(valEl);
           p.appendChild(headRow);
 
+          var isLive = !!LIVE_PARAM[it.key];
+          var store = isLive ? state.params : draft;
           if (it.type === 'range') {
             var inp = el('input');
             inp.type = 'range';
             inp.min = it.min; inp.max = it.max; inp.step = it.step;
-            inp.value = state.params[it.key];
-            valEl.textContent = state.params[it.key];
+            inp.value = store[it.key];
+            valEl.textContent = store[it.key];
             inp.addEventListener('input', function () {
               var v = parseFloat(inp.value);
               if (it.step >= 1) v = Math.round(v);
-              state.params[it.key] = v;
+              store[it.key] = v;
               valEl.textContent = v;
-              saveState(state);
-              options.onParamChange && options.onParamChange(state.params);
+              if (isLive) {
+                saveState(state);
+                options.onParamChange && options.onParamChange(state.params);
+              } else markDirty(it.key);
             });
             p.appendChild(inp);
           } else if (it.type === 'select') {
@@ -467,23 +497,27 @@
             it.options.forEach(function (o) {
               var op = el('option', null, o.label); op.value = o.id; sel.appendChild(op);
             });
-            sel.value = state.params[it.key];
+            sel.value = store[it.key];
             sel.addEventListener('change', function () {
-              state.params[it.key] = sel.value;
-              saveState(state);
-              options.onParamChange && options.onParamChange(state.params);
+              store[it.key] = sel.value;
+              if (isLive) {
+                saveState(state);
+                options.onParamChange && options.onParamChange(state.params);
+              } else markDirty(it.key);
             });
             p.appendChild(sel);
           } else if (it.type === 'bool') {
-            var pill = el('span', 'cl-pill' + (state.params[it.key] ? ' cl-on' : ''),
-                          state.params[it.key] ? '开' : '关');
+            var pill = el('span', 'cl-pill' + (store[it.key] ? ' cl-on' : ''),
+                          store[it.key] ? '开' : '关');
             pill.style.float = 'right';
             pill.addEventListener('click', function () {
-              state.params[it.key] = !state.params[it.key];
-              pill.textContent = state.params[it.key] ? '开' : '关';
-              pill.className = 'cl-pill' + (state.params[it.key] ? ' cl-on' : '');
-              saveState(state);
-              options.onParamChange && options.onParamChange(state.params);
+              store[it.key] = !store[it.key];
+              pill.textContent = store[it.key] ? '开' : '关';
+              pill.className = 'cl-pill' + (store[it.key] ? ' cl-on' : '');
+              if (isLive) {
+                saveState(state);
+                options.onParamChange && options.onParamChange(state.params);
+              } else markDirty(it.key);
             });
             p.appendChild(pill);
           }
@@ -491,6 +525,32 @@
           sideCol.appendChild(p);
         });
       });
+
+      /* 参数保存条：只在有改动时可点。就放在参数区正下方，不做吸底浮层 ——
+         浮层会挡住最后一项参数，反而更容易误触。 */
+      var saveRow = el('div', 'cl-row cl-param-save');
+      saveBtn = el('button', 'cl-btn', '保存参数');
+      saveBtn.id = 'param_save';
+      saveBtn.disabled = true;
+      saveBtn.title = '参数改动先存草稿，点这里才生效并重算';
+      undoBtn = el('button', 'cl-btn', '撤销');
+      undoBtn.id = 'param_undo';
+      undoBtn.disabled = true;
+      undoBtn.title = '丢弃未保存的改动，回到当前生效值';
+      saveBtn.addEventListener('click', function () {
+        Object.keys(draft).forEach(function (k) { state.params[k] = draft[k]; });
+        dirty = {};
+        saveState(state);
+        refreshSaveRow();
+        /* 不重建 UI：控件显示值就是刚保存的值，重建会把滚动位置弄丢 */
+        options.onParamChange && options.onParamChange(state.params);
+      });
+      undoBtn.addEventListener('click', function () { buildSide(); });
+      saveRow.appendChild(saveBtn);
+      saveRow.appendChild(undoBtn);
+      sideCol.appendChild(saveRow);
+      sideCol.appendChild(el('div', 'cl-help',
+        '参数改动先存草稿，点「保存参数」才生效并重算（防止滑动时误触）。K 线形态是即时切换'));
 
       /* 两个快捷区在这里并列，但仍是两块：上面是「自选」（针对股票），
          下面是「右上角 / 图表」（针对图，手机上就是图表右上角那几个悬浮按钮）。
@@ -519,7 +579,9 @@
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v2.3.2 · 纵轴常显最新价（红涨绿跌，蓝块仍是你点图时的临时读数）；修等待卡标签不显示、「回抽中」琥珀态画布校验；取数失败不再吞掉当天的日线检查'));
+        'v2.4.2 · 「买多少」改叫「做多少」（卖点那行不再读成减仓）；参数要先点「保存参数」才生效；仓位封顶 50%'));
+
+      sideCol.scrollTop = keepTop;   // 重建后回到原来的滚动位置
     }
 
     function buildTabs() {

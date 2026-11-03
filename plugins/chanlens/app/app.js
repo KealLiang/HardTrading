@@ -1201,6 +1201,10 @@
    */
   var PEND_MS = 5 * 60 * 1000;
 
+  function ymd(d) {
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+
   function pendingDue(rec, now) {
     var t = now || Date.now();
     var d = new Date(t);
@@ -1209,10 +1213,13 @@
     var hm = d.getHours() * 60 + d.getMinutes();
     if (rec.period === 'daily') {
       if (hm < 15 * 60 + 5) return false;                    // 收盘后才有确定的日线
-      var stamp = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-      return rec.lastDailyCheck !== stamp;                   // 一天一次
+      return rec.lastDailyCheck !== ymd(d);                   // 一天一次
     }
-    if (hm < 9 * 60 + 25 || hm > 15 * 60 + 5) return false;  // 分钟级只在盘中
+    if (hm < 9 * 60 + 25) return false;                      // 分钟级：开盘前不查
+    /* 收盘后不自动查（2.4.1 回滚 2.4.0 的「补查一次」）。
+       分钟级卡的口径是「盘中盯」：最后一根 15:00 定稿后不再自动拉数。
+       晚上想看当天收盘后的结论，走手动刷新（force 会跳过时间门）。 */
+    if (hm > 15 * 60 + 5) return false;
     return !rec.lastPendCheck || (t - rec.lastPendCheck) >= PEND_MS;
   }
 
@@ -1229,10 +1236,7 @@
       if (!ks.length) { CLTrack.save(trackMap); return; }
       var got = Date.now();
       rec.lastPendCheck = got;
-      if (rec.period === 'daily') {
-        var d0 = new Date(got);
-        rec.lastDailyCheck = d0.getFullYear() + '-' + (d0.getMonth() + 1) + '-' + d0.getDate();
-      }
+      if (rec.period === 'daily') rec.lastDailyCheck = ymd(new Date(got));
       var res = ChanEngine.analyze(ks, st.params);
       var sig = CLScanner.pickSignal(ks, res, { maxLag: SCAN.maxLag });
       if (!sig) {                       // 还没有信号 → 看看是不是「回抽中」（2.2.0）
@@ -2142,6 +2146,9 @@
     setTrackPeriod: function (p) { syncTrackPeriod({ trackPeriod: p }); },   // 测试/调试：切追踪周期
     reloadScanCache: loadScanCache,   // 测试/调试：注入扫描缓存后手动重载
     quotes: function () { return JSON.parse(JSON.stringify(quotes)); },
+    /* 测试/调试：当前**生效**的引擎参数（草稿不算）。2.4.1 加 —— 参数改动先存草稿，
+       必须能验证「不点保存就真的没生效」，只测按钮禁用状态是不够的。 */
+    params: function () { return JSON.parse(JSON.stringify(panel.getState().params)); },
     runScan: runScan,
     signals: function () { return JSON.parse(JSON.stringify(signals)); },
     /* 追踪模式（1.6.0）：供测试与调试 */
