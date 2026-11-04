@@ -1448,6 +1448,7 @@
   var trackBodyEl = document.getElementById('trackBody');
   var trackDirRow = document.getElementById('trackDirRow');
   var trackOkBtn = document.getElementById('trackOk');
+  var trackRetrackBtn = document.getElementById('trackRetrack');   // 2.5.0：重新追踪
   var trackCtx = null;   // { item, viewMode, sig, period, plan }
 
   /**
@@ -1456,7 +1457,7 @@
    * 1.8.0：追踪不再跟随主图级别；1.9.12：级别由「周期选择-追踪周期」决定（默认日线）。
    * 该级别算不出信号、但标的已在追踪中 → 回退展示已存计划（只读）。
    */
-  function openTrackCard(item, a, b) {
+  function openTrackCard(item, a, b, forcePeriod) {
     var viewMode = (typeof a === 'boolean') ? a : !!b;
     var rec = trackMap[item.code];
     if (viewMode && !rec) return Promise.resolve(null);
@@ -1465,7 +1466,8 @@
       showTrackModal();
       return Promise.resolve(rec);
     }
-    var per = TRACK_PERIOD;
+    /* 2.5.0：forcePeriod 由「重新追踪」传入 —— 保持原卡级别，不跟着「追踪周期」设置跳。 */
+    var per = forcePeriod || TRACK_PERIOD;
     var nm = item.name || item.code;
     var perCN = PERIOD_LABEL[per] || per;
     setStatus('正在按' + perCN + '计算「' + nm + '」的追踪计划…');
@@ -1512,6 +1514,8 @@
     if (trackDirRow) trackDirRow.style.display = 'none';   // 1.7.0：方向由信号决定，不再选
     trackOkBtn.style.display = ctx.viewMode ? 'none' : '';
     trackOkBtn.textContent = ctx.pending ? '开始等待' : '确认追踪';
+    /* 2.5.0：只有已追踪（viewMode）才有「重新追踪」；新建/等待预览态不显示 */
+    if (trackRetrackBtn) trackRetrackBtn.style.display = ctx.viewMode ? '' : 'none';
     document.getElementById('trackCancel').textContent = ctx.viewMode ? '关闭' : '取 消';
     renderTrackCard();
     trackModalEl.classList.remove('hidden');
@@ -1707,6 +1711,21 @@
     trackModalEl.classList.add('hidden');
     toast('已进入追踪：' + rec.name + ' ' + (rec.dir > 0 ? '做多 ▲（' : '做空 ▼（') +
           (CLTrack.PERIOD_CN[rec.period] || rec.period) + '）');
+  });
+  /* 2.5.0：重新追踪 —— 结果等价于「取消追踪 → 再追踪」，但**不先删记录**：
+     预览被取消时旧卡还在（删早了等于白丢一张卡）。点「确认追踪」后 CLTrack.set
+     整条覆盖，动盈/时间单计数/已报标记全部从零开始，与手动重来完全一致。 */
+  if (trackRetrackBtn) trackRetrackBtn.addEventListener('click', function () {
+    var ctx = trackCtx;
+    if (!ctx || !ctx.viewMode) return;
+    var item = ctx.item, per = ctx.period;
+    /* 清该股该周期的信号缓存，逼 ensureSignal 重新取数现算 —— 不清会拿旧信号算出同一张卡 */
+    delete sigCache[per + '|' + item.code];
+    trackModalEl.classList.add('hidden');
+    setStatus('正在按当前结构重算「' + (item.name || item.code) + '」的追踪计划…');
+    openTrackCard(item, false, undefined, per).catch(function (e) {
+      toast('重新追踪失败：' + ((e && e.message) || String(e)));
+    });
   });
   document.getElementById('trackCancel').addEventListener('click', function () {
     trackModalEl.classList.add('hidden');

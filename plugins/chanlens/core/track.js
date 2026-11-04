@@ -104,10 +104,16 @@
 
     /* 第 3 句：做多少 —— 仓位是主观信心唯一该待的地方（手册一·3）。
        2.4.2：「买多少」改「做多少」—— 卖点（做空）那行原写「买多少」会读成
-       「卖掉多少持仓」，而它算的是这一笔新开仓占总资金的比例。 */
+       「卖掉多少持仓」，而它算的是这一笔新开仓占总资金的比例。
+       2.5.0：止损距离改按**条件单触发价**算。真实离场发生在 condStop（失效位外侧
+       0.5×ATR20），拿失效位算等于假装亏损比实际小 —— 30m 实测平均 2.27% vs 2.61%，
+       算出来的仓位系统性偏乐观。ATR 缺失（condStop 为空）时退回失效位，文案标明口径。
+       2.5.0：股数按方向叫「可买股数 / 可开股数」—— 做空那行写「可买」会读成买回来平仓。 */
     var sizeLine;
     if (entry != null && stop != null) {
-      var dist = Math.abs(entry - stop);
+      var byCond = condStop != null && isFinite(condStop);
+      var riskBase = byCond ? condStop : stop;
+      var dist = Math.abs(entry - riskBase);
       var pct = entry ? (dist / entry * 100) : null;
       /* 2.4.0：公式照给，但**结果直接算成仓位**（用户反馈光给公式太抽象）。
          仓位% = R% ÷ 止损距离% —— 即 R ÷ dist 股 × entry ÷ 总资金；
@@ -118,15 +124,17 @@
       var p05 = rawPct == null ? null : Math.min(CAP, rawPct / 2);
       var sizeTxt;
       if (p1 == null) {
-        sizeTxt = '仓位算不出（买入价与失效价相同）';
+        sizeTxt = '仓位算不出（入场价与止损价相同）';
       } else if (p1 >= CAP - 1e-9 && p05 >= CAP - 1e-9) {
         sizeTxt = '仓位 ' + CAP.toFixed(1) + '%（R 取 1% 或 0.5% 都顶格，单笔封顶 ' + CAP + '%）';
       } else {
         sizeTxt = '仓位 ' + p1.toFixed(1) + '%（R 按 1%）/ ' + p05.toFixed(1) +
           '%（按 0.5%），单笔封顶 ' + CAP + '%';
       }
-      sizeLine = '做多少：' + sizeTxt + '；R ÷ ' + fp(dist) + ' = 可买股数' +
-        (pct != null ? '（止损距离 ' + pct.toFixed(1) + '%）' : '');
+      sizeLine = '做多少：' + sizeTxt + '；R ÷ ' + fp(dist) + ' = ' +
+        (long ? '可买股数' : '可开股数') +
+        (pct != null ? '（止损距离 ' + pct.toFixed(1) + '%' +
+          (byCond ? '，按条件单触发价' : '') + '）' : '');
     } else {
       sizeLine = '做多少：失效位写成具体数字才能算 —— R ÷（买入价 − 失效价）';
     }

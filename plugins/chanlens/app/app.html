@@ -110,6 +110,9 @@
       <div id="trackBody" class="app-track-body"></div>
       <div class="app-modal-foot">
         <span class="app-hint">写下才许下单 · 参考非指令</span>
+        <!-- 2.5.0：已追踪的作战卡上多一个「重新追踪」= 取消追踪 + 再追踪（重新取数重算，
+             拿当前结构生成新卡）。只在 viewMode 显示，由 app.js 控制。 -->
+        <button id="trackRetrack" class="cl-btn cl-warn" style="display:none">重新追踪</button>
         <button id="trackCancel" class="cl-btn">关闭</button>
         <button id="trackOk" class="cl-btn cl-primary">确认追踪</button>
       </div>

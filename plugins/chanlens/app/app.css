@@ -297,6 +297,9 @@ body {
 .app-modal-foot .app-hint { margin-right: auto; }
 .cl-btn.cl-primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
 .cl-btn.cl-primary:hover { background: #1d4e8f; }
+/* 2.5.0：黄色动作按钮（作战卡「重新追踪」）—— 与蓝色主按钮区分 */
+.cl-btn.cl-warn { background: #fbe9c4; color: #7a5314; border-color: #e0c184; font-weight: 600; }
+.cl-btn.cl-warn:hover { background: #f7dfa8; }
 /* − 自选：当前标的已在列表里，按钮呈「可移出」态（灰底红字，视觉弱于新增） */
 .cl-btn.on { background: #f3f3f3; color: #a33; border-color: #e0cccc; }
 

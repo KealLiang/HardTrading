@@ -35,10 +35,12 @@ check('第 2 句写明「跌破一买低点」+ 具体数字', /跌破一买低�
 check('第 1 句写明级别与信号', /日线级别.*二买·回抽不破前低/.test(p2.lines[0]), p2.lines[0]);
 check('第 1 句写明做多', /做多/.test(p2.lines[0]), p2.lines[0]);
 check('目标位已不再产出（手册出场三层无目标）', p2.target === undefined, p2);
-check('第 3 句 = 做多少：公式 + 直接算成仓位%（止损 6.7% → 15.0% / 7.5%）+ 封顶 50%',
-      /做多少.*仓位 15\.0%（R 按 1%）\/ 7\.5%（按 0\.5%）/.test(p2.lines[2]) &&
-      /单笔封顶 50%/.test(p2.lines[2]) && /R ÷ 0\.700 = 可买股数/.test(p2.lines[2]) &&
-      /止损距离 6\.7%/.test(p2.lines[2]), p2.lines[2]);
+/* 2.5.0：止损距离改按条件单触发价（9.6）算，不再用失效位（9.8）：
+   dist=0.9 → 8.6%，R=1% 得 11.7% / R=0.5% 得 5.8% */
+check('第 3 句 = 做多少：公式 + 直接算成仓位%（按条件单 8.6% → 11.7% / 5.8%）+ 封顶 50%',
+      /做多少.*仓位 11\.7%（R 按 1%）\/ 5\.8%（按 0\.5%）/.test(p2.lines[2]) &&
+      /单笔封顶 50%/.test(p2.lines[2]) && /R ÷ 0\.900 = 可买股数/.test(p2.lines[2]) &&
+      /止损距离 8\.6%，按条件单触发价/.test(p2.lines[2]), p2.lines[2]);
 check('条件单 = 失效位 − 0.5×ATR20（多头）', near(p2.condStop, 9.6), p2.condStop);
 check('第 4 句 = 怎么挂：回抽 2 档限价 + 条件单触发价',
       /怎么挂.*2 档限价/.test(p2.lines[3]) && /触发价 9\.60/.test(p2.lines[3]) &&
@@ -66,9 +68,9 @@ const p1s = CLTrack.buildPlan(sig1s, null, 'daily', { fmtPrice: v => v.toFixed(3
 check('卖点信号 → 方向自动 = 做空', p1s.dir === -1, p1s.dir);
 check('做空失效位 = 升破一卖高点', /升破一卖高点 12\.800/.test(p1s.lines[1]), p1s.lines[1]);
 check('做空条件单 = 失效位 + 0.5×ATR20', near(p1s.condStop, 13.0), p1s.condStop);
-check('做空第 3 句同样写仓位（止损 4.1% → 24.6% / 12.3%）',
-      /做多少.*仓位 24\.6%（R 按 1%）\/ 12\.3%（按 0\.5%）/.test(p1s.lines[2]) &&
-      /R ÷ 0\.500 = 可买股数/.test(p1s.lines[2]), p1s.lines[2]);
+check('做空第 3 句：按条件单 13.0 算止损距离 5.7% → 17.6% / 8.8%，股数叫「可开」不叫「可买」',
+      /做多少.*仓位 17\.6%（R 按 1%）\/ 8\.8%（按 0\.5%）/.test(p1s.lines[2]) &&
+      /R ÷ 0\.700 = 可开股数/.test(p1s.lines[2]) && !/可买股数/.test(p1s.lines[2]), p1s.lines[2]);
 /* 止损极窄 → 两档都超过 50% 上限 → 合并成一句，不写两遍 50.0% */
 {
   const tight = CLTrack.buildPlan({ level: 2, type: 1, note: '二买', confirmed: true, price: 10,
@@ -84,6 +86,8 @@ check('做空第 3 句同样写仓位（止损 4.1% → 24.6% / 12.3%）',
     null, 'daily', { fmtPrice: v => v.toFixed(3) });
   check('止损距离 20% 时仓位不被封顶：5.0%（R=1%）/ 2.5%（R=0.5%）',
         /仓位 5\.0%（R 按 1%）\/ 2\.5%（按 0\.5%）/.test(wide.lines[2]), wide.lines[2]);
+  check('没有 ATR 时退回失效位口径，文案不谎称「按条件单」',
+        /止损距离 20\.0%/.test(wide.lines[2]) && !/按条件单触发价/.test(wide.lines[2]), wide.lines[2]);
 }
 
 const p3s = CLTrack.buildPlan({ level: 3, type: -1, note: '三卖·反抽不入中枢', confirmed: true, price: 9.0,

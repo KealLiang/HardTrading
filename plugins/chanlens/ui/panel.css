@@ -82,6 +82,9 @@
 }
 .cl-btn:hover { background: #f0f3f7; }
 .cl-btn.cl-primary { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+/* 2.5.0：黄色动作按钮（作战卡「重新追踪」）—— 与蓝色主按钮区分，不老抢焦点 */
+.cl-btn.cl-warn { background: #fbe9c4; color: #7a5314; border-color: #e0c184; }
+.cl-btn.cl-warn:hover { background: #f7dfa8; }
 /* 参数保存条（2.4.1）：改动未保存时按钮变蓝，点了才生效 */
 .cl-param-save { margin: 10px 0 4px; }
 .cl-param-save .cl-btn { font-size: 13px; padding: 6px 14px; }   /* 手机上要够大 */
