@@ -709,6 +709,7 @@ def daily_routine():
         (lambda: generate_leader_sheet_html_charts(columns=2, before_days=60, after_days=30,
                                                    use_leader_archive=False), "板块龙头生成html走势图"),
         (lambda: generate_momo_concept_group_html_charts(columns=2, before_days=60, after_days=30), "默默上涨生成html走势图"),
+        (generate_all_charts_html, "合并个股走势html（龙头+默默上涨）"),
         # (lambda: generate_momo_html_charts(days=20, columns=2, after_days=20), "新入选默默上涨简化html走势图"),
         (fupan_statistics_to_excel, "生成统计数据"),
         (fupan_statistics_excel_plot, "生成统计图表"),
@@ -1432,6 +1433,21 @@ def generate_momo_concept_group_html_charts(
         data_dir='./data/astocks',
         use_latest_stock_end_fallback=use_latest_stock_end_fallback,
     )
+
+
+def generate_all_charts_html(pages=None, output_path='./excel/html_charts/all_charts.html'):
+    """
+    把多份个股走势图 html 合并成一份带 tab 切换的页面（每日覆盖同一份）
+
+    Args:
+        pages: [{key, label, path}, ...]，None则用 multi_page_html.CHART_PAGES
+        output_path: html输出路径，默认 ./excel/html_charts/all_charts.html
+
+    Returns:
+        str: html文件路径（浏览器收藏该文件，跑完复盘刷新即可）
+    """
+    from analysis.html_gen.multi_page_html import build_multi_page_html
+    return build_multi_page_html(pages=pages, output_path=output_path)
 
 
 def generate_virtual_kline_simulation_html():

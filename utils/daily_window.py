@@ -39,6 +39,7 @@ ARTIFACTS = [
     MARKET_ANALYSIS_FILE,
     './excel/html_charts/leader_sheet_all_2cols.html',
     './excel/html_charts/momo_concept_group_all_2cols.html',
+    './excel/html_charts/all_charts.html',
     FUPAN_PNG,
     FUPAN_HTML,
     REASONS_FILE,
