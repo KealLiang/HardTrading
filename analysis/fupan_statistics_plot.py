@@ -83,7 +83,9 @@ def load_index_amount(index_dir='./data/indexes'):
                 print(f"成交额CSV不存在，跳过: {path}")
                 return None
             adf = pd.read_csv(path, dtype={'date': str})
-            adf['date'] = pd.to_datetime(adf['date'])
+            # format='mixed' 兼容历史上混入的 'YYYY-MM-DD HH:MM:SS' 格式，避免整天折线消失
+            adf['date'] = pd.to_datetime(adf['date'], format='mixed', errors='coerce')
+            adf = adf.dropna(subset=['date'])
             adf = adf.drop_duplicates(subset='date').set_index('date')['amount']
             total = adf if total is None else total.add(adf, fill_value=0)
         if total is None or total.empty:

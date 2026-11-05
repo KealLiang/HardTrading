@@ -106,7 +106,8 @@ def fetch_and_save_index_data_em(symbol, secid, index_path, amount_path):
         if not os.path.exists(path):
             return None
         col = pd.read_csv(path, header=0 if has_header else None, usecols=[0]).iloc[:, 0]
-        return pd.to_datetime(col).max()
+        # 兼容历史混入的 'YYYY-MM-DD HH:MM:SS' 格式
+        return pd.to_datetime(col, format='mixed', errors='coerce').max()
 
     last_index = _last_date(index_path, has_header=False)
     last_amount = _last_date(amount_path, has_header=True)
@@ -147,6 +148,7 @@ def fetch_and_save_index_data_em(symbol, secid, index_path, amount_path):
     amt_new = em if last_amount is None else em[em['date'] > last_amount]
     if not amt_new.empty:
         out = amt_new[['date', 'amount']].copy()
+        out['date'] = out['date'].dt.strftime('%Y-%m-%d')  # 统一为与历史行一致的日期格式
         out['amount'] = out['amount'].astype(float)
         if last_amount is None:
             out.to_csv(amount_path, index=False, header=True)
@@ -172,7 +174,8 @@ def fetch_and_save_index_amount(symbol, secid, save_path):
     existing = None
     if os.path.exists(save_path):
         existing = pd.read_csv(save_path, dtype={'date': str})
-        beg = (pd.to_datetime(existing['date']).max() + pd.Timedelta(days=1)).strftime('%Y%m%d')
+        last = pd.to_datetime(existing['date'], format='mixed', errors='coerce').max()
+        beg = (last + pd.Timedelta(days=1)).strftime('%Y%m%d')
     else:
         beg = AMOUNT_HISTORY_START
 

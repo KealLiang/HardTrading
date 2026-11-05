@@ -1131,7 +1131,8 @@ def load_all_index_data(index_dir="./data/indexes"):
 
         # 遍历目录中的所有CSV文件
         for filename in os.listdir(index_dir):
-            if filename.endswith('.csv'):
+            # *_amount.csv 为成交额数据（date,amount 两列），不是6列行情文件，跳过
+            if filename.endswith('.csv') and not filename.endswith('_amount.csv'):
                 # 从文件名提取指数名称
                 # 文件名格式: sh000001_上证指数.csv
                 index_name = filename.replace('.csv', '').split('_', 1)
