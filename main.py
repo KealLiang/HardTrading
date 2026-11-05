@@ -56,6 +56,7 @@ from fetch.tonghuashun.fupan_plot import draw_fupan_lb
 from fetch.tonghuashun.fupan_plot_html import draw_fupan_lb_html
 from fetch.tonghuashun.hotpoint_analyze import hot_words_cloud
 from analysis.html_gen.momo_shangzhang_html_chart import generate_momo_html_charts
+from analysis.html_gen.daily_review_html import generate_daily_review_html
 
 from filters.find_abnormal import find_serious_abnormal_stocks_range
 from filters.find_longtou import find_dragon_stocks
@@ -577,6 +578,25 @@ def get_hot_concept_rotation(days: int = 7, top_n: int = 10):
     build_rotation_chart(days=days, top_n=top_n)
 
 
+def generate_daily_review_page(images=None, output_path='./images/daily_review.html', image_dir='./images',
+                               open_files=None):
+    """
+    生成每日复盘图片汇总html（固定一个文件，每日覆盖更新）
+
+    Args:
+        images: [(文件名, 标题), ...]，None则用 daily_review_html.DAILY_REVIEW_IMAGES
+        output_path: html输出路径，默认 ./images/daily_review.html
+        image_dir: 图片目录，默认 ./images
+        open_files: [(绝对路径, 按钮文字), ...]，None则用 DAILY_REVIEW_OPEN_FILES
+            顶部按钮，点击用本机 Excel 打开（ms-excel 协议）
+
+    Returns:
+        str: html文件路径（浏览器收藏该文件，跑完复盘刷新即可）
+    """
+    return generate_daily_review_html(images=images, output_path=output_path,
+                                      image_dir=image_dir, open_files=open_files)
+
+
 def get_index_data():
     # 指定保存目录
     save_directory = "data/indexes"
@@ -694,6 +714,7 @@ def daily_routine():
         (fupan_statistics_excel_plot, "生成统计图表"),
         (get_hot_clouds, "生成热门概念词云"),
         (get_hot_concept_rotation, "生成热门概念轮动图"),
+        (generate_daily_review_page, "生成复盘汇总html"),
         # (auction_fengdan_analyze, "复盘分析封单数据"),
         # (lambda: analyze_volume_surge_pattern('20260110', min_lianban=2, continuous_surge_days=3, volume_surge_ratio=(1.8, 2.0, 3.0), volume_avg_days=5),
         #  "爆量分歧转一致筛选"),  # 只有主线明确的情况才能使用，胜率和从天梯直接找差不多
