@@ -10,6 +10,7 @@
 """
 import hashlib
 import os
+import re
 
 import matplotlib
 matplotlib.use('Agg')
@@ -99,6 +100,115 @@ def _concept_colors(top_concepts):
     return {c: PALETTE[i % len(PALETTE)] for i, c in enumerate(top_concepts)}
 
 
+# 前缀归并族：命中前缀的概念统一归并到指定名称（优先于自动规则，可自行增删）
+SYNONYM_PREFIX_FAMILIES = {
+    '三季报': '三季报业绩',
+    '第三季度': '三季报业绩',
+    '三季度': '三季报业绩',
+}
+
+_CJK_RE = re.compile(r'[\u4e00-\u9fff]')
+
+
+def _manual_family(name):
+    """命中前缀归并族则返回族名，否则返回 None。"""
+    for prefix, family in SYNONYM_PREFIX_FAMILIES.items():
+        if name.startswith(prefix):
+            return family
+    return None
+
+
+def _edit_distance_one(a, b):
+    """判断两词编辑距离是否为 1（一次替换/插入/删除）。"""
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    if la == lb:
+        return sum(1 for x, y in zip(a, b) if x != y) == 1
+    if la > lb:
+        a, b, la, lb = b, a, lb, la
+    i = 0
+    while i < la and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+
+def _common_edges(a, b):
+    """返回 (共同前缀长度, 共同后缀长度)。"""
+    short = min(len(a), len(b))
+    prefix = 0
+    while prefix < short and a[prefix] == b[prefix]:
+        prefix += 1
+    suffix = 0
+    while suffix < short and a[-1 - suffix] == b[-1 - suffix]:
+        suffix += 1
+    return prefix, suffix
+
+
+def _is_synonym(a, b):
+    """
+    判断两个概念名是否为近义词（最简字符规则，无外部依赖）。
+
+    规则：
+    1. 一个是另一个的子串 -> 层级概念（算力/算力租赁、机器人/人形机器人），不合并
+    2. 含纯拉丁缩写（CPO/PCB/CRO）的 -> 不同概念，不合并
+    3. 编辑距离必须正好为 1（增减一字，或等长替换一字）
+    4. 等长替换时，差异字前后必须都有共享字（改的是修饰字而非核心字），
+       避免 南京国资/北京国资、光伏电站/光伏电池 这类语义不同的词被并掉
+    """
+    if a == b:
+        return True
+    if a in b or b in a:
+        return False
+    if not _CJK_RE.search(a) or not _CJK_RE.search(b):
+        return False
+    if min(len(a), len(b)) < 4:
+        return False
+    if not _edit_distance_one(a, b):
+        return False
+    if len(a) != len(b):
+        return True  # 增减一字（纯包含关系已被上面拦截）
+    prefix, suffix = _common_edges(a, b)
+    return prefix >= 2 and suffix >= 1
+
+
+def _merge_synonyms(totals):
+    """
+    按近义词规则合并概念名，返回 {原名: 代表名}。
+
+    采用"锚点贪心"（不做传递合并）：按累计计数从高到低遍历，
+    能并入已有代表词就并入，否则自成一个新组。
+    避免 A~B、B~C 链式合并把整片概念串成一个大组。
+
+    Args:
+        totals: pd.Series，index 为概念名，值为窗口内累计计数
+
+    Returns:
+        dict: 被合并的词 -> 代表词（未合并的词不在结果中）
+    """
+    names = sorted(totals.index, key=lambda n: (-totals[n], -len(n)))
+
+    # 1) 前缀归并族优先
+    mapping = {}
+    for n in names:
+        family = _manual_family(n)
+        if family and family != n:
+            mapping[n] = family
+
+    # 2) 自动规则：锚点贪心，不做传递合并
+    reps = []
+    for n in names:
+        if n in mapping:
+            continue
+        for rep in reps:
+            if _is_synonym(n, rep):
+                mapping[n] = rep
+                break
+        else:
+            reps.append(n)
+    return mapping
+
+
 def _day_layout(piv, window, top_concepts):
     """
     计算每天各概念色带的上下边界。
@@ -180,6 +290,22 @@ def build_rotation_chart(days=7, top_n=10, output_path=OUTPUT_PATH,
         return None
 
     wdf = df[df['date'].isin(window)]
+
+    # 近义词合并（避免近义词占用 Top N 名额）
+    pre_totals = wdf.groupby('concept')['count'].sum()
+    merge_map = _merge_synonyms(pre_totals)
+    if merge_map:
+        for src, rep in sorted(merge_map.items(), key=lambda kv: kv[1]):
+            print(f"近义词合并: {src} -> {rep}")
+        wdf = wdf.assign(concept=wdf['concept'].map(lambda c: merge_map.get(c, c)))
+
+    # 合并组明细：代表名 -> 被并入的原词（按累计计数降序），用于标签小字标注合并模式
+    merge_groups = {}
+    for src, rep in merge_map.items():
+        merge_groups.setdefault(rep, []).append(src)
+    for rep in merge_groups:
+        merge_groups[rep].sort(key=lambda s: (-pre_totals.get(s, 0), s))
+
     totals = wdf.groupby('concept')['count'].sum().sort_values(ascending=False)
     top_concepts = list(totals.head(top_n).index)
     if not top_concepts:
@@ -220,30 +346,57 @@ def build_rotation_chart(days=7, top_n=10, output_path=OUTPUT_PATH,
                 fontsize=11, color='#555555', fontproperties=fp)
 
     # 右侧概念标签（名称 + 最新家数；今日为 0 的概念也标注，显示掉队）
-    # 自下而上保证最小间距，避免多个 0 宽度概念（堆叠间距仅 0.8）标签重叠
+    # 合并过的概念额外用一行小字列出被并入的原词，标明"这个数字是怎么来的"
     last_d = window[-1]
     x_last = xs[last_d]
-    min_gap = top_y * 0.05
-    labels = []
-    for c in top_concepts:
-        bot, top = layout[last_d][c]
-        labels.append([c, (bot + top) / 2.0 if top > bot else bot])
-    labels.sort(key=lambda it: it[1])
-    for i in range(1, len(labels)):
-        if labels[i][1] - labels[i - 1][1] < min_gap:
-            labels[i][1] = labels[i - 1][1] + min_gap
-
-    for c, y in labels:
-        cnt = int(piv.loc[c, last_d])
-        ax.text(x_last + 0.25, y, f"{c} {cnt}",
-                ha='left', va='center', fontsize=12,
-                color=colors[c], fontproperties=fp)
 
     ax.set_xlim(-0.8, x_last + 3.2)
-    ax.set_ylim(-0.8, max(top_y + 2.2, labels[-1][1] + min_gap))
+    ax.set_ylim(-0.8, top_y + 2.2)
     ax.axis('off')
     ax.set_title(f"近{len(window)}个交易日热门概念轮动（Top {len(top_concepts)}，带宽=涨停家数）",
                  fontsize=14, fontproperties=fp, pad=18)
+    plt.tight_layout()
+
+    # 字号换算成数据单位：先定稿坐标轴尺寸再实测，避免估算偏差导致标签重叠
+    fig.canvas.draw()
+    y_span = (top_y + 2.2) - (-0.8)
+    ax_h_pt = ax.get_window_extent().height / fig.dpi * 72.0
+    data_per_pt = y_span / max(ax_h_pt, 1.0)
+    min_gap = 20 * data_per_pt   # 单行标签（12pt 字高约 17pt，留 1.35 倍行距）
+    gap_two = 27 * data_per_pt   # 双行标签（12pt 名称 + 8pt 说明）
+    pad = 2 * data_per_pt
+
+    def _merge_note(subs):
+        """合并组的小字说明，只列代表性原词；超过 2 个用 /… 表示还有更多。"""
+        if not subs:
+            return ''
+        return '/'.join(subs[:2]) + ('/…' if len(subs) > 2 else '')
+
+    labels = []
+    for c in top_concepts:
+        bot, top = layout[last_d][c]
+        y = (bot + top) / 2.0 if top > bot else bot
+        labels.append({'name': c, 'y': y, 'note': _merge_note(merge_groups.get(c))})
+    labels.sort(key=lambda it: it['y'])
+    for i in range(1, len(labels)):
+        need = gap_two if (labels[i]['note'] or labels[i - 1]['note']) else min_gap
+        if labels[i]['y'] - labels[i - 1]['y'] < need:
+            labels[i]['y'] = labels[i - 1]['y'] + need
+
+    for it in labels:
+        c, y, note = it['name'], it['y'], it['note']
+        cnt = int(piv.loc[c, last_d])
+        ax.text(x_last + 0.25, y + (pad if note else 0), f"{c} {cnt}",
+                ha='left', va='bottom' if note else 'center', fontsize=12,
+                color=colors[c], fontproperties=fp)
+        if note:
+            ax.text(x_last + 0.25, y - pad, note,
+                    ha='left', va='top', fontsize=8, alpha=0.85,
+                    color=colors[c], fontproperties=fp)
+
+    # 标签被上推时按需扩展顶部，避免裁切
+    if labels[-1]['y'] + gap_two * 0.6 > top_y + 2.2:
+        ax.set_ylim(-0.8, labels[-1]['y'] + gap_two * 0.6)
 
     plt.tight_layout()
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
