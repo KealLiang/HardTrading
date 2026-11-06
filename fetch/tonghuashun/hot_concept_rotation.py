@@ -220,18 +220,27 @@ def build_rotation_chart(days=7, top_n=10, output_path=OUTPUT_PATH,
                 fontsize=11, color='#555555', fontproperties=fp)
 
     # 右侧概念标签（名称 + 最新家数；今日为 0 的概念也标注，显示掉队）
+    # 自下而上保证最小间距，避免多个 0 宽度概念（堆叠间距仅 0.8）标签重叠
     last_d = window[-1]
     x_last = xs[last_d]
+    min_gap = top_y * 0.05
+    labels = []
     for c in top_concepts:
         bot, top = layout[last_d][c]
+        labels.append([c, (bot + top) / 2.0 if top > bot else bot])
+    labels.sort(key=lambda it: it[1])
+    for i in range(1, len(labels)):
+        if labels[i][1] - labels[i - 1][1] < min_gap:
+            labels[i][1] = labels[i - 1][1] + min_gap
+
+    for c, y in labels:
         cnt = int(piv.loc[c, last_d])
-        y = (bot + top) / 2.0 if top > bot else bot
         ax.text(x_last + 0.25, y, f"{c} {cnt}",
                 ha='left', va='center', fontsize=12,
                 color=colors[c], fontproperties=fp)
 
     ax.set_xlim(-0.8, x_last + 3.2)
-    ax.set_ylim(-0.8, top_y + 2.2)
+    ax.set_ylim(-0.8, max(top_y + 2.2, labels[-1][1] + min_gap))
     ax.axis('off')
     ax.set_title(f"近{len(window)}个交易日热门概念轮动（Top {len(top_concepts)}，带宽=涨停家数）",
                  fontsize=14, fontproperties=fp, pad=18)
