@@ -239,7 +239,8 @@
     }
     if (rec.timerN > 0 && rec.bars >= rec.timerN && !rec.started && !rec.alertedTimer) {
       return { hit: 'timer',
-               text: '时间单：' + rec.bars + ' 根未启动（N=' + rec.timerN + '）→ 减半；浮亏就清' };
+               text: '时间单：已走 ' + rec.bars + ' 根还没启动（上限 ' + rec.timerN +
+                     ' 根）→ 减半；浮亏就清' };
     }
     return { hit: null, text: '' };
   }

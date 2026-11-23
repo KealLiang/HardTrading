@@ -337,7 +337,7 @@
     head.appendChild(tabsEl);
 
     var fullBtn = el('button', 'cl-btn', '全览');
-    fullBtn.title = '三图一键显示完整数据区间（免滚轮）';
+    fullBtn.title = '两张图一键显示完整数据区间（免滚轮）';
     fullBtn.style.marginLeft = '6px';
     fullBtn.addEventListener('click', function () {
       options.onAction && options.onAction('full');
@@ -579,7 +579,7 @@
       /* 版本脚注：每次发版改这里（versionName 对齐 build.gradle.kts），
          一句话说清这版动了什么——手机上没有别的地方能看版本 */
       sideCol.appendChild(el('div', 'cl-help',
-        'v2.5.0 · 作战卡加「重新追踪」（按当前结构重算，重来一遍）；做多少的止损距离改按条件单触发价算；做空的股数叫「可开」'));
+        'v2.5.1 · 修复动盈把信号前几个月的旧结构当成跟踪位（老卡请删掉重建）；时间单文案改大白话；三图改两图'));
 
       sideCol.scrollTop = keepTop;   // 重建后回到原来的滚动位置
     }

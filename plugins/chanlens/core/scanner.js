@@ -122,8 +122,12 @@
     for (var i = 0; i < bis.length; i++) {
       var b = bis[i];
       /* markK（信号标记位）之后才形成的反向笔才作数 —— 买点前的高位回撤笔
-         低点也可能高于入场价，但那是几个月前的结构，不是本单的跟踪位 */
-      var after = (markK == null || (b.startK != null && b.startK >= markK));
+         低点也可能高于入场价，但那是几个月前的结构，不是本单的跟踪位。
+         2.5.1：markK 缺失时不再放行全部笔。老记录没有这个字段，放行等于把信号前
+         几个月的历史结构吸成动盈（002491 实测动盈取到 9 月高点 23.31，条件单算出
+         23.17，而现价 12.13 —— 建卡即"已触发"，此后永远静默）。
+         没有标记位就不给动盈，宁可不显示，也不给错的。 */
+      var after = (markK != null && b.startK != null && b.startK >= markK);
       if (b.dir < 0 && after && b.low > entry) trailLow = (trailLow == null) ? b.low : Math.max(trailLow, b.low);
       if (b.dir > 0 && after && b.high < entry) trailHigh = (trailHigh == null) ? b.high : Math.min(trailHigh, b.high);
     }

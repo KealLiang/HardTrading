@@ -844,10 +844,13 @@
   }
 
   /* ------------------------------------------------------------------ 图表区 */
+  /* 2.5.1：三图 → 两图。第三张（次次级）删掉 —— 三块同屏每块太矮，看不完也看不过来。
+     安卓壳本来就只有一张（mobile/patch.js 把 chartCount 设成 1），不受影响。 */
+  var CHART_COUNT = 2;
   function chartHeights() {
     var vh = Math.max(520, window.innerHeight || 720);
     var avail = Math.max(320, vh - 190);
-    return [Math.round(avail * 0.5), Math.round(avail * 0.25), Math.round(avail * 0.25)];
+    return [Math.round(avail * 0.55), Math.round(avail * 0.45)];
   }
 
   async function loadPeriod(period) {
@@ -872,7 +875,9 @@
     try {
       if (!current.code) { panel.setStatus('请在顶栏输入代码或从自选股里选一只', true); return; }
       panel.setStatus('正在获取行情…');
-      var periods = st.levels.filter(Boolean);
+      /* 2.5.1：只取前 CHART_COUNT 个级别。旧配置里可能还存着第三个周期，
+         不截断会白发一次请求，也会让 stats 多算一格。 */
+      var periods = (st.levels || []).slice(0, CHART_COUNT).filter(Boolean);
       if (!periods.length) { panel.setStatus('请至少选择一个周期', true); return; }
 
       var loaded = [];
@@ -944,7 +949,7 @@
           '级别（价位线在该级别图）' : '';
       var flushNote = (opts && opts.note) ? '　|　' + opts.note : '';
       panel.setStatus(stats.join('　|　') + trackNote + flushNote +
-                      '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 三图联动按同比缩放 · 数据来源 ' +
+                      '\n滚轮缩放 · 拖拽平移 · 「全览」看全部 · 两图联动按同比缩放 · 数据来源 ' +
                       srcName + fixNote);
       // 追踪动态盯梢：图表重算后顺手核对一次（列表侧由行情刷新触发）
       var lastKs = loaded[0].klines;
@@ -1095,8 +1100,11 @@
     if (rec.timing) sfx.push('30分同向信号（参考）');
     if (rec.timingFail) sfx.push('30分反向信号 · 仅提示');
     if (rec.trail != null) sfx.push('动盈 ' + fmtPrice(rec.trail));
-    if (rec.timerN != null && rec.bars != null)
-      sfx.push('时间单 ' + rec.bars + '/' + rec.timerN + (rec.started ? ' 已启动' : ' 未启动'));
+    if (rec.timerN != null && rec.bars != null) {
+      /* 2.5.1：「X/N 已启动」用户读不懂 → 说人话：持了几根、上限几根 */
+      var over = rec.bars > rec.timerN;
+      sfx.push('已持' + rec.bars + '根' + (over ? '·超上限' + rec.timerN : '（上限' + rec.timerN + '）'));
+    }
     if (rec.confirmed === false) sfx.push('未定型');
     view.planNote2 = main + (sfx.length ? ' ｜ ' + sfx.join(' ｜ ') : '');
   }
@@ -1555,9 +1563,9 @@
     if (d.trail != null) exit.push('动盈 ' + fmtPrice(d.trail) + '（只朝有利方向移）');
     if (exit.length) h += '<div><b>出场</b>：' + exit.join(' ｜ ') + '</div>';
     if (d.timerN != null) {
-      h += '<div><b>时间单</b>：' + (d.bars != null ? '已 ' + d.bars + ' 根 / ' : '') +
-        'N=' + d.timerN + ' 根' +
-        (d.started ? '（已启动，不减半）' : '（未启动 → 到 N 根减半）') + '</div>';
+      h += '<div><b>时间单</b>：' + (d.bars != null ? '已持有 ' + d.bars + ' 根，' : '') +
+        '规则上限 ' + d.timerN + ' 根；' +
+        (d.started ? '期间涨过 → 不减半' : '一直没涨 → 走满上限就减半') + '</div>';
     }
     /* 反向：最近一次本级别反向信号（不随消失/同向清除，是「最后一次走坏」的存档）。
        手册：笔级别卖点只提示，不清仓 —— 离场只看条件单。 */
@@ -1738,7 +1746,7 @@
    * 多图联动：同步「缩放倍数」而不是绝对时间窗口。
    * 各周期数据跨度相差极大（日线数年 vs 5 分钟数天），广播绝对窗口会被
    * 各图 clamp 成完全不同的跨度，再缩放时就会出现跳变。改为各图按自身
-   * 当前跨度同比缩放，锚点用相对位置，视觉上三图始终同步。
+   * 当前跨度同比缩放，锚点用相对位置，视觉上两图始终同步。
    */
   function eachView(fn) {
     if (syncing) return;
@@ -1756,7 +1764,7 @@
 
   function zoomFull() {
     eachView(function (v) { v.zoomFull(); });
-    panel.setStatus('已全览：三图均显示完整数据区间');
+    panel.setStatus('已全览：两图均显示完整数据区间');
   }
 
   /** 「重算」= 强制作废全部缓存再重建（强制路径：长按/Shift+点）：
@@ -2100,7 +2108,7 @@
   /* -------------------------------------------------------------------- 启动 */
   panel = CLPanel.create({
     container: stage,
-    chartCount: 3,
+    chartCount: CHART_COUNT,
     chartHeights: chartHeights(),
     onReady: function (state) {
       state.levels[0] = state.period;
